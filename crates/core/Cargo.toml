@@ -1,0 +1,21 @@
+[package]
+name="wasmcore"
+version="0.1.0"
+edition="2021"
+
+[lib]
+name="wasmcore"
+path="src/lib.rs"
+
+[[bin]]
+name="wasmcore"
+path="src/bin.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wasmparser={version="0.118.0", default-features=false}
+
+[features]
+default=["std"]
+std=[]
