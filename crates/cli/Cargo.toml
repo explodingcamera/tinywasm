@@ -1,0 +1,15 @@
+[package]
+name="tinywasm-cli"
+version="0.0.0"
+edition="2021"
+
+[[bin]]
+name="tinywasm"
+path="bin.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tinywasm={path="../core"}
+argh="0.1"
+color-eyre="0.6"

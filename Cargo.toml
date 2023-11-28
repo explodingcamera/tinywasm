@@ -1,6 +1,4 @@
 [workspace]
-members = [
-    "crates/core",
-]
-
-resolver = "2"
+members=["crates/core", "crates/cli"]
+resolver="2"
+default-members=["crates/cli"]
