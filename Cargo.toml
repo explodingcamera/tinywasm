@@ -1,4 +1,4 @@
 [workspace]
-members=["crates/core", "crates/cli"]
-resolver="2"
+members=["crates/tinywasm", "crates/cli"]
 default-members=["crates/cli"]
+resolver="2"
