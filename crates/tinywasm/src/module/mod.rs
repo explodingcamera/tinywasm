@@ -1,9 +1,8 @@
 use core::fmt::Debug;
 
 use crate::error::{Error, Result};
-use alloc::{format, string::String, vec, vec::Vec};
-use hashbrown::{HashMap, HashSet};
-use tracing::{error, info};
+use alloc::{format, string::ToString, vec, vec::Vec};
+use tracing::info;
 use wasmparser::*;
 
 mod reader;
@@ -37,43 +36,25 @@ impl Debug for Module<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum WasmValue {
     I32(i32),
     I64(i64),
 }
 
-impl WasmValue {
-    fn to_bytes(&self) -> (Vec<u8>, ValType) {
+impl Into<ValType> for &WasmValue {
+    fn into(self) -> ValType {
         match self {
-            Self::I32(val) => {
-                let val = val.to_le_bytes().to_vec();
-                (val, ValType::I32)
-            }
-            Self::I64(val) => {
-                let val = val.to_le_bytes().to_vec();
-                (val, ValType::I64)
-            } // _ => {
-              //     panic!("Unsupported return type");
-              // }
+            WasmValue::I32(_) => ValType::I32,
+            WasmValue::I64(_) => ValType::I64,
         }
     }
+}
 
-    fn from_bytes(bytes: &[u8], ty: &ValType) -> Self {
-        match ty {
-            ValType::I32 => {
-                let val = i32::from_le_bytes(bytes.try_into().unwrap());
-                Self::I32(val)
-            }
-            ValType::I64 => {
-                let val = i64::from_le_bytes(bytes.try_into().unwrap());
-                Self::I64(val)
-            }
-            _ => {
-                panic!("Unsupported return type");
-            }
-        }
+impl WasmValue {
+    pub fn to_type(&self) -> ValType {
+        self.into()
     }
 }
 
@@ -130,18 +111,20 @@ impl<'data> Module<'data> {
 
         let mut local_values = vec![];
         for (i, arg) in args.iter().enumerate() {
-            let (val, ty) = arg.to_bytes();
-            if locals[i] != ty {
+            if locals[i] != arg.into() {
                 return Error::other(&format!(
                     "Invalid argument type for {}, index {}: expected {:?}, got {:?}",
-                    func_name, i, locals[i], ty
+                    func_name,
+                    i,
+                    locals[i],
+                    arg.to_type()
                 ));
             }
 
-            local_values.push(val);
+            local_values.push(arg);
         }
 
-        let mut stack: Vec<Vec<u8>> = Vec::new();
+        let mut stack: Vec<WasmValue> = vec![];
         while let Some(op) = body.next() {
             let op = op.unwrap();
             info!("op: {:#?}", op);
@@ -149,24 +132,26 @@ impl<'data> Module<'data> {
             match op {
                 Operator::LocalGet { local_index } => {
                     let local = locals.get(local_index as usize).unwrap();
-                    let val = &local_values[local_index as usize];
+                    let val = local_values[local_index as usize];
                     info!("local: {:#?}", local);
                     stack.push(val.clone());
                 }
                 Operator::I64Add => {
                     let a = stack.pop().unwrap();
                     let b = stack.pop().unwrap();
-                    let a = i64::from_le_bytes(a.try_into().unwrap());
-                    let b = i64::from_le_bytes(b.try_into().unwrap());
-                    let c = (a + b).to_le_bytes().to_vec();
+                    let (WasmValue::I64(a), WasmValue::I64(b)) = (a, b) else {
+                        panic!("Invalid type");
+                    };
+                    let c = WasmValue::I64(a + b);
                     stack.push(c);
                 }
                 Operator::I32Add => {
                     let a = stack.pop().unwrap();
                     let b = stack.pop().unwrap();
-                    let a = i32::from_le_bytes(a.try_into().unwrap());
-                    let b = i32::from_le_bytes(b.try_into().unwrap());
-                    let c = (a + b).to_le_bytes().to_vec();
+                    let (WasmValue::I32(a), WasmValue::I32(b)) = (a, b) else {
+                        panic!("Invalid type");
+                    };
+                    let c = WasmValue::I32(a + b);
                     stack.push(c);
                 }
                 Operator::End => {
@@ -174,10 +159,12 @@ impl<'data> Module<'data> {
                     let res = returns
                         .iter()
                         .map(|ty| {
-                            let val = stack.pop().unwrap();
-                            WasmValue::from_bytes(&val, ty)
+                            let val = stack.pop()?;
+                            (ty == &val.to_type()).then(|| val)
                         })
-                        .collect::<Vec<_>>();
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| Error::Other("Invalid return type".to_string()))?;
+
                     return Ok(res);
                 }
                 _ => {}
