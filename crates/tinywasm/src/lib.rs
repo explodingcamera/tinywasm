@@ -19,14 +19,11 @@ pub struct Instance {}
 mod tests {
     use super::*;
     use crate::{error::Result, Module};
-    use std::dbg;
 
     #[test]
     fn it_works() -> Result<()> {
-        let wasm = include_bytes!("../../../examples/wasm/helloworld.wasm");
+        let wasm = include_bytes!("../../../examples/wasm/add.wasm");
         let module = Module::new(wasm)?;
-
-        dbg!(module);
 
         Ok(())
     }

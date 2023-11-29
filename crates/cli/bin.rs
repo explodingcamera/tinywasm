@@ -1,6 +1,9 @@
 use argh::FromArgs;
 use color_eyre::eyre::Result;
-use tinywasm::{self, Module};
+use tinywasm::{self, module::WasmValue, Module};
+use util::install_tracing;
+
+mod util;
 
 #[derive(FromArgs)]
 /// TinyWasm CLI
@@ -25,6 +28,9 @@ struct Run {
 }
 
 fn main() -> Result<()> {
+    color_eyre::install()?;
+    install_tracing(None);
+
     let args: TinyWasmCli = argh::from_env();
 
     match args.nested {
@@ -37,7 +43,14 @@ fn main() -> Result<()> {
 }
 
 fn run(wasm: &[u8]) -> Result<()> {
-    let module = Module::new(wasm)?;
-    println!("{:#?}", module);
+    let mut module = Module::new(wasm)?;
+    let args = [WasmValue::I32(1), WasmValue::I32(2)];
+    let res = module.run("add", &args)?;
+    println!("res: {:?}", res);
+
+    let args = [WasmValue::I64(1), WasmValue::I64(2)];
+    let res = module.run("add_64", &args)?;
+    println!("res: {:?}", res);
+
     Ok(())
 }
