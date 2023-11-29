@@ -1,6 +1,6 @@
 use argh::FromArgs;
 use color_eyre::eyre::Result;
-use tinywasm::{self, module::WasmValue, Module};
+use tinywasm::{self, Module, WasmValue};
 use util::install_tracing;
 
 mod util;
@@ -45,11 +45,11 @@ fn main() -> Result<()> {
 fn run(wasm: &[u8]) -> Result<()> {
     let mut module = Module::new(wasm)?;
     let args = [WasmValue::I32(1), WasmValue::I32(2)];
-    let res = module.run("add", &args)?;
+    let res = tinywasm::naive_runtime::run(&mut module, "add", &args)?;
     println!("res: {:?}", res);
 
     let args = [WasmValue::I64(1), WasmValue::I64(2)];
-    let res = module.run("add_64", &args)?;
+    let res = tinywasm::naive_runtime::run(&mut module, "add_64", &args)?;
     println!("res: {:?}", res);
 
     Ok(())

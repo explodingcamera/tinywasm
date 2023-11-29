@@ -149,7 +149,7 @@ impl<'a> ModuleReader<'a> {
             x => Error::other(&format!("Unknown payload: {:?}", x))?,
         };
 
-        return Ok(());
+        Ok(())
     }
 
     // fn exports(&mut self) -> Result<Vec<Export>> {

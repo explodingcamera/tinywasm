@@ -10,6 +10,11 @@ pub mod instructions;
 pub mod module;
 pub use error::*;
 pub use module::Module;
+pub mod types;
+pub use types::*;
+pub mod runtime;
+
+pub mod naive_runtime;
 
 pub struct Store {}
 
@@ -17,7 +22,6 @@ pub struct Instance {}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{error::Result, Module};
 
     #[test]
