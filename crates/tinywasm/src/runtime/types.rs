@@ -31,7 +31,6 @@ pub struct HostFunc {
 #[derive(Debug)]
 pub struct ModuleFunc {
     pub ty: FuncType,
-    pub module: Addr,
     pub code: FuncAddr,
 }
 pub struct Func<'a> {

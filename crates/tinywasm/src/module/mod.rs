@@ -1,7 +1,10 @@
 use alloc::vec::Vec;
 use wasmparser::{Export, FuncType, Validator};
 
-use crate::{runtime::FuncAddr, Error, Result, Store};
+use crate::{
+    runtime::{FuncAddr, ModuleFunc},
+    Error, Result, Store,
+};
 
 use self::reader::ModuleReader;
 
@@ -33,6 +36,20 @@ impl<'m, 'data> ModuleInstance<'m, 'data>
 where
     'm: 'data,
 {
+    /// Get an exported function by name
+    pub fn get_func(&self, name: &str) -> Option<ModuleFunc> {
+        let export = self
+            .exports
+            .iter()
+            .find(|e| e.name == name && e.kind == wasmparser::ExternalKind::Func)?;
+        let func_addr = self.func_addrs.get(export.index as usize)?;
+
+        Some(ModuleFunc {
+            code: *func_addr,
+            ty: self.types.get(*func_addr as usize)?.clone(),
+        })
+    }
+
     pub fn new(store: &'data mut Store<'data>, module: &'m Module<'data>) -> Result<Self> {
         let types = module
             .reader
