@@ -12,6 +12,7 @@ use crate::{Error, Result};
 #[derive(Default)]
 pub struct ModuleReader<'a> {
     pub version: Option<u16>,
+    pub start_func: Option<u32>,
 
     pub type_section: Option<TypeSectionReader<'a>>,
     pub function_section: Option<FunctionSectionReader<'a>>,
@@ -69,6 +70,11 @@ impl<'a> ModuleReader<'a> {
                     wasmparser::Encoding::Module => {}
                     wasmparser::Encoding::Component => return Error::other("Component"),
                 }
+            }
+            StartSection { func, range } => {
+                debug!("Found start section");
+                validator.start_section(func, &range)?;
+                self.start_func = Some(func);
             }
             TypeSection(reader) => {
                 debug!("Found type section");

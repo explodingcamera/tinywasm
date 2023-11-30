@@ -1,14 +1,13 @@
 use alloc::vec::Vec;
 use wasmparser::FunctionBody;
 
-use crate::{module::reader::ModuleReader, runtime::Runtime, Result};
+use crate::{module::reader::ModuleReader, Result};
 
 /// global state that can be manipulated by WebAssembly programs
 /// https://webassembly.github.io/spec/core/exec/runtime.html#store
 #[derive(Debug, Default)]
 pub struct Store<'data> {
     pub(crate) data: StoreData<'data>,
-    pub(crate) engine: Runtime,
 }
 
 #[derive(Debug, Default)]

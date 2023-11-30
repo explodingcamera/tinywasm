@@ -1,9 +1,9 @@
-use alloc::vec::Vec;
+use alloc::{format, vec, vec::Vec};
 use wasmparser::{Export, FuncType, Validator};
 
 use crate::{
     runtime::{FuncAddr, ModuleFunc},
-    Error, Result, Store,
+    Error, Result, Store, WasmValue,
 };
 
 use self::reader::ModuleReader;
@@ -11,8 +11,41 @@ use self::reader::ModuleReader;
 pub mod reader;
 
 #[derive(Debug)]
-pub struct Module<'a> {
-    reader: ModuleReader<'a>,
+pub struct Module<'data> {
+    reader: ModuleReader<'data>,
+}
+
+impl<'data> Module<'data> {
+    pub fn try_new(wasm: &'data [u8]) -> Result<Module<'data>> {
+        let mut validator = Validator::new();
+        let mut reader = ModuleReader::new();
+
+        for payload in wasmparser::Parser::new(0).parse_all(wasm) {
+            reader.process_payload(payload?, &mut validator)?;
+        }
+        if !reader.end_reached {
+            return Error::other("End not reached");
+        }
+
+        Ok(Self { reader })
+    }
+
+    /// Instantiate the module in the given store
+    /// See https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation
+    /// Runs the start function if it exists
+    /// If you want to run the start function yourself, use `ModuleInstance::new`
+    pub fn instantiate<'m>(
+        &'m self,
+        store: &'data mut Store<'data>,
+        // imports: Option<()>,
+    ) -> Result<ModuleInstance<'m, 'data>>
+    where
+        'm: 'data,
+    {
+        let i = ModuleInstance::new(store, &self)?;
+        let _ = i.start()?;
+        Ok(i)
+    }
 }
 
 /// A WebAssembly Module Instance.
@@ -22,6 +55,7 @@ pub struct Module<'a> {
 pub struct ModuleInstance<'m, 'data> {
     pub(crate) module: &'m Module<'data>,
 
+    pub(crate) func_start: Option<FuncAddr>,
     pub(crate) types: Vec<FuncType>,
     pub(crate) func_addrs: Vec<FuncAddr>,
     // pub table_addrs: Vec<TableAddr>,
@@ -43,6 +77,15 @@ where
             .iter()
             .find(|e| e.name == name && e.kind == wasmparser::ExternalKind::Func)?;
         let func_addr = self.func_addrs.get(export.index as usize)?;
+
+        Some(ModuleFunc {
+            code: *func_addr,
+            ty: self.types.get(*func_addr as usize)?.clone(),
+        })
+    }
+
+    pub fn get_start_func(&self) -> Option<ModuleFunc> {
+        let func_addr = self.func_addrs.get(self.func_start? as usize)?;
 
         Some(ModuleFunc {
             code: *func_addr,
@@ -92,11 +135,13 @@ where
             })
             .transpose()?
             .unwrap_or_default();
+        let func_start = module.reader.start_func;
 
         store.initialize(&module.reader)?;
         Ok(Self {
             module,
             types,
+            func_start,
             func_addrs,
             // table_addrs,
             // mem_addrs,
@@ -106,20 +151,32 @@ where
             exports,
         })
     }
-}
 
-impl<'a> Module<'a> {
-    pub fn try_new(wasm: &'a [u8]) -> Result<Module<'a>> {
-        let mut validator = Validator::new();
-        let mut reader = ModuleReader::new();
-
-        for payload in wasmparser::Parser::new(0).parse_all(wasm) {
-            reader.process_payload(payload?, &mut validator)?;
-        }
-        if !reader.end_reached {
-            return Error::other("End not reached");
+    pub fn call(&self, func: ModuleFunc, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        let func_type = func.ty;
+        let params = func_type.params();
+        if params.len() != args.len() {
+            return Error::other(&format!(
+                "Function expected {} arguments, got {}",
+                params.len(),
+                args.len()
+            ));
         }
 
-        Ok(Self { reader })
+        // TODO
+        // runtime.call(func, args)
+        Ok(vec![])
+    }
+
+    /// Invoke the start function of the module
+    /// Returns None if the module has no start function
+    /// https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start
+    pub fn start(&self) -> Result<Option<()>> {
+        let Some(func) = self.get_start_func() else {
+            return Ok(None);
+        };
+
+        let _ = self.call(func, &[])?;
+        Ok(Some(()))
     }
 }

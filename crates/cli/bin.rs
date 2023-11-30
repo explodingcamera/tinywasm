@@ -68,9 +68,10 @@ fn main() -> Result<()> {
 }
 
 fn run(wasm: &[u8]) -> Result<()> {
-    let module = tinywasm::Module::try_new(wasm)?;
     let mut store = tinywasm::Store::default();
-    let instance = tinywasm::ModuleInstance::new(&mut store, &module)?;
+
+    let module = tinywasm::Module::try_new(wasm)?;
+    let instance = module.instantiate(&mut store)?;
 
     let func = instance.get_func("add").unwrap();
     println!("func: {:?}", func);
