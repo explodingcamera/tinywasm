@@ -1,17 +1,26 @@
 use alloc::string::{String, ToString};
-use thiserror::Error;
+use core::fmt::Display;
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum Error {
-    #[error("error parsing module")]
     ParseError { message: String, offset: usize },
-
-    #[error("unsupported feature: {0}")]
     UnsupportedFeature(String),
-
-    #[error("unknown error: {0}")]
     Other(String),
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::ParseError { message, offset } => {
+                write!(f, "error parsing module: {} at offset {}", message, offset)
+            }
+            Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
+            Self::Other(message) => write!(f, "unknown error: {}", message),
+        }
+    }
+}
+
+impl crate::std::error::Error for Error {}
 
 impl Error {
     pub fn other<T>(message: &str) -> Result<T, Self> {

@@ -7,11 +7,11 @@ edition="2021"
 path="src/lib.rs"
 
 [dependencies]
-thiserror={version="1.0", package="thiserror-core", default-features=false}
+# fork of wasmparser with no_std support, see https://github.com/bytecodealliance/wasmtime/issues/3495
+# TODO: create dependency free parser
 wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
 tracing={version="0.1.38", default-features=false} # logging
-hashbrown="0.14"
 
 [features]
 default=["std"]
-std=["thiserror/std"]
+std=[]
