@@ -6,28 +6,38 @@ mod std;
 extern crate alloc;
 
 mod error;
-pub mod instructions;
-pub mod module;
 pub use error::*;
+
+pub mod store;
+pub use store::Store;
+
+pub mod module;
 pub use module::Module;
+pub use module::ModuleInstance;
+
 pub mod types;
 pub use types::*;
-pub mod runtime;
 
-pub mod naive_runtime;
-
-pub struct Store {}
-
-pub struct Instance {}
+pub mod engine;
+pub mod naive;
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::Result, Module};
+    use crate::std::println;
+    use crate::{error::Result, naive, WasmValue};
 
     #[test]
-    fn it_works() -> Result<()> {
+    fn naive_add() -> Result<()> {
         let wasm = include_bytes!("../../../examples/wasm/add.wasm");
-        let module = Module::new(wasm)?;
+        let mut module = naive::Module::new(wasm)?;
+
+        let args = [WasmValue::I32(1), WasmValue::I32(2)];
+        let res = naive::run(&mut module, "add", &args)?;
+        println!("res: {:?}", res);
+
+        let args = [WasmValue::I64(1), WasmValue::I64(2)];
+        let res = naive::run(&mut module, "add_64", &args)?;
+        println!("res: {:?}", res);
 
         Ok(())
     }

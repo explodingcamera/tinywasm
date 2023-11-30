@@ -4,9 +4,13 @@ use alloc::vec::Vec;
 mod call;
 pub use call::CallFrame;
 
+// minimum stack size
 pub const STACK_SIZE: usize = 1024;
+// minimum call stack size
+pub const CALL_STACK_SIZE: usize = 1024;
 
 /// A WebAssembly Stack
+#[derive(Debug)]
 pub struct Stack {
     /// Locals
     // TODO: maybe store the locals on the stack instead?
@@ -20,4 +24,16 @@ pub struct Stack {
     /// The call stack
     pub call_stack: Vec<CallFrame>,
     pub call_stack_top: usize,
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self {
+            locals: Vec::new(),
+            value_stack: Vec::with_capacity(STACK_SIZE),
+            value_stack_top: 0,
+            call_stack: Vec::with_capacity(CALL_STACK_SIZE),
+            call_stack_top: 0,
+        }
+    }
 }

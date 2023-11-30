@@ -1,6 +1,8 @@
 use alloc::{string::String, vec::Vec};
 use wasmparser::{FuncType, OperatorsIterator, ValType};
 
+use crate::module::ModuleInstance;
+
 /// A WebAssembly Label
 pub struct Label(Addr);
 
@@ -8,40 +10,30 @@ pub struct Label(Addr);
 /// These are indexes into the respective stores.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#addresses
 pub type Addr = u32;
-pub struct FuncAddr(pub Addr);
-pub struct TableAddr(pub Addr);
-pub struct MemAddr(pub Addr);
-pub struct GlobalAddr(pub Addr);
-pub struct ElmAddr(pub Addr);
-pub struct DataAddr(pub Addr);
-pub struct ExternAddr(pub Addr);
-
-/// A WebAssembly Module Instance.
-/// See https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
-pub struct ModuleInstance {
-    pub types: Vec<FuncType>,
-    pub func_addrs: Vec<FuncAddr>,
-    pub table_addrs: Vec<TableAddr>,
-    pub mem_addrs: Vec<MemAddr>,
-    pub global_addrs: Vec<GlobalAddr>,
-    pub elem_addrs: Vec<ElmAddr>,
-    pub data_addrs: Vec<DataAddr>,
-    pub exports: Vec<ExportInst>,
-}
+pub type FuncAddr = Addr;
+pub type TableAddr = Addr;
+pub type MemAddr = Addr;
+pub type GlobalAddr = Addr;
+pub type ElmAddr = Addr;
+pub type DataAddr = Addr;
+pub type ExternAddr = Addr;
 
 /// A WebAssembly Function Instance.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#function-instances
+#[derive(Debug)]
 pub enum FuncInst {
     Host(HostFunc),
     Module(ModuleFunc),
 }
+#[derive(Debug)]
 pub struct HostFunc {
     pub ty: FuncType,
     pub hostcode: fn() -> (),
 }
+#[derive(Debug)]
 pub struct ModuleFunc {
     pub ty: FuncType,
-    pub module: ModuleInstance,
+    pub module: Addr,
     pub code: FuncAddr,
 }
 pub struct Func<'a> {
@@ -52,6 +44,7 @@ pub struct Func<'a> {
 
 /// A WebAssembly Export Instance.
 /// https://webassembly.github.io/spec/core/exec/runtime.html#export-instances
+#[derive(Debug)]
 pub struct ExportInst {
     pub name: String,
     pub value: ExternVal,
@@ -59,6 +52,7 @@ pub struct ExportInst {
 
 /// A WebAssembly External Value.
 /// https://webassembly.github.io/spec/core/exec/runtime.html#external-values
+#[derive(Debug)]
 pub enum ExternVal {
     Func(FuncAddr),
     Table(TableAddr),

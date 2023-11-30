@@ -2,7 +2,10 @@ use alloc::{format, string::ToString, vec, vec::Vec};
 use tracing::info;
 use wasmparser::Operator;
 
-use crate::{Error, Module, Result, WasmValue};
+mod module;
+pub use self::module::Module;
+
+use crate::{Error, Result, WasmValue};
 
 pub fn run(module: &mut Module, func_name: &str, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
     let func = module

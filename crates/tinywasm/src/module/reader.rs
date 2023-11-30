@@ -46,7 +46,7 @@ impl Debug for ModuleReader<'_> {
 }
 
 impl<'a> ModuleReader<'a> {
-    pub fn new() -> Self {
+    pub fn new() -> ModuleReader<'a> {
         Self::default()
     }
 
