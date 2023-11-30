@@ -18,8 +18,8 @@ pub use module::ModuleInstance;
 pub mod types;
 pub use types::*;
 
-pub mod engine;
 pub mod naive;
+pub mod runtime;
 
 #[cfg(test)]
 mod tests {

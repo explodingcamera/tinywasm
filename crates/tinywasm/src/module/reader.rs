@@ -151,25 +151,11 @@ impl<'a> ModuleReader<'a> {
 
         Ok(())
     }
-
-    // fn exports(&mut self) -> Result<Vec<Export>> {
-    //     let mut exports = Vec::new();
-
-    //     if let Some(export_section) = self.export_section {
-    //         for export in export_section.into_iter() {
-    //             let export = export?;
-    //             let name = export.name;
-    //             let kind = export.kind;
-    //             let index = export.index;
-    //             exports.push(Export { name, kind, index });
-    //         }
-    //     }
-
-    //     Ok(exports)
-    // }
 }
 
-#[derive(Debug)]
+/// A WebAssembly code section
+/// Can be cloned to read functions multiple times
+#[derive(Debug, Clone)]
 pub struct CodeSection<'a> {
     pub(crate) functions: Vec<FunctionBody<'a>>,
 }

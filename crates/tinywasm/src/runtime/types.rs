@@ -1,8 +1,6 @@
 use alloc::{string::String, vec::Vec};
 use wasmparser::{FuncType, OperatorsIterator, ValType};
 
-use crate::module::ModuleInstance;
-
 /// A WebAssembly Label
 pub struct Label(Addr);
 
