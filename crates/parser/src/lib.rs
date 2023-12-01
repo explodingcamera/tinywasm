@@ -9,10 +9,9 @@ extern crate std;
 mod conversion;
 mod error;
 mod module;
-use alloc::boxed::Box;
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::{Export, FuncType, Function};
+use tinywasm_types::TinyWasmModule;
 
 pub struct Parser {}
 
@@ -43,21 +42,6 @@ impl Parser {
     pub fn read_module_stream(stream: impl std::io::Read) -> Result<TinyWasmModule> {
         unimplemented!()
     }
-}
-
-pub struct TinyWasmModule {
-    pub version: Option<u16>,
-    pub start_func: Option<u32>,
-
-    pub types: Option<Box<[FuncType]>>,
-    pub funcs: Option<Box<[Function]>>,
-    pub exports: Option<Box<[Export]>>,
-    // pub tables: Option<TableType>,
-    // pub memories: Option<MemoryType>,
-    // pub globals: Option<GlobalType>,
-    // pub elements: Option<ElementSectionReader<'a>>,
-    // pub imports: Option<ImportSectionReader<'a>>,
-    // pub data_segments: Option<DataSectionReader<'a>>,
 }
 
 impl TryFrom<ModuleReader<'_>> for TinyWasmModule {

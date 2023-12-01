@@ -3,6 +3,21 @@ extern crate alloc;
 mod instructions;
 pub use instructions::*;
 
+pub struct TinyWasmModule {
+    pub version: Option<u16>,
+    pub start_func: Option<u32>,
+
+    pub types: Option<Box<[FuncType]>>,
+    pub funcs: Option<Box<[Function]>>,
+    pub exports: Option<Box<[Export]>>,
+    // pub tables: Option<TableType>,
+    // pub memories: Option<MemoryType>,
+    // pub globals: Option<GlobalType>,
+    // pub elements: Option<ElementSectionReader<'a>>,
+    // pub imports: Option<ImportSectionReader<'a>>,
+    // pub data_segments: Option<DataSectionReader<'a>>,
+}
+
 /// A WebAssembly value.
 /// See https://webassembly.github.io/spec/core/syntax/types.html#value-types
 #[derive(Debug, Clone, PartialEq)]
