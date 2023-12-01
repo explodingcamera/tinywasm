@@ -43,15 +43,15 @@ pub fn run(module: &mut Module, func_name: &str, args: &[WasmValue]) -> Result<V
     let mut local_values = vec![];
     let body = code.get_operators_reader().unwrap().into_iter();
     for (i, arg) in args.iter().enumerate() {
-        if !arg.is(locals[i]) {
-            return Error::other(&format!(
-                "Invalid argument type for {}, index {}: expected {:?}, got {:?}",
-                func_name,
-                i,
-                locals[i],
-                arg.type_of()
-            ));
-        }
+        // if !arg.is(locals[i]) {
+        //     return Error::other(&format!(
+        //         "Invalid argument type for {}, index {}: expected {:?}, got {:?}",
+        //         func_name,
+        //         i,
+        //         locals[i],
+        //         arg.type_of()
+        //     ));
+        // }
 
         local_values.push(arg);
     }
@@ -92,7 +92,8 @@ pub fn run(module: &mut Module, func_name: &str, args: &[WasmValue]) -> Result<V
                     .iter()
                     .map(|ty| {
                         let val = stack.pop()?;
-                        (val.is(*ty)).then_some(val)
+                        // (val.is(*ty)).then_some(val)
+                        Some(val)
                     })
                     .collect::<Option<Vec<_>>>()
                     .ok_or_else(|| Error::Other("Invalid return type".to_string()))?;

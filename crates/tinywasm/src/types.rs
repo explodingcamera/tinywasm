@@ -1,5 +1,3 @@
-use wasmparser::ValType;
-
 /// A WebAssembly value.
 /// See https://webassembly.github.io/spec/core/syntax/types.html#value-types
 #[derive(Debug, Clone, PartialEq)]
@@ -12,6 +10,18 @@ pub enum WasmValue {
 
     // Vec types
     V128(i128),
+}
+
+/// Type of a WebAssembly value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValType {
+    I32,
+    I64,
+    F32,
+    F64,
+    V128,
+    FuncRef,
+    ExternRef,
 }
 
 impl From<WasmValue> for ValType {

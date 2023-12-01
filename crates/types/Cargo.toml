@@ -1,0 +1,11 @@
+[package]
+name="tinywasm-types"
+version="0.0.0"
+edition="2021"
+
+[dependencies]
+tracing={version="0.1.38", default-features=false} # logging
+
+[features]
+default=["std"]
+std=[]

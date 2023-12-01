@@ -1,0 +1,15 @@
+[package]
+name="tinywasm-parser"
+version="0.0.0"
+edition="2021"
+
+[dependencies]
+# fork of wasmparser with no_std support, see https://github.com/bytecodealliance/wasmtime/issues/3495
+# TODO: create dependency free parser
+wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
+tracing={version="0.1.38", default-features=false} # logging
+tinywasm-types={path="../types"}
+
+[features]
+default=["std"]
+std=[]

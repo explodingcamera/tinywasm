@@ -293,6 +293,8 @@ dependencies = [
 name = "tinywasm"
 version = "0.0.0"
 dependencies = [
+ "tinywasm-parser",
+ "tinywasm-types",
  "tracing",
  "wasmparser-nostd",
 ]
@@ -306,6 +308,22 @@ dependencies = [
  "tinywasm",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "tinywasm-parser"
+version = "0.0.0"
+dependencies = [
+ "tinywasm-types",
+ "tracing",
+ "wasmparser-nostd",
+]
+
+[[package]]
+name = "tinywasm-types"
+version = "0.0.0"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]
