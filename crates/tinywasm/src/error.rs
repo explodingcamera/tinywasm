@@ -3,9 +3,15 @@ use core::fmt::Display;
 
 #[derive(Debug)]
 pub enum Error {
-    ParseError { message: String, offset: usize },
+    ParseError {
+        message: String,
+        offset: usize,
+    },
     UnsupportedFeature(String),
     Other(String),
+
+    #[cfg(feature = "std")]
+    Io(crate::std::io::Error),
 }
 
 impl Display for Error {
@@ -16,6 +22,8 @@ impl Display for Error {
             }
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::Other(message) => write!(f, "unknown error: {}", message),
+            #[cfg(feature = "std")]
+            Self::Io(err) => write!(f, "I/O error: {}", err),
         }
     }
 }

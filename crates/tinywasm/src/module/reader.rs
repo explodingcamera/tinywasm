@@ -2,9 +2,7 @@ use alloc::{format, vec::Vec};
 use core::fmt::Debug;
 use tracing::debug;
 use wasmparser::{
-    DataSectionReader, ElementSectionReader, ExportSectionReader, FunctionBody,
-    FunctionSectionReader, GlobalSectionReader, ImportSectionReader, MemorySectionReader, Payload,
-    TableSectionReader, TypeSectionReader, Validator,
+    ExportSectionReader, FunctionBody, FunctionSectionReader, Payload, TypeSectionReader, Validator,
 };
 
 use crate::{Error, Result};
@@ -19,12 +17,12 @@ pub struct ModuleReader<'a> {
     pub export_section: Option<ExportSectionReader<'a>>,
     pub code_section: Option<CodeSection<'a>>,
 
-    pub table_section: Option<TableSectionReader<'a>>,
-    pub memory_section: Option<MemorySectionReader<'a>>,
-    pub global_section: Option<GlobalSectionReader<'a>>,
-    pub element_section: Option<ElementSectionReader<'a>>,
-    pub data_section: Option<DataSectionReader<'a>>,
-    pub import_section: Option<ImportSectionReader<'a>>,
+    // pub table_section: Option<TableSectionReader<'a>>,
+    // pub memory_section: Option<MemorySectionReader<'a>>,
+    // pub global_section: Option<GlobalSectionReader<'a>>,
+    // pub element_section: Option<ElementSectionReader<'a>>,
+    // pub data_section: Option<DataSectionReader<'a>>,
+    // pub import_section: Option<ImportSectionReader<'a>>,
     pub end_reached: bool,
 }
 
@@ -34,14 +32,14 @@ impl Debug for ModuleReader<'_> {
             .field("version", &self.version)
             .field("type_section", &self.type_section)
             .field("function_section", &self.function_section)
-            .field("table_section", &self.table_section)
-            .field("memory_section", &self.memory_section)
-            .field("global_section", &self.global_section)
-            .field("element_section", &self.element_section)
-            .field("data_section", &self.data_section)
             .field("code_section", &self.code_section)
-            .field("import_section", &self.import_section)
             .field("export_section", &self.export_section)
+            // .field("table_section", &self.table_section)
+            // .field("memory_section", &self.memory_section)
+            // .field("global_section", &self.global_section)
+            // .field("element_section", &self.element_section)
+            // .field("data_section", &self.data_section)
+            // .field("import_section", &self.import_section)
             .finish()
     }
 }
@@ -118,6 +116,10 @@ impl<'a> ModuleReader<'a> {
             }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);
+                if self.code_section.is_some() {
+                    return Error::other("Code section already found");
+                }
+
                 validator.code_section_start(count, &range)?;
                 self.code_section = Some(CodeSection::new());
             }

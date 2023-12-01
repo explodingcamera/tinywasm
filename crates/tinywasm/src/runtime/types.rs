@@ -1,8 +1,4 @@
-use alloc::{string::String, vec::Vec};
-use wasmparser::{FuncType, OperatorsIterator, ValType};
-
-/// A WebAssembly Label
-pub struct Label(Addr);
+use alloc::string::String;
 
 /// A WebAssembly Address.
 /// These are indexes into the respective stores.
@@ -15,29 +11,29 @@ pub type GlobalAddr = Addr;
 pub type ElmAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
+// additional internal addresses
+pub type TypeAddr = Addr;
+pub type LocalAddr = Addr;
+pub type LabelAddr = Addr;
 
 /// A WebAssembly Function Instance.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#function-instances
-#[derive(Debug)]
-pub enum FuncInst {
-    Host(HostFunc),
-    Module(ModuleFunc),
-}
-#[derive(Debug)]
-pub struct HostFunc {
-    pub ty: FuncType,
-    pub hostcode: fn() -> (),
-}
-#[derive(Debug)]
-pub struct ModuleFunc {
-    pub ty: FuncType,
-    pub code: FuncAddr,
-}
-pub struct Func<'a> {
-    pub ty: FuncType,
-    pub locals: Vec<ValType>,
-    pub body: Vec<OperatorsIterator<'a>>,
-}
+// #[derive(Debug)]
+// pub enum FuncInst {
+//     Host(HostFunc),
+//     Module(ModuleFunc),
+// }
+// #[derive(Debug)]
+// pub struct HostFunc {
+//     pub ty: FuncType,
+//     pub hostcode: fn() -> (),
+// }
+
+// pub struct Func<'a> {
+//     pub ty: FuncType,
+//     pub locals: Vec<ValType>,
+//     pub body: Vec<OperatorsIterator<'a>>,
+// }
 
 /// A WebAssembly Export Instance.
 /// https://webassembly.github.io/spec/core/exec/runtime.html#export-instances
