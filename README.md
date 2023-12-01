@@ -1,20 +1,23 @@
-<div align="center">
-  <h1 align="center"> TinyWasm</h1>
+<p align="center">
+    <img src="./tinywasm.png" width="100px">
+    <h1 align="center">TinyWasm</h1>
     <h3 align="center">A tiny, interpreted WebAssembly Runtime written in Rust.</h3>
-</div>
+</p>
+
+<br/>
 
 > [!WARNING]  
 > This project is still in development and is not ready for use.
 
 # 🎯 Goals
 
-* [ ] No unsafe code
-* [ ] Works on `no_std` (with `alloc` the feature and nightly compiler)
-* [ ] Fully support WebAssembly MVP
-* [ ] Optimize memory usage for embedded devices
-* [ ] Optimize performance
-* [ ] Wasm Spec Test Suite
-* [ ] Preemptive multitasking support
+* No unsafe code
+* Works on `no_std` (with `alloc` the feature and nightly cler)
+* Fully support WebAssembly MVP
+* Low Memory Usage
+* Fast Startup Time
+* Preemptive multitasking support
+
 
 # 📄 License
 
