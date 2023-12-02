@@ -1,6 +1,6 @@
 use alloc::{format, vec::Vec};
 use core::fmt::Debug;
-use tracing::debug;
+use log::debug;
 use wasmparser::{
     ExportSectionReader, FunctionBody, FunctionSectionReader, Payload, TypeSectionReader, Validator,
 };

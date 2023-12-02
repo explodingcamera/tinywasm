@@ -7,9 +7,9 @@ pub struct TinyWasmModule {
     pub version: Option<u16>,
     pub start_func: Option<u32>,
 
-    pub types: Option<Box<[FuncType]>>,
-    pub funcs: Option<Box<[Function]>>,
-    pub exports: Option<Box<[Export]>>,
+    pub types: Box<[FuncType]>,
+    pub funcs: Box<[Function]>,
+    pub exports: Box<[Export]>,
     // pub tables: Option<TableType>,
     // pub memories: Option<MemoryType>,
     // pub globals: Option<GlobalType>,
@@ -98,6 +98,7 @@ pub struct FuncType {
 
 /// A WebAssembly Function
 pub struct Function {
+    pub ty: TypeAddr,
     pub locals: Box<[ValType]>,
     pub body: Box<[Instruction]>,
 }

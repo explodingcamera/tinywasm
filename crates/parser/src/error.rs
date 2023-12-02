@@ -2,6 +2,7 @@ use alloc::string::{String, ToString};
 use wasmparser::Encoding;
 
 pub enum ParseError {
+    InvalidType,
     UnsupportedSection(String),
     DuplicateSection(String),
     EmptySection(String),

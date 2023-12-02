@@ -1,5 +1,4 @@
 use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
-use alloc::{format, vec::Vec};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BlockArgs {
@@ -9,7 +8,7 @@ pub enum BlockArgs {
 }
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct MemArg {
     pub align: u8,
     pub offset: u64,
@@ -18,6 +17,7 @@ pub struct MemArg {
 /// A WebAssembly Instruction
 /// See https://webassembly.github.io/spec/core/binary/instructions.html
 /// Currently includes all instructions from the MVP (1.0) spec
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     // Control Instructions
     // See https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
@@ -30,7 +30,7 @@ pub enum Instruction {
     End,
     Br(LabelAddr),
     BrIf(LabelAddr),
-    BrTable(Vec<LabelAddr>, LabelAddr), // not to spec, instead of a vector of labels, we have a label and a count
+    BrTable(u32), // not to spec, has to be followed by multiple Br instructions with labels
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),

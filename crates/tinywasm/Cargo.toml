@@ -7,7 +7,7 @@ edition="2021"
 path="src/lib.rs"
 
 [dependencies]
-tracing={version="0.1.38", default-features=false} # logging
+log="0.4.20"
 tinywasm-parser={path="../parser"}
 tinywasm-types={path="../types"}
 

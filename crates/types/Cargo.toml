@@ -4,7 +4,7 @@ version="0.0.0"
 edition="2021"
 
 [dependencies]
-tracing={version="0.1.38", default-features=false} # logging
+log="0.4.20"
 rkyv={version="0.7", optional=true, default-features=false}
 
 [features]

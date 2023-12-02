@@ -1,18 +1,82 @@
-use alloc::{format, vec::Vec};
-use tinywasm_types::{BlockArgs, Instruction, MemArg, ValType};
+use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use tinywasm_types::{BlockArgs, Export, ExternalKind, FuncType, Instruction, MemArg, ValType};
 
-use crate::Result;
+use crate::{module::CodeSection, Result};
 
-fn convert_blocktype(blocktype: wasmparser::BlockType) -> BlockArgs {
+pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export> {
+    let kind = match export.kind {
+        wasmparser::ExternalKind::Func => ExternalKind::Func,
+        wasmparser::ExternalKind::Table => ExternalKind::Table,
+        wasmparser::ExternalKind::Memory => ExternalKind::Memory,
+        wasmparser::ExternalKind::Global => ExternalKind::Global,
+        wasmparser::ExternalKind::Tag => {
+            return Err(crate::ParseError::UnsupportedOperator(format!(
+                "Unsupported export kind: {:?}",
+                export.kind
+            )))
+        }
+    };
+
+    Ok(Export {
+        index: export.index,
+        name: Box::from(export.name),
+        kind,
+    })
+}
+
+pub(crate) fn convert_module_code(func: wasmparser::FunctionBody) -> Result<CodeSection> {
+    let locals_reader = func.get_locals_reader()?;
+    let count = locals_reader.get_count();
+    let mut locals = Vec::with_capacity(count as usize);
+    locals.extend(
+        locals_reader
+            .into_iter()
+            .filter_map(|l| l.ok())
+            .map(|l| convert_valtype(&l.1)),
+    );
+
+    if locals.len() != count as usize {
+        return Err(crate::ParseError::Other("Invalid local index".to_string()));
+    }
+
+    let body_reader = func.get_operators_reader()?;
+    let body = process_operators(body_reader.into_iter())?;
+
+    Ok(CodeSection {
+        locals: locals.into_boxed_slice(),
+        body,
+    })
+}
+
+pub(crate) fn convert_module_type(ty: wasmparser::Type) -> Result<FuncType> {
+    let wasmparser::Type::Func(ty) = ty;
+    let params = ty
+        .params()
+        .iter()
+        .map(|p| Ok(convert_valtype(p)))
+        .collect::<Result<Vec<ValType>>>()?
+        .into_boxed_slice();
+
+    let results = ty
+        .results()
+        .iter()
+        .map(|p| Ok(convert_valtype(p)))
+        .collect::<Result<Vec<ValType>>>()?
+        .into_boxed_slice();
+
+    Ok(FuncType { params, results })
+}
+
+pub(crate) fn convert_blocktype(blocktype: &wasmparser::BlockType) -> BlockArgs {
     use wasmparser::BlockType::*;
     match blocktype {
         Empty => BlockArgs::Empty,
         Type(ty) => BlockArgs::Type(convert_valtype(ty)),
-        FuncType(ty) => BlockArgs::FuncType(ty),
+        FuncType(ty) => BlockArgs::FuncType(*ty),
     }
 }
 
-fn convert_valtype(valtype: wasmparser::ValType) -> ValType {
+pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
     use wasmparser::ValType::*;
     match valtype {
         I32 => ValType::I32,
@@ -25,14 +89,38 @@ fn convert_valtype(valtype: wasmparser::ValType) -> ValType {
     }
 }
 
-fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
+pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
     MemArg {
         offset: memarg.offset,
         align: memarg.align,
     }
 }
 
-pub fn process_operator(op: wasmparser::Operator<'_>) -> Result<Instruction> {
+pub fn process_operators<'a>(
+    ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
+) -> Result<Box<[Instruction]>> {
+    let mut instructions = Vec::new();
+    for op in ops {
+        match op? {
+            wasmparser::Operator::BrTable { targets } => {
+                instructions.push(Instruction::BrTable(targets.default()));
+                instructions.extend(
+                    targets
+                        .targets()
+                        .collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?
+                        .into_iter()
+                        .map(Instruction::Br),
+                );
+            }
+            op => instructions.push(process_operator(&op)?),
+        }
+    }
+
+    Ok(instructions.into_boxed_slice())
+}
+
+#[inline]
+pub(crate) fn process_operator(op: &wasmparser::Operator) -> Result<Instruction> {
     use wasmparser::Operator::*;
     let v = match op {
         Unreachable => Instruction::Unreachable,
@@ -42,56 +130,48 @@ pub fn process_operator(op: wasmparser::Operator<'_>) -> Result<Instruction> {
         If { blockty } => Instruction::If(convert_blocktype(blockty)),
         Else => Instruction::Else,
         End => Instruction::End,
-        Br { relative_depth } => Instruction::Br(relative_depth),
-        BrIf { relative_depth } => Instruction::BrIf(relative_depth),
-        BrTable { targets } => {
-            let default = targets.default();
-            let targets = targets
-                .targets()
-                .map(|t| Ok(t?))
-                .collect::<Result<Vec<u32>>>()?;
-
-            Instruction::BrTable(targets, default)
-        }
+        Br { relative_depth } => Instruction::Br(*relative_depth),
+        BrIf { relative_depth } => Instruction::BrIf(*relative_depth),
+        BrTable { targets } => Instruction::BrTable(targets.default()),
         Return => Instruction::Return,
-        Call { function_index } => Instruction::Call(function_index),
+        Call { function_index } => Instruction::Call(*function_index),
         CallIndirect {
             type_index,
             table_index,
             ..
-        } => Instruction::CallIndirect(type_index, table_index),
+        } => Instruction::CallIndirect(*type_index, *table_index),
         Drop => Instruction::Drop,
         Select => Instruction::Select,
-        LocalGet { local_index } => Instruction::LocalGet(local_index),
-        LocalSet { local_index } => Instruction::LocalSet(local_index),
-        LocalTee { local_index } => Instruction::LocalTee(local_index),
-        GlobalGet { global_index } => Instruction::GlobalGet(global_index),
-        GlobalSet { global_index } => Instruction::GlobalSet(global_index),
+        LocalGet { local_index } => Instruction::LocalGet(*local_index),
+        LocalSet { local_index } => Instruction::LocalSet(*local_index),
+        LocalTee { local_index } => Instruction::LocalTee(*local_index),
+        GlobalGet { global_index } => Instruction::GlobalGet(*global_index),
+        GlobalSet { global_index } => Instruction::GlobalSet(*global_index),
         MemorySize { .. } => Instruction::MemorySize,
         MemoryGrow { .. } => Instruction::MemoryGrow,
-        I32Load { memarg } => Instruction::I32Load(convert_memarg(memarg)),
-        I64Load { memarg } => Instruction::I64Load(convert_memarg(memarg)),
-        F32Load { memarg } => Instruction::F32Load(convert_memarg(memarg)),
-        F64Load { memarg } => Instruction::F64Load(convert_memarg(memarg)),
-        I32Load8S { memarg } => Instruction::I32Load8S(convert_memarg(memarg)),
-        I32Load8U { memarg } => Instruction::I32Load8U(convert_memarg(memarg)),
-        I32Load16S { memarg } => Instruction::I32Load16S(convert_memarg(memarg)),
-        I32Load16U { memarg } => Instruction::I32Load16U(convert_memarg(memarg)),
-        I64Load8S { memarg } => Instruction::I64Load8S(convert_memarg(memarg)),
-        I64Load8U { memarg } => Instruction::I64Load8U(convert_memarg(memarg)),
-        I64Load16S { memarg } => Instruction::I64Load16S(convert_memarg(memarg)),
-        I64Load16U { memarg } => Instruction::I64Load16U(convert_memarg(memarg)),
-        I64Load32S { memarg } => Instruction::I64Load32S(convert_memarg(memarg)),
-        I64Load32U { memarg } => Instruction::I64Load32U(convert_memarg(memarg)),
-        I32Store { memarg } => Instruction::I32Store(convert_memarg(memarg)),
-        I64Store { memarg } => Instruction::I64Store(convert_memarg(memarg)),
-        F32Store { memarg } => Instruction::F32Store(convert_memarg(memarg)),
-        F64Store { memarg } => Instruction::F64Store(convert_memarg(memarg)),
-        I32Store8 { memarg } => Instruction::I32Store8(convert_memarg(memarg)),
-        I32Store16 { memarg } => Instruction::I32Store16(convert_memarg(memarg)),
-        I64Store8 { memarg } => Instruction::I64Store8(convert_memarg(memarg)),
-        I64Store16 { memarg } => Instruction::I64Store16(convert_memarg(memarg)),
-        I64Store32 { memarg } => Instruction::I64Store32(convert_memarg(memarg)),
+        I32Load { memarg } => Instruction::I32Load(convert_memarg(*memarg)),
+        I64Load { memarg } => Instruction::I64Load(convert_memarg(*memarg)),
+        F32Load { memarg } => Instruction::F32Load(convert_memarg(*memarg)),
+        F64Load { memarg } => Instruction::F64Load(convert_memarg(*memarg)),
+        I32Load8S { memarg } => Instruction::I32Load8S(convert_memarg(*memarg)),
+        I32Load8U { memarg } => Instruction::I32Load8U(convert_memarg(*memarg)),
+        I32Load16S { memarg } => Instruction::I32Load16S(convert_memarg(*memarg)),
+        I32Load16U { memarg } => Instruction::I32Load16U(convert_memarg(*memarg)),
+        I64Load8S { memarg } => Instruction::I64Load8S(convert_memarg(*memarg)),
+        I64Load8U { memarg } => Instruction::I64Load8U(convert_memarg(*memarg)),
+        I64Load16S { memarg } => Instruction::I64Load16S(convert_memarg(*memarg)),
+        I64Load16U { memarg } => Instruction::I64Load16U(convert_memarg(*memarg)),
+        I64Load32S { memarg } => Instruction::I64Load32S(convert_memarg(*memarg)),
+        I64Load32U { memarg } => Instruction::I64Load32U(convert_memarg(*memarg)),
+        I32Store { memarg } => Instruction::I32Store(convert_memarg(*memarg)),
+        I64Store { memarg } => Instruction::I64Store(convert_memarg(*memarg)),
+        F32Store { memarg } => Instruction::F32Store(convert_memarg(*memarg)),
+        F64Store { memarg } => Instruction::F64Store(convert_memarg(*memarg)),
+        I32Store8 { memarg } => Instruction::I32Store8(convert_memarg(*memarg)),
+        I32Store16 { memarg } => Instruction::I32Store16(convert_memarg(*memarg)),
+        I64Store8 { memarg } => Instruction::I64Store8(convert_memarg(*memarg)),
+        I64Store16 { memarg } => Instruction::I64Store16(convert_memarg(*memarg)),
+        I64Store32 { memarg } => Instruction::I64Store32(convert_memarg(*memarg)),
         I32Eqz => Instruction::I32Eqz,
         I32Eq => Instruction::I32Eq,
         I32Ne => Instruction::I32Ne,

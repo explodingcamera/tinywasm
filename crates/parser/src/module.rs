@@ -1,21 +1,26 @@
-use alloc::{format, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tracing::debug;
-use wasmparser::{
-    ExportSectionReader, FunctionBody, FunctionSectionReader, Payload, TypeSectionReader, Validator,
-};
+use log::debug;
+use tinywasm_types::{Export, FuncType, Instruction, ValType};
+use wasmparser::{Payload, Validator};
 
-use crate::{ParseError, Result};
+use crate::{conversion, ParseError, Result};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeSection {
+    pub locals: Box<[ValType]>,
+    pub body: Box<[Instruction]>,
+}
 
 #[derive(Default)]
-pub struct ModuleReader<'a> {
+pub struct ModuleReader {
     pub version: Option<u16>,
     pub start_func: Option<u32>,
 
-    pub type_section: Option<TypeSectionReader<'a>>,
-    pub function_section: Option<FunctionSectionReader<'a>>,
-    pub export_section: Option<ExportSectionReader<'a>>,
-    pub code_section: Option<CodeSection<'a>>,
+    pub type_section: Vec<FuncType>,
+    pub function_section: Vec<u32>,
+    pub export_section: Vec<Export>,
+    pub code_section: Vec<CodeSection>,
 
     // pub table_section: Option<TableSectionReader<'a>>,
     // pub memory_section: Option<MemorySectionReader<'a>>,
@@ -26,8 +31,8 @@ pub struct ModuleReader<'a> {
     pub end_reached: bool,
 }
 
-impl Debug for ModuleReader<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl Debug for ModuleReader {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ModuleReader")
             .field("version", &self.version)
             .field("type_section", &self.type_section)
@@ -44,16 +49,12 @@ impl Debug for ModuleReader<'_> {
     }
 }
 
-impl<'a> ModuleReader<'a> {
-    pub fn new() -> ModuleReader<'a> {
+impl ModuleReader {
+    pub fn new() -> ModuleReader {
         Self::default()
     }
 
-    pub fn process_payload(
-        &mut self,
-        payload: Payload<'a>,
-        validator: &mut Validator,
-    ) -> Result<()> {
+    pub fn process_payload(&mut self, payload: Payload, validator: &mut Validator) -> Result<()> {
         use wasmparser::Payload::*;
 
         match payload {
@@ -79,12 +80,18 @@ impl<'a> ModuleReader<'a> {
             TypeSection(reader) => {
                 debug!("Found type section");
                 validator.type_section(&reader)?;
-                self.type_section = Some(reader);
+                self.type_section = reader
+                    .into_iter()
+                    .map(|t| conversion::convert_module_type(t?))
+                    .collect::<Result<Vec<FuncType>>>()?;
             }
             FunctionSection(reader) => {
                 debug!("Found function section");
                 validator.function_section(&reader)?;
-                self.function_section = Some(reader);
+                self.function_section = reader
+                    .into_iter()
+                    .map(|f| Ok(f?))
+                    .collect::<Result<Vec<_>>>()?;
             }
             TableSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Table section".into()));
@@ -118,22 +125,18 @@ impl<'a> ModuleReader<'a> {
             }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);
-                if self.code_section.is_some() {
+                if !self.code_section.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
 
                 validator.code_section_start(count, &range)?;
-                self.code_section = Some(CodeSection::new());
             }
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");
                 validator.code_section_entry(&function)?;
 
-                if let Some(code_section) = &mut self.code_section {
-                    code_section.functions.push(function);
-                } else {
-                    return Err(ParseError::EmptySection("Code section".into()));
-                }
+                self.code_section
+                    .push(conversion::convert_module_code(function)?);
             }
             ImportSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Import section".into()));
@@ -145,7 +148,10 @@ impl<'a> ModuleReader<'a> {
             ExportSection(reader) => {
                 debug!("Found export section");
                 validator.export_section(&reader)?;
-                self.export_section = Some(reader);
+                self.export_section = reader
+                    .into_iter()
+                    .map(|e| conversion::convert_module_export(e?))
+                    .collect::<Result<Vec<_>>>()?;
             }
             End(offset) => {
                 debug!("Reached end of module");
@@ -156,26 +162,17 @@ impl<'a> ModuleReader<'a> {
                 validator.end(offset)?;
                 self.end_reached = true;
             }
-            UnknownSection { .. } | _ => {
-                return Err(ParseError::UnsupportedSection(format!("Unknown section")))
+            UnknownSection { .. } => {
+                return Err(ParseError::UnsupportedSection("Unknown section".into()))
+            }
+            section => {
+                return Err(ParseError::UnsupportedSection(format!(
+                    "Unsupported section: {:?}",
+                    section
+                )))
             }
         };
 
         Ok(())
-    }
-}
-
-/// A WebAssembly code section
-/// Can be cloned to read functions multiple times
-#[derive(Debug, Clone)]
-pub struct CodeSection<'a> {
-    pub(crate) functions: Vec<FunctionBody<'a>>,
-}
-
-impl<'a> CodeSection<'a> {
-    fn new() -> Self {
-        Self {
-            functions: Vec::new(),
-        }
     }
 }

@@ -2,9 +2,7 @@ use std::str::FromStr;
 
 use argh::FromArgs;
 use color_eyre::eyre::Result;
-use tinywasm::{self, WasmValue};
-use util::install_tracing;
-
+use tinywasm::{self};
 mod util;
 
 #[derive(FromArgs)]
@@ -12,6 +10,10 @@ mod util;
 struct TinyWasmCli {
     #[argh(subcommand)]
     nested: TinyWasmSubcommand,
+
+    /// log level
+    #[argh(option, short = 'l', default = "\"info\".to_string()")]
+    log_level: String,
 }
 
 #[derive(FromArgs)]
@@ -22,7 +24,6 @@ enum TinyWasmSubcommand {
 
 enum Engine {
     Main,
-    Naive,
 }
 
 impl FromStr for Engine {
@@ -30,7 +31,6 @@ impl FromStr for Engine {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "naive" => Ok(Self::Naive),
             "main" => Ok(Self::Main),
             _ => Err(format!("unknown engine: {}", s)),
         }
@@ -52,16 +52,26 @@ struct Run {
 
 fn main() -> Result<()> {
     color_eyre::install()?;
-    install_tracing(None);
 
     let args: TinyWasmCli = argh::from_env();
+    let level = match args.log_level.as_str() {
+        "trace" => log::LevelFilter::Trace,
+        "debug" => log::LevelFilter::Debug,
+        "warn" => log::LevelFilter::Warn,
+        "error" => log::LevelFilter::Error,
+        "info" => log::LevelFilter::Info,
+        _ => log::LevelFilter::Info,
+    };
+
+    pretty_env_logger::formatted_builder()
+        .filter_level(level)
+        .init();
 
     match args.nested {
         TinyWasmSubcommand::Run(Run { wasm_file, engine }) => {
             let wasm = std::fs::read(wasm_file)?;
             match engine {
                 Engine::Main => run(&wasm),
-                Engine::Naive => run_naive(&wasm),
             }
         }
     }
@@ -75,19 +85,6 @@ fn run(wasm: &[u8]) -> Result<()> {
 
     let func = instance.get_func("add").unwrap();
     println!("func: {:?}", func);
-
-    Ok(())
-}
-
-fn run_naive(wasm: &[u8]) -> Result<()> {
-    let mut module = tinywasm::naive::Module::new(wasm)?;
-    let args = [WasmValue::I32(1), WasmValue::I32(2)];
-    let res = tinywasm::naive::run(&mut module, "add", &args)?;
-    println!("res: {:?}", res);
-
-    let args = [WasmValue::I64(1), WasmValue::I64(2)];
-    let res = tinywasm::naive::run(&mut module, "add_64", &args)?;
-    println!("res: {:?}", res);
 
     Ok(())
 }
