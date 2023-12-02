@@ -109,7 +109,7 @@ pub fn process_operators<'a>(
                         .targets()
                         .collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?
                         .into_iter()
-                        .map(Instruction::Br),
+                        .map(Instruction::BrLabel),
                 );
             }
             op => instructions.push(process_operator(&op)?),

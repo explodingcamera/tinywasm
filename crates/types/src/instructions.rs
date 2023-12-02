@@ -16,7 +16,9 @@ pub struct MemArg {
 
 /// A WebAssembly Instruction
 /// See https://webassembly.github.io/spec/core/binary/instructions.html
-/// Currently includes all instructions from the MVP (1.0) spec
+/// These are our own internal bytecode instructions so they may not match the spec exactly.
+/// Wasm Bytecode can map to multiple of these instructions.
+/// For example, `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     // Control Instructions
@@ -30,7 +32,8 @@ pub enum Instruction {
     End,
     Br(LabelAddr),
     BrIf(LabelAddr),
-    BrTable(u32), // not to spec, has to be followed by multiple Br instructions with labels
+    BrTable(u32), // has to be followed by multiple BrLabel instructions
+    BrLabel(LabelAddr),
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
