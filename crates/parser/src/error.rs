@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use alloc::string::{String, ToString};
 use wasmparser::Encoding;
 
@@ -12,6 +14,29 @@ pub enum ParseError {
     InvalidLocalCount { expected: u32, actual: u32 },
     EndNotReached,
     Other(String),
+}
+
+impl Debug for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidType => write!(f, "invalid type"),
+            Self::UnsupportedSection(section) => write!(f, "unsupported section: {}", section),
+            Self::DuplicateSection(section) => write!(f, "duplicate section: {}", section),
+            Self::EmptySection(section) => write!(f, "empty section: {}", section),
+            Self::UnsupportedOperator(operator) => write!(f, "unsupported operator: {}", operator),
+            Self::ParseError { message, offset } => {
+                write!(f, "error parsing module: {} at offset {}", message, offset)
+            }
+            Self::InvalidEncoding(encoding) => write!(f, "invalid encoding: {:?}", encoding),
+            Self::InvalidLocalCount { expected, actual } => write!(
+                f,
+                "invalid local count: expected {}, actual {}",
+                expected, actual
+            ),
+            Self::EndNotReached => write!(f, "end of module not reached"),
+            Self::Other(message) => write!(f, "unknown error: {}", message),
+        }
+    }
 }
 
 impl From<wasmparser::BinaryReaderError> for ParseError {

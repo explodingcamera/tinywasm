@@ -1,18 +1,18 @@
-use alloc::vec::Vec;
-use wasmparser::FunctionBody;
+use alloc::{boxed::Box, format};
+use tinywasm_types::Function;
 
-use crate::{module::reader::ModuleReader, Result};
+use crate::{Error, Result};
 
 /// global state that can be manipulated by WebAssembly programs
 /// https://webassembly.github.io/spec/core/exec/runtime.html#store
 #[derive(Debug, Default)]
-pub struct Store<'data> {
-    pub(crate) data: StoreData<'data>,
+pub struct Store {
+    pub(crate) data: StoreData,
 }
 
 #[derive(Debug, Default)]
-pub struct StoreData<'data> {
-    pub funcs: Vec<FunctionBody<'data>>,
+pub struct StoreData {
+    pub funcs: Box<[Function]>,
     // pub tables: Vec<TableAddr>,
     // pub mems: Vec<MemAddr>,
     // pub globals: Vec<GlobalAddr>,
@@ -20,14 +20,17 @@ pub struct StoreData<'data> {
     // pub datas: Vec<DataAddr>,
 }
 
-impl<'data> Store<'data> {
+impl Store {
     /// Initialize the store with global state from the given module
-    pub(crate) fn initialize(&'data mut self, reader: &ModuleReader<'data>) -> Result<()> {
-        let code = reader.code_section.clone().ok_or_else(|| {
-            crate::Error::Other("Module must have a code section to initialize the store".into())
-        })?;
-
-        self.data.funcs = code.functions;
+    pub(crate) fn initialize(&mut self, data: StoreData) -> Result<()> {
+        self.data = data;
         Ok(())
+    }
+
+    pub(crate) fn get_func(&self, index: usize) -> Result<&Function> {
+        self.data
+            .funcs
+            .get(index)
+            .ok_or_else(|| Error::Other(format!("function {} not found", index)))
     }
 }

@@ -2,7 +2,8 @@ use std::str::FromStr;
 
 use argh::FromArgs;
 use color_eyre::eyre::Result;
-use tinywasm::{self};
+use log::info;
+use tinywasm::{self, WasmValue};
 mod util;
 
 #[derive(FromArgs)]
@@ -80,11 +81,13 @@ fn main() -> Result<()> {
 fn run(wasm: &[u8]) -> Result<()> {
     let mut store = tinywasm::Store::default();
 
-    let module = tinywasm::Module::from_bytes(wasm)?;
+    let module = tinywasm::Module::parse_bytes(wasm)?;
     let instance = module.instantiate(&mut store)?;
 
-    let func = instance.get_func("add").unwrap();
-    println!("func: {:?}", func);
+    let func = instance.get_func(&mut store, "add")?;
+    let params = vec![WasmValue::I32(2), WasmValue::I32(2)];
+    let res = func.call(&mut store, params)?;
+    info!("{res:?}");
 
     Ok(())
 }

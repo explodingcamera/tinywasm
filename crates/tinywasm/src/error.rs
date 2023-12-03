@@ -1,14 +1,15 @@
 use alloc::string::{String, ToString};
 use core::fmt::Display;
+use tinywasm_parser::ParseError;
 
 #[derive(Debug)]
 pub enum Error {
-    ParseError {
-        message: String,
-        offset: usize,
-    },
+    ParseError(ParseError),
     UnsupportedFeature(String),
     Other(String),
+
+    FuncDidNotReturn,
+    StackUnderflow,
 
     #[cfg(feature = "std")]
     Io(crate::std::io::Error),
@@ -17,9 +18,9 @@ pub enum Error {
 impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::ParseError { message, offset } => {
-                write!(f, "error parsing module: {} at offset {}", message, offset)
-            }
+            Self::FuncDidNotReturn => write!(f, "function did not return"),
+            Self::StackUnderflow => write!(f, "stack underflow"),
+            Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             #[cfg(feature = "std")]
@@ -40,12 +41,9 @@ impl Error {
     }
 }
 
-impl From<wasmparser::BinaryReaderError> for Error {
-    fn from(value: wasmparser::BinaryReaderError) -> Self {
-        Self::ParseError {
-            message: value.message().to_string(),
-            offset: value.offset(),
-        }
+impl From<tinywasm_parser::ParseError> for Error {
+    fn from(value: tinywasm_parser::ParseError) -> Self {
+        Self::ParseError(value)
     }
 }
 

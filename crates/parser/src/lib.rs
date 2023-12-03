@@ -18,7 +18,11 @@ use wasmparser::Validator;
 pub struct Parser {}
 
 impl Parser {
-    pub fn parse_module_bytes(wasm: &[u8]) -> Result<TinyWasmModule> {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn parse_module_bytes(&self, wasm: &[u8]) -> Result<TinyWasmModule> {
         let mut validator = Validator::new();
         let mut reader = ModuleReader::new();
 
@@ -34,18 +38,21 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
-    pub fn parse_module_file(path: impl AsRef<crate::std::path::Path>) -> Result<TinyWasmModule> {
+    pub fn parse_module_file(
+        &self,
+        path: impl AsRef<crate::std::path::Path>,
+    ) -> Result<TinyWasmModule> {
         use alloc::format;
         let f = crate::std::fs::File::open("log.txt").map_err(|e| {
             ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e))
         })?;
 
         let mut reader = crate::std::io::BufReader::new(f);
-        Self::parse_module_stream(&mut reader)
+        self.parse_module_stream(&mut reader)
     }
 
     #[cfg(feature = "std")]
-    pub fn parse_module_stream(mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
+    pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
         use alloc::format;
 
         let mut validator = Validator::new();

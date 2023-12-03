@@ -3,9 +3,10 @@ extern crate alloc;
 mod instructions;
 pub use instructions::*;
 
+#[derive(Debug)]
 pub struct TinyWasmModule {
     pub version: Option<u16>,
-    pub start_func: Option<u32>,
+    pub start_func: Option<FuncAddr>,
 
     pub types: Box<[FuncType]>,
     pub funcs: Box<[Function]>,
@@ -97,6 +98,7 @@ pub struct FuncType {
 }
 
 /// A WebAssembly Function
+#[derive(Debug)]
 pub struct Function {
     pub ty: TypeAddr,
     pub locals: Box<[ValType]>,
