@@ -98,7 +98,7 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             .into_iter()
             .zip(func_types)
             .map(|(f, ty)| Function {
-                body: f.body,
+                instructions: f.body,
                 locals: f.locals,
                 ty,
             })

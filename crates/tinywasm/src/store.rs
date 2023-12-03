@@ -1,14 +1,21 @@
 use alloc::{boxed::Box, format};
 use tinywasm_types::Function;
 
-use crate::{Error, Result};
+use crate::{runtime::Runtime, Error, Result};
 
 /// global state that can be manipulated by WebAssembly programs
 /// https://webassembly.github.io/spec/core/exec/runtime.html#store
 #[derive(Debug, Default)]
 pub struct Store {
     pub(crate) data: StoreData,
+    pub(crate) runtime: Runtime,
 }
+
+// #[derive(Debug)]
+// pub struct FunctionInstance {
+//     pub(crate) func: Function,
+//     pub(crate) module: usize,
+// }
 
 #[derive(Debug, Default)]
 pub struct StoreData {

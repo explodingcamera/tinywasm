@@ -15,9 +15,8 @@ pub mod module;
 pub use module::Module;
 pub use module::ModuleInstance;
 
-pub mod types;
-pub use types::*;
-
+pub use tinywasm_parser as parser;
+pub use tinywasm_types::*;
 pub mod runtime;
 
 #[cfg(test)]

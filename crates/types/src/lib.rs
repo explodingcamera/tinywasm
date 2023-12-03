@@ -1,6 +1,8 @@
 extern crate alloc;
 
 mod instructions;
+use core::fmt::Debug;
+
 pub use instructions::*;
 
 #[derive(Debug)]
@@ -21,7 +23,7 @@ pub struct TinyWasmModule {
 
 /// A WebAssembly value.
 /// See https://webassembly.github.io/spec/core/syntax/types.html#value-types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum WasmValue {
     // Num types
     I32(i32),
@@ -31,6 +33,30 @@ pub enum WasmValue {
 
     // Vec types
     V128(i128),
+}
+
+impl Debug for WasmValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WasmValue::I32(i) => write!(f, "i32({})", i),
+            WasmValue::I64(i) => write!(f, "i64({})", i),
+            WasmValue::F32(i) => write!(f, "f32({})", i),
+            WasmValue::F64(i) => write!(f, "f64({})", i),
+            WasmValue::V128(i) => write!(f, "v128({})", i),
+        }
+    }
+}
+
+impl WasmValue {
+    pub fn val_type(&self) -> ValType {
+        match self {
+            Self::I32(_) => ValType::I32,
+            Self::I64(_) => ValType::I64,
+            Self::F32(_) => ValType::F32,
+            Self::F64(_) => ValType::F64,
+            Self::V128(_) => ValType::V128,
+        }
+    }
 }
 
 /// Type of a WebAssembly value.
@@ -102,7 +128,7 @@ pub struct FuncType {
 pub struct Function {
     pub ty: TypeAddr,
     pub locals: Box<[ValType]>,
-    pub body: Box<[Instruction]>,
+    pub instructions: Box<[Instruction]>,
 }
 
 /// A WebAssembly Module Export

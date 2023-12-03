@@ -6,12 +6,13 @@ use alloc::{
     vec::Vec,
 };
 use log::info;
-use tinywasm_types::{Export, ExternalKind, FuncAddr, FuncType, TinyWasmModule};
+use tinywasm_types::{
+    Export, ExternalKind, FuncAddr, FuncType, TinyWasmModule, ValType, WasmValue,
+};
 
 use crate::{
-    runtime::Runtime,
     store::{self, StoreData},
-    Error, Result, Store, WasmValue,
+    Error, Result, Store,
 };
 
 #[derive(Debug)]
@@ -55,7 +56,7 @@ impl Module {
         store: &mut Store,
         // imports: Option<()>,
     ) -> Result<ModuleInstance> {
-        let i = ModuleInstance::new(store, self)?;
+        let mut i = ModuleInstance::new(store, self)?;
         let _ = i.start(store)?;
         Ok(i)
     }
@@ -79,7 +80,7 @@ pub struct ModuleInstance {
 
 impl ModuleInstance {
     /// Get an exported function by name
-    pub fn get_func(&self, store: &store::Store, name: &str) -> Result<FuncHandle> {
+    pub fn get_func(&mut self, store: &store::Store, name: &str) -> Result<FuncHandle> {
         let export = self
             .exports
             .iter()
@@ -87,39 +88,39 @@ impl ModuleInstance {
             .ok_or(Error::Other(format!("export {} not found", name)))?;
 
         let func = store.get_func(export.index as usize)?;
-        let ty = &self.types[func.ty as usize];
+        let ty = self.types[func.ty as usize].clone();
 
         Ok(FuncHandle {
             addr: export.index,
-            module: &self,
+            module: self,
             name: Some(name.to_string()),
-            ty: ty.clone(),
+            ty,
         })
     }
 
     /// Get the start  function of the module
-    pub fn get_start_func(&self, store: &store::Store) -> Result<Option<FuncHandle>> {
-        let Some(func_addr) = self.func_start else {
+    pub fn get_start_func(&mut self, store: &store::Store) -> Result<Option<FuncHandle>> {
+        let Some(addr) = self.func_start else {
             return Ok(None);
         };
 
-        let func = store.get_func(func_addr as usize)?;
-        let ty = &self.types[func.ty as usize];
+        let func = store.get_func(addr as usize)?;
+        let ty = self.types[func.ty as usize].clone();
+
         Ok(Some(FuncHandle {
-            module: &self,
-            addr: func_addr,
-            ty: ty.clone(),
+            module: self,
+            addr,
+            ty,
             name: None,
         }))
     }
 
-    pub fn new(store: &mut Store, module: Module) -> Result<Self> {
+    pub fn new(store: &mut Store, mut module: Module) -> Result<Self> {
         let store_data = StoreData {
             funcs: module.data.funcs,
         };
 
         store.initialize(store_data)?;
-
         Ok(Self {
             types: module.data.types,
             func_start: module.data.start_func,
@@ -135,8 +136,8 @@ impl ModuleInstance {
     /// Invoke the start function of the module
     /// Returns None if the module has no start function
     /// https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start
-    pub fn start(&self, store: &mut store::Store) -> Result<Option<()>> {
-        let Some(func) = self.get_start_func(store)? else {
+    pub fn start(&mut self, store: &mut store::Store) -> Result<Option<()>> {
+        let Some(mut func) = self.get_start_func(store)? else {
             return Ok(None);
         };
 
@@ -147,7 +148,7 @@ impl ModuleInstance {
 
 #[derive(Debug)]
 pub struct FuncHandle<'a> {
-    module: &'a ModuleInstance,
+    module: &'a mut ModuleInstance,
     addr: FuncAddr,
     ty: FuncType,
     pub name: Option<String>,
@@ -155,17 +156,35 @@ pub struct FuncHandle<'a> {
 
 impl<'a> FuncHandle<'a> {
     /// Call a function
-    pub fn call(&self, store: &mut Store, params: Vec<WasmValue>) -> Result<Vec<WasmValue>> {
-        let func = store.get_func(self.addr as usize)?;
+    pub fn call(&mut self, store: &mut Store, params: Vec<WasmValue>) -> Result<Vec<WasmValue>> {
+        let func = store
+            .data
+            .funcs
+            .get(self.addr as usize)
+            .ok_or(Error::Other(format!("function {} not found", self.addr)))?;
+
         let func_ty = &self.ty;
 
-        let mut runtime = Runtime::default();
+        // check that params match func_ty params
+        for (ty, param) in func_ty.params.iter().zip(params.clone()) {
+            if ty != &param.val_type() {
+                return Err(Error::Other(format!(
+                    "param type mismatch: expected {:?}, got {:?}",
+                    ty, param
+                )));
+            }
+        }
+
+        let mut local_types: Vec<ValType> = Vec::new();
+        local_types.extend(func_ty.params.iter());
+        local_types.extend(func.locals.iter());
+
+        let runtime = &mut store.runtime;
         let stack = &mut runtime.stack;
         let locals = &mut stack.locals;
         locals.extend(params);
 
-        let mut instrs = func.body.iter();
-
+        let mut instrs = func.instructions.iter();
         while let Some(instr) = instrs.next() {
             use tinywasm_types::Instruction::*;
             match instr {
