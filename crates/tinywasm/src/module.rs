@@ -21,7 +21,7 @@ impl Module {
     }
 
     #[cfg(feature = "std")]
-    pub fn parse_file(path: impl AsRef<crate::std::path::Path>) -> Result<Self> {
+    pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_file(path)?;
         Ok(data.into())

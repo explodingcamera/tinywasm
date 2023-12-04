@@ -3,8 +3,9 @@ use std::str::FromStr;
 use argh::FromArgs;
 use color_eyre::eyre::Result;
 use log::info;
-use tinywasm::{self, WasmValue};
+use tinywasm::{self, Module, WasmValue};
 mod util;
+mod wat;
 
 #[derive(FromArgs)]
 /// TinyWasm CLI
@@ -68,20 +69,30 @@ fn main() -> Result<()> {
         .filter_level(level)
         .init();
 
+    let cwd = std::env::current_dir()?;
+
     match args.nested {
         TinyWasmSubcommand::Run(Run { wasm_file, engine }) => {
-            let wasm = std::fs::read(wasm_file)?;
+            let path = cwd.join(wasm_file.clone());
+            let module = match wasm_file.ends_with(".wat") {
+                true => {
+                    let wat = std::fs::read_to_string(path)?;
+                    let wasm = wat::wat2wasm(&wat);
+                    tinywasm::Module::parse_bytes(&wasm)?
+                }
+                false => tinywasm::Module::parse_file(path)?,
+            };
+
             match engine {
-                Engine::Main => run(&wasm),
+                Engine::Main => run(module),
             }
         }
     }
 }
 
-fn run(wasm: &[u8]) -> Result<()> {
+fn run(module: Module) -> Result<()> {
     let mut store = tinywasm::Store::default();
 
-    let module = tinywasm::Module::parse_bytes(wasm)?;
     let instance = module.instantiate(&mut store)?;
     let func = instance.get_func(&store, "add")?;
     let params = vec![WasmValue::I32(2), WasmValue::I32(2)];

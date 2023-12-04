@@ -40,10 +40,10 @@ impl Parser {
     #[cfg(feature = "std")]
     pub fn parse_module_file(
         &self,
-        path: impl AsRef<crate::std::path::Path>,
+        path: impl AsRef<crate::std::path::Path> + Clone,
     ) -> Result<TinyWasmModule> {
         use alloc::format;
-        let f = crate::std::fs::File::open("log.txt").map_err(|e| {
+        let f = crate::std::fs::File::open(path.clone()).map_err(|e| {
             ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e))
         })?;
 
