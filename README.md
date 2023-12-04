@@ -11,7 +11,8 @@
 
 # 🎯 Goals
 
-* Interpreted Runtime
+* Interpreted Runtime (no JIT)
+* Self-hosted (can run itself compiled to WebAssembly)
 * No unsafe code
 * Works on `no_std` (with `alloc` the feature and nightly compiler)
 * Fully support WebAssembly MVP (1.0)

@@ -4,7 +4,9 @@ version="0.0.0"
 edition="2021"
 
 [lib]
+name="tinywasm"
 path="src/lib.rs"
+crate-type=["cdylib", "rlib"]
 
 [dependencies]
 log="0.4.20"

@@ -5,6 +5,8 @@ use color_eyre::eyre::Result;
 use log::info;
 use tinywasm::{self, Module, WasmValue};
 mod util;
+
+#[cfg(feature = "wat")]
 mod wat;
 
 #[derive(FromArgs)]
@@ -75,10 +77,17 @@ fn main() -> Result<()> {
         TinyWasmSubcommand::Run(Run { wasm_file, engine }) => {
             let path = cwd.join(wasm_file.clone());
             let module = match wasm_file.ends_with(".wat") {
+                #[cfg(feature = "wat")]
                 true => {
                     let wat = std::fs::read_to_string(path)?;
                     let wasm = wat::wat2wasm(&wat);
                     tinywasm::Module::parse_bytes(&wasm)?
+                }
+                #[cfg(not(feature = "wat"))]
+                true => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "wat support is not enabled, please enable it with --features wat"
+                    ))
                 }
                 false => tinywasm::Module::parse_file(path)?,
             };
