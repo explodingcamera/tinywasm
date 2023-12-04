@@ -1,18 +1,50 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use alloc::{format, vec::Vec};
 use tinywasm_types::{FuncAddr, Function, Instruction, ModuleInstanceAddr, TypeAddr, ValType};
 
 use crate::{runtime::Runtime, Error, ModuleInstance, Result};
 
-/// global state that can be manipulated by WebAssembly programs
-/// data should only be addressable by the module that owns it
-/// https://webassembly.github.io/spec/core/exec/runtime.html#store
-#[derive(Debug, Default)]
+// global store id counter
+static STORE_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// Global state that can be manipulated by WebAssembly programs
+///
+/// Data should only be addressable by the module that owns it
+///
+/// Note that the state doesn't do any garbage collection - so it will grow
+/// indefinitely if you keep adding modules to it. When calling temporary
+/// functions, you should create a new store and then drop it when you're done (e.g. in a request handler)
+///
+///  See also: https://webassembly.github.io/spec/core/exec/runtime.html#store
+#[derive(Debug)]
 pub struct Store {
+    id: usize,
     module_instances: Vec<ModuleInstance>,
     module_instance_count: usize,
 
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
+}
+
+impl PartialEq for Store {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+
+        Self {
+            id,
+            module_instances: Vec::new(),
+            module_instance_count: 0,
+            data: StoreData::default(),
+            runtime: Runtime::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -50,6 +82,10 @@ pub struct StoreData {
 }
 
 impl Store {
+    pub fn id(&self) -> usize {
+        self.id
+    }
+
     pub(crate) fn next_module_instance_idx(&self) -> ModuleInstanceAddr {
         self.module_instance_count as ModuleInstanceAddr
     }

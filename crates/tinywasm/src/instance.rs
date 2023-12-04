@@ -3,17 +3,20 @@ use tinywasm_types::{Export, FuncAddr, FuncType, ModuleInstanceAddr};
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    ExportInstance, FuncHandle, Result, Store, TypedFuncHandle,
+    Error, ExportInstance, FuncHandle, Result, Store, TypedFuncHandle,
 };
 
-/// A WebAssembly Module Instance.
+/// A WebAssembly Module Instance
+///
 /// Addrs are indices into the store's data structures.
+///
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
 #[derive(Debug, Clone)]
 pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 
 #[derive(Debug)]
 struct ModuleInstanceInner {
+    pub(crate) store_id: usize,
     pub(crate) _idx: ModuleInstanceAddr,
     pub(crate) func_start: Option<FuncAddr>,
     pub(crate) types: Box<[FuncType]>,
@@ -34,8 +37,10 @@ impl ModuleInstance {
         exports: Box<[Export]>,
         func_addrs: Vec<FuncAddr>,
         idx: ModuleInstanceAddr,
+        store_id: usize,
     ) -> Self {
         Self(Arc::new(ModuleInstanceInner {
+            store_id,
             _idx: idx,
             types,
             func_start,
@@ -46,6 +51,10 @@ impl ModuleInstance {
 
     /// Get an exported function by name
     pub fn get_func(&self, store: &Store, name: &str) -> Result<FuncHandle> {
+        if self.0.store_id != store.id() {
+            return Err(Error::InvalidStore);
+        }
+
         let export = self.0.exports.func(name)?;
         let func_addr = self.0.func_addrs[export.index as usize];
         let func = store.get_func(func_addr as usize)?;
@@ -78,6 +87,10 @@ impl ModuleInstance {
     /// (which is not part of the spec, but used by llvm)
     /// https://webassembly.github.io/spec/core/syntax/modules.html#start-function
     pub fn get_start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
+        if self.0.store_id != store.id() {
+            return Err(Error::InvalidStore);
+        }
+
         let func_index = match self.0.func_start {
             Some(func_index) => func_index,
             None => {

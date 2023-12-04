@@ -11,6 +11,8 @@ pub enum Error {
     FuncDidNotReturn,
     StackUnderflow,
 
+    InvalidStore,
+
     #[cfg(feature = "std")]
     Io(crate::std::io::Error),
 }
@@ -23,6 +25,7 @@ impl Display for Error {
             Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::Other(message) => write!(f, "unknown error: {}", message),
+            Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {}", err),
         }

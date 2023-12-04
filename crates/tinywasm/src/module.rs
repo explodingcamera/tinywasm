@@ -52,6 +52,7 @@ impl Module {
             self.data.exports,
             func_addrs,
             idx,
+            store.id(),
         );
 
         store.add_instance(instance.clone())?;
