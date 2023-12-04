@@ -1,8 +1,7 @@
 mod executer;
 mod stack;
 
-pub use executer::*;
-use log::info;
+use log::debug;
 pub use stack::*;
 use tinywasm_types::{Instruction, WasmValue};
 
@@ -25,7 +24,7 @@ impl Runtime {
             match instr {
                 LocalGet(local_index) => {
                     let val = &locals[*local_index as usize];
-                    info!("local: {:#?}", val);
+                    debug!("local: {:#?}", val);
                     stack.value_stack.push(val.clone());
                 }
                 I64Add => {

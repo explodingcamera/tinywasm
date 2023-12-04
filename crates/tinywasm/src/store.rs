@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{format, vec::Vec};
 use tinywasm_types::{FuncAddr, Function, Instruction, ModuleInstanceAddr, TypeAddr, ValType};
 
 use crate::{runtime::Runtime, Error, ModuleInstance, Result};
 
 /// global state that can be manipulated by WebAssembly programs
+/// data should only be addressable by the module that owns it
 /// https://webassembly.github.io/spec/core/exec/runtime.html#store
 #[derive(Debug, Default)]
 pub struct Store {
@@ -17,12 +18,12 @@ pub struct Store {
 #[derive(Debug)]
 pub struct FunctionInstance {
     pub(crate) func: Function,
-    pub(crate) module_instance: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _module_instance: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl FunctionInstance {
-    pub(crate) fn module_instance_addr(&self) -> ModuleInstanceAddr {
-        self.module_instance
+    pub(crate) fn _module_instance_addr(&self) -> ModuleInstanceAddr {
+        self._module_instance
     }
 
     pub(crate) fn locals(&self) -> &[ValType] {
@@ -68,8 +69,8 @@ impl Store {
         let mut func_addrs = Vec::with_capacity(funcs.len());
         for func in funcs {
             self.data.funcs.push(FunctionInstance {
-                func: func,
-                module_instance: idx,
+                func,
+                _module_instance: idx,
             });
             func_addrs.push(idx as FuncAddr);
         }

@@ -1,8 +1,8 @@
+#[cfg(not(feature = "std"))]
 pub use core::*;
 
 #[cfg(feature = "std")]
 extern crate std;
-
 #[cfg(feature = "std")]
 pub use std::*;
 

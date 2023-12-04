@@ -6,70 +6,9 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use tinywasm_types::{
-    Export, ExternalKind, FuncAddr, FuncType, ModuleInstanceAddr, TinyWasmModule, ValType,
-    WasmValue,
-};
+use tinywasm_types::{Export, FuncAddr, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
-use crate::{runtime::Stack, store, Error, Result, Store};
-
-#[derive(Debug)]
-pub struct Module {
-    data: TinyWasmModule,
-}
-
-impl From<TinyWasmModule> for Module {
-    fn from(data: TinyWasmModule) -> Self {
-        Self { data }
-    }
-}
-
-impl Module {
-    pub fn parse_bytes(wasm: &[u8]) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_bytes(wasm)?;
-        Ok(data.into())
-    }
-
-    #[cfg(feature = "std")]
-    pub fn parse_file(path: impl AsRef<crate::std::path::Path>) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_file(path)?;
-        Ok(data.into())
-    }
-
-    #[cfg(feature = "std")]
-    pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_stream(stream)?;
-        Ok(data.into())
-    }
-
-    /// Instantiate the module in the given store
-    /// See https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation
-    /// Runs the start function if it exists
-    /// If you want to run the start function yourself, use `ModuleInstance::new`
-    pub fn instantiate(
-        self,
-        store: &mut Store,
-        // imports: Option<()>,
-    ) -> Result<ModuleInstance> {
-        let idx = store.next_module_instance_idx();
-
-        let func_addrs = store.add_funcs(self.data.funcs, idx);
-        let instance = ModuleInstance::new(
-            self.data.types,
-            self.data.start_func,
-            self.data.exports,
-            func_addrs,
-            idx,
-        );
-
-        store.add_instance(instance.clone())?;
-        // let _ = instance.start(store)?;
-        Ok(instance)
-    }
-}
+use crate::{runtime::Stack, Error, ExportInstance, Result, Store};
 
 /// A WebAssembly Module Instance.
 /// Addrs are indices into the store's data structures.
@@ -92,20 +31,8 @@ struct ModuleInstanceInner {
     // pub data_addrs: Vec<DataAddr>,
 }
 
-#[derive(Debug)]
-pub struct ExportInstance(Box<[Export]>);
-
-impl ExportInstance {
-    pub fn func(&self, name: &str) -> Result<&Export> {
-        self.0
-            .iter()
-            .find(|e| e.name == name.into() && e.kind == ExternalKind::Func)
-            .ok_or(Error::Other(format!("export {} not found", name)))
-    }
-}
-
 impl ModuleInstance {
-    fn new(
+    pub(crate) fn new(
         types: Box<[FuncType]>,
         func_start: Option<FuncAddr>,
         exports: Box<[Export]>,
@@ -122,7 +49,7 @@ impl ModuleInstance {
     }
 
     /// Get an exported function by name
-    pub fn get_func(&self, store: &store::Store, name: &str) -> Result<FuncHandle> {
+    pub fn get_func(&self, store: &Store, name: &str) -> Result<FuncHandle> {
         let export = self.0.exports.func(name)?;
         let func_addr = self.0.func_addrs[export.index as usize];
         let func = store.get_func(func_addr as usize)?;
@@ -137,7 +64,7 @@ impl ModuleInstance {
     }
 
     /// Get the start  function of the module
-    pub fn get_start_func(&mut self, store: &store::Store) -> Result<Option<FuncHandle>> {
+    pub fn get_start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
         let Some(func_index) = self.0.func_start else {
             return Ok(None);
         };
@@ -157,7 +84,7 @@ impl ModuleInstance {
     /// Invoke the start function of the module
     /// Returns None if the module has no start function
     /// https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start
-    pub fn start(&mut self, store: &mut store::Store) -> Result<Option<()>> {
+    pub fn start(&mut self, store: &mut Store) -> Result<Option<()>> {
         let Some(func) = self.get_start_func(store)? else {
             return Ok(None);
         };

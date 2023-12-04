@@ -2,9 +2,8 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 
+mod std;
 extern crate alloc;
-#[cfg(feature = "std")]
-extern crate std;
 
 mod conversion;
 mod error;

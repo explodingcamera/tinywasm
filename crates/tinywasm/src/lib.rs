@@ -13,7 +13,12 @@ pub use store::Store;
 
 pub mod module;
 pub use module::Module;
-pub use module::ModuleInstance;
+
+pub mod instance;
+pub use instance::ModuleInstance;
+
+pub mod export;
+pub use export::ExportInstance;
 
 pub use tinywasm_parser as parser;
 pub use tinywasm_types::*;

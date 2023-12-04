@@ -8,11 +8,11 @@ path="src/lib.rs"
 
 [dependencies]
 log="0.4.20"
-tinywasm-parser={path="../parser"}
-tinywasm-types={path="../types"}
+tinywasm-parser={path="../parser", default-features=false}
+tinywasm-types={path="../types", default-features=false}
 
 wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
 
 [features]
 default=["std"]
-std=[]
+std=["tinywasm-parser/std", "tinywasm-types/std"]
