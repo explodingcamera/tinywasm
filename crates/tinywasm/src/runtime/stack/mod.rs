@@ -20,9 +20,10 @@ pub struct Stack {
     // TODO: Split into Vec<u8> and Vec<ValType> for better memory usage?
     pub value_stack: Vec<WasmValue>, // keeping this typed for now to make it easier to debug
     pub value_stack_top: usize,
-    // /// The call stack
-    // pub call_stack: Vec<CallFrame>,
-    // pub call_stack_top: usize,
+
+    /// The call stack
+    pub call_stack: Vec<CallFrame>,
+    pub call_stack_top: usize,
 }
 
 impl Default for Stack {
@@ -31,8 +32,8 @@ impl Default for Stack {
             locals: Vec::new(),
             value_stack: Vec::with_capacity(STACK_SIZE),
             value_stack_top: 0,
-            // call_stack: Vec::with_capacity(CALL_STACK_SIZE),
-            // call_stack_top: 0,
+            call_stack: Vec::with_capacity(CALL_STACK_SIZE),
+            call_stack_top: 0,
         }
     }
 }

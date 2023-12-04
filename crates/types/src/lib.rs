@@ -35,6 +35,91 @@ pub enum WasmValue {
     V128(i128),
 }
 
+impl From<i32> for WasmValue {
+    fn from(i: i32) -> Self {
+        Self::I32(i)
+    }
+}
+
+impl From<i64> for WasmValue {
+    fn from(i: i64) -> Self {
+        Self::I64(i)
+    }
+}
+
+impl From<f32> for WasmValue {
+    fn from(i: f32) -> Self {
+        Self::F32(i)
+    }
+}
+
+impl From<f64> for WasmValue {
+    fn from(i: f64) -> Self {
+        Self::F64(i)
+    }
+}
+
+impl From<i128> for WasmValue {
+    fn from(i: i128) -> Self {
+        Self::V128(i)
+    }
+}
+
+impl TryFrom<WasmValue> for i32 {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        match value {
+            WasmValue::I32(i) => Ok(i),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<WasmValue> for i64 {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        match value {
+            WasmValue::I64(i) => Ok(i),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<WasmValue> for f32 {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        match value {
+            WasmValue::F32(i) => Ok(i),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<WasmValue> for f64 {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        match value {
+            WasmValue::F64(i) => Ok(i),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<WasmValue> for i128 {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        match value {
+            WasmValue::V128(i) => Ok(i),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Debug for WasmValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -85,7 +170,6 @@ pub enum ExternalKind {
 /// These are indexes into the respective stores.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#addresses
 pub type Addr = u32;
-pub type ModuleInstanceAddr = Addr;
 pub type FuncAddr = Addr;
 pub type TableAddr = Addr;
 pub type MemAddr = Addr;
@@ -97,6 +181,7 @@ pub type ExternAddr = Addr;
 pub type TypeAddr = Addr;
 pub type LocalAddr = Addr;
 pub type LabelAddr = Addr;
+pub type ModuleInstanceAddr = Addr;
 
 /// A WebAssembly Export Instance.
 /// https://webassembly.github.io/spec/core/exec/runtime.html#export-instances

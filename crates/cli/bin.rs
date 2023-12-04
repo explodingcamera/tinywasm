@@ -3,7 +3,7 @@ use std::str::FromStr;
 use argh::FromArgs;
 use color_eyre::eyre::Result;
 use log::info;
-use tinywasm::{self, Module, WasmValue};
+use tinywasm::{self, Module};
 mod util;
 
 #[cfg(feature = "wat")]
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
                 #[cfg(not(feature = "wat"))]
                 true => {
                     return Err(color_eyre::eyre::eyre!(
-                        "wat support is not enabled, please enable it with --features wat"
+                        "wat support is not enabled in this build"
                     ))
                 }
                 false => tinywasm::Module::parse_file(path)?,
@@ -103,9 +103,9 @@ fn run(module: Module) -> Result<()> {
     let mut store = tinywasm::Store::default();
 
     let instance = module.instantiate(&mut store)?;
-    let func = instance.get_func(&store, "add")?;
-    let params = vec![WasmValue::I32(2), WasmValue::I32(2)];
-    let res = func.call(&mut store, params)?;
+
+    let func = instance.get_typed_func::<(i32, i32), (i32,)>(&store, "add")?;
+    let (res,) = func.call(&mut store, (2, 2))?;
     info!("{res:?}");
 
     Ok(())

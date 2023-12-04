@@ -1,14 +1,10 @@
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    sync::Arc,
-    vec,
-    vec::Vec,
-};
-use tinywasm_types::{Export, FuncAddr, FuncType, ModuleInstanceAddr, ValType, WasmValue};
+use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
+use tinywasm_types::{Export, FuncAddr, FuncType, ModuleInstanceAddr};
 
-use crate::{runtime::Stack, Error, ExportInstance, Result, Store};
+use crate::{
+    func::{FromWasmValueTuple, IntoWasmValueTuple},
+    ExportInstance, FuncHandle, Result, Store, TypedFuncHandle,
+};
 
 /// A WebAssembly Module Instance.
 /// Addrs are indices into the store's data structures.
@@ -63,10 +59,35 @@ impl ModuleInstance {
         })
     }
 
+    /// Get a typed exported function by name
+    pub fn get_typed_func<P, R>(&self, store: &Store, name: &str) -> Result<TypedFuncHandle<P, R>>
+    where
+        P: IntoWasmValueTuple,
+        R: FromWasmValueTuple,
+    {
+        let func = self.get_func(store, name)?;
+        Ok(TypedFuncHandle {
+            func,
+            marker: core::marker::PhantomData,
+        })
+    }
+
     /// Get the start  function of the module
+    /// Returns None if the module has no start function
+    /// If no start function is specified, also checks for a _start function in the exports
+    /// (which is not part of the spec, but used by llvm)
+    /// https://webassembly.github.io/spec/core/syntax/modules.html#start-function
     pub fn get_start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
-        let Some(func_index) = self.0.func_start else {
-            return Ok(None);
+        let func_index = match self.0.func_start {
+            Some(func_index) => func_index,
+            None => {
+                // alternatively, check for a _start function in the exports
+                let Ok(start) = self.0.exports.func("_start") else {
+                    return Ok(None);
+                };
+
+                start.index
+            }
         };
 
         let func_addr = self.0.func_addrs[func_index as usize];
@@ -89,61 +110,7 @@ impl ModuleInstance {
             return Ok(None);
         };
 
-        let _ = func.call(store, vec![]);
+        let _ = func.call(store, &[])?;
         Ok(Some(()))
-    }
-}
-
-#[derive(Debug)]
-pub struct FuncHandle {
-    _module: ModuleInstance,
-    addr: FuncAddr,
-    ty: FuncType,
-    pub name: Option<String>,
-}
-
-impl FuncHandle {
-    /// Call a function
-    pub fn call(&self, store: &mut Store, params: Vec<WasmValue>) -> Result<Vec<WasmValue>> {
-        let func = store
-            .data
-            .funcs
-            .get(self.addr as usize)
-            .ok_or(Error::Other(format!("function {} not found", self.addr)))?;
-
-        let func_ty = &self.ty;
-
-        // check that params match func_ty params
-        for (ty, param) in func_ty.params.iter().zip(params.clone()) {
-            if ty != &param.val_type() {
-                return Err(Error::Other(format!(
-                    "param type mismatch: expected {:?}, got {:?}",
-                    ty, param
-                )));
-            }
-        }
-
-        let mut local_types: Vec<ValType> = Vec::new();
-        local_types.extend(func_ty.params.iter());
-        local_types.extend(func.locals().iter());
-
-        // let runtime = &mut store.runtime;
-
-        let mut stack = Stack::default();
-        stack.locals.extend(params);
-
-        let instrs = func.instructions().iter();
-        store.runtime.exec(&mut stack, instrs)?;
-
-        let res = func_ty
-            .results
-            .iter()
-            .map(|_| stack.value_stack.pop())
-            .collect::<Option<Vec<_>>>()
-            .ok_or(Error::Other(
-                "function did not return the correct number of values".into(),
-            ))?;
-
-        Ok(res)
     }
 }

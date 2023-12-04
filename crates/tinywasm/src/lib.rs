@@ -20,6 +20,9 @@ pub use instance::ModuleInstance;
 pub mod export;
 pub use export::ExportInstance;
 
+pub mod func;
+pub use func::{FuncHandle, TypedFuncHandle};
+
 pub use tinywasm_parser as parser;
 pub use tinywasm_types::*;
 pub mod runtime;
