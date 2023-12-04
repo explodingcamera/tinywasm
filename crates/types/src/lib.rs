@@ -10,8 +10,8 @@ pub struct TinyWasmModule {
     pub version: Option<u16>,
     pub start_func: Option<FuncAddr>,
 
+    pub funcs: Vec<Function>,
     pub types: Box<[FuncType]>,
-    pub funcs: Box<[Function]>,
     pub exports: Box<[Export]>,
     // pub tables: Option<TableType>,
     // pub memories: Option<MemoryType>,
@@ -85,6 +85,7 @@ pub enum ExternalKind {
 /// These are indexes into the respective stores.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#addresses
 pub type Addr = u32;
+pub type ModuleInstanceAddr = Addr;
 pub type FuncAddr = Addr;
 pub type TableAddr = Addr;
 pub type MemAddr = Addr;

@@ -2,18 +2,16 @@ use alloc::{
     boxed::Box,
     format,
     string::{String, ToString},
+    sync::Arc,
     vec,
     vec::Vec,
 };
-use log::info;
 use tinywasm_types::{
-    Export, ExternalKind, FuncAddr, FuncType, TinyWasmModule, ValType, WasmValue,
+    Export, ExternalKind, FuncAddr, FuncType, ModuleInstanceAddr, TinyWasmModule, ValType,
+    WasmValue,
 };
 
-use crate::{
-    store::{self, StoreData},
-    Error, Result, Store,
-};
+use crate::{runtime::Stack, store, Error, Result, Store};
 
 #[derive(Debug)]
 pub struct Module {
@@ -56,21 +54,37 @@ impl Module {
         store: &mut Store,
         // imports: Option<()>,
     ) -> Result<ModuleInstance> {
-        let mut i = ModuleInstance::new(store, self)?;
-        let _ = i.start(store)?;
-        Ok(i)
+        let idx = store.next_module_instance_idx();
+
+        let func_addrs = store.add_funcs(self.data.funcs, idx);
+        let instance = ModuleInstance::new(
+            self.data.types,
+            self.data.start_func,
+            self.data.exports,
+            func_addrs,
+            idx,
+        );
+
+        store.add_instance(instance.clone())?;
+        // let _ = instance.start(store)?;
+        Ok(instance)
     }
 }
 
 /// A WebAssembly Module Instance.
 /// Addrs are indices into the store's data structures.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
+#[derive(Debug, Clone)]
+pub struct ModuleInstance(Arc<ModuleInstanceInner>);
+
 #[derive(Debug)]
-pub struct ModuleInstance {
+struct ModuleInstanceInner {
+    pub(crate) _idx: ModuleInstanceAddr,
     pub(crate) func_start: Option<FuncAddr>,
     pub(crate) types: Box<[FuncType]>,
-    pub(crate) exports: Box<[Export]>,
-    // pub(crate) func_addrs: Vec<FuncAddr>,
+    pub exports: ExportInstance,
+
+    pub(crate) func_addrs: Vec<FuncAddr>,
     // pub table_addrs: Vec<TableAddr>,
     // pub mem_addrs: Vec<MemAddr>,
     // pub global_addrs: Vec<GlobalAddr>,
@@ -78,21 +92,45 @@ pub struct ModuleInstance {
     // pub data_addrs: Vec<DataAddr>,
 }
 
-impl ModuleInstance {
-    /// Get an exported function by name
-    pub fn get_func(&mut self, store: &store::Store, name: &str) -> Result<FuncHandle> {
-        let export = self
-            .exports
+#[derive(Debug)]
+pub struct ExportInstance(Box<[Export]>);
+
+impl ExportInstance {
+    pub fn func(&self, name: &str) -> Result<&Export> {
+        self.0
             .iter()
             .find(|e| e.name == name.into() && e.kind == ExternalKind::Func)
-            .ok_or(Error::Other(format!("export {} not found", name)))?;
+            .ok_or(Error::Other(format!("export {} not found", name)))
+    }
+}
 
-        let func = store.get_func(export.index as usize)?;
-        let ty = self.types[func.ty as usize].clone();
+impl ModuleInstance {
+    fn new(
+        types: Box<[FuncType]>,
+        func_start: Option<FuncAddr>,
+        exports: Box<[Export]>,
+        func_addrs: Vec<FuncAddr>,
+        idx: ModuleInstanceAddr,
+    ) -> Self {
+        Self(Arc::new(ModuleInstanceInner {
+            _idx: idx,
+            types,
+            func_start,
+            func_addrs,
+            exports: ExportInstance(exports),
+        }))
+    }
+
+    /// Get an exported function by name
+    pub fn get_func(&self, store: &store::Store, name: &str) -> Result<FuncHandle> {
+        let export = self.0.exports.func(name)?;
+        let func_addr = self.0.func_addrs[export.index as usize];
+        let func = store.get_func(func_addr as usize)?;
+        let ty = self.0.types[func.ty_addr() as usize].clone();
 
         Ok(FuncHandle {
             addr: export.index,
-            module: self,
+            _module: self.clone(),
             name: Some(name.to_string()),
             ty,
         })
@@ -100,44 +138,27 @@ impl ModuleInstance {
 
     /// Get the start  function of the module
     pub fn get_start_func(&mut self, store: &store::Store) -> Result<Option<FuncHandle>> {
-        let Some(addr) = self.func_start else {
+        let Some(func_index) = self.0.func_start else {
             return Ok(None);
         };
 
-        let func = store.get_func(addr as usize)?;
-        let ty = self.types[func.ty as usize].clone();
+        let func_addr = self.0.func_addrs[func_index as usize];
+        let func = store.get_func(func_addr as usize)?;
+        let ty = self.0.types[func.ty_addr() as usize].clone();
 
         Ok(Some(FuncHandle {
-            module: self,
-            addr,
+            _module: self.clone(),
+            addr: func_addr,
             ty,
             name: None,
         }))
-    }
-
-    pub fn new(store: &mut Store, mut module: Module) -> Result<Self> {
-        let store_data = StoreData {
-            funcs: module.data.funcs,
-        };
-
-        store.initialize(store_data)?;
-        Ok(Self {
-            types: module.data.types,
-            func_start: module.data.start_func,
-            // table_addrs,
-            // mem_addrs,
-            // global_addrs,
-            // elem_addrs,
-            // data_addrs,
-            exports: module.data.exports,
-        })
     }
 
     /// Invoke the start function of the module
     /// Returns None if the module has no start function
     /// https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start
     pub fn start(&mut self, store: &mut store::Store) -> Result<Option<()>> {
-        let Some(mut func) = self.get_start_func(store)? else {
+        let Some(func) = self.get_start_func(store)? else {
             return Ok(None);
         };
 
@@ -147,16 +168,16 @@ impl ModuleInstance {
 }
 
 #[derive(Debug)]
-pub struct FuncHandle<'a> {
-    module: &'a mut ModuleInstance,
+pub struct FuncHandle {
+    _module: ModuleInstance,
     addr: FuncAddr,
     ty: FuncType,
     pub name: Option<String>,
 }
 
-impl<'a> FuncHandle<'a> {
+impl FuncHandle {
     /// Call a function
-    pub fn call(&mut self, store: &mut Store, params: Vec<WasmValue>) -> Result<Vec<WasmValue>> {
+    pub fn call(&self, store: &mut Store, params: Vec<WasmValue>) -> Result<Vec<WasmValue>> {
         let func = store
             .data
             .funcs
@@ -177,56 +198,25 @@ impl<'a> FuncHandle<'a> {
 
         let mut local_types: Vec<ValType> = Vec::new();
         local_types.extend(func_ty.params.iter());
-        local_types.extend(func.locals.iter());
+        local_types.extend(func.locals().iter());
 
-        let runtime = &mut store.runtime;
-        let stack = &mut runtime.stack;
-        let locals = &mut stack.locals;
-        locals.extend(params);
+        // let runtime = &mut store.runtime;
 
-        let mut instrs = func.instructions.iter();
-        while let Some(instr) = instrs.next() {
-            use tinywasm_types::Instruction::*;
-            match instr {
-                LocalGet(local_index) => {
-                    let val = &locals[*local_index as usize];
-                    info!("local: {:#?}", val);
-                    stack.value_stack.push(val.clone());
-                }
-                I64Add => {
-                    let a = stack.value_stack.pop().unwrap();
-                    let b = stack.value_stack.pop().unwrap();
-                    let (WasmValue::I64(a), WasmValue::I64(b)) = (a, b) else {
-                        panic!("Invalid type");
-                    };
-                    let c = WasmValue::I64(a + b);
-                    stack.value_stack.push(c);
-                }
-                I32Add => {
-                    let a = stack.value_stack.pop().unwrap();
-                    let b = stack.value_stack.pop().unwrap();
-                    let (WasmValue::I32(a), WasmValue::I32(b)) = (a, b) else {
-                        panic!("Invalid type");
-                    };
-                    let c = WasmValue::I32(a + b);
-                    stack.value_stack.push(c);
-                }
-                End => {
-                    let res = func_ty
-                        .results
-                        .iter()
-                        .map(|_| runtime.stack.value_stack.pop())
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or(Error::Other(
-                            "function did not return the correct number of values".into(),
-                        ))?;
+        let mut stack = Stack::default();
+        stack.locals.extend(params);
 
-                    return Ok(res);
-                }
-                _ => todo!(),
-            }
-        }
+        let instrs = func.instructions().iter();
+        store.runtime.exec(&mut stack, instrs)?;
 
-        Err(Error::FuncDidNotReturn)
+        let res = func_ty
+            .results
+            .iter()
+            .map(|_| stack.value_stack.pop())
+            .collect::<Option<Vec<_>>>()
+            .ok_or(Error::Other(
+                "function did not return the correct number of values".into(),
+            ))?;
+
+        Ok(res)
     }
 }

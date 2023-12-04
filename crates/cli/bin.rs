@@ -82,9 +82,8 @@ fn run(wasm: &[u8]) -> Result<()> {
     let mut store = tinywasm::Store::default();
 
     let module = tinywasm::Module::parse_bytes(wasm)?;
-    let mut instance = module.instantiate(&mut store)?;
-
-    let mut func = instance.get_func(&mut store, "add")?;
+    let instance = module.instantiate(&mut store)?;
+    let func = instance.get_func(&store, "add")?;
     let params = vec![WasmValue::I32(2), WasmValue::I32(2)];
     let res = func.call(&mut store, params)?;
     info!("{res:?}");

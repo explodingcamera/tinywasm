@@ -15,6 +15,7 @@ use module::ModuleReader;
 use tinywasm_types::{Function, TinyWasmModule};
 use wasmparser::Validator;
 
+#[derive(Default)]
 pub struct Parser {}
 
 impl Parser {
@@ -102,8 +103,7 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
                 locals: f.locals,
                 ty,
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect::<Vec<_>>();
 
         Ok(TinyWasmModule {
             version: reader.version,
