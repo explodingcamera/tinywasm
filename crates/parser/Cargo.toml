@@ -7,7 +7,7 @@ edition="2021"
 # fork of wasmparser with no_std support, see https://github.com/bytecodealliance/wasmtime/issues/3495
 # TODO: create dependency free parser
 wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
-log="0.4.20"
+log="0.4"
 tinywasm-types={path="../types"}
 
 [features]

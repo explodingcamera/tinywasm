@@ -9,7 +9,7 @@ path="src/lib.rs"
 crate-type=["cdylib", "rlib"]
 
 [dependencies]
-log="0.4.20"
+log="0.4"
 tinywasm-parser={path="../parser", default-features=false}
 tinywasm-types={path="../types", default-features=false}
 
