@@ -50,7 +50,7 @@ impl FuncHandle {
         }
 
         // 6. Let f be the dummy frame
-        let call_frame = CallFrame::new(self.addr as usize, params, func_inst.locals().iter());
+        let call_frame = CallFrame::new(self.addr as usize, params, func_inst.locals().to_vec());
 
         // 7. Push the frame f to the call stack
         stack.call_stack.push(call_frame);
@@ -64,19 +64,12 @@ impl FuncHandle {
         // Once the function returns:
         let result_m = func_ty.results.len();
         let res = stack.values.pop_n(result_m)?;
-        func_ty
-            .results
-            .iter()
-            .zip(res.iter())
-            .try_for_each(|(ty, val)| match ty == &val.val_type() {
-                true => Ok(()),
-                false => Err(Error::Other(format!(
-                    "result type mismatch: expected {:?}, got {:?}",
-                    ty, val
-                ))),
-            })?;
 
-        Ok(res)
+        Ok(res
+            .iter()
+            .zip(func_ty.results.iter())
+            .map(|(v, ty)| v.into_typed(*ty))
+            .collect())
     }
 }
 

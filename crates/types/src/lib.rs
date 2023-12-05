@@ -10,7 +10,7 @@ pub struct TinyWasmModule {
     pub version: Option<u16>,
     pub start_func: Option<FuncAddr>,
 
-    pub funcs: Vec<Function>,
+    pub funcs: Box<[Function]>,
     pub types: Box<[FuncType]>,
     pub exports: Box<[Export]>,
     // pub tables: Option<TableType>,

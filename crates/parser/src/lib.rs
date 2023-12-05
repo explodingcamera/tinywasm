@@ -108,7 +108,7 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             version: reader.version,
             start_func: reader.start_func,
             types: reader.type_section.into_boxed_slice(),
-            funcs,
+            funcs: funcs.into_boxed_slice(),
             exports: reader.export_section.into_boxed_slice(),
         })
     }

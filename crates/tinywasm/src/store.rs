@@ -103,7 +103,7 @@ impl Store {
         idx: ModuleInstanceAddr,
     ) -> Vec<FuncAddr> {
         let mut func_addrs = Vec::with_capacity(funcs.len());
-        for func in funcs {
+        for func in funcs.into_iter() {
             self.data.funcs.push(FunctionInstance {
                 func,
                 _module_instance: idx,
