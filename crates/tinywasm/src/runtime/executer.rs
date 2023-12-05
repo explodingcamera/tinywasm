@@ -1,19 +1,37 @@
 use super::{Runtime, Stack};
 use crate::{Error, Result};
+use alloc::vec;
 use log::debug;
 use tinywasm_types::Instruction;
 
+enum BlockMarker {
+    Top,
+    Loop,
+    If,
+    Else,
+    Block,
+}
+
 impl<const CHECK_TYPES: bool> Runtime<CHECK_TYPES> {
-    pub(crate) fn exec(
-        &self,
-        stack: &mut Stack,
-        instrs: core::slice::Iter<Instruction>,
-    ) -> Result<()> {
+    pub(crate) fn exec(&self, stack: &mut Stack, instrs: core::slice::Iter<Instruction>) -> Result<()> {
         let call_frame = stack.call_stack.top_mut()?;
+        let mut blocks = vec![BlockMarker::Top];
 
         for instr in instrs {
             use tinywasm_types::Instruction::*;
             match instr {
+                End => {
+                    let block = blocks.pop().ok_or(Error::BlockStackUnderflow)?;
+
+                    use BlockMarker::*;
+                    match block {
+                        Top => return Ok(()),
+                        Block => todo!(),
+                        Loop => todo!(),
+                        If => todo!(),
+                        Else => todo!(),
+                    }
+                }
                 LocalGet(local_index) => {
                     let val = call_frame.get_local(*local_index as usize);
                     debug!("local: {:#?}", val);
@@ -51,10 +69,6 @@ impl<const CHECK_TYPES: bool> Runtime<CHECK_TYPES> {
                     let a: i32 = a.into();
                     let b: i32 = b.into();
                     stack.values.push((a - b).into());
-                }
-                End => {
-                    debug!("stack: {:?}", stack);
-                    return Ok(());
                 }
                 _ => todo!(),
             }

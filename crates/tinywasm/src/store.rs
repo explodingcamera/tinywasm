@@ -97,11 +97,7 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn add_funcs(
-        &mut self,
-        funcs: Vec<Function>,
-        idx: ModuleInstanceAddr,
-    ) -> Vec<FuncAddr> {
+    pub(crate) fn add_funcs(&mut self, funcs: Vec<Function>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let mut func_addrs = Vec::with_capacity(funcs.len());
         for func in funcs.into_iter() {
             self.data.funcs.push(FunctionInstance {

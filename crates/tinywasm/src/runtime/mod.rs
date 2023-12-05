@@ -3,7 +3,7 @@ mod stack;
 mod value;
 
 pub use stack::*;
-pub use value::UntypedWasmValue;
+pub(crate) use value::RawWasmValue;
 
 /// A WebAssembly Runtime.
 /// See https://webassembly.github.io/spec/core/exec/runtime.html

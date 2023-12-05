@@ -1,4 +1,4 @@
-use crate::{runtime::UntypedWasmValue, Error, Result};
+use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
@@ -51,14 +51,14 @@ pub struct CallFrame<const CHECK: bool> {
     pub instr_ptr: usize,
     pub func_ptr: usize,
 
-    pub locals: Box<[UntypedWasmValue]>,
+    pub locals: Box<[RawWasmValue]>,
     pub local_count: usize,
 }
 
 impl<const CHECK: bool> CallFrame<CHECK> {
     pub fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
         let mut locals = Vec::with_capacity(local_types.len() + params.len());
-        locals.extend(params.iter().map(|v| UntypedWasmValue::from(*v)));
+        locals.extend(params.iter().map(|v| RawWasmValue::from(*v)));
 
         Self {
             instr_ptr: 0,
@@ -69,7 +69,7 @@ impl<const CHECK: bool> CallFrame<CHECK> {
     }
 
     #[inline]
-    pub(crate) fn set_local(&mut self, local_index: usize, value: UntypedWasmValue) {
+    pub(crate) fn set_local(&mut self, local_index: usize, value: RawWasmValue) {
         if local_index >= self.local_count {
             panic!("Invalid local index");
         }
@@ -78,7 +78,7 @@ impl<const CHECK: bool> CallFrame<CHECK> {
     }
 
     #[inline]
-    pub(crate) fn get_local(&self, local_index: usize) -> UntypedWasmValue {
+    pub(crate) fn get_local(&self, local_index: usize) -> RawWasmValue {
         if local_index >= self.local_count {
             panic!("Invalid local index");
         }

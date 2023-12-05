@@ -10,6 +10,7 @@ pub enum Error {
 
     FuncDidNotReturn,
     StackUnderflow,
+    BlockStackUnderflow,
     CallStackEmpty,
 
     InvalidStore,
@@ -22,6 +23,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::FuncDidNotReturn => write!(f, "function did not return"),
+            Self::BlockStackUnderflow => write!(f, "block stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),

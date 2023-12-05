@@ -58,18 +58,12 @@ impl ModuleReader {
         use wasmparser::Payload::*;
 
         match payload {
-            Version {
-                num,
-                encoding,
-                range,
-            } => {
+            Version { num, encoding, range } => {
                 validator.version(num, encoding, &range)?;
                 self.version = Some(num);
                 match encoding {
                     wasmparser::Encoding::Module => {}
-                    wasmparser::Encoding::Component => {
-                        return Err(ParseError::InvalidEncoding(encoding))
-                    }
+                    wasmparser::Encoding::Component => return Err(ParseError::InvalidEncoding(encoding)),
                 }
             }
             StartSection { func, range } => {
@@ -88,10 +82,7 @@ impl ModuleReader {
             FunctionSection(reader) => {
                 debug!("Found function section");
                 validator.function_section(&reader)?;
-                self.function_section = reader
-                    .into_iter()
-                    .map(|f| Ok(f?))
-                    .collect::<Result<Vec<_>>>()?;
+                self.function_section = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             TableSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Table section".into()));
@@ -135,8 +126,7 @@ impl ModuleReader {
                 debug!("Found code section entry");
                 validator.code_section_entry(&function)?;
 
-                self.code_section
-                    .push(conversion::convert_module_code(function)?);
+                self.code_section.push(conversion::convert_module_code(function)?);
             }
             ImportSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Import section".into()));
@@ -166,9 +156,7 @@ impl ModuleReader {
                 debug!("Found custom section");
                 debug!("Skipping custom section: {:?}", reader.name());
             }
-            UnknownSection { .. } => {
-                return Err(ParseError::UnsupportedSection("Unknown section".into()))
-            }
+            UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => {
                 return Err(ParseError::UnsupportedSection(format!(
                     "Unsupported section: {:?}",

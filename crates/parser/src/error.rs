@@ -28,11 +28,9 @@ impl Debug for ParseError {
                 write!(f, "error parsing module: {} at offset {}", message, offset)
             }
             Self::InvalidEncoding(encoding) => write!(f, "invalid encoding: {:?}", encoding),
-            Self::InvalidLocalCount { expected, actual } => write!(
-                f,
-                "invalid local count: expected {}, actual {}",
-                expected, actual
-            ),
+            Self::InvalidLocalCount { expected, actual } => {
+                write!(f, "invalid local count: expected {}, actual {}", expected, actual)
+            }
             Self::EndNotReached => write!(f, "end of module not reached"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
         }

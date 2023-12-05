@@ -67,9 +67,7 @@ fn main() -> Result<()> {
         _ => log::LevelFilter::Info,
     };
 
-    pretty_env_logger::formatted_builder()
-        .filter_level(level)
-        .init();
+    pretty_env_logger::formatted_builder().filter_level(level).init();
 
     let cwd = std::env::current_dir()?;
 
@@ -84,11 +82,7 @@ fn main() -> Result<()> {
                     tinywasm::Module::parse_bytes(&wasm)?
                 }
                 #[cfg(not(feature = "wat"))]
-                true => {
-                    return Err(color_eyre::eyre::eyre!(
-                        "wat support is not enabled in this build"
-                    ))
-                }
+                true => return Err(color_eyre::eyre::eyre!("wat support is not enabled in this build")),
                 false => tinywasm::Module::parse_file(path)?,
             };
 

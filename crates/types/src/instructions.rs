@@ -4,8 +4,7 @@ use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, Val
 pub enum BlockArgs {
     Empty,
     Type(ValType),
-    // TODO: wasm 2.0
-    // FuncType(u32),
+    FuncType(u32),
 }
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
@@ -22,6 +21,9 @@ pub struct MemArg {
 /// For example, `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
+    // Custom Instructions
+    BrLabel(LabelAddr),
+
     // Control Instructions
     // See https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
     Unreachable,
@@ -33,8 +35,7 @@ pub enum Instruction {
     End,
     Br(LabelAddr),
     BrIf(LabelAddr),
-    BrTable(u32), // has to be followed by multiple BrLabel instructions
-    BrLabel(LabelAddr),
+    BrTable(u32, u32), // has to be followed by multiple BrLabel instructions
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),

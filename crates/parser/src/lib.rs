@@ -38,14 +38,10 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
-    pub fn parse_module_file(
-        &self,
-        path: impl AsRef<crate::std::path::Path> + Clone,
-    ) -> Result<TinyWasmModule> {
+    pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<TinyWasmModule> {
         use alloc::format;
-        let f = crate::std::fs::File::open(path.clone()).map_err(|e| {
-            ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e))
-        })?;
+        let f = crate::std::fs::File::open(path.clone())
+            .map_err(|e| ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
 
         let mut reader = crate::std::io::BufReader::new(f);
         self.parse_module_stream(&mut reader)
@@ -66,9 +62,9 @@ impl Parser {
                 wasmparser::Chunk::NeedMoreData(hint) => {
                     let len = buffer.len();
                     buffer.extend((0..hint).map(|_| 0u8));
-                    let read_bytes = stream.read(&mut buffer[len..]).map_err(|e| {
-                        ParseError::Other(format!("Error reading from stream: {}", e))
-                    })?;
+                    let read_bytes = stream
+                        .read(&mut buffer[len..])
+                        .map_err(|e| ParseError::Other(format!("Error reading from stream: {}", e)))?;
                     buffer.truncate(len + read_bytes);
                     eof = read_bytes == 0;
                 }

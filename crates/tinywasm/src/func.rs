@@ -68,7 +68,7 @@ impl FuncHandle {
         Ok(res
             .iter()
             .zip(func_ty.results.iter())
-            .map(|(v, ty)| v.into_typed(*ty))
+            .map(|(v, ty)| v.attach_type(*ty))
             .collect())
     }
 }
