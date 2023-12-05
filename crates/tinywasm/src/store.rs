@@ -24,7 +24,7 @@ pub struct Store {
     module_instance_count: usize,
 
     pub(crate) data: StoreData,
-    pub(crate) runtime: Runtime,
+    pub(crate) runtime: Runtime<true>,
 }
 
 impl PartialEq for Store {

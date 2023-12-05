@@ -10,6 +10,7 @@ pub enum Error {
 
     FuncDidNotReturn,
     StackUnderflow,
+    CallStackEmpty,
 
     InvalidStore,
 
@@ -24,6 +25,7 @@ impl Display for Error {
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
+            Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "std")]

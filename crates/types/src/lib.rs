@@ -23,16 +23,29 @@ pub struct TinyWasmModule {
 
 /// A WebAssembly value.
 /// See https://webassembly.github.io/spec/core/syntax/types.html#value-types
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 pub enum WasmValue {
     // Num types
     I32(i32),
     I64(i64),
     F32(f32),
     F64(f64),
-
     // Vec types
-    V128(i128),
+    // V128(i128),
+}
+
+impl WasmValue {
+    pub fn default_for(ty: ValType) -> Self {
+        match ty {
+            ValType::I32 => Self::I32(0),
+            ValType::I64 => Self::I64(0),
+            ValType::F32 => Self::F32(0.0),
+            ValType::F64 => Self::F64(0.0),
+            ValType::V128 => unimplemented!("V128 is not yet supported"),
+            ValType::FuncRef => unimplemented!("FuncRef is not yet supported"),
+            ValType::ExternRef => unimplemented!("ExternRef is not yet supported"),
+        }
+    }
 }
 
 impl From<i32> for WasmValue {
@@ -59,11 +72,11 @@ impl From<f64> for WasmValue {
     }
 }
 
-impl From<i128> for WasmValue {
-    fn from(i: i128) -> Self {
-        Self::V128(i)
-    }
-}
+// impl From<i128> for WasmValue {
+//     fn from(i: i128) -> Self {
+//         Self::V128(i)
+//     }
+// }
 
 impl TryFrom<WasmValue> for i32 {
     type Error = ();
@@ -109,16 +122,16 @@ impl TryFrom<WasmValue> for f64 {
     }
 }
 
-impl TryFrom<WasmValue> for i128 {
-    type Error = ();
+// impl TryFrom<WasmValue> for i128 {
+//     type Error = ();
 
-    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
-        match value {
-            WasmValue::V128(i) => Ok(i),
-            _ => Err(()),
-        }
-    }
-}
+//     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+//         match value {
+//             WasmValue::V128(i) => Ok(i),
+//             _ => Err(()),
+//         }
+//     }
+// }
 
 impl Debug for WasmValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -127,7 +140,7 @@ impl Debug for WasmValue {
             WasmValue::I64(i) => write!(f, "i64({})", i),
             WasmValue::F32(i) => write!(f, "f32({})", i),
             WasmValue::F64(i) => write!(f, "f64({})", i),
-            WasmValue::V128(i) => write!(f, "v128({})", i),
+            // WasmValue::V128(i) => write!(f, "v128({})", i),
         }
     }
 }
@@ -139,7 +152,7 @@ impl WasmValue {
             Self::I64(_) => ValType::I64,
             Self::F32(_) => ValType::F32,
             Self::F64(_) => ValType::F64,
-            Self::V128(_) => ValType::V128,
+            // Self::V128(_) => ValType::V128,
         }
     }
 }
