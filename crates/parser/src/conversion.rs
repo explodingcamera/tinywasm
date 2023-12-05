@@ -71,8 +71,16 @@ pub(crate) fn convert_blocktype(blocktype: &wasmparser::BlockType) -> BlockArgs 
     use wasmparser::BlockType::*;
     match blocktype {
         Empty => BlockArgs::Empty,
+
+        // We should maybe have all this in a single variant for our custom bytecode
+
+        // TODO: maybe solve this differently so we can support 128-bit values
+        // without having to increase the size of the WasmValue enum
         Type(ty) => BlockArgs::Type(convert_valtype(ty)),
-        FuncType(ty) => BlockArgs::FuncType(*ty),
+
+        // Wasm 2.0
+        FuncType(_ty) => unimplemented!(),
+        // FuncType(ty) => BlockArgs::FuncType(*ty),
     }
 }
 

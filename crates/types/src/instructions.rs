@@ -4,7 +4,8 @@ use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, Val
 pub enum BlockArgs {
     Empty,
     Type(ValType),
-    FuncType(u32),
+    // TODO: wasm 2.0
+    // FuncType(u32),
 }
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
