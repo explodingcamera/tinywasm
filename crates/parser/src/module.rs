@@ -1,6 +1,6 @@
+use crate::log::debug;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use log::debug;
 use tinywasm_types::{Export, FuncType, Instruction, ValType};
 use wasmparser::{Payload, Validator};
 
@@ -124,9 +124,11 @@ impl ModuleReader {
             }
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");
-                validator.code_section_entry(&function)?;
+                let v = validator.code_section_entry(&function)?;
+                let func_validator = v.into_validator(Default::default());
 
-                self.code_section.push(conversion::convert_module_code(function)?);
+                self.code_section
+                    .push(conversion::convert_module_code(function, func_validator)?);
             }
             ImportSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Import section".into()));

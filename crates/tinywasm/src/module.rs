@@ -14,20 +14,21 @@ impl From<TinyWasmModule> for Module {
 }
 
 impl Module {
+    #[cfg(feature = "parser")]
     pub fn parse_bytes(wasm: &[u8]) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_bytes(wasm)?;
         Ok(data.into())
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "parser", feature = "std"))]
     pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_file(path)?;
         Ok(data.into())
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "parser", feature = "std"))]
     pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_stream(stream)?;

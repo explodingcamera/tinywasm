@@ -5,6 +5,17 @@
 mod std;
 extern crate alloc;
 
+// log for logging (optional).
+#[cfg(feature = "logging")]
+#[allow(clippy::single_component_path_imports)]
+use log;
+
+#[cfg(not(feature = "logging"))]
+pub(crate) mod log {
+    macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    pub(crate) use debug;
+}
+
 mod error;
 pub use error::*;
 
@@ -23,6 +34,7 @@ pub use export::ExportInstance;
 pub mod func;
 pub use func::{FuncHandle, TypedFuncHandle};
 
+#[cfg(feature = "parser")]
 pub use tinywasm_parser as parser;
 pub use tinywasm_types::*;
 pub mod runtime;

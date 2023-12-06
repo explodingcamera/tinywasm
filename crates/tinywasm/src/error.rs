@@ -1,10 +1,17 @@
 use alloc::string::{String, ToString};
 use core::fmt::Display;
+
+#[cfg(feature = "parser")]
 use tinywasm_parser::ParseError;
 
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(feature = "parser")]
     ParseError(ParseError),
+
+    #[cfg(feature = "std")]
+    Io(crate::std::io::Error),
+
     UnsupportedFeature(String),
     Other(String),
 
@@ -12,26 +19,25 @@ pub enum Error {
     StackUnderflow,
     BlockStackUnderflow,
     CallStackEmpty,
-
     InvalidStore,
-
-    #[cfg(feature = "std")]
-    Io(crate::std::io::Error),
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            #[cfg(feature = "parser")]
+            Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
+
+            #[cfg(feature = "std")]
+            Self::Io(err) => write!(f, "I/O error: {}", err),
+
+            Self::Other(message) => write!(f, "unknown error: {}", message),
+            Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
             Self::BlockStackUnderflow => write!(f, "block stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
-            Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
-            Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::CallStackEmpty => write!(f, "call stack empty"),
-            Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::InvalidStore => write!(f, "invalid store"),
-            #[cfg(feature = "std")]
-            Self::Io(err) => write!(f, "I/O error: {}", err),
         }
     }
 }
@@ -48,6 +54,7 @@ impl Error {
     }
 }
 
+#[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {
     fn from(value: tinywasm_parser::ParseError) -> Self {
         Self::ParseError(value)

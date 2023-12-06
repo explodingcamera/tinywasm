@@ -1,9 +1,9 @@
 use super::{Runtime, Stack};
-use crate::{Error, Result};
+use crate::{log::debug, Error, Result};
 use alloc::vec;
-use log::debug;
 use tinywasm_types::Instruction;
 
+#[allow(dead_code)]
 enum BlockMarker {
     Top,
     Loop,

@@ -1,5 +1,17 @@
 extern crate alloc;
 
+// log for logging (optional).
+// #[cfg(feature = "logging")]
+// #[allow(unused_imports)]
+// use log;
+
+// #[cfg(not(feature = "logging"))]
+// #[macro_use]
+// pub(crate) mod log {
+//     // macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+//     // pub(crate) use debug;
+// }
+
 mod instructions;
 use core::fmt::Debug;
 

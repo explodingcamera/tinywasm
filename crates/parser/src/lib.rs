@@ -5,6 +5,17 @@
 mod std;
 extern crate alloc;
 
+// log for logging (optional).
+#[cfg(feature = "logging")]
+#[allow(clippy::single_component_path_imports)]
+use log;
+
+#[cfg(not(feature = "logging"))]
+mod log {
+    macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    pub(crate) use debug;
+}
+
 mod conversion;
 mod error;
 mod module;

@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::{BlockArgs, Export, ExternalKind, FuncType, Instruction, MemArg, ValType};
+use wasmparser::{FuncValidator, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
 
@@ -24,23 +25,28 @@ pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export
     })
 }
 
-pub(crate) fn convert_module_code(func: wasmparser::FunctionBody) -> Result<CodeSection> {
+pub(crate) fn convert_module_code(
+    func: wasmparser::FunctionBody,
+    mut validator: FuncValidator<ValidatorResources>,
+) -> Result<CodeSection> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let mut locals = Vec::with_capacity(count as usize);
-    locals.extend(
-        locals_reader
-            .into_iter()
-            .filter_map(|l| l.ok())
-            .map(|l| convert_valtype(&l.1)),
-    );
+
+    for (i, local) in locals_reader.into_iter().enumerate() {
+        let local = local?;
+        for _ in 0..local.0 {
+            locals.push(convert_valtype(&local.1));
+        }
+        validator.define_locals(i, local.0, local.1)?;
+    }
 
     if locals.len() != count as usize {
         return Err(crate::ParseError::Other("Invalid local index".to_string()));
     }
 
     let body_reader = func.get_operators_reader()?;
-    let body = process_operators(body_reader.into_iter())?;
+    let body = process_operators(body_reader.into_iter(), validator)?;
 
     Ok(CodeSection {
         locals: locals.into_boxed_slice(),
@@ -106,12 +112,18 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
 
 pub fn process_operators<'a>(
     ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
+    mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
 
+    let mut offset = 0;
     for op in ops {
+        let op = op?;
+        validator.op(offset, &op)?;
+        offset += 1;
+
         use wasmparser::Operator::*;
-        let res = match op? {
+        let res = match op {
             BrTable { targets } => {
                 let def = targets.default();
                 let targets = targets
@@ -302,6 +314,8 @@ pub fn process_operators<'a>(
 
         instructions.push(res);
     }
+
+    validator.finish(offset)?;
 
     Ok(instructions.into_boxed_slice())
 }

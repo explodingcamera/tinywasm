@@ -5,9 +5,10 @@ edition="2021"
 
 [dependencies]
 log={version="0.4", optional=true}
-rkyv={version="0.7", optional=true, default-features=false}
+rkyv={version="0.7", optional=true, default-features=false, features=["size_32"]}
 
 [features]
-default=["std"]
-std=[]
+default=["std", "logging"]
+std=["rkyv/std"]
 serialize=["dep:rkyv", "dep:log"]
+logging=["dep:log"]
