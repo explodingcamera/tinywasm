@@ -1,9 +1,13 @@
 use std::str::FromStr;
 
 use argh::FromArgs;
+use args::WasmArg;
 use color_eyre::eyre::Result;
-use log::info;
-use tinywasm::{self, Module};
+use log::{debug, info};
+use tinywasm::{self, Module, WasmValue};
+
+use crate::args::to_wasm_args;
+mod args;
 mod util;
 
 #[cfg(feature = "wat")]
@@ -49,6 +53,14 @@ struct Run {
     #[argh(positional)]
     wasm_file: String,
 
+    /// function to run
+    #[argh(option, short = 'f')]
+    func: Option<String>,
+
+    /// arguments to pass to the wasm file
+    #[argh(option, short = 'a')]
+    args: Vec<WasmArg>,
+
     /// engine to use
     #[argh(option, short = 'e', default = "Engine::Main")]
     engine: Engine,
@@ -72,7 +84,14 @@ fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
 
     match args.nested {
-        TinyWasmSubcommand::Run(Run { wasm_file, engine }) => {
+        TinyWasmSubcommand::Run(Run {
+            wasm_file,
+            engine,
+            args,
+            func,
+        }) => {
+            debug!("args: {:?}", args);
+
             let path = cwd.join(wasm_file.clone());
             let module = match wasm_file.ends_with(".wat") {
                 #[cfg(feature = "wat")]
@@ -87,24 +106,21 @@ fn main() -> Result<()> {
             };
 
             match engine {
-                Engine::Main => run(module),
+                Engine::Main => run(module, func, to_wasm_args(args)),
             }
         }
     }
 }
 
-fn run(module: Module) -> Result<()> {
+fn run(module: Module, func: Option<String>, args: Vec<WasmValue>) -> Result<()> {
     let mut store = tinywasm::Store::default();
     let instance = module.instantiate(&mut store)?;
 
-    let func = instance.get_typed_func::<(i32, i32), (i32,)>(&store, "add")?;
-    let (res,) = func.call(&mut store, (2, 2))?;
-    info!("{res:?}");
-
-    // let func = instance.get_func(&store, "add")?;
-    // let params = vec![WasmValue::I32(2), WasmValue::I32(2)];
-    // let res = func.call(&mut store, &params)?;
-    // info!("{res:?}");
+    if let Some(func) = func {
+        let func = instance.get_func(&store, &func)?;
+        let res = func.call(&mut store, &args)?;
+        info!("{res:?}");
+    }
 
     Ok(())
 }
