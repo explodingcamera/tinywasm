@@ -158,6 +158,10 @@ pub fn process_operators<'a>(
             GlobalSet { global_index } => Instruction::GlobalSet(global_index),
             MemorySize { .. } => Instruction::MemorySize,
             MemoryGrow { .. } => Instruction::MemoryGrow,
+            I32Const { value } => Instruction::I32Const(value),
+            I64Const { value } => Instruction::I64Const(value),
+            F32Const { value } => Instruction::F32Const(f32::from_bits(value.bits())), // TODO: check if this is correct
+            F64Const { value } => Instruction::F64Const(f64::from_bits(value.bits())), // TODO: check if this is correct
             I32Load { memarg } => Instruction::I32Load(convert_memarg(memarg)),
             I64Load { memarg } => Instruction::I64Load(convert_memarg(memarg)),
             F32Load { memarg } => Instruction::F32Load(convert_memarg(memarg)),

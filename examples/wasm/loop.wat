@@ -1,5 +1,5 @@
 (module
-  (func $loopExample (export "loopExample")
+  (func $loop (export "loop") (result i32)
     (local i32)  ;; Declare a local i32 variable, let's call it 'i'
     (i32.const 0)  ;; Initialize 'i' to 0
     (local.set 0)
@@ -15,6 +15,8 @@
       (i32.lt_s)     ;; Check if 'i' is less than 10
       (br_if $loopStart)  ;; If 'i' < 10, continue the loop
     )
+
+    (local.get 0)  ;; After the loop, get the value of 'i' to be returned
+    ;; The function will return the value of 'i' here
   )
 )
-

@@ -1,4 +1,5 @@
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use log::debug;
 use tinywasm_types::{FuncAddr, FuncType, WasmValue};
 
 use crate::{
@@ -50,6 +51,7 @@ impl FuncHandle {
         }
 
         // 6. Let f be the dummy frame
+        debug!("locals: {:?}", func_inst.locals());
         let call_frame = CallFrame::new(self.addr as usize, params, func_inst.locals().to_vec());
 
         // 7. Push the frame f to the call stack
@@ -58,7 +60,7 @@ impl FuncHandle {
         // 8. Push the values to the stack (Not needed since the call frame owns the values)
 
         // 9. Invoke the function instance
-        let instrs = func_inst.instructions().iter();
+        let instrs = func_inst.instructions();
         store.runtime.exec(&mut stack, instrs)?;
 
         // Once the function returns:

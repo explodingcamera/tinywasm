@@ -59,6 +59,7 @@ impl<const CHECK: bool> CallFrame<CHECK> {
     pub fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
         let mut locals = Vec::with_capacity(local_types.len() + params.len());
         locals.extend(params.iter().map(|v| RawWasmValue::from(*v)));
+        locals.extend(local_types.iter().map(|_| RawWasmValue::default()));
 
         Self {
             instr_ptr: 0,
