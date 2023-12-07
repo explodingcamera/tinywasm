@@ -1,8 +1,12 @@
-<p align="center">
-    <img src="./tinywasm.png" width="100px">
-    <h1 align="center">TinyWasm</h1>
-    <h3 align="center">A tiny WebAssembly Runtime written in Rust.</h3>
-</p>
+<div>
+    <div>
+        <img align="left" src="./tinywasm.png" width="100px">
+    </div>
+    <h1>&nbsp;&nbsp;TinyWasm</h1>
+    <h4>&nbsp;&nbsp;&nbsp;&nbsp;A tiny WebAssembly Runtime written in Rust</h4>
+</div>
+
+[![docs.rs](https://img.shields.io/docsrs/okv?logo=rust)](https://docs.rs/okv) [![Crates.io](https://img.shields.io/crates/v/okv.svg?logo=rust)](https://crates.io/crates/okv) [![Crates.io](https://img.shields.io/crates/l/okv.svg)](./LICENSE-APACHE) 
 
 <br/>
 
