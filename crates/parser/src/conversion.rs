@@ -129,7 +129,7 @@ pub fn process_operators<'a>(
                 let targets = targets
                     .targets()
                     .collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?;
-                instructions.push(Instruction::BrTable(def, targets.len() as u32));
+                instructions.push(Instruction::BrTable(def, targets.len()));
                 instructions.extend(targets.into_iter().map(Instruction::BrLabel));
                 continue;
             }

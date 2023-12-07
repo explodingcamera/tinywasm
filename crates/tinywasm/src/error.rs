@@ -5,6 +5,11 @@ use core::fmt::Display;
 use tinywasm_parser::ParseError;
 
 #[derive(Debug)]
+pub enum Trap {
+    Unreachable,
+}
+
+#[derive(Debug)]
 pub enum Error {
     #[cfg(feature = "parser")]
     ParseError(ParseError),
@@ -14,6 +19,8 @@ pub enum Error {
 
     UnsupportedFeature(String),
     Other(String),
+
+    Trap(Trap),
 
     FuncDidNotReturn,
     StackUnderflow,
@@ -30,6 +37,8 @@ impl Display for Error {
 
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {}", err),
+
+            Self::Trap(trap) => write!(f, "trap: {:?}", trap),
 
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),

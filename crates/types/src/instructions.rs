@@ -14,6 +14,9 @@ pub struct MemArg {
     pub offset: u64,
 }
 
+type BrTableDefault = u32;
+type BrTableLen = usize;
+
 /// A WebAssembly Instruction
 /// See https://webassembly.github.io/spec/core/binary/instructions.html
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
@@ -35,7 +38,7 @@ pub enum Instruction {
     End,
     Br(LabelAddr),
     BrIf(LabelAddr),
-    BrTable(u32, u32), // has to be followed by multiple BrLabel instructions
+    BrTable(BrTableDefault, BrTableLen), // has to be followed by multiple BrLabel instructions
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
