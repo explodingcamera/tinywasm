@@ -2,7 +2,7 @@ use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
-use super::blocks::Blocks;
+use super::{blocks::Blocks, BlockFrameType};
 
 // minimum call stack size
 pub const CALL_STACK_SIZE: usize = 1024;
@@ -70,9 +70,16 @@ impl CallFrame {
         self.instr_ptr = block.instr_ptr;
         value_stack.trim(block.stack_ptr);
 
-        // -2 because the block we're breaking to is still on the stack
-        // TODO: this might be wrong
-        self.blocks.trim(block_index as usize - 2);
+        // Adjusting how to trim the blocks stack based on the block type
+        let trim_index = match block.ty {
+            // if we are breaking to a loop, we want to jump back to the start of the loop
+            BlockFrameType::Loop => block_index as usize - 2,
+            // if we are breaking to any other block, we want to jump to the end of the block
+            // TODO: check if this is correct
+            BlockFrameType::If | BlockFrameType::Else | BlockFrameType::Block => block_index as usize - 1,
+        };
+
+        self.blocks.trim(trim_index);
         Ok(())
     }
 

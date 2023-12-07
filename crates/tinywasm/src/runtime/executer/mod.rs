@@ -92,9 +92,14 @@ impl<const CHECK_TYPES: bool> Runtime<CHECK_TYPES> {
                     let val = stack.values.pop().ok_or(Error::StackUnderflow)?;
                     cf.set_local(*local_index as usize, val);
                 }
-                I32Const(val) => {
-                    stack.values.push((*val).into());
+                LocalTee(local_index) => {
+                    debug!("local.tee: {:?}", local_index);
+                    let val = stack.values.pop().ok_or(Error::StackUnderflow)?;
+                    cf.set_local(*local_index as usize, val);
+                    stack.values.push(val);
                 }
+                I32Const(val) => stack.values.push((*val).into()),
+                I64Const(val) => stack.values.push((*val).into()),
                 I64Add => add_instr!(i64, stack),
                 I32Add => add_instr!(i32, stack),
                 F32Add => add_instr!(f32, stack),

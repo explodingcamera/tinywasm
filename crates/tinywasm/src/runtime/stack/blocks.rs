@@ -33,7 +33,7 @@ impl Blocks {
 
 #[derive(Debug)]
 pub(crate) struct BlockFrame {
-    // position of the instruction pointer when the block was entered
+    // where to resume execution when the block is broken
     pub instr_ptr: usize,
     // position of the stack pointer when the block was entered
     pub stack_ptr: usize,
