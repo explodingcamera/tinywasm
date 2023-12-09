@@ -1,6 +1,6 @@
 [package]
 name="tinywasm-cli"
-version="0.0.1"
+version="0.0.2"
 description="TinyWasm CLI"
 edition.workspace=true
 license.workspace=true
