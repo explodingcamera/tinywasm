@@ -2,7 +2,7 @@
 name="tinywasm-cli"
 version="0.0.0"
 edition="2021"
-private=true
+publish=false
 
 [[bin]]
 name="tinywasm-cli"

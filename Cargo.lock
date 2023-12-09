@@ -541,7 +541,6 @@ dependencies = [
  "log",
  "tinywasm-parser",
  "tinywasm-types",
- "wasmparser-nostd",
 ]
 
 [[package]]
