@@ -1,6 +1,16 @@
 #![no_std]
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
+#![doc(test(
+    no_crate_inject,
+    attr(
+        deny(warnings, rust_2018_idioms),
+        allow(dead_code, unused_assignments, unused_variables)
+    )
+))]
+#![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
+
+//! ## A tiny WebAssembly Runtime written in Rust
 
 mod std;
 extern crate alloc;
@@ -19,25 +29,31 @@ pub(crate) mod log {
 mod error;
 pub use error::*;
 
-pub mod store;
-pub use store::Store;
+mod store;
+pub use store::*;
 
-pub mod module;
+mod module;
 pub use module::Module;
 
-pub mod instance;
+mod instance;
 pub use instance::ModuleInstance;
 
-pub mod export;
+mod export;
 pub use export::ExportInstance;
 
-pub mod func;
+mod func;
 pub use func::{FuncHandle, TypedFuncHandle};
 
+mod runtime;
+pub use runtime::*;
+
 #[cfg(feature = "parser")]
-pub use tinywasm_parser as parser;
+/// Re-export of `tinywasm_parser`. Requires `parser` feature.
+pub mod parser {
+    pub use tinywasm_parser::*;
+}
+
 pub use tinywasm_types::*;
-pub mod runtime;
 
 #[cfg(test)]
 mod tests {

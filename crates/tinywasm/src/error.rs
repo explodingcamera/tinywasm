@@ -1,31 +1,51 @@
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use core::fmt::Display;
 
 #[cfg(feature = "parser")]
 use tinywasm_parser::ParseError;
 
 #[derive(Debug)]
+/// A WebAssembly trap
+///
+/// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
 pub enum Trap {
+    /// An unreachable instruction was executed
     Unreachable,
 }
 
 #[derive(Debug)]
+/// A tinywasm error
 pub enum Error {
     #[cfg(feature = "parser")]
+    /// A parsing error occurred
     ParseError(ParseError),
 
     #[cfg(feature = "std")]
+    /// An I/O error occurred
     Io(crate::std::io::Error),
 
+    /// A WebAssembly feature is not supported
     UnsupportedFeature(String),
+
+    /// An unknown error occurred
     Other(String),
 
+    /// A WebAssembly trap occurred
     Trap(Trap),
 
+    /// A function did not return a value
     FuncDidNotReturn,
+
+    /// The stack is empty
     StackUnderflow,
+
+    /// The block stack is empty
     BlockStackUnderflow,
+
+    /// The call stack is empty
     CallStackEmpty,
+
+    /// The store is not the one that the module instance was instantiated in
     InvalidStore,
 }
 
@@ -53,16 +73,6 @@ impl Display for Error {
 
 impl crate::std::error::Error for Error {}
 
-impl Error {
-    pub fn other<T>(message: &str) -> Result<T, Self> {
-        Err(Self::Other(message.to_string()))
-    }
-
-    pub fn unsupported<T>(feature: &str) -> Result<T, Self> {
-        Err(Self::UnsupportedFeature(feature.to_string()))
-    }
-}
-
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {
     fn from(value: tinywasm_parser::ParseError) -> Self {
@@ -70,4 +80,5 @@ impl From<tinywasm_parser::ParseError> for Error {
     }
 }
 
+/// A specialized [`Result`] type for tinywasm operations
 pub type Result<T, E = Error> = crate::std::result::Result<T, E>;

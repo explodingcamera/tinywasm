@@ -5,10 +5,10 @@ use tinywasm_types::{ValType, WasmValue};
 use super::{blocks::Blocks, BlockFrameType};
 
 // minimum call stack size
-pub const CALL_STACK_SIZE: usize = 1024;
+const CALL_STACK_SIZE: usize = 1024;
 
 #[derive(Debug)]
-pub struct CallStack {
+pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
     top: usize,
 }
@@ -49,19 +49,19 @@ impl CallStack {
 }
 
 #[derive(Debug)]
-pub struct CallFrame {
-    pub instr_ptr: usize,
-    pub func_ptr: usize,
+pub(crate) struct CallFrame {
+    pub(crate) instr_ptr: usize,
+    pub(crate) _func_ptr: usize,
 
-    pub blocks: Blocks,
-    pub locals: Box<[RawWasmValue]>,
-    pub local_count: usize,
+    pub(crate) blocks: Blocks,
+    pub(crate) locals: Box<[RawWasmValue]>,
+    pub(crate) local_count: usize,
 }
 
 impl CallFrame {
     /// Break to a block at the given index (relative to the current frame)
     #[inline]
-    pub fn break_to(&mut self, block_index: u32, value_stack: &mut super::ValueStack) -> Result<()> {
+    pub(crate) fn break_to(&mut self, block_index: u32, value_stack: &mut super::ValueStack) -> Result<()> {
         let block = self
             .blocks
             .get(block_index as usize)
@@ -83,14 +83,14 @@ impl CallFrame {
         Ok(())
     }
 
-    pub fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
+    pub(crate) fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
         let mut locals = Vec::with_capacity(local_types.len() + params.len());
         locals.extend(params.iter().map(|v| RawWasmValue::from(*v)));
         locals.extend(local_types.iter().map(|_| RawWasmValue::default()));
 
         Self {
             instr_ptr: 0,
-            func_ptr,
+            _func_ptr: func_ptr,
             local_count: locals.len(),
             locals: locals.into_boxed_slice(),
             blocks: Blocks::default(),

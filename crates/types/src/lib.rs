@@ -34,7 +34,8 @@ pub struct TinyWasmModule {
 }
 
 /// A WebAssembly value.
-/// See https://webassembly.github.io/spec/core/syntax/types.html#value-types
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#value-types>
 #[derive(Clone, PartialEq, Copy)]
 pub enum WasmValue {
     // Num types
@@ -182,7 +183,8 @@ pub enum ValType {
 }
 
 /// A WebAssembly External Kind.
-/// See https://webassembly.github.io/spec/core/syntax/types.html#external-types
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExternalKind {
     Func,
@@ -192,8 +194,10 @@ pub enum ExternalKind {
 }
 
 /// A WebAssembly Address.
+///
 /// These are indexes into the respective stores.
-/// See https://webassembly.github.io/spec/core/exec/runtime.html#addresses
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#addresses>
 pub type Addr = u32;
 pub type FuncAddr = Addr;
 pub type TableAddr = Addr;
@@ -209,7 +213,8 @@ pub type LabelAddr = Addr;
 pub type ModuleInstanceAddr = Addr;
 
 /// A WebAssembly Export Instance.
-/// https://webassembly.github.io/spec/core/exec/runtime.html#export-instances
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#export-instances>
 #[derive(Debug)]
 pub struct ExportInst {
     pub name: String,
@@ -217,7 +222,8 @@ pub struct ExportInst {
 }
 
 /// A WebAssembly External Value.
-/// https://webassembly.github.io/spec/core/exec/runtime.html#external-values
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#external-values>
 #[derive(Debug)]
 pub enum ExternVal {
     Func(FuncAddr),
@@ -227,7 +233,8 @@ pub enum ExternVal {
 }
 
 /// The type of a WebAssembly Function.
-/// See https://webassembly.github.io/spec/core/syntax/types.html#function-types
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncType {
     pub params: Box<[ValType]>,

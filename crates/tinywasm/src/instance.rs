@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
-use tinywasm_types::{Export, FuncAddr, FuncType, ModuleInstanceAddr};
+use tinywasm_types::{Export, ExternalKind, FuncAddr, FuncType, ModuleInstanceAddr};
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
@@ -10,7 +10,7 @@ use crate::{
 ///
 /// Addrs are indices into the store's data structures.
 ///
-/// See https://webassembly.github.io/spec/core/exec/runtime.html#module-instances
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Debug, Clone)]
 pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 
@@ -20,7 +20,7 @@ struct ModuleInstanceInner {
     pub(crate) _idx: ModuleInstanceAddr,
     pub(crate) func_start: Option<FuncAddr>,
     pub(crate) types: Box<[FuncType]>,
-    pub exports: ExportInstance,
+    pub(crate) exports: ExportInstance,
 
     pub(crate) func_addrs: Vec<FuncAddr>,
     // pub table_addrs: Vec<TableAddr>,
@@ -31,6 +31,11 @@ struct ModuleInstanceInner {
 }
 
 impl ModuleInstance {
+    /// Get the module's exports
+    pub fn exports(&self) -> &ExportInstance {
+        &self.0.exports
+    }
+
     pub(crate) fn new(
         types: Box<[FuncType]>,
         func_start: Option<FuncAddr>,
@@ -55,7 +60,7 @@ impl ModuleInstance {
             return Err(Error::InvalidStore);
         }
 
-        let export = self.0.exports.func(name)?;
+        let export = self.0.exports.get(name, ExternalKind::Func)?;
         let func_addr = self.0.func_addrs[export.index as usize];
         let func = store.get_func(func_addr as usize)?;
         let ty = self.0.types[func.ty_addr() as usize].clone();
@@ -81,11 +86,13 @@ impl ModuleInstance {
         })
     }
 
-    /// Get the start  function of the module
+    /// Get the start function of the module
+    ///
     /// Returns None if the module has no start function
     /// If no start function is specified, also checks for a _start function in the exports
     /// (which is not part of the spec, but used by llvm)
-    /// https://webassembly.github.io/spec/core/syntax/modules.html#start-function
+    ///
+    /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
     pub fn get_start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
         if self.0.store_id != store.id() {
             return Err(Error::InvalidStore);
@@ -95,7 +102,7 @@ impl ModuleInstance {
             Some(func_index) => func_index,
             None => {
                 // alternatively, check for a _start function in the exports
-                let Ok(start) = self.0.exports.func("_start") else {
+                let Ok(start) = self.0.exports.get("_start", ExternalKind::Func) else {
                     return Ok(None);
                 };
 
@@ -116,8 +123,10 @@ impl ModuleInstance {
     }
 
     /// Invoke the start function of the module
+    ///
     /// Returns None if the module has no start function
-    /// https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start
+    ///
+    /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
     pub fn start(&mut self, store: &mut Store) -> Result<Option<()>> {
         let Some(func) = self.get_start_func(store)? else {
             return Ok(None);

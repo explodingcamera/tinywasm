@@ -16,7 +16,7 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 /// indefinitely if you keep adding modules to it. When calling temporary
 /// functions, you should create a new store and then drop it when you're done (e.g. in a request handler)
 ///
-///  See also: https://webassembly.github.io/spec/core/exec/runtime.html#store
+///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 #[derive(Debug)]
 pub struct Store {
     id: usize,
@@ -48,6 +48,9 @@ impl Default for Store {
 }
 
 #[derive(Debug)]
+/// A WebAssembly Function Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
     pub(crate) _module_instance: ModuleInstanceAddr, // index into store.module_instances
@@ -72,6 +75,7 @@ impl FunctionInstance {
 }
 
 #[derive(Debug, Default)]
+/// Global state that can be manipulated by WebAssembly programs
 pub struct StoreData {
     pub(crate) funcs: Vec<FunctionInstance>,
     // pub tables: Vec<TableAddr>,
@@ -82,6 +86,7 @@ pub struct StoreData {
 }
 
 impl Store {
+    /// Get the store's ID (unique per process)
     pub fn id(&self) -> usize {
         self.id
     }

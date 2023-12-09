@@ -22,8 +22,10 @@ mod module;
 use alloc::vec::Vec;
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::{Function, TinyWasmModule};
+use tinywasm_types::Function;
 use wasmparser::Validator;
+
+pub use tinywasm_types::TinyWasmModule;
 
 #[derive(Default)]
 pub struct Parser {}
@@ -33,7 +35,8 @@ impl Parser {
         Self {}
     }
 
-    pub fn parse_module_bytes(&self, wasm: &[u8]) -> Result<TinyWasmModule> {
+    pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
+        let wasm = wasm.as_ref();
         let mut validator = Validator::new();
         let mut reader = ModuleReader::new();
 

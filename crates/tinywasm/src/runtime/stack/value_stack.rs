@@ -3,10 +3,10 @@ use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
 // minimum stack size
-pub const STACK_SIZE: usize = 1024;
+pub(crate) const STACK_SIZE: usize = 1024;
 
 #[derive(Debug)]
-pub struct ValueStack {
+pub(crate) struct ValueStack {
     stack: Vec<RawWasmValue>,
 
     // TODO: don't pop the stack, just keep track of the top for better performance

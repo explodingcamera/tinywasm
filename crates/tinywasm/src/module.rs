@@ -3,6 +3,9 @@ use tinywasm_types::TinyWasmModule;
 use crate::{ModuleInstance, Result, Store};
 
 #[derive(Debug)]
+/// A WebAssembly Module
+///
+/// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
 pub struct Module {
     data: TinyWasmModule,
 }
@@ -15,6 +18,7 @@ impl From<TinyWasmModule> for Module {
 
 impl Module {
     #[cfg(feature = "parser")]
+    /// Parse a module from bytes. Requires `parser` feature.
     pub fn parse_bytes(wasm: &[u8]) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_bytes(wasm)?;
@@ -22,6 +26,7 @@ impl Module {
     }
 
     #[cfg(all(feature = "parser", feature = "std"))]
+    /// Parse a module from a file. Requires `parser` and `std` features.
     pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_file(path)?;
@@ -29,6 +34,7 @@ impl Module {
     }
 
     #[cfg(all(feature = "parser", feature = "std"))]
+    /// Parse a module from a stream. Requires `parser` and `std` features.
     pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Self> {
         let parser = tinywasm_parser::Parser::new();
         let data = parser.parse_module_stream(stream)?;
@@ -36,9 +42,11 @@ impl Module {
     }
 
     /// Instantiate the module in the given store
-    /// See https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation
+    ///
     /// Runs the start function if it exists
     /// If you want to run the start function yourself, use `ModuleInstance::new`
+    ///
+    /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate(
         self,
         store: &mut Store,

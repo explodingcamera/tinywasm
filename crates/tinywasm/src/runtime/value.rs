@@ -3,13 +3,15 @@ use core::fmt::Debug;
 use tinywasm_types::{ValType, WasmValue};
 
 /// A raw wasm value.
+///
 /// This is the internal representation of all wasm values
+///
 /// See [`WasmValue`] for the public representation.
 #[derive(Clone, Copy, Default)]
 pub struct RawWasmValue(u64);
 
 impl Debug for RawWasmValue {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "RawWasmValue({})", self.0 as i64) // cast to i64 so at least negative numbers for i32 and i64 are printed correctly
     }
 }

@@ -18,17 +18,19 @@ type BrTableDefault = u32;
 type BrTableLen = usize;
 
 /// A WebAssembly Instruction
-/// See https://webassembly.github.io/spec/core/binary/instructions.html
+///
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
 /// Wasm Bytecode can map to multiple of these instructions.
 /// For example, `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
+///
+/// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),
 
     // Control Instructions
-    // See https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
     Block(BlockArgs),
@@ -44,12 +46,12 @@ pub enum Instruction {
     CallIndirect(TypeAddr, TableAddr),
 
     // Parametric Instructions
-    // See https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
     Drop,
     Select,
 
     // Variable Instructions
-    // See https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
     LocalGet(LocalAddr),
     LocalSet(LocalAddr),
     LocalTee(LocalAddr),
@@ -90,7 +92,7 @@ pub enum Instruction {
     F64Const(f64),
 
     // Numeric Instructions
-    // See https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
     I32Eqz,
     I32Eq,
     I32Ne,

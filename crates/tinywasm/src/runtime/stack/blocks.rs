@@ -34,11 +34,11 @@ impl Blocks {
 #[derive(Debug)]
 pub(crate) struct BlockFrame {
     // where to resume execution when the block is broken
-    pub instr_ptr: usize,
+    pub(crate) instr_ptr: usize,
     // position of the stack pointer when the block was entered
-    pub stack_ptr: usize,
-    pub args: BlockArgs,
-    pub ty: BlockFrameType,
+    pub(crate) stack_ptr: usize,
+    pub(crate) args: BlockArgs,
+    pub(crate) ty: BlockFrameType,
 }
 
 #[derive(Debug, Copy, Clone)]

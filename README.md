@@ -8,12 +8,20 @@
 
 <br>
 
-[![docs.rs](https://img.shields.io/docsrs/okv?logo=rust)](https://docs.rs/okv) [![Crates.io](https://img.shields.io/crates/v/okv.svg?logo=rust)](https://crates.io/crates/okv) [![Crates.io](https://img.shields.io/crates/l/okv.svg)](./LICENSE-APACHE) 
+[![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE) 
 
-<br/>
 
 > [!WARNING]  
 > This project is still in development and is not ready for use.
+
+## Features
+
+- **`std`**\
+  Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
+- **`logging`**\
+  Enables logging of the parsing process using the `log` crate. This is enabled by default.
+- **`parser`**\
+  Enables the `tinywasm_parser` crate. This is enabled by default.
 
 # 🎯 Goals
 

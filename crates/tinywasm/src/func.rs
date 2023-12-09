@@ -8,15 +8,19 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// A function handle
 pub struct FuncHandle {
     pub(crate) _module: ModuleInstance,
     pub(crate) addr: FuncAddr,
     pub(crate) ty: FuncType,
+
+    /// The name of the function, if it has one
     pub name: Option<String>,
 }
 impl FuncHandle {
     /// Call a function
-    /// See https://webassembly.github.io/spec/core/exec/modules.html#invocation
+    ///
+    /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
         let mut stack = Stack::default();
 
@@ -75,7 +79,10 @@ impl FuncHandle {
     }
 }
 
+#[derive(Debug)]
+/// A typed function handle
 pub struct TypedFuncHandle<P, R> {
+    /// The underlying function handle
     pub func: FuncHandle,
     pub(crate) marker: core::marker::PhantomData<(P, R)>,
 }
@@ -91,6 +98,7 @@ pub trait FromWasmValueTuple {
 }
 
 impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> TypedFuncHandle<P, R> {
+    /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         // Convert params into Vec<WasmValue>
         let wasm_values = params.into_wasm_value_tuple();

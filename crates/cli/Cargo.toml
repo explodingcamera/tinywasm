@@ -2,9 +2,10 @@
 name="tinywasm-cli"
 version="0.0.0"
 edition="2021"
+private=true
 
 [[bin]]
-name="tinywasm"
+name="tinywasm-cli"
 path="src/bin.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
