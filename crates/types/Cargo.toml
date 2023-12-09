@@ -1,7 +1,6 @@
 [package]
 name="tinywasm-types"
 version="0.0.2"
-readme="../../README.md"
 description="TinyWasm types"
 edition.workspace=true
 license.workspace=true
