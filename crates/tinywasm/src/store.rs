@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use alloc::{format, vec::Vec};
+use alloc::{format, rc::Rc, vec::Vec};
 use tinywasm_types::{FuncAddr, Function, Instruction, ModuleInstanceAddr, TypeAddr, ValType};
 
 use crate::{
@@ -99,7 +99,7 @@ impl FunctionInstance {
 #[derive(Debug, Default)]
 /// Global state that can be manipulated by WebAssembly programs
 pub struct StoreData {
-    pub(crate) funcs: Vec<FunctionInstance>,
+    pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     // pub tables: Vec<TableAddr>,
     // pub mems: Vec<MemAddr>,
     // pub globals: Vec<GlobalAddr>,
@@ -127,16 +127,16 @@ impl Store {
     pub(crate) fn add_funcs(&mut self, funcs: Vec<Function>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let mut func_addrs = Vec::with_capacity(funcs.len());
         for func in funcs.into_iter() {
-            self.data.funcs.push(FunctionInstance {
+            self.data.funcs.push(Rc::new(FunctionInstance {
                 func,
                 _module_instance: idx,
-            });
+            }));
             func_addrs.push(idx as FuncAddr);
         }
         func_addrs
     }
 
-    pub(crate) fn get_func(&self, addr: usize) -> Result<&FunctionInstance> {
+    pub(crate) fn get_func(&self, addr: usize) -> Result<&Rc<FunctionInstance>> {
         self.data
             .funcs
             .get(addr)

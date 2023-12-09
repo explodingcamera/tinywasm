@@ -1,4 +1,4 @@
-mod executer;
+mod executor;
 mod stack;
 mod value;
 

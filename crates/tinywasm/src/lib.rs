@@ -1,6 +1,5 @@
 #![no_std]
 #![forbid(unsafe_code)]
-#![cfg_attr(not(feature = "std"), feature(error_in_core))]
 #![doc(test(
     no_crate_inject,
     attr(
@@ -9,8 +8,13 @@
     )
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
+#![cfg_attr(feature = "nightly", feature(error_in_core))]
 
 //! ## A tiny WebAssembly Runtime written in Rust
+
+// compiler error when using no_std without nightly
+#[cfg(all(not(feature = "std"), not(nightly)))]
+const _: () = { compile_error!("`nightly` feature is required for `no_std`") };
 
 mod std;
 extern crate alloc;
