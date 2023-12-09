@@ -1,7 +1,11 @@
 [package]
 name="tinywasm"
 version="0.0.1"
-edition="2021"
+description="A tiny WebAssembly interpreter"
+edition.workspace=true
+license.workspace=true
+authors.workspace=true
+repository.workspace=true
 
 [lib]
 name="tinywasm"

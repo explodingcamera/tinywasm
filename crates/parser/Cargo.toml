@@ -1,7 +1,11 @@
 [package]
 name="tinywasm-parser"
 version="0.0.1"
-edition="2021"
+description="TinyWasm parser"
+edition.workspace=true
+license.workspace=true
+authors.workspace=true
+repository.workspace=true
 
 [dependencies]
 # fork of wasmparser with no_std support, see https://github.com/bytecodealliance/wasmtime/issues/3495
