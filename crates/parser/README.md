@@ -1,4 +1,4 @@
-# `tinywasm_parser`
+# `tinywasm-parser`
 
 This crate provides a parser that can parse WebAssembly modules into a TinyWasm module. It is based on 
 [`wasmparser_nostd`](https://crates.io/crates/wasmparser_nostd) and used by [`tinywasm`](https://crates.io/crates/tinywasm).

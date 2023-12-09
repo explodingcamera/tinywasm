@@ -21,7 +21,7 @@
 - **`logging`**\
   Enables logging of the parsing process using the `log` crate. This is enabled by default.
 - **`parser`**\
-  Enables the `tinywasm_parser` crate. This is enabled by default.
+  Enables the `tinywasm-parser` crate. This is enabled by default.
 
 # 🎯 Goals
 

@@ -48,7 +48,7 @@ mod runtime;
 pub use runtime::*;
 
 #[cfg(feature = "parser")]
-/// Re-export of `tinywasm_parser`. Requires `parser` feature.
+/// Re-export of [`tinywasm_parser`]. Requires `parser` feature.
 pub mod parser {
     pub use tinywasm_parser::*;
 }
