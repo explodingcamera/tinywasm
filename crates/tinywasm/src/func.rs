@@ -10,13 +10,14 @@ use crate::{
 #[derive(Debug)]
 /// A function handle
 pub struct FuncHandle {
-    pub(crate) _module: ModuleInstance,
+    pub(crate) module: ModuleInstance,
     pub(crate) addr: FuncAddr,
     pub(crate) ty: FuncType,
 
     /// The name of the function, if it has one
     pub name: Option<String>,
 }
+
 impl FuncHandle {
     /// Call a function
     ///
@@ -26,11 +27,7 @@ impl FuncHandle {
 
         // 1. Assert: funcs[func_addr] exists
         // 2. let func_inst be the functiuon instance funcs[func_addr]
-        let func_inst = store
-            .data
-            .funcs
-            .get(self.addr as usize)
-            .ok_or(Error::Other(format!("function {} not found", self.addr)))?;
+        let func_inst = store.get_func(self.addr as usize)?;
 
         // 3. Let func_ty be the function type
         let func_ty = &self.ty;
@@ -64,8 +61,8 @@ impl FuncHandle {
         // 8. Push the values to the stack (Not needed since the call frame owns the values)
 
         // 9. Invoke the function instance
-        let instrs = func_inst.instructions();
-        store.runtime.exec(&mut stack, instrs)?;
+        let runtime = store.runtime();
+        runtime.exec(store, &mut stack, self.module.clone())?;
 
         // Once the function returns:
         let result_m = func_ty.results.len();
@@ -125,6 +122,7 @@ macro_rules! impl_into_wasm_value_tuple {
     }
 }
 
+impl_into_wasm_value_tuple!();
 impl_into_wasm_value_tuple!(T1);
 impl_into_wasm_value_tuple!(T1, T2);
 impl_into_wasm_value_tuple!(T1, T2, T3);
@@ -141,6 +139,7 @@ macro_rules! impl_from_wasm_value_tuple {
             $($T: TryFrom<WasmValue, Error = ()>),*
         {
             fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
+                #[allow(unused_variables, unused_mut)]
                 let mut iter = values.into_iter();
                 Ok((
                     $(
@@ -156,6 +155,7 @@ macro_rules! impl_from_wasm_value_tuple {
     }
 }
 
+impl_from_wasm_value_tuple!();
 impl_from_wasm_value_tuple!(T1);
 impl_from_wasm_value_tuple!(T1, T2);
 impl_from_wasm_value_tuple!(T1, T2, T3);

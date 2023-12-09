@@ -3,7 +3,10 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use alloc::{format, vec::Vec};
 use tinywasm_types::{FuncAddr, Function, Instruction, ModuleInstanceAddr, TypeAddr, ValType};
 
-use crate::{runtime::Runtime, Error, ModuleInstance, Result};
+use crate::{
+    runtime::{self, DefaultRuntime},
+    Error, ModuleInstance, Result,
+};
 
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -24,7 +27,26 @@ pub struct Store {
     module_instance_count: usize,
 
     pub(crate) data: StoreData,
-    pub(crate) runtime: Runtime<true>,
+    pub(crate) runtime: Runtime,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Runtime {
+    Default,
+}
+
+impl Store {
+    /// Create a new store
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a new store with the given runtime
+    pub(crate) fn runtime(&self) -> runtime::DefaultRuntime {
+        match self.runtime {
+            Runtime::Default => DefaultRuntime::default(),
+        }
+    }
 }
 
 impl PartialEq for Store {
@@ -42,7 +64,7 @@ impl Default for Store {
             module_instances: Vec::new(),
             module_instance_count: 0,
             data: StoreData::default(),
-            runtime: Runtime::default(),
+            runtime: Runtime::Default,
         }
     }
 }

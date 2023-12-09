@@ -54,6 +54,10 @@ impl ModuleInstance {
         }))
     }
 
+    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
+        &self.0.types[addr as usize]
+    }
+
     /// Get an exported function by name
     pub fn get_func(&self, store: &Store, name: &str) -> Result<FuncHandle> {
         if self.0.store_id != store.id() {
@@ -67,7 +71,7 @@ impl ModuleInstance {
 
         Ok(FuncHandle {
             addr: export.index,
-            _module: self.clone(),
+            module: self.clone(),
             name: Some(name.to_string()),
             ty,
         })
@@ -115,7 +119,7 @@ impl ModuleInstance {
         let ty = self.0.types[func.ty_addr() as usize].clone();
 
         Ok(Some(FuncHandle {
-            _module: self.clone(),
+            module: self.clone(),
             addr: func_addr,
             ty,
             name: None,

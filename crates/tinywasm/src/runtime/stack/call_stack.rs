@@ -6,6 +6,7 @@ use super::{blocks::Blocks, BlockFrameType};
 
 // minimum call stack size
 const CALL_STACK_SIZE: usize = 1024;
+const CALL_STACK_MAX_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -23,6 +24,20 @@ impl Default for CallStack {
 }
 
 impl CallStack {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.top == 0
+    }
+
+    pub(crate) fn pop(&mut self) -> Result<CallFrame> {
+        assert!(self.top <= self.stack.len());
+        if self.top == 0 {
+            return Err(Error::CallStackEmpty);
+        }
+
+        self.top -= 1;
+        Ok(self.stack.pop().unwrap())
+    }
+
     #[inline]
     pub(crate) fn _top(&self) -> Result<&CallFrame> {
         assert!(self.top <= self.stack.len());
@@ -33,7 +48,7 @@ impl CallStack {
     }
 
     #[inline]
-    pub(crate) fn top_mut(&mut self) -> Result<&mut CallFrame> {
+    pub(crate) fn _top_mut(&mut self) -> Result<&mut CallFrame> {
         assert!(self.top <= self.stack.len());
         if self.top == 0 {
             return Err(Error::CallStackEmpty);
@@ -43,15 +58,18 @@ impl CallStack {
 
     #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) {
+        assert!(self.top <= self.stack.len());
+        assert!(self.stack.len() <= CALL_STACK_MAX_SIZE);
+
         self.top += 1;
         self.stack.push(call_frame);
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
-    pub(crate) _func_ptr: usize,
+    pub(crate) func_ptr: usize,
 
     pub(crate) blocks: Blocks,
     pub(crate) locals: Box<[RawWasmValue]>,
@@ -90,7 +108,7 @@ impl CallFrame {
 
         Self {
             instr_ptr: 0,
-            _func_ptr: func_ptr,
+            func_ptr,
             local_count: locals.len(),
             locals: locals.into_boxed_slice(),
             blocks: Blocks::default(),

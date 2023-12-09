@@ -12,6 +12,7 @@ pub(crate) use value::RawWasmValue;
 /// that the module is valid.
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html>
-// Execution is implemented in the `executer` module
+///
+/// Execution is implemented in the [`crate::runtime::executer`] module
 #[derive(Debug, Default)]
-pub struct Runtime<const CHECK_TYPES: bool> {}
+pub struct DefaultRuntime {}

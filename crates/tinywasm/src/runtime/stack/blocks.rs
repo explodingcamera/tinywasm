@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use log::info;
 use tinywasm_types::BlockArgs;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct Blocks(Vec<BlockFrame>);
 
 impl Blocks {
@@ -31,7 +31,7 @@ impl Blocks {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct BlockFrame {
     // where to resume execution when the block is broken
     pub(crate) instr_ptr: usize,

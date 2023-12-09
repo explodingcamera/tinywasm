@@ -1,24 +1,39 @@
-use super::{Runtime, Stack};
+use super::{DefaultRuntime, Stack};
 use crate::{
     log::debug,
     runtime::{BlockFrame, BlockFrameType, RawWasmValue},
-    Error, Result,
+    CallFrame, Error, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
-use tinywasm_types::{BlockArgs, Instruction};
+use tinywasm_types::BlockArgs;
 
 mod macros;
 use macros::*;
 
-impl<const CHECK_TYPES: bool> Runtime<CHECK_TYPES> {
-    pub(crate) fn exec(&self, stack: &mut Stack, instrs: &[Instruction]) -> Result<()> {
-        let cf = stack.call_stack.top_mut()?;
+impl DefaultRuntime {
+    pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
+        let mut cf = stack.call_stack.pop()?;
+        let func = store.get_func(cf.func_ptr)?;
+        let instrs = func.instructions();
 
-        // TODO: maybe we don't need to check if the instr_ptr is valid since
-        // it should be validated by the parser
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             use tinywasm_types::Instruction::*;
             match instr {
+                Call(v) => {
+                    // prepare the call frame
+                    let func = store.get_func(*v as usize)?;
+                    let func_ty = module.func_ty(*v);
+                    debug!("call: {:?}", func_ty);
+                    let call_frame = CallFrame::new(*v as usize, &[], func.locals().to_vec());
+
+                    // push the call frame
+                    stack.call_stack.push(cf.clone());
+                    stack.call_stack.push(call_frame);
+                    debug!("call: {:?}", func);
+
+                    // call the function
+                    cf = stack.call_stack.pop()?;
+                }
                 Nop => {} // do nothing
                 Unreachable => return Err(Error::Trap(crate::Trap::Unreachable)),
                 Loop(args) => {
@@ -55,8 +70,14 @@ impl<const CHECK_TYPES: bool> Runtime<CHECK_TYPES> {
                 End => {
                     let blocks = &mut cf.blocks;
                     let Some(block) = blocks.pop() else {
-                        debug!("end: no block to end, returning");
-                        return Ok(());
+                        if stack.call_stack.is_empty() {
+                            debug!("end: no block to end and no parent call frame, returning");
+                            return Ok(());
+                        } else {
+                            debug!("end: no block to end, returning to parent call frame");
+                            cf = stack.call_stack.pop()?;
+                            continue;
+                        }
                     };
                     debug!("end, blocks: {:?}", blocks);
                     debug!("     instr_ptr: {}", cf.instr_ptr);
