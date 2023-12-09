@@ -12,17 +12,24 @@ use macros::*;
 
 impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
+        // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
-        let func = store.get_func(cf.func_ptr)?.clone();
-        let instrs = func.instructions();
+
+        // The function to execute, gets updated from ExecResult::Call
+        let mut func = store.get_func(cf.func_ptr)?.clone();
+        let mut instrs = func.instructions();
 
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             match exec_one(&mut cf, instr, instrs, stack, store, &module)? {
+                // Continue execution at the new top of the call stack
+                ExecResult::Call => {
+                    func = store.get_func(cf.func_ptr)?.clone();
+                    instrs = func.instructions();
+                    continue;
+                }
+
                 // return from the function
                 ExecResult::Return => return Ok(()),
-
-                // continue to the next instruction and don't increment the instruction pointer
-                ExecResult::Continue => continue,
 
                 // continue to the next instruction and increment the instruction pointer
                 ExecResult::Ok => {
@@ -41,8 +48,8 @@ impl DefaultRuntime {
 
 enum ExecResult {
     Ok,
-    Continue,
     Return,
+    Call,
 }
 
 #[inline]
@@ -56,23 +63,35 @@ fn exec_one(
 ) -> Result<ExecResult> {
     use tinywasm_types::Instruction::*;
     match instr {
+        Nop => {} // do nothing
+        Unreachable => return Err(Error::Trap(crate::Trap::Unreachable)),
+
+        Return => {
+            debug!("return");
+        }
+
         Call(v) => {
+            debug!("start call");
             // prepare the call frame
             let func = store.get_func(*v as usize)?;
             let func_ty = module.func_ty(*v);
-            debug!("call: {:?}", func_ty);
-            let call_frame = CallFrame::new(*v as usize, &[], func.locals().to_vec());
+
+            debug!("params: {:?}", func_ty.params);
+            debug!("stack: {:?}", stack.values);
+            let params = stack.values.pop_n(func_ty.params.len())?;
+            let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals().to_vec());
 
             // push the call frame
+            cf.instr_ptr += 1; // skip the call instruction
             stack.call_stack.push(cf.clone());
             stack.call_stack.push(call_frame);
-            debug!("call: {:?}", func);
 
             // call the function
             *cf = stack.call_stack.pop()?;
+            debug!("calling: {:?}", func);
+            return Ok(ExecResult::Call);
         }
-        Nop => {} // do nothing
-        Unreachable => return Err(Error::Trap(crate::Trap::Unreachable)),
+
         Loop(args) => {
             cf.blocks.push(BlockFrame {
                 instr_ptr: cf.instr_ptr,
@@ -82,6 +101,7 @@ fn exec_one(
             });
             stack.values.block_args(*args)?;
         }
+
         BrTable(_default, len) => {
             let instr = instrs[cf.instr_ptr + 1..cf.instr_ptr + 1 + *len]
                 .iter()
@@ -97,6 +117,7 @@ fn exec_one(
 
             todo!()
         }
+
         Br(v) => cf.break_to(*v, &mut stack.values)?,
         BrIf(v) => {
             let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
@@ -113,8 +134,7 @@ fn exec_one(
                 } else {
                     debug!("end: no block to end, returning to parent call frame");
                     *cf = stack.call_stack.pop()?;
-                    cf.instr_ptr = cf.instr_ptr.saturating_sub(1);
-                    return Ok(ExecResult::Continue);
+                    return Ok(ExecResult::Call);
                 }
             };
             debug!("end, blocks: {:?}", blocks);
@@ -140,6 +160,7 @@ fn exec_one(
                 }
             }
         }
+
         LocalGet(local_index) => {
             debug!("local.get: {:?}", local_index);
             let val = cf.get_local(*local_index as usize);

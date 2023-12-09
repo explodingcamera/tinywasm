@@ -101,9 +101,9 @@ impl CallFrame {
         Ok(())
     }
 
-    pub(crate) fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
+    pub(crate) fn new_raw(func_ptr: usize, params: &[RawWasmValue], local_types: Vec<ValType>) -> Self {
         let mut locals = Vec::with_capacity(local_types.len() + params.len());
-        locals.extend(params.iter().map(|v| RawWasmValue::from(*v)));
+        locals.extend(params.iter().cloned());
         locals.extend(local_types.iter().map(|_| RawWasmValue::default()));
 
         Self {
@@ -113,6 +113,14 @@ impl CallFrame {
             locals: locals.into_boxed_slice(),
             blocks: Blocks::default(),
         }
+    }
+
+    pub(crate) fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
+        CallFrame::new_raw(
+            func_ptr,
+            &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(),
+            local_types,
+        )
     }
 
     #[inline]
