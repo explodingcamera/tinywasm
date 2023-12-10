@@ -1,0 +1,17 @@
+[package]
+name="wasm-testsuite"
+version="0.0.1"
+description="Mirror of the WebAssembly core testsuite for use in testing WebAssembly implementations"
+edition.workspace=true
+license.workspace=true
+authors.workspace=true
+repository.workspace=true
+
+[lib]
+path="lib.rs"
+
+[package.metadata.workspaces]
+independent=true
+
+[dependencies]
+rust-embed={version="8.1.0", features=["include-exclude"]}
