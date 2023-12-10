@@ -58,6 +58,11 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn last(&self) -> Option<&RawWasmValue> {
+        self.stack.last()
+    }
+
+    #[inline]
     pub(crate) fn pop(&mut self) -> Option<RawWasmValue> {
         self.top -= 1;
         self.stack.pop()

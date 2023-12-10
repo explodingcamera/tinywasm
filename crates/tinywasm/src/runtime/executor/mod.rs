@@ -35,6 +35,15 @@ impl DefaultRuntime {
                 ExecResult::Ok => {
                     cf.instr_ptr += 1;
                 }
+
+                // trap the program
+                ExecResult::Trap(trap) => {
+                    cf.instr_ptr += 1;
+                    // push the call frame back onto the stack so that it can be resumed
+                    // if the trap can be handled
+                    stack.call_stack.push(cf);
+                    return Err(Error::Trap(trap));
+                }
             }
         }
 
@@ -50,6 +59,7 @@ enum ExecResult {
     Ok,
     Return,
     Call,
+    Trap(crate::Trap),
 }
 
 #[inline]
@@ -63,9 +73,21 @@ fn exec_one(
 ) -> Result<ExecResult> {
     use tinywasm_types::Instruction::*;
     match instr {
-        Nop => {} // do nothing
-        Unreachable => return Err(Error::Trap(crate::Trap::Unreachable)),
+        Nop => { /* do nothing */ }
+        Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
+        Drop => {
+            stack.values.pop().ok_or(Error::StackUnderflow)?;
+        }
+        Select => {
+            let cond: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
+            let val2 = stack.values.pop().ok_or(Error::StackUnderflow)?;
 
+            // if cond != 0, we already have the right value on the stack
+            if cond == 0 {
+                let _ = stack.values.pop().ok_or(Error::StackUnderflow)?;
+                stack.values.push(val2);
+            }
+        }
         Return => {
             debug!("return");
         }
@@ -117,7 +139,6 @@ fn exec_one(
 
             todo!()
         }
-
         Br(v) => cf.break_to(*v, &mut stack.values)?,
         BrIf(v) => {
             let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
@@ -164,19 +185,16 @@ fn exec_one(
         LocalGet(local_index) => {
             debug!("local.get: {:?}", local_index);
             let val = cf.get_local(*local_index as usize);
-            debug!("local: {:#?}", val);
             stack.values.push(val);
         }
         LocalSet(local_index) => {
-            debug!("local.set: {:?}", local_index);
             let val = stack.values.pop().ok_or(Error::StackUnderflow)?;
             cf.set_local(*local_index as usize, val);
         }
+        // Equivalent to local.set, local.get
         LocalTee(local_index) => {
-            debug!("local.tee: {:?}", local_index);
-            let val = stack.values.pop().ok_or(Error::StackUnderflow)?;
-            cf.set_local(*local_index as usize, val);
-            stack.values.push(val);
+            let val = stack.values.last().ok_or(Error::StackUnderflow)?;
+            cf.set_local(*local_index as usize, *val);
         }
         I32Const(val) => stack.values.push((*val).into()),
         I64Const(val) => stack.values.push((*val).into()),
