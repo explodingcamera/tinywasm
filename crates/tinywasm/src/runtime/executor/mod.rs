@@ -156,7 +156,7 @@ fn exec_one(
                     stack.values.extend(res.iter().copied());
                 }
                 _ => {
-                    panic!("Attempted to end a block that is not the top block");
+                    panic!("end: unimplemented block type end: {:?}", block.ty);
                 }
             }
         }
@@ -199,6 +199,26 @@ fn exec_one(
         I64DivS => div_instr!(i64, stack),
         F32Div => div_instr!(f32, stack),
         F64Div => div_instr!(f64, stack),
+
+        I32Mul => mul_instr!(i32, stack),
+        I64Mul => mul_instr!(i64, stack),
+        F32Mul => mul_instr!(f32, stack),
+        F64Mul => mul_instr!(f64, stack),
+
+        I32Eq => eq_instr!(i32, stack),
+        I64Eq => eq_instr!(i64, stack),
+        F32Eq => eq_instr!(f32, stack),
+        F64Eq => eq_instr!(f64, stack),
+
+        I32Eqz => {
+            let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
+            stack.values.push(((val == 0) as i32).into());
+        }
+
+        I64Eqz => {
+            let val: i64 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
+            stack.values.push(((val == 0) as i32).into());
+        }
 
         i => todo!("{:?}", i),
     };
