@@ -31,14 +31,16 @@ pub(crate) fn convert_module_code(
 ) -> Result<CodeSection> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
+
     let mut locals = Vec::with_capacity(count as usize);
 
     for (i, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
+        validator.define_locals(i, local.0, local.1)?;
+
         for _ in 0..local.0 {
             locals.push(convert_valtype(&local.1));
         }
-        validator.define_locals(i, local.0, local.1)?;
     }
 
     if locals.len() != count as usize {
