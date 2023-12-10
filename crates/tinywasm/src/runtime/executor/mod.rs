@@ -19,6 +19,8 @@ impl DefaultRuntime {
         let mut func = store.get_func(cf.func_ptr)?.clone();
         let mut instrs = func.instructions();
 
+        // TODO: we might be able to index into the instructions directly
+        // since the instruction pointer should always be in bounds
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             match exec_one(&mut cf, instr, instrs, stack, store, &module)? {
                 // Continue execution at the new top of the call stack
