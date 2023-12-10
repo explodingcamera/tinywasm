@@ -13,6 +13,6 @@ pub(crate) mod error {
     #[cfg(feature = "std")]
     pub(crate) use std::error::Error;
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), nightly))]
     pub(crate) use core::error::Error;
 }

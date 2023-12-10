@@ -18,12 +18,10 @@ fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule, Error>
 
 #[test]
 #[ignore]
-fn test_mvp() {
+fn test_mvp() -> Result<()> {
     let mut test_suite = TestSuite::new();
 
     wasm_testsuite::MVP_TESTS.iter().for_each(|group| {
-        println!("test: {}", group);
-
         let test_group = test_suite.test_group(group);
 
         let wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
@@ -59,11 +57,9 @@ fn test_mvp() {
                 AssertMalformed {
                     span,
                     module: QuoteWat::Wat(wast::Wat::Module(module)),
-                    message,
+                    message: _,
                 } => {
-                    println!("  assert_malformed: {}", message);
                     let res = std::panic::catch_unwind(|| parse_module(module).map(|_| ()));
-
                     test_group.add_result(
                         &format!("{}-malformed", name),
                         span,
@@ -85,9 +81,11 @@ fn test_mvp() {
     });
 
     if test_suite.failed() {
-        panic!("failed one or more tests: {:#?}", test_suite);
+        eprintln!("\n\nfailed one or more tests:\n{:#?}", test_suite);
+        Err(Error::Other("failed one or more tests".to_string()))
     } else {
-        println!("passed all tests: {:#?}", test_suite);
+        println!("\n\npassed all tests:\n{:#?}", test_suite);
+        Ok(())
     }
 }
 
@@ -169,11 +167,11 @@ impl TestGroup {
     }
 
     fn add_result(&mut self, name: &str, span: wast::token::Span, result: Result<()>) {
-        self.tests.insert(name.to_string(), TestCase { result, span });
+        self.tests.insert(name.to_string(), TestCase { result, _span: span });
     }
 }
 
 struct TestCase {
     result: Result<()>,
-    span: wast::token::Span,
+    _span: wast::token::Span,
 }

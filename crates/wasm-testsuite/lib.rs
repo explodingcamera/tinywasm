@@ -39,7 +39,7 @@ pub const V2_DRAFT_1_TESTS: &[&str] = &["address.wast","align.wast","binary-leb1
 
 /// Get all test file names and their contents.
 pub fn get_tests_wast(include_proposals: &[String]) -> impl Iterator<Item = (String, Cow<'static, [u8]>)> {
-    get_tests(&include_proposals)
+    get_tests(include_proposals)
         .filter_map(|name| Some((name.clone(), get_test_wast(&name)?)))
         .map(|(name, data)| (name, Cow::Owned(data.to_vec())))
 }

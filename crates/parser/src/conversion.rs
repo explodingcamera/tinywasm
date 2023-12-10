@@ -113,13 +113,12 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
 }
 
 pub fn process_operators<'a>(
-    offset: usize,
+    mut offset: usize,
     ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
 
-    let mut offset = offset.into();
     for op in ops {
         let op = op?;
         validator.op(offset, &op)?;

@@ -8,7 +8,7 @@
     )
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(feature = "nightly", feature(error_in_core))]
+#![cfg_attr(nightly, feature(error_in_core))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
@@ -56,14 +56,11 @@
 //! - `parser` (default): Enables the `tinywasm_parser` crate for parsing WebAssembly modules.
 //!
 //! ## No-std support
-//! TinyWasm supports `no_std` environments by disabling the `std` feature. This removes
-//! support for parsing from files and streams, but otherwise the API is the same.
-//! Additionally, you must use a nightly compiler as TinyWasm uses the `error_in_core` feature
-//! and have a `GlobalAlloc` implementation for allocating memory.
-
-// compiler error when using no_std without nightly
-#[cfg(all(not(feature = "std"), not(nightly)))]
-const _: () = { compile_error!("`nightly` feature is required for `no_std`") };
+//! TinyWasm supports `no_std` environments by disabling the `std` feature and registering
+//! a custom allocator. This removes support for parsing from files and streams,
+//! but otherwise the API is the same.
+//!
+//! Additionally, if you want proper error types, you must use a `nightly` compiler.
 
 mod std;
 extern crate alloc;

@@ -71,6 +71,7 @@ impl Display for Error {
     }
 }
 
+#[cfg(any(feature = "std", all(not(feature = "std"), nightly)))]
 impl crate::std::error::Error for Error {}
 
 #[cfg(feature = "parser")]
