@@ -665,8 +665,11 @@ name = "tinywasm"
 version = "0.0.3"
 dependencies = [
  "log",
+ "owo-colors",
  "tinywasm-parser",
  "tinywasm-types",
+ "wasm-testsuite",
+ "wast",
 ]
 
 [[package]]

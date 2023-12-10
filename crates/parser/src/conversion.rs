@@ -46,7 +46,7 @@ pub(crate) fn convert_module_code(
     }
 
     let body_reader = func.get_operators_reader()?;
-    let body = process_operators(body_reader.into_iter(), validator)?;
+    let body = process_operators(body_reader.original_position(), body_reader.into_iter(), validator)?;
 
     Ok(CodeSection {
         locals: locals.into_boxed_slice(),
@@ -111,12 +111,13 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
 }
 
 pub fn process_operators<'a>(
+    offset: usize,
     ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
 
-    let mut offset = 0;
+    let mut offset = offset.into();
     for op in ops {
         let op = op?;
         validator.op(offset, &op)?;

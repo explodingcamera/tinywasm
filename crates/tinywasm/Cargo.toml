@@ -17,6 +17,11 @@ log={version="0.4", optional=true}
 tinywasm-parser={version="0.0.3", path="../parser", default-features=false, optional=true}
 tinywasm-types={version="0.0.3", path="../types", default-features=false}
 
+[dev-dependencies]
+wasm-testsuite={path="../wasm-testsuite"}
+wast={version="69.0"}
+owo-colors={version="3.5"}
+
 [features]
 default=["std", "parser", "logging"]
 logging=["log", "tinywasm-types/logging", "tinywasm-parser?/logging"]
