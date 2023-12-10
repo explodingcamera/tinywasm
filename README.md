@@ -19,7 +19,7 @@
 - **`std`**\
   Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
 - **`logging`**\
-  Enables logging of the parsing process using the `log` crate. This is enabled by default.
+  Enables logging using the `log` crate. This is enabled by default.
 - **`parser`**\
   Enables the `tinywasm-parser` crate. This is enabled by default.
 

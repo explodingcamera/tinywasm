@@ -1,3 +1,16 @@
+#![no_std]
+#![forbid(unsafe_code)]
+#![doc(test(
+    no_crate_inject,
+    attr(
+        deny(warnings, rust_2018_idioms),
+        allow(dead_code, unused_assignments, unused_variables)
+    )
+))]
+#![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
+
+//! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
+
 extern crate alloc;
 
 // log for logging (optional).
@@ -15,15 +28,29 @@ extern crate alloc;
 mod instructions;
 use core::fmt::Debug;
 
+use alloc::boxed::Box;
 pub use instructions::*;
 
+/// A TinyWasm WebAssembly Module
+///
+/// This is the internal representation of a WebAssembly module in TinyWasm.
+/// TinyWasmModules are validated before being created, so they are guaranteed to be valid (as long as they were created by TinyWasm).
+/// This means you should not trust a TinyWasmModule created by a third party to be valid.
 #[derive(Debug)]
 pub struct TinyWasmModule {
+    /// The version of the WebAssembly module.
     pub version: Option<u16>,
+
+    /// The start function of the WebAssembly module.
     pub start_func: Option<FuncAddr>,
 
+    /// The functions of the WebAssembly module.
     pub funcs: Box<[Function]>,
+
+    /// The types of the WebAssembly module.
     pub types: Box<[FuncType]>,
+
+    /// The exports of the WebAssembly module.
     pub exports: Box<[Export]>,
     // pub tables: Option<TableType>,
     // pub memories: Option<MemoryType>,
@@ -39,15 +66,20 @@ pub struct TinyWasmModule {
 #[derive(Clone, PartialEq, Copy)]
 pub enum WasmValue {
     // Num types
+    /// A 32-bit integer.
     I32(i32),
+    /// A 64-bit integer.
     I64(i64),
+    /// A 32-bit float.
     F32(f32),
+    /// A 64-bit float.
     F64(f64),
     // Vec types
     // V128(i128),
 }
 
 impl WasmValue {
+    /// Get the default value for a given type.
     pub fn default_for(ty: ValType) -> Self {
         match ty {
             ValType::I32 => Self::I32(0),
@@ -135,19 +167,8 @@ impl TryFrom<WasmValue> for f64 {
     }
 }
 
-// impl TryFrom<WasmValue> for i128 {
-//     type Error = ();
-
-//     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
-//         match value {
-//             WasmValue::V128(i) => Ok(i),
-//             _ => Err(()),
-//         }
-//     }
-// }
-
 impl Debug for WasmValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         match self {
             WasmValue::I32(i) => write!(f, "i32({})", i),
             WasmValue::I64(i) => write!(f, "i64({})", i),
@@ -159,6 +180,7 @@ impl Debug for WasmValue {
 }
 
 impl WasmValue {
+    /// Get the type of a [`WasmValue`]
     pub fn val_type(&self) -> ValType {
         match self {
             Self::I32(_) => ValType::I32,
@@ -173,12 +195,19 @@ impl WasmValue {
 /// Type of a WebAssembly value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValType {
+    /// A 32-bit integer.
     I32,
+    /// A 64-bit integer.
     I64,
+    /// A 32-bit float.
     F32,
+    /// A 64-bit float.
     F64,
+    /// A 128-bit vector.
     V128,
+    /// A reference to a function.
     FuncRef,
+    /// A reference to an external value.
     ExternRef,
 }
 
@@ -187,9 +216,13 @@ pub enum ValType {
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExternalKind {
+    /// A WebAssembly Function.
     Func,
+    /// A WebAssembly Table.
     Table,
+    /// A WebAssembly Memory.
     Memory,
+    /// A WebAssembly Global.
     Global,
 }
 
@@ -211,15 +244,6 @@ pub type TypeAddr = Addr;
 pub type LocalAddr = Addr;
 pub type LabelAddr = Addr;
 pub type ModuleInstanceAddr = Addr;
-
-/// A WebAssembly Export Instance.
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#export-instances>
-#[derive(Debug)]
-pub struct ExportInst {
-    pub name: String,
-    pub value: ExternVal,
-}
 
 /// A WebAssembly External Value.
 ///

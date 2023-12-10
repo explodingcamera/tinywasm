@@ -4,7 +4,7 @@ use argh::FromArgs;
 use args::WasmArg;
 use color_eyre::eyre::Result;
 use log::{debug, info};
-use tinywasm::{self, Module, WasmValue};
+use tinywasm::{self, types::WasmValue, Module};
 
 use crate::args::to_wasm_args;
 mod args;

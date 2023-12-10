@@ -98,7 +98,7 @@ impl FunctionInstance {
 
 #[derive(Debug, Default)]
 /// Global state that can be manipulated by WebAssembly programs
-pub struct StoreData {
+pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     // pub tables: Vec<TableAddr>,
     // pub mems: Vec<MemAddr>,

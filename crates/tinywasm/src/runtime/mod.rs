@@ -5,6 +5,7 @@ mod value;
 pub use stack::*;
 pub(crate) use value::RawWasmValue;
 
+#[allow(rustdoc::private_intra_doc_links)]
 /// A WebAssembly Runtime.
 ///
 /// Generic over `CheckTypes` to enable type checking at runtime.
@@ -13,6 +14,6 @@ pub(crate) use value::RawWasmValue;
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html>
 ///
-/// Execution is implemented in the [`crate::runtime::executer`] module
+/// Execution is implemented in the [`crate::runtime::executor`] module
 #[derive(Debug, Default)]
 pub struct DefaultRuntime {}

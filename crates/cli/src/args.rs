@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use tinywasm::WasmValue;
+use tinywasm::types::WasmValue;
 
 #[derive(Debug)]
 pub struct WasmArg(WasmValue);
