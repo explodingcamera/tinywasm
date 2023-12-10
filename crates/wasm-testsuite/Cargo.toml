@@ -1,6 +1,6 @@
 [package]
 name="wasm-testsuite"
-version="0.0.1"
+version="0.1.0"
 description="Mirror of the WebAssembly core testsuite for use in testing WebAssembly implementations"
 edition.workspace=true
 license.workspace=true
