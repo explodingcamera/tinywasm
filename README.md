@@ -1,6 +1,6 @@
 <div>
     <div>
-        <img align="left" src="./tinywasm.png" width="100px">
+        <a href=""><img align="left" src="./tinywasm.png" width="100px"></a>
     </div>
     <h1>TinyWasm</h1>
     A tiny WebAssembly Runtime written in Rust
@@ -11,7 +11,7 @@
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE) 
 
 
-> [!WARNING]  
+> [!WARNING]
 > This project is still in development and is not ready for use.
 
 ## Features
@@ -38,5 +38,7 @@
 # 📄 License
 
 Licensed under either of [Apache License, Version 2.0](./LICENSE-APACHE) or [MIT license](./LICENSE-MIT) at your option.
+ 
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in TinyWasm by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in TinyWasm by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions. 
+**Note:** The GitHub repository contains a Submodule (`crates/tinywasm-parser/data`) which is licensed only under the [Apache License, Version 2.0](https://github.com/WebAssembly/spec/blob/main/test/LICENSE). This is because the data is generated from the [WebAssembly Specification](https://github.com/WebAssembly/spec/tree/main/test) and is only used for testing purposes and is not included in the final binary.

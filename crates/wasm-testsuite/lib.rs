@@ -1,9 +1,4 @@
-//! This crate provides a way to access the WebAssembly spec testsuite.
-//!
-//! The testsuite is included as a git submodule and embedded into the binary.
-//!
-//! Generated from <https://github.com/WebAssembly/testsuite>
-
+#![doc = include_str!("README.md")]
 #![forbid(unsafe_code)]
 #![doc(test(
     no_crate_inject,
