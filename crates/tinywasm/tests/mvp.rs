@@ -3,7 +3,8 @@ use std::{
     fmt::{Debug, Formatter},
 };
 
-use tinywasm::{Error, Result};
+use eyre::{eyre, Result};
+use log::debug;
 use tinywasm_types::TinyWasmModule;
 use wast::{
     lexer::Lexer,
@@ -11,7 +12,7 @@ use wast::{
     QuoteWat, Wast,
 };
 
-fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule, Error> {
+fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule> {
     let parser = tinywasm_parser::Parser::new();
     Ok(parser.parse_module_bytes(module.encode().expect("failed to encode module"))?)
 }
@@ -27,32 +28,34 @@ fn test_mvp() -> Result<()> {
         let wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
         let wast = std::str::from_utf8(&wast).expect("failed to convert wast to utf8");
 
-        let mut lexer = Lexer::new(&wast);
+        let mut lexer = Lexer::new(wast);
         // we need to allow confusing unicode characters since they are technically valid wasm
         lexer.allow_confusing_unicode(true);
 
         let buf = ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
         let wast_data = parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
+        let mut last_module: Option<TinyWasmModule> = None;
         for (i, directive) in wast_data.directives.into_iter().enumerate() {
             let span = directive.span();
-
             use wast::WastDirective::*;
             let name = format!("{}-{}", group, i);
+
             match directive {
                 // TODO: needs to support more binary sections
                 Wat(QuoteWat::Wat(wast::Wat::Module(module))) => {
-                    let module = std::panic::catch_unwind(|| parse_module(module));
-                    test_group.add_result(
-                        &format!("{}-parse", name),
-                        span,
-                        match module {
-                            Ok(Ok(_)) => Ok(()),
-                            Ok(Err(e)) => Err(e),
-                            Err(e) => Err(Error::Other(format!("failed to parse module: {:?}", e))),
-                        },
-                    );
+                    let result = std::panic::catch_unwind(|| parse_module(module))
+                        .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                        .and_then(|res| res);
+
+                    match &result {
+                        Err(_) => last_module = None,
+                        Ok(m) => last_module = Some(m.clone()),
+                    }
+
+                    test_group.add_result(&format!("{}-parse", name), span, result.map(|_| ()));
                 }
+
                 // these all pass already :)
                 AssertMalformed {
                     span,
@@ -64,10 +67,48 @@ fn test_mvp() -> Result<()> {
                         &format!("{}-malformed", name),
                         span,
                         match res {
-                            Ok(Ok(_)) => Err(Error::Other("expected module to be malformed".to_string())),
+                            Ok(Ok(_)) => Err(eyre!("expected module to be malformed")),
                             Err(_) | Ok(Err(_)) => Ok(()),
                         },
                     );
+                }
+                AssertReturn { span, exec, results: _ } => {
+                    let Some(module) = last_module.as_ref() else {
+                        // println!("no module found for assert_return: {:?}", exec);
+                        continue;
+                    };
+
+                    let res: Result<Result<()>, _> = std::panic::catch_unwind(|| {
+                        let mut store = tinywasm::Store::new();
+                        let module = tinywasm::Module::from(module);
+                        let instance = module.instantiate(&mut store)?;
+
+                        use wast::WastExecute::*;
+                        match exec {
+                            Wat(_) => return Result::Ok(()), // not used by the testsuite
+                            Get { module: _, global: _ } => return Result::Ok(()),
+                            Invoke(invoke) => {
+                                for arg in invoke.args {
+                                    let arg = get_tinywasm_wasm_value(arg)?;
+                                    let _res = instance.get_func(&store, invoke.name)?.call(&mut store, &[arg])?;
+                                    // TODO: check the result
+                                }
+                            }
+                        }
+
+                        Ok(())
+                    });
+
+                    let res = match res {
+                        Err(e) => Err(eyre!("test panicked: {:?}", e)),
+                        Ok(Err(e)) => Err(e),
+                        Ok(Ok(())) => Ok(()),
+                    };
+
+                    test_group.add_result(&format!("{}-return", name), span, res);
+                }
+                Invoke(m) => {
+                    debug!("invoke: {:?}", m);
                 }
                 // _ => test_group.add_result(
                 //     &format!("{}-unknown", name),
@@ -82,11 +123,27 @@ fn test_mvp() -> Result<()> {
 
     if test_suite.failed() {
         eprintln!("\n\nfailed one or more tests:\n{:#?}", test_suite);
-        Err(Error::Other("failed one or more tests".to_string()))
+        Err(eyre!("failed one or more tests"))
     } else {
         println!("\n\npassed all tests:\n{:#?}", test_suite);
         Ok(())
     }
+}
+
+fn get_tinywasm_wasm_value(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
+    let wast::WastArg::Core(arg) = arg else {
+        return Err(eyre!("unsupported arg type"));
+    };
+
+    use tinywasm_types::WasmValue;
+    use wast::core::WastArgCore::*;
+    Ok(match arg {
+        F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
+        F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
+        I32(i) => WasmValue::I32(i),
+        I64(i) => WasmValue::I64(i),
+        _ => return Err(eyre!("unsupported arg type")),
+    })
 }
 
 struct TestSuite(BTreeMap<String, TestGroup>);

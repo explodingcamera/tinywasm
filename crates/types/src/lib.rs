@@ -36,7 +36,7 @@ pub use instructions::*;
 /// This is the internal representation of a WebAssembly module in TinyWasm.
 /// TinyWasmModules are validated before being created, so they are guaranteed to be valid (as long as they were created by TinyWasm).
 /// This means you should not trust a TinyWasmModule created by a third party to be valid.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TinyWasmModule {
     /// The version of the WebAssembly module.
     pub version: Option<u16>,
@@ -266,7 +266,7 @@ pub struct FuncType {
 }
 
 /// A WebAssembly Function
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub ty: TypeAddr,
     pub locals: Box<[ValType]>,
@@ -274,7 +274,7 @@ pub struct Function {
 }
 
 /// A WebAssembly Module Export
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Export {
     /// The name of the export.
     pub name: Box<str>,

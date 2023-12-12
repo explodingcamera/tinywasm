@@ -1,8 +1,9 @@
-use core::fmt::Debug;
+use core::fmt::{Debug, Display};
 
 use alloc::string::{String, ToString};
 use wasmparser::Encoding;
 
+#[derive(Debug)]
 pub enum ParseError {
     InvalidType,
     UnsupportedSection(String),
@@ -16,7 +17,7 @@ pub enum ParseError {
     Other(String),
 }
 
-impl Debug for ParseError {
+impl Display for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidType => write!(f, "invalid type"),
@@ -36,6 +37,9 @@ impl Debug for ParseError {
         }
     }
 }
+
+#[cfg(any(feature = "std", all(not(feature = "std"), nightly)))]
+impl crate::std::error::Error for ParseError {}
 
 impl From<wasmparser::BinaryReaderError> for ParseError {
     fn from(value: wasmparser::BinaryReaderError) -> Self {

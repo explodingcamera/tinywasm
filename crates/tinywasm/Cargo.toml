@@ -21,6 +21,7 @@ tinywasm-types={version="0.0.3", path="../types", default-features=false}
 wasm-testsuite={path="../wasm-testsuite"}
 wast={version="69.0"}
 owo-colors={version="3.5"}
+eyre={version="0.6"}
 
 [features]
 default=["std", "parser", "logging"]

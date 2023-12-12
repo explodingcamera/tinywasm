@@ -10,6 +10,12 @@ pub struct Module {
     data: TinyWasmModule,
 }
 
+impl From<&TinyWasmModule> for Module {
+    fn from(data: &TinyWasmModule) -> Self {
+        Self { data: data.clone() }
+    }
+}
+
 impl From<TinyWasmModule> for Module {
     fn from(data: TinyWasmModule) -> Self {
         Self { data }

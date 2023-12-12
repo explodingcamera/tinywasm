@@ -7,9 +7,9 @@ This crate embeds the latest version of the [WebAssembly Test Suite](https://git
 ```rust
 use wasm_testsuite::{MVP_TESTS, get_test_wast};
 
-wasm_testsuite::MVP_TESTS.iter().for_each(|test| {
+MVP_TESTS.iter().for_each(|test| {
     let wast_bytes = get_test_wast(test).expect("Failed to get wast bytes");
-    let wast = std::str::from_utf8(&wast).expect("failed to convert wast to utf8");
+    let wast = std::str::from_utf8(&wast_bytes).expect("failed to convert wast to utf8");
 
     // Do something with the wast (e.g. parse it using the `wast` crate)
 });
