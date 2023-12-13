@@ -1,7 +1,7 @@
 use super::{DefaultRuntime, Stack};
 use crate::{
     log::debug,
-    runtime::{BlockFrame, BlockFrameType, RawWasmValue},
+    runtime::{BlockFrame, BlockFrameInner, RawWasmValue},
     CallFrame, Error, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
@@ -116,12 +116,24 @@ fn exec_one(
             return Ok(ExecResult::Call);
         }
 
-        Loop(args) => {
-            cf.blocks.push(BlockFrame {
+        Loop(args, end_offset) => {
+            cf.block_frames.push(BlockFrame {
                 instr_ptr: cf.instr_ptr,
+                end_instr_ptr: cf.instr_ptr + *end_offset,
                 stack_ptr: stack.values.len(),
                 args: *args,
-                ty: BlockFrameType::Loop,
+                block: BlockFrameInner::Loop,
+            });
+            stack.values.block_args(*args)?;
+        }
+
+        Block(args, end_offset) => {
+            cf.block_frames.push(BlockFrame {
+                instr_ptr: cf.instr_ptr,
+                end_instr_ptr: cf.instr_ptr + *end_offset,
+                stack_ptr: stack.values.len(),
+                args: *args,
+                block: BlockFrameInner::Block,
             });
             stack.values.block_args(*args)?;
         }
@@ -144,42 +156,64 @@ fn exec_one(
         Br(v) => cf.break_to(*v, &mut stack.values)?,
         BrIf(v) => {
             let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
+            debug!("br_if: {}", val);
             if val > 0 {
                 cf.break_to(*v, &mut stack.values)?
             };
         }
-        End => {
-            let blocks = &mut cf.blocks;
+
+        EndFunc => {
+            if cf.block_frames.len() > 0 {
+                panic!("endfunc: block frames not empty, this should have been validated by the parser");
+            }
+
+            if stack.call_stack.is_empty() {
+                debug!("end: no block to end and no parent call frame, returning");
+                return Ok(ExecResult::Return);
+            } else {
+                debug!("end: no block to end, returning to parent call frame");
+                *cf = stack.call_stack.pop()?;
+                return Ok(ExecResult::Call);
+            }
+        }
+
+        EndBlockFrame => {
+            let blocks = &mut cf.block_frames;
             let Some(block) = blocks.pop() else {
-                if stack.call_stack.is_empty() {
-                    debug!("end: no block to end and no parent call frame, returning");
-                    return Ok(ExecResult::Return);
-                } else {
-                    debug!("end: no block to end, returning to parent call frame");
-                    *cf = stack.call_stack.pop()?;
-                    return Ok(ExecResult::Call);
-                }
+                panic!("end: no block to end, this should have been validated by the parser");
             };
+
             debug!("end, blocks: {:?}", blocks);
             debug!("     instr_ptr: {}", cf.instr_ptr);
 
-            match block.ty {
-                BlockFrameType::Loop => {
-                    debug!("end(loop): break loop");
-                    let res: &[RawWasmValue] = match block.args {
-                        BlockArgs::Empty => &[],
-                        BlockArgs::Type(_t) => todo!(),
-                        BlockArgs::FuncType(_t) => todo!(),
-                    };
+            let res: &[RawWasmValue] = match block.args {
+                BlockArgs::Empty => &[],
+                BlockArgs::Type(_t) => todo!(),
+                BlockArgs::FuncType(_t) => todo!(),
+            };
+
+            match block.block {
+                BlockFrameInner::Loop => {
+                    debug!("end(loop): continue loop");
 
                     // remove the loop values from the stack
                     stack.values.trim(block.stack_ptr);
 
-                    // push the loop result values to the stack
+                    // set the instruction pointer to the start of the loop
+                    cf.instr_ptr = block.instr_ptr;
+
+                    // push the loop back onto the stack
+                    blocks.push(block);
+                }
+                BlockFrameInner::Block => {
+                    // remove the block values from the stack
+                    stack.values.trim(block.stack_ptr);
+
+                    // push the block result values to the stack
                     stack.values.extend(res.iter().copied());
                 }
                 _ => {
-                    panic!("end: unimplemented block type end: {:?}", block.ty);
+                    panic!("end: unimplemented block type end: {:?}", block.block);
                 }
             }
         }
@@ -210,7 +244,13 @@ fn exec_one(
         F32Sub => sub_instr!(f32, stack),
         F64Sub => sub_instr!(f64, stack),
 
-        I32LtS => lts_instr!(i32, stack),
+        I32LtS => {
+            let [b, a] = stack.values.pop_n_const::<2>()?;
+            let a: i32 = a.into();
+            let b: i32 = b.into();
+            stack.values.push(((a < b) as i32).into());
+            debug!("i32.lt_s: {} < {} = {}", a, b, a < b);
+        }
         I64LtS => lts_instr!(i64, stack),
         F32Lt => lts_instr!(f32, stack),
         F64Lt => lts_instr!(f64, stack),

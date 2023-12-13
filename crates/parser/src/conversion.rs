@@ -31,20 +31,15 @@ pub(crate) fn convert_module_code(
 ) -> Result<CodeSection> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
-
+    let pos = locals_reader.original_position();
     let mut locals = Vec::with_capacity(count as usize);
 
     for (i, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
-        validator.define_locals(i, local.0, local.1)?;
-
+        validator.define_locals(pos + i, local.0, local.1)?;
         for _ in 0..local.0 {
             locals.push(convert_valtype(&local.1));
         }
-    }
-
-    if locals.len() != count as usize {
-        return Err(crate::ParseError::Other("Invalid local index".to_string()));
     }
 
     let body_reader = func.get_operators_reader()?;
@@ -118,8 +113,9 @@ pub fn process_operators<'a>(
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
+    let mut last_label_pointer = Option::None;
 
-    for op in ops {
+    for (i, op) in ops.enumerate() {
         let op = op?;
         validator.op(offset, &op)?;
         offset += 1;
@@ -137,11 +133,63 @@ pub fn process_operators<'a>(
             }
             Unreachable => Instruction::Unreachable,
             Nop => Instruction::Nop,
-            Block { blockty } => Instruction::Block(convert_blocktype(blockty)),
-            Loop { blockty } => Instruction::Loop(convert_blocktype(blockty)),
-            If { blockty } => Instruction::If(convert_blocktype(blockty)),
-            Else => Instruction::Else,
-            End => Instruction::End,
+            Block { blockty } => {
+                last_label_pointer = Some(i);
+                Instruction::Block(convert_blocktype(blockty), 0)
+            }
+            Loop { blockty } => {
+                last_label_pointer = Some(i);
+                Instruction::Loop(convert_blocktype(blockty), 0)
+            }
+            If { blockty } => {
+                last_label_pointer = Some(i);
+                Instruction::If(convert_blocktype(blockty), 0)
+            }
+            End => {
+                if let Some(label_pointer) = last_label_pointer {
+                    // last_label_pointer is Some if we're ending a block
+                    match instructions[label_pointer] {
+                        Instruction::Block(_, ref mut end)
+                        | Instruction::Loop(_, ref mut end)
+                        | Instruction::Else(ref mut end)
+                        | Instruction::If(_, ref mut end) => {
+                            *end = i + 1; // Set the end position to be one after the End instruction
+                            last_label_pointer = None;
+                        }
+                        _ => {
+                            return Err(crate::ParseError::UnsupportedOperator(
+                                "Expected to end a block, but the last label was not a block".to_string(),
+                            ))
+                        }
+                    }
+
+                    Instruction::EndBlockFrame
+                } else {
+                    // last_label_pointer is None if we're ending the function
+                    Instruction::EndFunc
+                }
+            }
+            Else => {
+                let Some(label_pointer) = last_label_pointer else {
+                    return Err(crate::ParseError::UnsupportedOperator(
+                        "Expected to end an if block, but the last label was None".to_string(),
+                    ));
+                };
+
+                match instructions[label_pointer] {
+                    Instruction::If(_, ref mut end) => {
+                        *end = i + 1; // Set the end position to be one after the Else instruction
+                    }
+                    _ => {
+                        return Err(crate::ParseError::UnsupportedOperator(
+                            "Expected to end an if block, but the last label was not an if".to_string(),
+                        ));
+                    }
+                }
+
+                last_label_pointer = Some(i);
+                Instruction::Else(0)
+            }
             Br { relative_depth } => Instruction::Br(relative_depth),
             BrIf { relative_depth } => Instruction::BrIf(relative_depth),
             Return => Instruction::Return,

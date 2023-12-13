@@ -16,12 +16,18 @@ pub struct MemArg {
 
 type BrTableDefault = u32;
 type BrTableLen = usize;
+type EndOffset = usize;
 
 /// A WebAssembly Instruction
 ///
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
 /// Wasm Bytecode can map to multiple of these instructions.
-/// For example, `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
+///
+/// # Differences to the spec
+/// * `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
+/// * Lables/Blocks: we store the label end offset in the instruction itself and
+///   have seperate EndBlockFrame and EndFunc instructions to mark the end of a block or function.
+///   This makes it easier to implement the label stack (we call it BlockFrameStack) iteratively.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,11 +39,12 @@ pub enum Instruction {
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
-    Block(BlockArgs),
-    Loop(BlockArgs),
-    If(BlockArgs),
-    Else,
-    End,
+    Block(BlockArgs, EndOffset),
+    Loop(BlockArgs, EndOffset),
+    If(BlockArgs, EndOffset),
+    Else(EndOffset),
+    EndBlockFrame,
+    EndFunc,
     Br(LabelAddr),
     BrIf(LabelAddr),
     BrTable(BrTableDefault, BrTableLen), // has to be followed by multiple BrLabel instructions

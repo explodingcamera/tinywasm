@@ -1,8 +1,9 @@
 use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::{boxed::Box, vec::Vec};
+use log::info;
 use tinywasm_types::{ValType, WasmValue};
 
-use super::{blocks::Blocks, BlockFrameType};
+use super::blocks::Blocks;
 
 // minimum call stack size
 const CALL_STACK_SIZE: usize = 1024;
@@ -68,10 +69,11 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
+    // having real pointers here would be nice :( but we can't really do that in safe rust
     pub(crate) instr_ptr: usize,
     pub(crate) func_ptr: usize,
 
-    pub(crate) blocks: Blocks,
+    pub(crate) block_frames: Blocks,
     pub(crate) locals: Box<[RawWasmValue]>,
     pub(crate) local_count: usize,
 }
@@ -79,25 +81,33 @@ pub(crate) struct CallFrame {
 impl CallFrame {
     /// Break to a block at the given index (relative to the current frame)
     #[inline]
-    pub(crate) fn break_to(&mut self, block_index: u32, value_stack: &mut super::ValueStack) -> Result<()> {
-        let block = self
-            .blocks
-            .get(block_index as usize)
+    pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Result<()> {
+        info!("we're in block_index: {}", self.block_frames.len());
+        info!("block_frames: {:?}", self.block_frames);
+        info!("break_to_relative: {}", break_to_relative);
+
+        let block_frame = self
+            .block_frames
+            .get_relative_to_top(break_to_relative as usize)
             .ok_or(Error::BlockStackUnderflow)?;
 
-        self.instr_ptr = block.instr_ptr;
-        value_stack.trim(block.stack_ptr);
+        info!("so we're breaking to: {:?} ?", block_frame);
 
-        // Adjusting how to trim the blocks stack based on the block type
-        let trim_index = match block.ty {
-            // if we are breaking to a loop, we want to jump back to the start of the loop
-            BlockFrameType::Loop => block_index as usize - 2,
-            // if we are breaking to any other block, we want to jump to the end of the block
-            // TODO: check if this is correct
-            BlockFrameType::If | BlockFrameType::Else | BlockFrameType::Block => block_index as usize - 1,
-        };
+        todo!("break based on the type of the block we're breaking to");
 
-        self.blocks.trim(trim_index);
+        // self.instr_ptr = block_frame.instr_ptr;
+        // value_stack.trim(block_frame.stack_ptr);
+
+        // // // Adjusting how to trim the blocks stack based on the block type
+        // // let trim_index = match block_frame.block {
+        // //     // if we are breaking to a loop, we want to jump back to the start of the loop
+        // //     BlockFrameInner::Loop => block_index as usize - 1,
+        // //     // if we are breaking to any other block, we want to jump to the end of the block
+        // //     // TODO: check if this is correct
+        // //     BlockFrameInner::If | BlockFrameInner::Else | BlockFrameInner::Block => block_index as usize - 1,
+        // // };
+
+        // self.block_frames.trim(block_index as usize);
         Ok(())
     }
 
@@ -111,7 +121,7 @@ impl CallFrame {
             func_ptr,
             local_count: locals.len(),
             locals: locals.into_boxed_slice(),
-            blocks: Blocks::default(),
+            block_frames: Blocks::default(),
         }
     }
 

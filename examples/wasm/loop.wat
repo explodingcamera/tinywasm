@@ -1,37 +1,60 @@
+;; (module
+;;   (func $test (export "test") (result i32)
+;;     (local i32) ;; Local 0: Counter for the outer loop
+;;     (local i32) ;; Local 1: Counter for the inner loop
+;;     (local i32) ;; Local 2: Result variable
+
+;;     ;; Initialize variables
+;;     (local.set 0 (i32.const 0)) ;; Initialize outer loop counter
+;;     (local.set 1 (i32.const 0)) ;; Initialize inner loop counter
+;;     (local.set 2 (i32.const 0)) ;; Initialize result variable
+
+;;     (block $outer  ;; Outer loop label
+;;       (loop $outer_loop
+;;         (local.set 1 (i32.const 5)) ;; Reset inner loop counter for each iteration of the outer loop
+
+;;         (block $inner  ;; Inner loop label
+;;           (loop $inner_loop
+;;             (br_if $inner (i32.eqz (local.get 1))) ;; Break to $inner if inner loop counter is zero
+
+;;             ;; Computation: Adding product of counters to the result
+;;             (local.set 2 (i32.add (local.get 2) (i32.mul (local.get 0) (local.get 1))))
+
+;;             ;; Decrement inner loop counter
+;;             (local.set 1 (i32.sub (local.get 1) (i32.const 1)))
+;;           )
+;;         )
+
+;;         ;; Increment outer loop counter
+;;         (local.set 0 (i32.add (local.get 0) (i32.const 1)))
+
+;;         ;; Break condition for outer loop: break if outer loop counter >= 5
+;;         (br_if $outer (i32.ge_s (local.get 0) (i32.const 5))) 
+;;       )
+;;     )
+
+;;     ;; Return the result
+;;     (local.get 2)
+;;   )
+;; )
+
 (module
-  (func $loop (export "loop") (result i32)
-    (local i32)  ;; Declare a local i32 variable, let's call it 'i'
-    (i32.const 0)  ;; Initialize 'i' to 0
-    (local.set 0)
+  (func $loop_test (export "loop_test") (result i32)
+    (local i32) ;; Local 0: Counter
 
-    ;; (loop $test
-    ;;   (loop $test2
-    ;;     (local.get 0)
-    ;;     (i32.const 1)
-    ;;     (i32.add)
-    ;;     (local.set 0)
-    ;;     (br $test2)
-    ;;   )
-    ;; )
+    ;; Initialize the counter
+    (local.set 0 (i32.const 0))
 
+    ;; Loop starts here
+    (loop $my_loop
+      ;; Increment the counter
+      (local.set 0 (i32.add (local.get 0) (i32.const 1)))
 
-    (loop $blockStart
-      (loop $blockStart2
-        (loop $loopStart  ;; Start of the loop
-          (local.get 0)  ;; Get the current value of 'i'
-          (i32.const 1)  ;; Push 1 onto the stack
-          (i32.add)      ;; Add 'i' and 1
-          (local.set 0)  ;; Update 'i' with the new value
-    
-          (local.get 0)  ;; Push the current value of 'i' to check the condition
-          (i32.const 10) ;; Push 10 onto the stack
-          (i32.lt_s)     ;; Check if 'i' is less than 10
-          (br_if $blockStart)  ;; If 'i' < 10, continue the loop
-        )
-      )
+      ;; Exit condition: break out of the loop if counter >= 10
+      (br_if $my_loop (i32.lt_s (local.get 0) (i32.const 10)))
     )
-
-    (local.get 0)  ;; After the loop, get the value of 'i' to be returned
-    ;; The function will return the value of 'i' here
+    
+    ;; Return the counter value
+    (local.get 0)
   )
 )
