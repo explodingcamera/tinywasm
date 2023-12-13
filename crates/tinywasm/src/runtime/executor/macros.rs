@@ -31,7 +31,7 @@ macro_rules! div_instr {
 /// Less than signed instruction
 macro_rules! lts_instr {
     ($ty:ty, $stack:ident) => {{
-        let [b, a] = $stack.values.pop_n_const::<2>()?;
+        let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $ty = a.into();
         let b: $ty = b.into();
         $stack.values.push(((a < b) as i32).into());
@@ -58,9 +58,20 @@ macro_rules! eq_instr {
     }};
 }
 
+/// Greater or equal than signed instruction
+macro_rules! ges_instr {
+    ($ty:ty, $stack:ident) => {{
+        let [a, b] = $stack.values.pop_n_const::<2>()?;
+        let a: $ty = a.into();
+        let b: $ty = b.into();
+        $stack.values.push(((a >= b) as i32).into());
+    }};
+}
+
 pub(super) use add_instr;
 pub(super) use div_instr;
 pub(super) use eq_instr;
+pub(super) use ges_instr;
 pub(super) use lts_instr;
 pub(super) use mul_instr;
 pub(super) use sub_instr;

@@ -39,8 +39,8 @@ pub enum Error {
     /// The stack is empty
     StackUnderflow,
 
-    /// The block stack is empty
-    BlockStackUnderflow,
+    /// The label stack is empty
+    LabelStackUnderflow,
 
     /// The call stack is empty
     CallStackEmpty,
@@ -63,7 +63,7 @@ impl Display for Error {
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
-            Self::BlockStackUnderflow => write!(f, "block stack underflow"),
+            Self::LabelStackUnderflow => write!(f, "label stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidStore => write!(f, "invalid store"),

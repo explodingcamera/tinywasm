@@ -1,10 +1,11 @@
 use super::{DefaultRuntime, Stack};
 use crate::{
     log::debug,
-    runtime::{BlockFrame, BlockFrameInner, RawWasmValue},
+    runtime::{BlockType, LabelFrame, RawWasmValue},
     CallFrame, Error, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
+use log::info;
 use tinywasm_types::{BlockArgs, Instruction};
 
 mod macros;
@@ -64,6 +65,9 @@ enum ExecResult {
     Trap(crate::Trap),
 }
 
+/// Run a single step of the interpreter
+/// A seperate function is used so later, we can more easily implement
+/// a step-by-step debugger (using generators once they're stable?)
 #[inline]
 fn exec_one(
     cf: &mut CallFrame,
@@ -74,6 +78,9 @@ fn exec_one(
     module: &ModuleInstance,
 ) -> Result<ExecResult> {
     use tinywasm_types::Instruction::*;
+
+    info!("ptr: {} instr: {:?}", cf.instr_ptr, instr);
+
     match instr {
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
@@ -117,23 +124,23 @@ fn exec_one(
         }
 
         Loop(args, end_offset) => {
-            cf.block_frames.push(BlockFrame {
+            cf.labels.push(LabelFrame {
                 instr_ptr: cf.instr_ptr,
                 end_instr_ptr: cf.instr_ptr + *end_offset,
                 stack_ptr: stack.values.len(),
                 args: *args,
-                block: BlockFrameInner::Loop,
+                ty: BlockType::Loop,
             });
             stack.values.block_args(*args)?;
         }
 
         Block(args, end_offset) => {
-            cf.block_frames.push(BlockFrame {
+            cf.labels.push(LabelFrame {
                 instr_ptr: cf.instr_ptr,
                 end_instr_ptr: cf.instr_ptr + *end_offset,
                 stack_ptr: stack.values.len(),
                 args: *args,
-                block: BlockFrameInner::Block,
+                ty: BlockType::Block,
             });
             stack.values.block_args(*args)?;
         }
@@ -163,7 +170,7 @@ fn exec_one(
         }
 
         EndFunc => {
-            if cf.block_frames.len() > 0 {
+            if cf.labels.len() > 0 {
                 panic!("endfunc: block frames not empty, this should have been validated by the parser");
             }
 
@@ -178,13 +185,12 @@ fn exec_one(
         }
 
         EndBlockFrame => {
-            let blocks = &mut cf.block_frames;
-            let Some(block) = blocks.pop() else {
-                panic!("end: no block to end, this should have been validated by the parser");
-            };
+            let blocks = &mut cf.labels;
 
-            debug!("end, blocks: {:?}", blocks);
-            debug!("     instr_ptr: {}", cf.instr_ptr);
+            // remove the label from the label stack
+            let Some(block) = blocks.pop() else {
+                panic!("end: no label to end, this should have been validated by the parser");
+            };
 
             let res: &[RawWasmValue] = match block.args {
                 BlockArgs::Empty => &[],
@@ -192,30 +198,11 @@ fn exec_one(
                 BlockArgs::FuncType(_t) => todo!(),
             };
 
-            match block.block {
-                BlockFrameInner::Loop => {
-                    debug!("end(loop): continue loop");
+            // trim the lable's stack from the stack
+            stack.values.trim(block.stack_ptr);
 
-                    // remove the loop values from the stack
-                    stack.values.trim(block.stack_ptr);
-
-                    // set the instruction pointer to the start of the loop
-                    cf.instr_ptr = block.instr_ptr;
-
-                    // push the loop back onto the stack
-                    blocks.push(block);
-                }
-                BlockFrameInner::Block => {
-                    // remove the block values from the stack
-                    stack.values.trim(block.stack_ptr);
-
-                    // push the block result values to the stack
-                    stack.values.extend(res.iter().copied());
-                }
-                _ => {
-                    panic!("end: unimplemented block type end: {:?}", block.block);
-                }
-            }
+            // push the block result values to the stack
+            stack.values.extend(res.iter().copied());
         }
 
         LocalGet(local_index) => {
@@ -244,16 +231,15 @@ fn exec_one(
         F32Sub => sub_instr!(f32, stack),
         F64Sub => sub_instr!(f64, stack),
 
-        I32LtS => {
-            let [b, a] = stack.values.pop_n_const::<2>()?;
-            let a: i32 = a.into();
-            let b: i32 = b.into();
-            stack.values.push(((a < b) as i32).into());
-            debug!("i32.lt_s: {} < {} = {}", a, b, a < b);
-        }
+        I32LtS => lts_instr!(i32, stack),
         I64LtS => lts_instr!(i64, stack),
         F32Lt => lts_instr!(f32, stack),
         F64Lt => lts_instr!(f64, stack),
+
+        I32GeS => ges_instr!(i32, stack),
+        I64GeS => ges_instr!(i64, stack),
+        F32Ge => ges_instr!(f32, stack),
+        F64Ge => ges_instr!(f64, stack),
 
         I32DivS => div_instr!(i32, stack),
         I64DivS => div_instr!(i64, stack),

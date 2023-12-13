@@ -1,9 +1,9 @@
-use crate::{runtime::RawWasmValue, Error, Result};
+use crate::{runtime::RawWasmValue, BlockType, Error, Result};
 use alloc::{boxed::Box, vec::Vec};
-use log::info;
+use log::{debug, info};
 use tinywasm_types::{ValType, WasmValue};
 
-use super::blocks::Blocks;
+use super::blocks::Labels;
 
 // minimum call stack size
 const CALL_STACK_SIZE: usize = 1024;
@@ -73,7 +73,7 @@ pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
     pub(crate) func_ptr: usize,
 
-    pub(crate) block_frames: Blocks,
+    pub(crate) labels: Labels,
     pub(crate) locals: Box<[RawWasmValue]>,
     pub(crate) local_count: usize,
 }
@@ -82,18 +82,42 @@ impl CallFrame {
     /// Break to a block at the given index (relative to the current frame)
     #[inline]
     pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Result<()> {
-        info!("we're in block_index: {}", self.block_frames.len());
-        info!("block_frames: {:?}", self.block_frames);
-        info!("break_to_relative: {}", break_to_relative);
-
-        let block_frame = self
-            .block_frames
+        let current_label = self.labels.top().ok_or(Error::LabelStackUnderflow)?;
+        let break_to = self
+            .labels
             .get_relative_to_top(break_to_relative as usize)
-            .ok_or(Error::BlockStackUnderflow)?;
+            .ok_or(Error::LabelStackUnderflow)?;
 
-        info!("so we're breaking to: {:?} ?", block_frame);
+        info!("current label: {:?}", current_label);
+        info!("we're breaking to: {:?} ?", break_to);
 
-        todo!("break based on the type of the block we're breaking to");
+        // instr_ptr points to the label instruction, but the next step
+        // will increment it by 1 since we're changing the "current" instr_ptr
+        match break_to.ty {
+            BlockType::Loop => {
+                // this is a loop, so we want to jump back to the start of the loop
+                self.instr_ptr = break_to.instr_ptr;
+                value_stack.trim(break_to.stack_ptr);
+
+                // we also want to trim the label stack to the loop (but not including the loop)
+                self.labels.trim(self.labels.len() - break_to_relative as usize);
+            }
+            BlockType::Block => {
+                debug!("current instr_ptr: {}", self.instr_ptr);
+
+                // this is a block, so we want to jump to the end of the block
+                self.instr_ptr = break_to.end_instr_ptr;
+                value_stack.trim(break_to.stack_ptr);
+
+                // we also want to trim the label stack, including the block
+                self.labels.trim(self.labels.len() - break_to_relative as usize + 1);
+
+                debug!("break_to.end_instr_ptr: {}", self.instr_ptr);
+
+                panic!()
+            }
+            _ => unimplemented!("break to block type: {:?}", current_label.ty),
+        }
 
         // self.instr_ptr = block_frame.instr_ptr;
         // value_stack.trim(block_frame.stack_ptr);
@@ -121,7 +145,7 @@ impl CallFrame {
             func_ptr,
             local_count: locals.len(),
             locals: locals.into_boxed_slice(),
-            block_frames: Blocks::default(),
+            labels: Labels::default(),
         }
     }
 

@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use log::info;
 use tinywasm_types::{BlockArgs, Export, ExternalKind, FuncType, Instruction, MemArg, ValType};
 use wasmparser::{FuncValidator, ValidatorResources};
 
@@ -113,9 +114,11 @@ pub fn process_operators<'a>(
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
-    let mut last_label_pointer = Option::None;
+    let mut labels_ptrs = Vec::new();
 
     for (i, op) in ops.enumerate() {
+        info!("op: {:?}", op);
+
         let op = op?;
         validator.op(offset, &op)?;
         offset += 1;
@@ -134,19 +137,19 @@ pub fn process_operators<'a>(
             Unreachable => Instruction::Unreachable,
             Nop => Instruction::Nop,
             Block { blockty } => {
-                last_label_pointer = Some(i);
+                labels_ptrs.push(instructions.len());
                 Instruction::Block(convert_blocktype(blockty), 0)
             }
             Loop { blockty } => {
-                last_label_pointer = Some(i);
+                labels_ptrs.push(instructions.len());
                 Instruction::Loop(convert_blocktype(blockty), 0)
             }
             If { blockty } => {
-                last_label_pointer = Some(i);
+                labels_ptrs.push(instructions.len());
                 Instruction::If(convert_blocktype(blockty), 0)
             }
             End => {
-                if let Some(label_pointer) = last_label_pointer {
+                if let Some(label_pointer) = labels_ptrs.pop() {
                     // last_label_pointer is Some if we're ending a block
                     match instructions[label_pointer] {
                         Instruction::Block(_, ref mut end)
@@ -154,7 +157,6 @@ pub fn process_operators<'a>(
                         | Instruction::Else(ref mut end)
                         | Instruction::If(_, ref mut end) => {
                             *end = i + 1; // Set the end position to be one after the End instruction
-                            last_label_pointer = None;
                         }
                         _ => {
                             return Err(crate::ParseError::UnsupportedOperator(
@@ -170,7 +172,7 @@ pub fn process_operators<'a>(
                 }
             }
             Else => {
-                let Some(label_pointer) = last_label_pointer else {
+                let Some(label_pointer) = labels_ptrs.pop() else {
                     return Err(crate::ParseError::UnsupportedOperator(
                         "Expected to end an if block, but the last label was None".to_string(),
                     ));
@@ -187,7 +189,6 @@ pub fn process_operators<'a>(
                     }
                 }
 
-                last_label_pointer = Some(i);
                 Instruction::Else(0)
             }
             Br { relative_depth } => Instruction::Br(relative_depth),
@@ -367,6 +368,13 @@ pub fn process_operators<'a>(
         };
 
         instructions.push(res);
+    }
+
+    if !labels_ptrs.is_empty() {
+        panic!(
+            "last_label_pointer should be None after processing all instructions: {:?}",
+            labels_ptrs
+        );
     }
 
     validator.finish(offset)?;
