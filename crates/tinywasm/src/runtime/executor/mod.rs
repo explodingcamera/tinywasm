@@ -84,23 +84,18 @@ fn exec_one(
     match instr {
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
-        Drop => {
-            stack.values.pop().ok_or(Error::StackUnderflow)?;
-        }
+        Drop => stack.values.pop().map(|_| ())?,
+        Return => todo!("called function returned"),
         Select => {
-            let cond: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
-            let val2 = stack.values.pop().ok_or(Error::StackUnderflow)?;
+            let cond: i32 = stack.values.pop()?.into();
+            let val2 = stack.values.pop()?;
 
             // if cond != 0, we already have the right value on the stack
             if cond == 0 {
-                let _ = stack.values.pop().ok_or(Error::StackUnderflow)?;
+                let _ = stack.values.pop()?;
                 stack.values.push(val2);
             }
         }
-        Return => {
-            debug!("return");
-        }
-
         Call(v) => {
             debug!("start call");
             // prepare the call frame
@@ -131,7 +126,7 @@ fn exec_one(
                 args: *args,
                 ty: BlockType::Loop,
             });
-            stack.values.block_args(*args)?;
+            stack.values.push_block_args(*args)?;
         }
 
         Block(args, end_offset) => {
@@ -142,7 +137,7 @@ fn exec_one(
                 args: *args,
                 ty: BlockType::Block,
             });
-            stack.values.block_args(*args)?;
+            stack.values.push_block_args(*args)?;
         }
 
         BrTable(_default, len) => {
@@ -160,11 +155,10 @@ fn exec_one(
 
             todo!()
         }
+
         Br(v) => cf.break_to(*v, &mut stack.values)?,
         BrIf(v) => {
-            let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
-            debug!("br_if: {}", val);
-            if val > 0 {
+            if stack.values.pop_t::<i32>()? > 0 {
                 cf.break_to(*v, &mut stack.values)?
             };
         }
@@ -174,13 +168,12 @@ fn exec_one(
                 panic!("endfunc: block frames not empty, this should have been validated by the parser");
             }
 
-            if stack.call_stack.is_empty() {
-                debug!("end: no block to end and no parent call frame, returning");
-                return Ok(ExecResult::Return);
-            } else {
-                debug!("end: no block to end, returning to parent call frame");
-                *cf = stack.call_stack.pop()?;
-                return Ok(ExecResult::Call);
+            match stack.call_stack.is_empty() {
+                true => return Ok(ExecResult::Return),
+                false => {
+                    *cf = stack.call_stack.pop()?;
+                    return Ok(ExecResult::Call);
+                }
             }
         }
 
@@ -205,22 +198,15 @@ fn exec_one(
             stack.values.extend(res.iter().copied());
         }
 
-        LocalGet(local_index) => {
-            debug!("local.get: {:?}", local_index);
-            let val = cf.get_local(*local_index as usize);
-            stack.values.push(val);
-        }
-        LocalSet(local_index) => {
-            let val = stack.values.pop().ok_or(Error::StackUnderflow)?;
-            cf.set_local(*local_index as usize, val);
-        }
-        // Equivalent to local.set, local.get
-        LocalTee(local_index) => {
-            let val = stack.values.last().ok_or(Error::StackUnderflow)?;
-            cf.set_local(*local_index as usize, *val);
-        }
+        LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
+        LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
+        LocalTee(local_index) => cf.set_local(*local_index as usize, *stack.values.last()?),
+
         I32Const(val) => stack.values.push((*val).into()),
         I64Const(val) => stack.values.push((*val).into()),
+        F32Const(val) => stack.values.push((*val).into()),
+        F64Const(val) => stack.values.push((*val).into()),
+
         I64Add => add_instr!(i64, stack),
         I32Add => add_instr!(i32, stack),
         F32Add => add_instr!(f32, stack),
@@ -233,16 +219,22 @@ fn exec_one(
 
         I32LtS => lts_instr!(i32, stack),
         I64LtS => lts_instr!(i64, stack),
+        I32LtU => ltu_instr!(i32, u32, stack),
+        I64LtU => ltu_instr!(i64, u64, stack),
         F32Lt => lts_instr!(f32, stack),
         F64Lt => lts_instr!(f64, stack),
 
         I32GeS => ges_instr!(i32, stack),
         I64GeS => ges_instr!(i64, stack),
+        I32GeU => geu_instr!(i32, u32, stack),
+        I64GeU => geu_instr!(i64, u64, stack),
         F32Ge => ges_instr!(f32, stack),
         F64Ge => ges_instr!(f64, stack),
 
-        I32DivS => div_instr!(i32, stack),
-        I64DivS => div_instr!(i64, stack),
+        I32DivS => checked_divs_instr!(i32, stack),
+        I64DivS => checked_divs_instr!(i64, stack),
+        I32DivU => checked_divu_instr!(i32, u32, stack),
+        I64DivU => checked_divu_instr!(i64, u64, stack),
         F32Div => div_instr!(f32, stack),
         F64Div => div_instr!(f64, stack),
 
@@ -253,18 +245,15 @@ fn exec_one(
 
         I32Eq => eq_instr!(i32, stack),
         I64Eq => eq_instr!(i64, stack),
+        I32Eqz => eqz_instr!(i32, stack),
+        I64Eqz => eqz_instr!(i64, stack),
         F32Eq => eq_instr!(f32, stack),
         F64Eq => eq_instr!(f64, stack),
 
-        I32Eqz => {
-            let val: i32 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
-            stack.values.push(((val == 0) as i32).into());
-        }
-
-        I64Eqz => {
-            let val: i64 = stack.values.pop().ok_or(Error::StackUnderflow)?.into();
-            stack.values.push(((val == 0) as i32).into());
-        }
+        I32Ne => ne_instr!(i32, stack),
+        I64Ne => ne_instr!(i64, stack),
+        F32Ne => ne_instr!(f32, stack),
+        F64Ne => ne_instr!(f64, stack),
 
         i => todo!("{:?}", i),
     };

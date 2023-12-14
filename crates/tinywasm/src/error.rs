@@ -11,6 +11,12 @@ use tinywasm_parser::ParseError;
 pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,
+
+    /// An out-of-bounds memory access occurred
+    MemoryOutOfBounds,
+
+    /// A division by zero occurred
+    DivisionByZero,
 }
 
 #[derive(Debug)]

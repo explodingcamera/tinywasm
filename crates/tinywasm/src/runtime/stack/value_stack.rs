@@ -37,7 +37,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn block_args(&self, args: BlockArgs) -> Result<()> {
+    pub(crate) fn push_block_args(&self, args: BlockArgs) -> Result<()> {
         match args {
             BlockArgs::Empty => Ok(()),
             BlockArgs::Type(_t) => todo!(),
@@ -58,14 +58,20 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn last(&self) -> Option<&RawWasmValue> {
-        self.stack.last()
+    pub(crate) fn last(&self) -> Result<&RawWasmValue> {
+        self.stack.last().ok_or(Error::StackUnderflow)
     }
 
     #[inline]
-    pub(crate) fn pop(&mut self) -> Option<RawWasmValue> {
+    pub(crate) fn pop_t<T: From<RawWasmValue>>(&mut self) -> Result<T> {
         self.top -= 1;
-        self.stack.pop()
+        Ok(self.pop()?.into())
+    }
+
+    #[inline]
+    pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
+        self.top -= 1;
+        self.stack.pop().ok_or(Error::StackUnderflow)
     }
 
     #[inline]
