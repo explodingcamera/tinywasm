@@ -77,10 +77,9 @@ fn exec_one(
     store: &mut Store,
     module: &ModuleInstance,
 ) -> Result<ExecResult> {
-    use tinywasm_types::Instruction::*;
-
     info!("ptr: {} instr: {:?}", cf.instr_ptr, instr);
 
+    use tinywasm_types::Instruction::*;
     match instr {
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
@@ -224,6 +223,13 @@ fn exec_one(
         F32Lt => lts_instr!(f32, stack),
         F64Lt => lts_instr!(f64, stack),
 
+        I32LeS => les_instr!(i32, stack),
+        I64LeS => les_instr!(i64, stack),
+        I32LeU => leu_instr!(i32, u32, stack),
+        I64LeU => leu_instr!(i64, u64, stack),
+        F32Le => les_instr!(f32, stack),
+        F64Le => les_instr!(f64, stack),
+
         I32GeS => ges_instr!(i32, stack),
         I64GeS => ges_instr!(i64, stack),
         I32GeU => geu_instr!(i32, u32, stack),
@@ -231,10 +237,19 @@ fn exec_one(
         F32Ge => ges_instr!(f32, stack),
         F64Ge => ges_instr!(f64, stack),
 
+        I32GtS => gts_instr!(i32, stack),
+        I64GtS => gts_instr!(i64, stack),
+        I32GtU => gtu_instr!(i32, u32, stack),
+        I64GtU => gtu_instr!(i64, u64, stack),
+        F32Gt => gts_instr!(f32, stack),
+        F64Gt => gts_instr!(f64, stack),
+
+        // these can trap
         I32DivS => checked_divs_instr!(i32, stack),
         I64DivS => checked_divs_instr!(i64, stack),
         I32DivU => checked_divu_instr!(i32, u32, stack),
         I64DivU => checked_divu_instr!(i64, u64, stack),
+
         F32Div => div_instr!(f32, stack),
         F64Div => div_instr!(f64, stack),
 
@@ -254,6 +269,24 @@ fn exec_one(
         I64Ne => ne_instr!(i64, stack),
         F32Ne => ne_instr!(f32, stack),
         F64Ne => ne_instr!(f64, stack),
+
+        F32ConvertI32S => conv_1!(i32, f32, stack),
+        F32ConvertI64S => conv_1!(i64, f32, stack),
+        F64ConvertI32S => conv_1!(i32, f64, stack),
+        F64ConvertI64S => conv_1!(i64, f64, stack),
+        F32ConvertI32U => conv_2!(i32, u32, f32, stack),
+        F32ConvertI64U => conv_2!(i64, u64, f32, stack),
+        F64ConvertI32U => conv_2!(i32, u32, f64, stack),
+        F64ConvertI64U => conv_2!(i64, u64, f64, stack),
+        I64ExtendI32U => conv_2!(i32, u32, i64, stack),
+        I64ExtendI32S => conv_1!(i32, i64, stack),
+        I32WrapI64 => conv_1!(i64, i32, stack),
+
+        // no-op instructions since types are erased at runtime
+        I32ReinterpretF32 => {}
+        I64ReinterpretF64 => {}
+        F32ReinterpretI32 => {}
+        F64ReinterpretI64 => {}
 
         i => todo!("{:?}", i),
     };
