@@ -72,7 +72,7 @@ fn test_mvp() -> Result<()> {
                         },
                     );
                 }
-                AssertReturn { span, exec, results: _ } => {
+                AssertReturn { span, exec, results } => {
                     let Some(module) = last_module.as_ref() else {
                         // println!("no module found for assert_return: {:?}", exec);
                         continue;
@@ -84,15 +84,30 @@ fn test_mvp() -> Result<()> {
                         let instance = module.instantiate(&mut store)?;
 
                         use wast::WastExecute::*;
-                        match exec {
+                        let invoke = match exec {
                             Wat(_) => return Result::Ok(()), // not used by the testsuite
                             Get { module: _, global: _ } => return Result::Ok(()),
-                            Invoke(invoke) => {
-                                for arg in invoke.args {
-                                    let arg = get_tinywasm_wasm_value(arg)?;
-                                    let _res = instance.get_func(&store, invoke.name)?.call(&mut store, &[arg])?;
-                                    // TODO: check the result
-                                }
+                            Invoke(invoke) => invoke,
+                        };
+
+                        let args = invoke
+                            .args
+                            .into_iter()
+                            .map(wastarg2tinywasmvalue)
+                            .collect::<Result<Vec<_>>>()?;
+                        let res = instance.get_func(&store, invoke.name)?.call(&mut store, &args)?;
+                        let expected = results
+                            .into_iter()
+                            .map(wastret2tinywasmvalue)
+                            .collect::<Result<Vec<_>>>()?;
+
+                        if res.len() != expected.len() {
+                            return Result::Err(eyre!("expected {} results, got {}", expected.len(), res.len()));
+                        }
+
+                        for (i, (res, expected)) in res.iter().zip(expected).enumerate() {
+                            if res != &expected {
+                                return Result::Err(eyre!("result {} did not match: {:?} != {:?}", i, res, expected));
                             }
                         }
 
@@ -130,7 +145,7 @@ fn test_mvp() -> Result<()> {
     }
 }
 
-fn get_tinywasm_wasm_value(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
+fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
     let wast::WastArg::Core(arg) = arg else {
         return Err(eyre!("unsupported arg type"));
     };
@@ -143,6 +158,55 @@ fn get_tinywasm_wasm_value(arg: wast::WastArg) -> Result<tinywasm_types::WasmVal
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         _ => return Err(eyre!("unsupported arg type")),
+    })
+}
+
+fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
+    let wast::WastRet::Core(arg) = arg else {
+        return Err(eyre!("unsupported arg type"));
+    };
+
+    use tinywasm_types::WasmValue;
+    use wast::core::WastRetCore::*;
+    Ok(match arg {
+        F32(f) => nanpattern2tinywasmvalue(f)?,
+        F64(f) => nanpattern2tinywasmvalue(f)?,
+        I32(i) => WasmValue::I32(i),
+        I64(i) => WasmValue::I64(i),
+        _ => return Err(eyre!("unsupported arg type")),
+    })
+}
+
+enum Bits {
+    U32(u32),
+    U64(u64),
+}
+trait FloatToken {
+    fn bits(&self) -> Bits;
+}
+impl FloatToken for wast::token::Float32 {
+    fn bits(&self) -> Bits {
+        Bits::U32(self.bits)
+    }
+}
+impl FloatToken for wast::token::Float64 {
+    fn bits(&self) -> Bits {
+        Bits::U64(self.bits)
+    }
+}
+
+fn nanpattern2tinywasmvalue<T>(arg: wast::core::NanPattern<T>) -> Result<tinywasm_types::WasmValue>
+where
+    T: FloatToken,
+{
+    use wast::core::NanPattern::*;
+    Ok(match arg {
+        CanonicalNan => tinywasm_types::WasmValue::F32(f32::NAN),
+        ArithmeticNan => tinywasm_types::WasmValue::F32(f32::NAN),
+        Value(v) => match v.bits() {
+            Bits::U32(v) => tinywasm_types::WasmValue::F32(f32::from_bits(v)),
+            Bits::U64(v) => tinywasm_types::WasmValue::F64(f64::from_bits(v)),
+        },
     })
 }
 

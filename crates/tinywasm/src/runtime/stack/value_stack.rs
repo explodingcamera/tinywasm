@@ -24,11 +24,6 @@ impl Default for ValueStack {
 
 impl ValueStack {
     #[inline]
-    pub(crate) fn last_mut(&mut self) -> Option<&mut RawWasmValue> {
-        self.stack.last_mut()
-    }
-
-    #[inline]
     pub(crate) fn len(&self) -> usize {
         assert!(self.top <= self.stack.len());
         self.top

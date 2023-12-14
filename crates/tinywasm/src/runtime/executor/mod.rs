@@ -91,7 +91,8 @@ fn exec_one(
 
             // if cond != 0, we already have the right value on the stack
             if cond == 0 {
-                stack.values.last_mut().map(|v| *v = val2);
+                let _ = stack.values.pop()?;
+                stack.values.push(val2);
             }
         }
         Call(v) => {
