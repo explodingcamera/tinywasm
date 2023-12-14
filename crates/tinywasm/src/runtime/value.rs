@@ -7,7 +7,7 @@ use tinywasm_types::{ValType, WasmValue};
 /// This is the internal representation of all wasm values
 ///
 /// See [`WasmValue`] for the public representation.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct RawWasmValue(u64);
 
 impl Debug for RawWasmValue {

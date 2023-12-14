@@ -91,8 +91,7 @@ fn exec_one(
 
             // if cond != 0, we already have the right value on the stack
             if cond == 0 {
-                let _ = stack.values.pop()?;
-                stack.values.push(val2);
+                stack.values.last_mut().map(|v| *v = val2);
             }
         }
         Call(v) => {
@@ -206,69 +205,70 @@ fn exec_one(
         F32Const(val) => stack.values.push((*val).into()),
         F64Const(val) => stack.values.push((*val).into()),
 
-        I64Add => add_instr!(i64, stack),
-        I32Add => add_instr!(i32, stack),
-        F32Add => add_instr!(f32, stack),
-        F64Add => add_instr!(f64, stack),
+        I64Eqz => comp_zero!(==, i64, stack),
+        I32Eqz => comp_zero!(==, i32, stack),
 
-        I32Sub => sub_instr!(i32, stack),
-        I64Sub => sub_instr!(i64, stack),
-        F32Sub => sub_instr!(f32, stack),
-        F64Sub => sub_instr!(f64, stack),
+        I32Eq => comp!(==, i32, stack),
+        I64Eq => comp!(==, i64, stack),
+        F32Eq => comp!(==, f32, stack),
+        F64Eq => comp!(==, f64, stack),
 
-        I32LtS => lts_instr!(i32, stack),
-        I64LtS => lts_instr!(i64, stack),
-        I32LtU => ltu_instr!(i32, u32, stack),
-        I64LtU => ltu_instr!(i64, u64, stack),
-        F32Lt => lts_instr!(f32, stack),
-        F64Lt => lts_instr!(f64, stack),
+        I32Ne => comp!(!=, i32, stack),
+        I64Ne => comp!(!=, i64, stack),
+        F32Ne => comp!(!=, f32, stack),
+        F64Ne => comp!(!=, f64, stack),
 
-        I32LeS => les_instr!(i32, stack),
-        I64LeS => les_instr!(i64, stack),
-        I32LeU => leu_instr!(i32, u32, stack),
-        I64LeU => leu_instr!(i64, u64, stack),
-        F32Le => les_instr!(f32, stack),
-        F64Le => les_instr!(f64, stack),
+        I32LtS => comp!(<, i32, stack),
+        I64LtS => comp!(<, i64, stack),
+        I32LtU => comp_cast!(<, i32, u32, stack),
+        I64LtU => comp_cast!(<, i64, u64, stack),
+        F32Lt => comp!(<, f32, stack),
+        F64Lt => comp!(<, f64, stack),
 
-        I32GeS => ges_instr!(i32, stack),
-        I64GeS => ges_instr!(i64, stack),
-        I32GeU => geu_instr!(i32, u32, stack),
-        I64GeU => geu_instr!(i64, u64, stack),
-        F32Ge => ges_instr!(f32, stack),
-        F64Ge => ges_instr!(f64, stack),
+        I32LeS => comp!(<=, i32, stack),
+        I64LeS => comp!(<=, i64, stack),
+        I32LeU => comp_cast!(<=, i32, u32, stack),
+        I64LeU => comp_cast!(<=, i64, u64, stack),
+        F32Le => comp!(<=, f32, stack),
+        F64Le => comp!(<=, f64, stack),
 
-        I32GtS => gts_instr!(i32, stack),
-        I64GtS => gts_instr!(i64, stack),
-        I32GtU => gtu_instr!(i32, u32, stack),
-        I64GtU => gtu_instr!(i64, u64, stack),
-        F32Gt => gts_instr!(f32, stack),
-        F64Gt => gts_instr!(f64, stack),
+        I32GeS => comp!(>=, i32, stack),
+        I64GeS => comp!(>=, i64, stack),
+        I32GeU => comp_cast!(>=, i32, u32, stack),
+        I64GeU => comp_cast!(>=, i64, u64, stack),
+        F32Ge => comp!(>=, f32, stack),
+        F64Ge => comp!(>=, f64, stack),
+
+        I32GtS => comp!(>, i32, stack),
+        I64GtS => comp!(>, i64, stack),
+        I32GtU => comp_cast!(>, i32, u32, stack),
+        I64GtU => comp_cast!(>, i64, u64, stack),
+        F32Gt => comp!(>, f32, stack),
+        F64Gt => comp!(>, f64, stack),
+
+        I64Add => arithmetic!(+, i64, stack),
+        I32Add => arithmetic!(+, i32, stack),
+        F32Add => arithmetic!(+, f32, stack),
+        F64Add => arithmetic!(+, f64, stack),
+
+        I32Sub => arithmetic!(-, i32, stack),
+        I64Sub => arithmetic!(-, i64, stack),
+        F32Sub => arithmetic!(-, f32, stack),
+        F64Sub => arithmetic!(-, f64, stack),
+
+        F32Div => arithmetic!(/, f32, stack),
+        F64Div => arithmetic!(/, f64, stack),
+
+        I32Mul => arithmetic!(*, i32, stack),
+        I64Mul => arithmetic!(*, i64, stack),
+        F32Mul => arithmetic!(*, f32, stack),
+        F64Mul => arithmetic!(*, f64, stack),
 
         // these can trap
-        I32DivS => checked_divs_instr!(i32, stack),
-        I64DivS => checked_divs_instr!(i64, stack),
-        I32DivU => checked_divu_instr!(i32, u32, stack),
-        I64DivU => checked_divu_instr!(i64, u64, stack),
-
-        F32Div => div_instr!(f32, stack),
-        F64Div => div_instr!(f64, stack),
-
-        I32Mul => mul_instr!(i32, stack),
-        I64Mul => mul_instr!(i64, stack),
-        F32Mul => mul_instr!(f32, stack),
-        F64Mul => mul_instr!(f64, stack),
-
-        I32Eq => eq_instr!(i32, stack),
-        I64Eq => eq_instr!(i64, stack),
-        I32Eqz => eqz_instr!(i32, stack),
-        I64Eqz => eqz_instr!(i64, stack),
-        F32Eq => eq_instr!(f32, stack),
-        F64Eq => eq_instr!(f64, stack),
-
-        I32Ne => ne_instr!(i32, stack),
-        I64Ne => ne_instr!(i64, stack),
-        F32Ne => ne_instr!(f32, stack),
-        F64Ne => ne_instr!(f64, stack),
+        I32DivS => checked_arithmetic!(checked_div, i32, stack, crate::Trap::DivisionByZero),
+        I64DivS => checked_arithmetic!(checked_div, i64, stack, crate::Trap::DivisionByZero),
+        I32DivU => checked_arithmetic_cast!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
+        I64DivU => checked_arithmetic_cast!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
 
         F32ConvertI32S => conv_1!(i32, f32, stack),
         F32ConvertI64S => conv_1!(i64, f32, stack),
