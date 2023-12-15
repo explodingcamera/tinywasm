@@ -11,8 +11,17 @@
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE) 
 
 
+# 🚧 Status
+
 > [!WARNING]
 > This project is still in development and is not ready for use.
+
+I'm currently working on supporting the WebAssembly MVP (1.0) specification. You can see the current status graph below. The goal is to support all the features of the MVP specification and then move on to the next version.
+
+<p align="center">
+  <img align="center" src="./crates/tinywasm/tests/progress-mvp.png" width="500" alt="">
+</p>
+
 
 ## Features
 

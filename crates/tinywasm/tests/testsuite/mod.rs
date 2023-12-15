@@ -12,10 +12,10 @@ mod util;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-struct TestGroupResult {
-    name: String,
-    passed: usize,
-    failed: usize,
+pub struct TestGroupResult {
+    pub name: String,
+    pub passed: usize,
+    pub failed: usize,
 }
 
 pub struct TestSuite(BTreeMap<String, TestGroup>);
@@ -43,10 +43,11 @@ impl TestSuite {
 
         // Check if the last line starts with the current commit
         if let Some(last) = last_line {
+            println!("last line: {}", last);
             if last.starts_with(version) {
                 // Truncate the file size to remove the last line
                 let len_to_truncate = last.len() as i64;
-                file.set_len(file.metadata()?.len() - len_to_truncate as u64)?;
+                file.set_len(file.metadata()?.len() - len_to_truncate as u64 - 1)?;
             }
         }
 
