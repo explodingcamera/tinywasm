@@ -57,13 +57,13 @@ impl TestSuite {
         let mut failed = 0;
 
         let mut groups = Vec::new();
-        for group in self.0.values() {
+        for (name, group) in self.0.iter() {
             let (group_passed, group_failed) = group.stats();
             passed += group_passed;
             failed += group_failed;
 
             groups.push(TestGroupResult {
-                name: group_passed.to_string(),
+                name: name.to_string(),
                 passed: group_passed,
                 failed: group_failed,
             });
