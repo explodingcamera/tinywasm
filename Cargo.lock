@@ -323,6 +323,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "itoa"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
+
+[[package]]
 name = "leb128"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -557,6 +563,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f98d2aa92eebf49b69786be48e4477826b256916e84a57ff2a4f21923b48eb4c"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,6 +601,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.41",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.108"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d1c7e3eac408d115102c4c24ad393e0821bb3a5df4d506a80f85f7a742a526b"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
@@ -662,11 +685,13 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tinywasm"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "eyre",
  "log",
  "owo-colors",
+ "serde",
+ "serde_json",
  "tinywasm-parser",
  "tinywasm-types",
  "wasm-testsuite",
@@ -675,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-cli"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "argh",
  "color-eyre",
@@ -687,7 +712,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-parser"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "log",
  "tinywasm-types",
@@ -696,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-types"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "log",
  "rkyv",
@@ -759,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-testsuite"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rust-embed",
 ]

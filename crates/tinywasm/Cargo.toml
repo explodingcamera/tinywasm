@@ -1,6 +1,6 @@
 [package]
 name="tinywasm"
-version="0.0.3"
+version.workspace=true
 description="A tiny WebAssembly interpreter"
 edition.workspace=true
 license.workspace=true
@@ -14,14 +14,16 @@ path="src/lib.rs"
 
 [dependencies]
 log={version="0.4", optional=true}
-tinywasm-parser={version="0.0.3", path="../parser", default-features=false, optional=true}
-tinywasm-types={version="0.0.3", path="../types", default-features=false}
+tinywasm-parser={version="0.0.4", path="../parser", default-features=false, optional=true}
+tinywasm-types={version="0.0.4", path="../types", default-features=false}
 
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}
 wast={version="69.0"}
 owo-colors={version="3.5"}
 eyre={version="0.6"}
+serde_json={version="1.0"}
+serde={version="1.0", features=["derive"]}
 
 [features]
 default=["std", "parser", "logging"]
