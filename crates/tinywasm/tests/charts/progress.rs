@@ -36,7 +36,7 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
     println!("versions: {:?}", versions);
     println!("data: {:?}", data);
 
-    let root_area = BitMapBackend::new(output_path, (1000, 400)).into_drawing_area();
+    let root_area = SVGBackend::new(output_path, (1000, 400)).into_drawing_area();
     root_area.fill(&WHITE)?;
 
     let mut chart = ChartBuilder::on(&root_area)

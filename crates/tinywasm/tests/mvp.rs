@@ -10,7 +10,7 @@ fn generate_charts() -> Result<()> {
     // Create a line chart
     charts::create_progress_chart(
         std::path::Path::new("./tests/mvp.csv"),
-        std::path::Path::new("./tests/progress-mvp.png"),
+        std::path::Path::new("./tests/progress-mvp.svg"),
     )?;
 
     // // Create a bar chart

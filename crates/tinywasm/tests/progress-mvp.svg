@@ -1,0 +1,74 @@
+<svg width="1000" height="400" viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1000" height="400" opacity="1" fill="#FFFFFF" stroke="none"/>
+<text x="500" y="15" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="24.193548387096776" opacity="1" fill="#000000" font-weight="bold">
+MVP TESTSUITE
+</text>
+<text x="10" y="199" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000" transform="rotate(270, 10, 199)">
+Tests Passed
+</text>
+<text x="530" y="390" dy="-0.5ex" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+TinyWasm Version
+</text>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="354" x2="989" y2="354"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="318" x2="989" y2="318"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="281" x2="989" y2="281"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="244" x2="989" y2="244"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="207" x2="989" y2="207"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="170" x2="989" y2="170"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="133" x2="989" y2="133"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="97" x2="989" y2="97"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="70" y1="60" x2="989" y2="60"/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="69,44 69,354 "/>
+<text x="60" y="354" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+0
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,354 69,354 "/>
+<text x="60" y="318" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+2000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,318 69,318 "/>
+<text x="60" y="281" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+4000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,281 69,281 "/>
+<text x="60" y="244" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+6000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,244 69,244 "/>
+<text x="60" y="207" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+8000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,207 69,207 "/>
+<text x="60" y="170" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+10000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,170 69,170 "/>
+<text x="60" y="133" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+12000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,133 69,133 "/>
+<text x="60" y="97" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+14000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,97 69,97 "/>
+<text x="60" y="60" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+16000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="64,60 69,60 "/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="70,355 989,355 "/>
+<text x="223" y="365" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+v0.0.3
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="223,355 223,360 "/>
+<text x="529" y="365" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+v0.0.4
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="529,355 529,360 "/>
+<text x="836" y="365" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+v0.0.5-alpha.0
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="836,355 836,360 "/>
+<rect x="688" y="215" width="296" height="139" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="75" y="215" width="296" height="139" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="381" y="215" width="297" height="139" opacity="0.5" fill="#0000FF" stroke="none"/>
+</svg>
