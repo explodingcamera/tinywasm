@@ -1,3 +1,4 @@
 [alias]
+version-dev="workspaces version --no-git-commit --force tinywasm*"
 dev="run -- -l debug run"
 spec-mvp="test --package tinywasm --test mvp -- test_mvp --exact --nocapture --ignored"
