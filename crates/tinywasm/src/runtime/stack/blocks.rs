@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::BlockArgs;
+use tinywasm_types::{BlockArgs, FuncType};
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Labels(Vec<LabelFrame>);

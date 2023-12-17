@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::{BlockArgs, Instruction};
+use tinywasm_types::{BlockArgs, FuncType, Instruction, ValType};
 
 mod macros;
 use macros::*;
@@ -137,37 +137,37 @@ fn exec_one(
             info!("end: {:?} (@{})", instrs[end_instr_ptr], end_instr_ptr);
 
             if stack.values.pop_t::<i32>()? != 0 {
+                // let params = stack.values.pop_block_params(*args, &module)?;
                 cf.labels.push(LabelFrame {
                     instr_ptr: cf.instr_ptr,
                     end_instr_ptr: cf.instr_ptr + *end_offset,
-                    stack_ptr: stack.values.len(),
+                    stack_ptr: stack.values.len(), // - params,
                     args: *args,
                     ty: BlockType::If,
                 });
-                stack.values.push_block_args(*args)?;
             }
         }
 
         Loop(args, end_offset) => {
+            // let params = stack.values.pop_block_params(*args, &module)?;
             cf.labels.push(LabelFrame {
                 instr_ptr: cf.instr_ptr,
                 end_instr_ptr: cf.instr_ptr + *end_offset,
-                stack_ptr: stack.values.len(),
+                stack_ptr: stack.values.len(), // - params,
                 args: *args,
                 ty: BlockType::Loop,
             });
-            stack.values.push_block_args(*args)?;
         }
 
         Block(args, end_offset) => {
+            // let params = stack.values.pop_block_params(*args, &module)?;
             cf.labels.push(LabelFrame {
                 instr_ptr: cf.instr_ptr,
                 end_instr_ptr: cf.instr_ptr + *end_offset,
-                stack_ptr: stack.values.len(),
+                stack_ptr: stack.values.len(), //- params,
                 args: *args,
                 ty: BlockType::Block,
             });
-            stack.values.push_block_args(*args)?;
         }
 
         BrTable(_default, len) => {
@@ -215,17 +215,18 @@ fn exec_one(
                 panic!("end: no label to end, this should have been validated by the parser");
             };
 
-            let res: &[RawWasmValue] = match block.args {
-                BlockArgs::Empty => &[],
-                BlockArgs::Type(_t) => todo!(),
-                BlockArgs::FuncType(_t) => todo!(),
+            let res_count = match block.args {
+                BlockArgs::Empty => 0,
+                BlockArgs::Type(_) => 1,
+                BlockArgs::FuncType(t) => module.func_ty(t).results.len(),
             };
 
-            // trim the lable's stack from the stack
-            stack.values.trim(block.stack_ptr);
+            info!("we want to keep {} values on the stack", res_count);
+            info!("current block stack ptr: {}", block.stack_ptr);
+            info!("stack: {:?}", stack.values);
 
-            // push the block result values to the stack
-            stack.values.extend(res.iter().copied());
+            // trim the lable's stack from the stack
+            stack.values.truncate_keep(block.stack_ptr, res_count)
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),

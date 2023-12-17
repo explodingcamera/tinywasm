@@ -265,6 +265,16 @@ pub struct FuncType {
     pub results: Box<[ValType]>,
 }
 
+impl FuncType {
+    /// Get the number of parameters of a function type.
+    pub fn empty() -> Self {
+        Self {
+            params: Box::new([]),
+            results: Box::new([]),
+        }
+    }
+}
+
 /// A WebAssembly Function
 #[derive(Debug, Clone)]
 pub struct Function {

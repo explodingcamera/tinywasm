@@ -1,5 +1,5 @@
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
-use log::debug;
+use log::{debug, info};
 use tinywasm_types::{FuncAddr, FuncType, WasmValue};
 
 use crate::{
@@ -34,6 +34,7 @@ impl FuncHandle {
 
         // 4. If the length of the provided argument values is different from the number of expected arguments, then fail
         if func_ty.params.len() != params.len() {
+            info!("func_ty.params: {:?}", func_ty.params);
             return Err(Error::Other(format!(
                 "param count mismatch: expected {}, got {}",
                 func_ty.params.len(),

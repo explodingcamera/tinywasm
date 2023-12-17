@@ -97,7 +97,7 @@ impl CallFrame {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
                 self.instr_ptr = break_to.instr_ptr;
-                value_stack.trim(break_to.stack_ptr);
+                value_stack.truncate(break_to.stack_ptr);
 
                 // we also want to trim the label stack to the loop (but not including the loop)
                 self.labels.trim(self.labels.len() - break_to_relative as usize);
@@ -107,11 +107,10 @@ impl CallFrame {
 
                 // this is a block, so we want to jump to the next instruction after the block ends
                 self.instr_ptr = break_to.end_instr_ptr + 1;
-                value_stack.trim(break_to.stack_ptr);
+                value_stack.truncate(break_to.stack_ptr);
 
                 // we also want to trim the label stack, including the block
                 self.labels.trim(self.labels.len() - break_to_relative as usize + 1);
-                panic!()
             }
             _ => unimplemented!("break to block type: {:?}", current_label.ty),
         }

@@ -1,5 +1,8 @@
-use crate::{runtime::RawWasmValue, Error, Result};
+use core::ops::Range;
+
+use crate::{runtime::RawWasmValue, Error, ModuleInstance, Result};
 use alloc::vec::Vec;
+use log::info;
 use tinywasm_types::BlockArgs;
 
 // minimum stack size
@@ -23,6 +26,11 @@ impl Default for ValueStack {
 }
 
 impl ValueStack {
+    #[cfg(test)]
+    pub(crate) fn data(&self) -> &[RawWasmValue] {
+        &self.stack
+    }
+
     #[inline]
     pub(crate) fn len(&self) -> usize {
         assert!(self.top <= self.stack.len());
@@ -30,19 +38,24 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn trim(&mut self, n: usize) {
+    pub(crate) fn truncate(&mut self, n: usize) {
         assert!(self.top <= self.stack.len());
         self.top -= n;
         self.stack.truncate(self.top);
     }
 
     #[inline]
-    pub(crate) fn push_block_args(&self, args: BlockArgs) -> Result<()> {
-        match args {
-            BlockArgs::Empty => Ok(()),
-            BlockArgs::Type(_t) => todo!("support block args (type)"),
-            BlockArgs::FuncType(_t) => todo!("support block args (func type)"),
+    // example: [1, 2, 3] n=1, end_keep=1 => [1, 3]
+    // example: [1] n=1, end_keep=1 => [1]
+    pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
+        if n == end_keep || n == 0 {
+            return;
         }
+
+        assert!(self.top <= self.stack.len());
+        info!("removing from {} to {}", self.top - n, self.top - end_keep);
+        self.stack.drain(self.top - n..self.top - end_keep);
+        self.top -= n - end_keep;
     }
 
     #[inline]
@@ -96,5 +109,58 @@ impl ValueStack {
         }
 
         Ok(res)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::std::panic;
+
+    fn crate_stack<T: Into<RawWasmValue> + Copy>(data: &[T]) -> ValueStack {
+        let mut stack = ValueStack::default();
+        stack.extend(data.iter().map(|v| (*v).into()));
+        stack
+    }
+
+    fn assert_truncate_keep<T: Into<RawWasmValue> + Copy>(data: &[T], n: usize, end_keep: usize, expected: &[T]) {
+        let mut stack = crate_stack(data);
+        stack.truncate_keep(n, end_keep);
+        assert_eq!(
+            stack.data(),
+            expected.iter().map(|v| (*v).into()).collect::<Vec<_>>().as_slice()
+        );
+    }
+
+    fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> crate::std::thread::Result<R> {
+        let prev_hook = panic::take_hook();
+        panic::set_hook(alloc::boxed::Box::new(|_| {}));
+        let result = panic::catch_unwind(f);
+        panic::set_hook(prev_hook);
+        result
+    }
+
+    #[test]
+    fn test_truncate_keep() {
+        assert_truncate_keep(&[1, 2, 3], 1, 1, &[1, 2, 3]);
+        assert_truncate_keep(&[1], 1, 1, &[1]);
+        assert_truncate_keep(&[1, 2, 3], 2, 1, &[1, 3]);
+        assert_truncate_keep::<i32>(&[], 0, 0, &[]);
+        catch_unwind_silent(|| assert_truncate_keep(&[1, 2, 3], 4, 1, &[1, 3])).expect_err("should panic");
+    }
+
+    #[test]
+    fn test_value_stack() {
+        let mut stack = ValueStack::default();
+        stack.push(1.into());
+        stack.push(2.into());
+        stack.push(3.into());
+        assert_eq!(stack.len(), 3);
+        assert_eq!(stack.pop_t::<i32>().unwrap(), 3);
+        assert_eq!(stack.len(), 2);
+        assert_eq!(stack.pop_t::<i32>().unwrap(), 2);
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack.pop_t::<i32>().unwrap(), 1);
+        assert_eq!(stack.len(), 0);
     }
 }

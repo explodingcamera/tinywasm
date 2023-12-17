@@ -1,4 +1,4 @@
-use crate::testsuite::util::{parse_module, wastarg2tinywasmvalue, wastret2tinywasmvalue};
+use crate::testsuite::util::*;
 
 use super::TestSuite;
 use eyre::{eyre, Result};
@@ -30,7 +30,7 @@ impl TestSuite {
                 match directive {
                     // TODO: needs to support more binary sections
                     Wat(QuoteWat::Wat(wast::Wat::Module(module))) => {
-                        let result = std::panic::catch_unwind(|| parse_module(module))
+                        let result = catch_unwind_silent(|| parse_module(module))
                             .map_err(|e| eyre!("failed to parse module: {:?}", e))
                             .and_then(|res| res);
 
@@ -50,7 +50,7 @@ impl TestSuite {
                         module: QuoteWat::Wat(wast::Wat::Module(module)),
                         message: _,
                     } => {
-                        let res = std::panic::catch_unwind(|| parse_module(module).map(|_| ()));
+                        let res = catch_unwind_silent(|| parse_module(module).map(|_| ()));
                         test_group.add_result(
                             &format!("{}-malformed", name),
                             span,
@@ -68,7 +68,7 @@ impl TestSuite {
                             continue;
                         };
 
-                        let res: Result<Result<()>, _> = std::panic::catch_unwind(|| {
+                        let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                             let mut store = tinywasm::Store::new();
                             let module = tinywasm::Module::from(module);
                             let instance = module.instantiate(&mut store)?;

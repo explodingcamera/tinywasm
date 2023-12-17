@@ -1,5 +1,15 @@
+use std::panic;
+
 use eyre::{eyre, Result};
 use tinywasm_types::TinyWasmModule;
+
+pub fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> std::thread::Result<R> {
+    let prev_hook = panic::take_hook();
+    panic::set_hook(Box::new(|_| {}));
+    let result = panic::catch_unwind(f);
+    panic::set_hook(prev_hook);
+    result
+}
 
 pub fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule> {
     let parser = tinywasm_parser::Parser::new();
