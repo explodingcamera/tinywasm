@@ -40,9 +40,10 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
     root_area.fill(&WHITE)?;
 
     let mut chart = ChartBuilder::on(&root_area)
-        .x_label_area_size(35)
-        .y_label_area_size(60)
+        .x_label_area_size(45)
+        .y_label_area_size(70)
         .margin(10)
+        .margin_top(20)
         .caption("MVP TESTSUITE", (FONT, 30.0, FontStyle::Bold))
         .build_cartesian_2d((0..(versions.len() - 1) as u32).into_segmented(), 0..max_tests)?;
 
@@ -52,16 +53,19 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
         .bold_line_style(&BLACK.mix(0.3))
         .max_light_lines(10)
         .disable_x_mesh()
-        .x_labels((versions.len()).min(4))
         .y_desc("Tests Passed")
+        .y_label_style((FONT, 15))
         .x_desc("TinyWasm Version")
+        .x_labels((versions.len()).min(4))
+        .x_label_style((FONT, 15))
         .x_label_formatter(&|x| {
             let SegmentValue::CenterOf(value) = x else {
                 return "".to_string();
             };
-            versions.get(*value as usize).unwrap_or(&"".to_string()).to_string()
+            let v = versions.get(*value as usize).unwrap_or(&"".to_string()).to_string();
+            format!("{} ({})", v, data[*value as usize])
         })
-        .axis_desc_style((FONT, 15))
+        .axis_desc_style((FONT, 15, FontStyle::Bold))
         .draw()?;
 
     chart.draw_series(
