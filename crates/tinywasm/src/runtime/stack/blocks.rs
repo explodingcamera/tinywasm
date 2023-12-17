@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::{BlockArgs, FuncType};
+use tinywasm_types::BlockArgs;
 
 use crate::{ModuleInstance, Result};
 
@@ -65,15 +65,15 @@ pub(crate) enum BlockType {
 }
 
 #[derive(Debug, Clone)]
-pub struct LabelArgs {
-    pub params: usize,
-    pub results: usize,
+pub(crate) struct LabelArgs {
+    pub(crate) params: usize,
+    pub(crate) results: usize,
 }
 
-pub fn get_label_args(args: BlockArgs, module: &ModuleInstance) -> Result<LabelArgs> {
+pub(crate) fn get_label_args(args: BlockArgs, module: &ModuleInstance) -> Result<LabelArgs> {
     Ok(match args {
         BlockArgs::Empty => LabelArgs { params: 0, results: 0 },
-        BlockArgs::Type(t) => LabelArgs { params: 0, results: 1 },
+        BlockArgs::Type(_) => LabelArgs { params: 0, results: 1 },
         BlockArgs::FuncType(t) => LabelArgs {
             params: module.func_ty(t).params.len(),
             results: module.func_ty(t).results.len(),

@@ -1,9 +1,8 @@
 use core::ops::Range;
 
-use crate::{runtime::RawWasmValue, Error, ModuleInstance, Result};
+use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::BlockArgs;
 
 // minimum stack size
 pub(crate) const STACK_SIZE: usize = 1024;
@@ -44,7 +43,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn truncate(&mut self, n: usize) {
+    pub(crate) fn _truncate(&mut self, n: usize) {
         assert!(self.top <= self.stack.len());
         self.top -= n;
         self.stack.truncate(self.top);
@@ -65,7 +64,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn extend(&mut self, values: impl IntoIterator<Item = RawWasmValue> + ExactSizeIterator) {
+    pub(crate) fn _extend(&mut self, values: impl IntoIterator<Item = RawWasmValue> + ExactSizeIterator) {
         self.top += values.len();
         self.stack.extend(values);
     }
@@ -125,7 +124,7 @@ mod tests {
 
     fn crate_stack<T: Into<RawWasmValue> + Copy>(data: &[T]) -> ValueStack {
         let mut stack = ValueStack::default();
-        stack.extend(data.iter().map(|v| (*v).into()));
+        stack._extend(data.iter().map(|v| (*v).into()));
         stack
     }
 

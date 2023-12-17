@@ -45,10 +45,10 @@ v0.0.4 (9258)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="534,345 534,350 "/>
 <text x="837" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.0.5-alpha.0 (9268)
+v0.0.5-alpha.0 (9277)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="837,345 837,350 "/>
-<rect x="691" y="211" width="293" height="133" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="85" y="211" width="293" height="133" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="388" y="211" width="293" height="133" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="691" y="211" width="293" height="133" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>

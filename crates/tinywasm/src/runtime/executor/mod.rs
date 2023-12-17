@@ -2,12 +2,12 @@ use super::{DefaultRuntime, Stack};
 use crate::{
     get_label_args,
     log::debug,
-    runtime::{BlockType, LabelFrame, RawWasmValue},
+    runtime::{BlockType, LabelFrame},
     CallFrame, Error, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::{BlockArgs, FuncType, Instruction, ValType};
+use tinywasm_types::Instruction;
 
 mod macros;
 use macros::*;
@@ -143,7 +143,7 @@ fn exec_one(
                         instr_ptr: cf.instr_ptr,
                         end_instr_ptr: cf.instr_ptr + *end_offset,
                         stack_ptr: stack.values.len(), // - params,
-                        args: get_label_args(*args, &module)?,
+                        args: get_label_args(*args, module)?,
                         ty: BlockType::If,
                     },
                     &mut stack.values,
@@ -158,7 +158,7 @@ fn exec_one(
                     instr_ptr: cf.instr_ptr,
                     end_instr_ptr: cf.instr_ptr + *end_offset,
                     stack_ptr: stack.values.len(), // - params,
-                    args: get_label_args(*args, &module)?,
+                    args: get_label_args(*args, module)?,
                     ty: BlockType::Loop,
                 },
                 &mut stack.values,
@@ -172,7 +172,7 @@ fn exec_one(
                     instr_ptr: cf.instr_ptr,
                     end_instr_ptr: cf.instr_ptr + *end_offset,
                     stack_ptr: stack.values.len(), //- params,
-                    args: get_label_args(*args, &module)?,
+                    args: get_label_args(*args, module)?,
                     ty: BlockType::Block,
                 },
                 &mut stack.values,
@@ -195,10 +195,10 @@ fn exec_one(
             todo!()
         }
 
-        Br(v) => cf.break_to(*v, &mut stack.values, module)?,
+        Br(v) => cf.break_to(*v, &mut stack.values)?,
         BrIf(v) => {
             if stack.values.pop_t::<i32>()? > 0 {
-                cf.break_to(*v, &mut stack.values, module)?
+                cf.break_to(*v, &mut stack.values)?
             };
         }
 
