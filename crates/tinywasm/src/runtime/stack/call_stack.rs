@@ -1,7 +1,7 @@
-use crate::{runtime::RawWasmValue, BlockType, Error, Result};
+use crate::{runtime::RawWasmValue, BlockType, Error, LabelFrame, ModuleInstance, Result};
 use alloc::{boxed::Box, vec::Vec};
 use log::{debug, info};
-use tinywasm_types::{ValType, WasmValue};
+use tinywasm_types::{BlockArgs, ValType, WasmValue};
 
 use super::blocks::Labels;
 
@@ -79,17 +79,32 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
+    #[inline]
+    /// Push a new label to the label stack and ensure the stack has the correct values
+    pub(crate) fn enter_label(&mut self, label_frame: LabelFrame, stack: &mut super::ValueStack) {
+        if label_frame.args.params > 0 {
+            stack.extend_from_within((label_frame.stack_ptr - label_frame.args.params)..label_frame.stack_ptr);
+        }
+
+        self.labels.push(label_frame);
+    }
+
     /// Break to a block at the given index (relative to the current frame)
     #[inline]
-    pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Result<()> {
+    pub(crate) fn break_to(
+        &mut self,
+        break_to_relative: u32,
+        value_stack: &mut super::ValueStack,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let current_label = self.labels.top().ok_or(Error::LabelStackUnderflow)?;
         let break_to = self
             .labels
             .get_relative_to_top(break_to_relative as usize)
             .ok_or(Error::LabelStackUnderflow)?;
 
-        info!("current label: {:?}", current_label);
-        info!("we're breaking to: {:?} ?", break_to);
+        // trim the lable's stack from the stack
+        value_stack.truncate_keep(break_to.stack_ptr, break_to.args.results);
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr
@@ -97,20 +112,17 @@ impl CallFrame {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
                 self.instr_ptr = break_to.instr_ptr;
-                value_stack.truncate(break_to.stack_ptr);
 
                 // we also want to trim the label stack to the loop (but not including the loop)
-                self.labels.trim(self.labels.len() - break_to_relative as usize);
+                self.labels.truncate(self.labels.len() - break_to_relative as usize);
             }
             BlockType::Block => {
-                debug!("current instr_ptr: {}", self.instr_ptr);
-
-                // this is a block, so we want to jump to the next instruction after the block ends
-                self.instr_ptr = break_to.end_instr_ptr + 1;
-                value_stack.truncate(break_to.stack_ptr);
+                // this is a block, so we want to jump to the next instruction after the block ends (the inst_ptr will be incremented by 1 before the next instruction is executed)
+                self.instr_ptr = break_to.end_instr_ptr;
 
                 // we also want to trim the label stack, including the block
-                self.labels.trim(self.labels.len() - break_to_relative as usize + 1);
+                self.labels
+                    .truncate(self.labels.len() - (break_to_relative as usize + 1));
             }
             _ => unimplemented!("break to block type: {:?}", current_label.ty),
         }

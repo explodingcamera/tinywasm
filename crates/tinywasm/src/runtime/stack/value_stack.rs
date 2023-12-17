@@ -32,6 +32,12 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn extend_from_within(&mut self, range: Range<usize>) {
+        self.top += range.len();
+        self.stack.extend_from_within(range);
+    }
+
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         assert!(self.top <= self.stack.len());
         self.top

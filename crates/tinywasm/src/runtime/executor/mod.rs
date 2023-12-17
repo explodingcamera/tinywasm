@@ -1,5 +1,6 @@
 use super::{DefaultRuntime, Stack};
 use crate::{
+    get_label_args,
     log::debug,
     runtime::{BlockType, LabelFrame, RawWasmValue},
     CallFrame, Error, ModuleInstance, Result, Store,
@@ -137,37 +138,45 @@ fn exec_one(
             info!("end: {:?} (@{})", instrs[end_instr_ptr], end_instr_ptr);
 
             if stack.values.pop_t::<i32>()? != 0 {
-                // let params = stack.values.pop_block_params(*args, &module)?;
-                cf.labels.push(LabelFrame {
-                    instr_ptr: cf.instr_ptr,
-                    end_instr_ptr: cf.instr_ptr + *end_offset,
-                    stack_ptr: stack.values.len(), // - params,
-                    args: *args,
-                    ty: BlockType::If,
-                });
+                cf.enter_label(
+                    LabelFrame {
+                        instr_ptr: cf.instr_ptr,
+                        end_instr_ptr: cf.instr_ptr + *end_offset,
+                        stack_ptr: stack.values.len(), // - params,
+                        args: get_label_args(*args, &module)?,
+                        ty: BlockType::If,
+                    },
+                    &mut stack.values,
+                )
             }
         }
 
         Loop(args, end_offset) => {
             // let params = stack.values.pop_block_params(*args, &module)?;
-            cf.labels.push(LabelFrame {
-                instr_ptr: cf.instr_ptr,
-                end_instr_ptr: cf.instr_ptr + *end_offset,
-                stack_ptr: stack.values.len(), // - params,
-                args: *args,
-                ty: BlockType::Loop,
-            });
+            cf.enter_label(
+                LabelFrame {
+                    instr_ptr: cf.instr_ptr,
+                    end_instr_ptr: cf.instr_ptr + *end_offset,
+                    stack_ptr: stack.values.len(), // - params,
+                    args: get_label_args(*args, &module)?,
+                    ty: BlockType::Loop,
+                },
+                &mut stack.values,
+            );
         }
 
         Block(args, end_offset) => {
             // let params = stack.values.pop_block_params(*args, &module)?;
-            cf.labels.push(LabelFrame {
-                instr_ptr: cf.instr_ptr,
-                end_instr_ptr: cf.instr_ptr + *end_offset,
-                stack_ptr: stack.values.len(), //- params,
-                args: *args,
-                ty: BlockType::Block,
-            });
+            cf.enter_label(
+                LabelFrame {
+                    instr_ptr: cf.instr_ptr,
+                    end_instr_ptr: cf.instr_ptr + *end_offset,
+                    stack_ptr: stack.values.len(), //- params,
+                    args: get_label_args(*args, &module)?,
+                    ty: BlockType::Block,
+                },
+                &mut stack.values,
+            );
         }
 
         BrTable(_default, len) => {
@@ -186,10 +195,10 @@ fn exec_one(
             todo!()
         }
 
-        Br(v) => cf.break_to(*v, &mut stack.values)?,
+        Br(v) => cf.break_to(*v, &mut stack.values, module)?,
         BrIf(v) => {
             if stack.values.pop_t::<i32>()? > 0 {
-                cf.break_to(*v, &mut stack.values)?
+                cf.break_to(*v, &mut stack.values, module)?
             };
         }
 
@@ -215,12 +224,7 @@ fn exec_one(
                 panic!("end: no label to end, this should have been validated by the parser");
             };
 
-            let res_count = match block.args {
-                BlockArgs::Empty => 0,
-                BlockArgs::Type(_) => 1,
-                BlockArgs::FuncType(t) => module.func_ty(t).results.len(),
-            };
-
+            let res_count = block.args.results;
             info!("we want to keep {} values on the stack", res_count);
             info!("current block stack ptr: {}", block.stack_ptr);
             info!("stack: {:?}", stack.values);

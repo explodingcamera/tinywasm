@@ -2,6 +2,8 @@ use alloc::vec::Vec;
 use log::info;
 use tinywasm_types::{BlockArgs, FuncType};
 
+use crate::{ModuleInstance, Result};
+
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Labels(Vec<LabelFrame>);
 
@@ -35,7 +37,7 @@ impl Labels {
 
     /// keep the top `len` blocks and discard the rest
     #[inline]
-    pub(crate) fn trim(&mut self, len: usize) {
+    pub(crate) fn truncate(&mut self, len: usize) {
         self.0.truncate(len);
     }
 }
@@ -49,7 +51,7 @@ pub(crate) struct LabelFrame {
 
     // position of the stack pointer when the block was entered
     pub(crate) stack_ptr: usize,
-    pub(crate) args: BlockArgs,
+    pub(crate) args: LabelArgs,
     pub(crate) ty: BlockType,
 }
 
@@ -60,4 +62,21 @@ pub(crate) enum BlockType {
     If,
     Else,
     Block,
+}
+
+#[derive(Debug, Clone)]
+pub struct LabelArgs {
+    pub params: usize,
+    pub results: usize,
+}
+
+pub fn get_label_args(args: BlockArgs, module: &ModuleInstance) -> Result<LabelArgs> {
+    Ok(match args {
+        BlockArgs::Empty => LabelArgs { params: 0, results: 0 },
+        BlockArgs::Type(t) => LabelArgs { params: 0, results: 1 },
+        BlockArgs::FuncType(t) => LabelArgs {
+            params: module.func_ty(t).params.len(),
+            results: module.func_ty(t).results.len(),
+        },
+    })
 }
