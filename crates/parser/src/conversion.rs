@@ -114,9 +114,9 @@ pub fn process_operators<'a>(
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
     let mut instructions = Vec::new();
-    let mut labels_ptrs = Vec::new();
+    let mut labels_ptrs = Vec::new(); // indexes into the instructions array
 
-    for (i, op) in ops.enumerate() {
+    for op in ops {
         info!("op: {:?}", op);
 
         let op = op?;
@@ -146,17 +146,42 @@ pub fn process_operators<'a>(
             }
             If { blockty } => {
                 labels_ptrs.push(instructions.len());
-                Instruction::If(convert_blocktype(blockty), 0)
+                Instruction::If(convert_blocktype(blockty), None, 0)
+            }
+            Else => {
+                labels_ptrs.push(instructions.len());
+                Instruction::Else(0)
             }
             End => {
                 if let Some(label_pointer) = labels_ptrs.pop() {
+                    info!("ending block: {:?}", instructions[label_pointer]);
+
+                    let current_instr_ptr = instructions.len();
+
                     // last_label_pointer is Some if we're ending a block
                     match instructions[label_pointer] {
-                        Instruction::Block(_, ref mut end)
-                        | Instruction::Loop(_, ref mut end)
-                        | Instruction::Else(ref mut end)
-                        | Instruction::If(_, ref mut end) => {
-                            *end = i + 1; // Set the end position to be one after the End instruction
+                        Instruction::Else(ref mut else_instr_end_offset) => {
+                            *else_instr_end_offset = current_instr_ptr - label_pointer;
+
+                            // since we're ending an else block, we need to end the if block as well
+                            let if_label_pointer = labels_ptrs.pop().ok_or(crate::ParseError::UnsupportedOperator(
+                                "Expected to end an if block, but the last label was not an if".to_string(),
+                            ))?;
+
+                            let if_instruction = &mut instructions[if_label_pointer];
+                            let Instruction::If(_, ref mut else_offset, ref mut end_offset) = if_instruction else {
+                                return Err(crate::ParseError::UnsupportedOperator(
+                                    "Expected to end an if block, but the last label was not an if".to_string(),
+                                ));
+                            };
+
+                            *else_offset = Some(label_pointer - if_label_pointer);
+                            *end_offset = current_instr_ptr - if_label_pointer;
+                        }
+                        Instruction::Block(_, ref mut end_offset)
+                        | Instruction::Loop(_, ref mut end_offset)
+                        | Instruction::If(_, _, ref mut end_offset) => {
+                            *end_offset = current_instr_ptr - label_pointer;
                         }
                         _ => {
                             return Err(crate::ParseError::UnsupportedOperator(
@@ -171,26 +196,7 @@ pub fn process_operators<'a>(
                     Instruction::EndFunc
                 }
             }
-            Else => {
-                let Some(label_pointer) = labels_ptrs.pop() else {
-                    return Err(crate::ParseError::UnsupportedOperator(
-                        "Expected to end an if block, but the last label was None".to_string(),
-                    ));
-                };
 
-                match instructions[label_pointer] {
-                    Instruction::If(_, ref mut end) => {
-                        *end = i + 1; // Set the end position to be one after the Else instruction
-                    }
-                    _ => {
-                        return Err(crate::ParseError::UnsupportedOperator(
-                            "Expected to end an if block, but the last label was not an if".to_string(),
-                        ));
-                    }
-                }
-
-                Instruction::Else(0)
-            }
             Br { relative_depth } => Instruction::Br(relative_depth),
             BrIf { relative_depth } => Instruction::BrIf(relative_depth),
             Return => Instruction::Return,

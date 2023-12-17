@@ -17,6 +17,7 @@ pub struct MemArg {
 type BrTableDefault = u32;
 type BrTableLen = usize;
 type EndOffset = usize;
+type ElseOffset = usize;
 
 /// A WebAssembly Instruction
 ///
@@ -41,7 +42,7 @@ pub enum Instruction {
     Nop,
     Block(BlockArgs, EndOffset),
     Loop(BlockArgs, EndOffset),
-    If(BlockArgs, EndOffset),
+    If(BlockArgs, Option<ElseOffset>, EndOffset),
     Else(EndOffset),
     EndBlockFrame,
     EndFunc,

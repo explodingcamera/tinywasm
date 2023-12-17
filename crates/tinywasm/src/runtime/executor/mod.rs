@@ -84,7 +84,6 @@ fn exec_one(
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
-        Return => todo!("called function returned"),
         Select => {
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
@@ -115,6 +114,38 @@ fn exec_one(
             *cf = stack.call_stack.pop()?;
             debug!("calling: {:?}", func);
             return Ok(ExecResult::Call);
+        }
+
+        Return => todo!("called function returned"),
+
+        If(args, else_offset, end_offset) => {
+            let end_instr_ptr = cf.instr_ptr + *end_offset;
+
+            info!(
+                "if it's true, we'll jump to the next instruction (@{})",
+                cf.instr_ptr + 1
+            );
+
+            if let Some(else_offset) = else_offset {
+                info!(
+                    "else: {:?} (@{})",
+                    instrs[cf.instr_ptr + else_offset],
+                    cf.instr_ptr + else_offset
+                );
+            };
+
+            info!("end: {:?} (@{})", instrs[end_instr_ptr], end_instr_ptr);
+
+            if stack.values.pop_t::<i32>()? != 0 {
+                cf.labels.push(LabelFrame {
+                    instr_ptr: cf.instr_ptr,
+                    end_instr_ptr: cf.instr_ptr + *end_offset,
+                    stack_ptr: stack.values.len(),
+                    args: *args,
+                    ty: BlockType::If,
+                });
+                stack.values.push_block_args(*args)?;
+            }
         }
 
         Loop(args, end_offset) => {

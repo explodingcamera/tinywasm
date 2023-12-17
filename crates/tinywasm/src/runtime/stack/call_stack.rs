@@ -105,15 +105,12 @@ impl CallFrame {
             BlockType::Block => {
                 debug!("current instr_ptr: {}", self.instr_ptr);
 
-                // this is a block, so we want to jump to the end of the block
-                self.instr_ptr = break_to.end_instr_ptr;
+                // this is a block, so we want to jump to the next instruction after the block ends
+                self.instr_ptr = break_to.end_instr_ptr + 1;
                 value_stack.trim(break_to.stack_ptr);
 
                 // we also want to trim the label stack, including the block
                 self.labels.trim(self.labels.len() - break_to_relative as usize + 1);
-
-                debug!("break_to.end_instr_ptr: {}", self.instr_ptr);
-
                 panic!()
             }
             _ => unimplemented!("break to block type: {:?}", current_label.ty),

@@ -40,8 +40,8 @@ impl ValueStack {
     pub(crate) fn push_block_args(&self, args: BlockArgs) -> Result<()> {
         match args {
             BlockArgs::Empty => Ok(()),
-            BlockArgs::Type(_t) => todo!(),
-            BlockArgs::FuncType(_t) => todo!(),
+            BlockArgs::Type(_t) => todo!("support block args (type)"),
+            BlockArgs::FuncType(_t) => todo!("support block args (func type)"),
         }
     }
 
@@ -65,7 +65,7 @@ impl ValueStack {
     #[inline]
     pub(crate) fn pop_t<T: From<RawWasmValue>>(&mut self) -> Result<T> {
         self.top -= 1;
-        Ok(self.pop()?.into())
+        Ok(self.stack.pop().ok_or(Error::StackUnderflow)?.into())
     }
 
     #[inline]

@@ -20,8 +20,8 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
 
         if parts.len() > 3 {
             let version = format!("v{}", parts[0]);
-            let failed: u32 = parts[1].parse()?;
-            let passed: u32 = parts[2].parse()?;
+            let passed: u32 = parts[1].parse()?;
+            let failed: u32 = parts[2].parse()?;
             let total = failed + passed;
 
             if total > max_tests {

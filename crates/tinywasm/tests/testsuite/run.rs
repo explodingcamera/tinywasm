@@ -34,6 +34,8 @@ impl TestSuite {
                             .map_err(|e| eyre!("failed to parse module: {:?}", e))
                             .and_then(|res| res);
 
+                        println!("result: {:?}", result);
+
                         match &result {
                             Err(_) => last_module = None,
                             Ok(m) => last_module = Some(m.clone()),
@@ -61,8 +63,8 @@ impl TestSuite {
 
                     AssertReturn { span, exec, results } => {
                         let Some(module) = last_module.as_ref() else {
-                            // we skip tests for modules that failed to parse
                             println!("no module found for assert_return: {:?}", exec);
+                            test_group.add_result(&format!("{}-return", name), span, Err(eyre!("no module found")));
                             continue;
                         };
 
