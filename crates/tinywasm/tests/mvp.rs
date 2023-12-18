@@ -26,6 +26,7 @@ fn generate_charts() -> Result<()> {
 #[ignore]
 fn test_mvp() -> Result<()> {
     let mut test_suite = TestSuite::new();
+
     test_suite.run(wasm_testsuite::MVP_TESTS)?;
     test_suite.save_csv("./tests/mvp.csv", env!("CARGO_PKG_VERSION"))?;
 

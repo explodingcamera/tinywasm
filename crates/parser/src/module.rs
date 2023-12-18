@@ -1,7 +1,7 @@
 use crate::log::debug;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tinywasm_types::{Export, FuncType, Instruction, ValType};
+use tinywasm_types::{Export, FuncType, Global, Instruction, ValType};
 use wasmparser::{Payload, Validator};
 
 use crate::{conversion, ParseError, Result};
@@ -21,10 +21,10 @@ pub struct ModuleReader {
     pub function_section: Vec<u32>,
     pub export_section: Vec<Export>,
     pub code_section: Vec<CodeSection>,
+    pub global_section: Vec<Global>,
 
     // pub table_section: Option<TableSectionReader<'a>>,
     // pub memory_section: Option<MemorySectionReader<'a>>,
-    // pub global_section: Option<GlobalSectionReader<'a>>,
     // pub element_section: Option<ElementSectionReader<'a>>,
     // pub data_section: Option<DataSectionReader<'a>>,
     // pub import_section: Option<ImportSectionReader<'a>>,
@@ -39,9 +39,9 @@ impl Debug for ModuleReader {
             .field("function_section", &self.function_section)
             .field("code_section", &self.code_section)
             .field("export_section", &self.export_section)
+            .field("global_section", &self.global_section)
             // .field("table_section", &self.table_section)
             // .field("memory_section", &self.memory_section)
-            // .field("global_section", &self.global_section)
             // .field("element_section", &self.element_section)
             // .field("data_section", &self.data_section)
             // .field("import_section", &self.import_section)
@@ -84,6 +84,11 @@ impl ModuleReader {
                 validator.function_section(&reader)?;
                 self.function_section = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
+            GlobalSection(reader) => {
+                debug!("Found global section");
+                validator.global_section(&reader)?;
+                self.global_section = conversion::convert_module_globals(reader)?;
+            }
             TableSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Table section".into()));
                 // debug!("Found table section");
@@ -96,12 +101,7 @@ impl ModuleReader {
                 // validator.memory_section(&reader)?;
                 // self.memory_section = Some(reader);
             }
-            GlobalSection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Global section".into()));
-                // debug!("Found global section");
-                // validator.global_section(&reader)?;
-                // self.global_section = Some(reader);
-            }
+
             ElementSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Element section".into()));
                 // debug!("Found element section");

@@ -1,9 +1,42 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use log::info;
-use tinywasm_types::{BlockArgs, Export, ExternalKind, FuncType, Instruction, MemArg, ValType};
+use tinywasm_types::{
+    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, Instruction, MemArg, ValType,
+};
 use wasmparser::{FuncValidator, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
+
+pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
+    globals: T,
+) -> Result<Vec<Global>> {
+    let globals = globals
+        .into_iter()
+        .map(|global| {
+            let global = global?;
+            let ty = convert_valtype(&global.ty.content_type);
+
+            let ops = global
+                .init_expr
+                .get_operators_reader()
+                .into_iter()
+                .collect::<wasmparser::Result<Vec<_>>>()?;
+
+            // In practice, the len can never be something other than 2,
+            // but we'll keep this here since it's part of the spec
+            // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
+            assert!(ops.len() >= 2);
+            assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
+
+            Ok(Global {
+                ty,
+                init: process_const_operator(ops[ops.len() - 2].clone())?,
+                mutable: global.ty.mutable,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(globals)
+}
 
 pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export> {
     let kind = match export.kind {
@@ -102,6 +135,20 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
     MemArg {
         offset: memarg.offset,
         align: memarg.align,
+    }
+}
+
+pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstruction> {
+    match op {
+        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
+        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
+        wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))), // TODO: check if this is correct
+        wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))), // TODO: check if this is correct
+        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
+        op => Err(crate::ParseError::UnsupportedOperator(format!(
+            "Unsupported instruction: {:?}",
+            op
+        ))),
     }
 }
 

@@ -114,12 +114,15 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             })
             .collect::<Vec<_>>();
 
+        let globals = reader.global_section;
+
         Ok(TinyWasmModule {
             version: reader.version,
             start_func: reader.start_func,
             types: reader.type_section.into_boxed_slice(),
             funcs: funcs.into_boxed_slice(),
             exports: reader.export_section.into_boxed_slice(),
+            globals: globals.into_boxed_slice(),
         })
     }
 }

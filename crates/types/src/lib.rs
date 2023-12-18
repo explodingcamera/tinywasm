@@ -52,9 +52,9 @@ pub struct TinyWasmModule {
 
     /// The exports of the WebAssembly module.
     pub exports: Box<[Export]>,
+    pub globals: Box<[Global]>,
     // pub tables: Option<TableType>,
     // pub memories: Option<MemoryType>,
-    // pub globals: Option<GlobalType>,
     // pub elements: Option<ElementSectionReader<'a>>,
     // pub imports: Option<ImportSectionReader<'a>>,
     // pub data_segments: Option<DataSectionReader<'a>>,
@@ -292,4 +292,11 @@ pub struct Export {
     pub kind: ExternalKind,
     /// The index of the exported item.
     pub index: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct Global {
+    pub mutable: bool,
+    pub ty: ValType,
+    pub init: ConstInstruction,
 }

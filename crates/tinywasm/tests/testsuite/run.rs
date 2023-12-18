@@ -29,8 +29,8 @@ impl TestSuite {
 
                 match directive {
                     // TODO: needs to support more binary sections
-                    Wat(QuoteWat::Wat(wast::Wat::Module(module))) => {
-                        let result = catch_unwind_silent(|| parse_module(module))
+                    Wat(mut module) => {
+                        let result = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
                             .map_err(|e| eyre!("failed to parse module: {:?}", e))
                             .and_then(|res| res);
 
@@ -44,19 +44,27 @@ impl TestSuite {
                         test_group.add_result(&format!("{}-parse", name), span, result.map(|_| ()));
                     }
 
-                    // these all pass already :)
                     AssertMalformed {
                         span,
-                        module: QuoteWat::Wat(wast::Wat::Module(module)),
+                        mut module,
                         message: _,
                     } => {
-                        let res = catch_unwind_silent(|| parse_module(module).map(|_| ()));
+                        let Ok(module) = module.encode() else {
+                            println!("malformed module: {:?}", module);
+                            test_group.add_result(&format!("{}-malformed", name), span, Ok(()));
+                            continue;
+                        };
+
+                        let res = catch_unwind_silent(|| parse_module_bytes(&module))
+                            .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                            .and_then(|res| res);
+
                         test_group.add_result(
                             &format!("{}-malformed", name),
                             span,
                             match res {
-                                Ok(Ok(_)) => Err(eyre!("expected module to be malformed")),
-                                Err(_) | Ok(Err(_)) => Ok(()),
+                                Ok(_) => Err(eyre!("expected module to be malformed")),
+                                Err(_) => Ok(()),
                             },
                         );
                     }

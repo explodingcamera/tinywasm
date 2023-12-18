@@ -16,6 +16,11 @@ pub fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule> {
     Ok(parser.parse_module_bytes(module.encode().expect("failed to encode module"))?)
 }
 
+pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {
+    let parser = tinywasm_parser::Parser::new();
+    Ok(parser.parse_module_bytes(bytes)?)
+}
+
 pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
     let wast::WastArg::Core(arg) = arg else {
         return Err(eyre!("unsupported arg type"));

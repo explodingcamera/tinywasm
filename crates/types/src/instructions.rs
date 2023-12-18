@@ -19,6 +19,15 @@ type BrTableLen = usize;
 type EndOffset = usize;
 type ElseOffset = usize;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConstInstruction {
+    I32Const(i32),
+    I64Const(i64),
+    F32Const(f32),
+    F64Const(f64),
+    GlobalGet(GlobalAddr),
+}
+
 /// A WebAssembly Instruction
 ///
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
