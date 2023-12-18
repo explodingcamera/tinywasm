@@ -18,7 +18,9 @@
 I'm currently working on supporting the WebAssembly MVP (1.0) specification. You can see the current status in the graph below. The goal is to support all the features of the MVP specification and then move on to the next version.
 
 <p align="center">
-  <img align="center" src="./crates/tinywasm/tests/progress-mvp.svg" width="700" alt="">
+  <a href="https://raw.githubusercontent.com/explodingcamera/tinywasm/main/crates/tinywasm/tests/progress-mvp.svg">
+    <img align="center" src="./crates/tinywasm/tests/progress-mvp.svg" width="800" alt="">
+  </a>
 </p>
 
 ## Features
