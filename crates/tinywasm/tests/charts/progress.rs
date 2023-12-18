@@ -33,9 +33,6 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
         }
     }
 
-    println!("versions: {:?}", versions);
-    println!("data: {:?}", data);
-
     let root_area = SVGBackend::new(output_path, (1000, 400)).into_drawing_area();
     root_area.fill(&WHITE)?;
 
@@ -49,8 +46,8 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
 
     chart
         .configure_mesh()
-        .light_line_style(&TRANSPARENT)
-        .bold_line_style(&BLACK.mix(0.3))
+        .light_line_style(TRANSPARENT)
+        .bold_line_style(BLACK.mix(0.3))
         .max_light_lines(10)
         .disable_x_mesh()
         .y_desc("Tests Passed")
@@ -71,7 +68,7 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
     chart.draw_series(
         Histogram::vertical(&chart)
             .style(BLUE.mix(0.5).filled())
-            .data(data.iter().enumerate().map(|(x, y)| (x as u32, *y as u32))),
+            .data(data.iter().enumerate().map(|(x, y)| (x as u32, *y))),
     )?;
 
     root_area.present()?;

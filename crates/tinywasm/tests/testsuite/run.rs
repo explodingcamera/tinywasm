@@ -2,9 +2,8 @@ use crate::testsuite::util::*;
 
 use super::TestSuite;
 use eyre::{eyre, Result};
-use log::debug;
 use tinywasm_types::TinyWasmModule;
-use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
+use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {
     pub fn run(&mut self, tests: &[&str]) -> Result<()> {
@@ -34,8 +33,6 @@ impl TestSuite {
                             .map_err(|e| eyre!("failed to parse module: {:?}", e))
                             .and_then(|res| res);
 
-                        println!("result: {:?}", result);
-
                         match &result {
                             Err(_) => last_module = None,
                             Ok(m) => last_module = Some(m.clone()),
@@ -50,7 +47,6 @@ impl TestSuite {
                         message: _,
                     } => {
                         let Ok(module) = module.encode() else {
-                            println!("malformed module: {:?}", module);
                             test_group.add_result(&format!("{}-malformed", name), span, Ok(()));
                             continue;
                         };
@@ -69,23 +65,65 @@ impl TestSuite {
                         );
                     }
 
+                    AssertInvalid {
+                        span,
+                        mut module,
+                        message: _,
+                    } => {
+                        let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
+                            .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                            .and_then(|res| res);
+
+                        test_group.add_result(
+                            &format!("{}-invalid", name),
+                            span,
+                            match res {
+                                Ok(_) => Err(eyre!("expected module to be invalid")),
+                                Err(_) => Ok(()),
+                            },
+                        );
+                    }
+
+                    AssertTrap { exec, message: _, span } => {
+                        let res: Result<tinywasm::Result<()>, _> = catch_unwind_silent(|| {
+                            let (module, name) = match exec {
+                                wast::WastExecute::Wat(_wat) => unimplemented!("wat"),
+                                wast::WastExecute::Get { module: _, global: _ } => unimplemented!("get"),
+                                wast::WastExecute::Invoke(invoke) => (last_module.as_ref(), invoke.name),
+                            };
+                            exec_fn(module, name, &[]).map(|_| ())
+                        });
+
+                        match res {
+                            Err(err) => test_group.add_result(
+                                &format!("{}-trap", name),
+                                span,
+                                Err(eyre!("test panicked: {:?}", err)),
+                            ),
+                            Ok(Err(tinywasm::Error::Trap(_))) => {
+                                test_group.add_result(&format!("{}-trap", name), span, Ok(()))
+                            }
+                            Ok(Err(err)) => test_group.add_result(
+                                &format!("{}-trap", name),
+                                span,
+                                Err(eyre!("expected trap, got error: {:?}", err)),
+                            ),
+                            Ok(Ok(())) => test_group.add_result(
+                                &format!("{}-trap", name),
+                                span,
+                                Err(eyre!("expected trap, got ok")),
+                            ),
+                        }
+                    }
+
                     AssertReturn { span, exec, results } => {
-                        let Some(module) = last_module.as_ref() else {
-                            println!("no module found for assert_return: {:?}", exec);
-                            test_group.add_result(&format!("{}-return", name), span, Err(eyre!("no module found")));
-                            continue;
-                        };
-
                         let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                            let mut store = tinywasm::Store::new();
-                            let module = tinywasm::Module::from(module);
-                            let instance = module.instantiate(&mut store)?;
-
-                            use wast::WastExecute::*;
                             let invoke = match exec {
-                                Wat(_) => return Result::Ok(()), // not used by the testsuite
-                                Get { module: _, global: _ } => return Result::Ok(()),
-                                Invoke(invoke) => invoke,
+                                wast::WastExecute::Wat(_) => unimplemented!("wat"),
+                                wast::WastExecute::Get { module: _, global: _ } => {
+                                    return Err(eyre!("get not supported"))
+                                }
+                                wast::WastExecute::Invoke(invoke) => invoke,
                             };
 
                             let args = invoke
@@ -93,40 +131,29 @@ impl TestSuite {
                                 .into_iter()
                                 .map(wastarg2tinywasmvalue)
                                 .collect::<Result<Vec<_>>>()?;
-                            let res = instance.get_func(&store, invoke.name)?.call(&mut store, &args)?;
+
+                            let outcomes = exec_fn(last_module.as_ref(), invoke.name, &args)?;
                             let expected = results
                                 .into_iter()
                                 .map(wastret2tinywasmvalue)
                                 .collect::<Result<Vec<_>>>()?;
 
-                            if res.len() != expected.len() {
-                                return Result::Err(eyre!("expected {} results, got {}", expected.len(), res.len()));
+                            if outcomes.len() != expected.len() {
+                                return Err(eyre!("expected {} results, got {}", expected.len(), outcomes.len()));
                             }
-
-                            for (i, (res, expected)) in res.iter().zip(expected).enumerate() {
-                                if res != &expected {
-                                    return Result::Err(eyre!(
-                                        "result {} did not match: {:?} != {:?}",
-                                        i,
-                                        res,
-                                        expected
-                                    ));
-                                }
-                            }
-
-                            Ok(())
+                            outcomes
+                                .iter()
+                                .zip(expected)
+                                .enumerate()
+                                .try_for_each(|(i, (outcome, exp))| {
+                                    (outcome == &exp)
+                                        .then_some(())
+                                        .ok_or_else(|| eyre!("result {} did not match: {:?} != {:?}", i, outcome, exp))
+                                })
                         });
 
-                        let res = match res {
-                            Err(e) => Err(eyre!("test panicked: {:?}", e)),
-                            Ok(Err(e)) => Err(e),
-                            Ok(Ok(())) => Ok(()),
-                        };
-
+                        let res = res.map_err(|e| eyre!("test panicked: {:?}", e)).and_then(|r| r);
                         test_group.add_result(&format!("{}-return", name), span, res);
-                    }
-                    Invoke(m) => {
-                        debug!("invoke: {:?}", m);
                     }
                     _ => test_group.add_result(&format!("{}-unknown", name), span, Err(eyre!("unsupported directive"))),
                 }

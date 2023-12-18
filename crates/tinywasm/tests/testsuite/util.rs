@@ -3,17 +3,27 @@ use std::panic;
 use eyre::{eyre, Result};
 use tinywasm_types::TinyWasmModule;
 
+pub fn exec_fn(
+    module: Option<&TinyWasmModule>,
+    name: &str,
+    args: &[tinywasm_types::WasmValue],
+) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+    let Some(module) = module else {
+        return Err(tinywasm::Error::Other("no module found".to_string()));
+    };
+
+    let mut store = tinywasm::Store::new();
+    let module = tinywasm::Module::from(module);
+    let instance = module.instantiate(&mut store)?;
+    instance.get_func(&store, name)?.call(&mut store, args)
+}
+
 pub fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> std::thread::Result<R> {
     let prev_hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let result = panic::catch_unwind(f);
     panic::set_hook(prev_hook);
     result
-}
-
-pub fn parse_module(mut module: wast::core::Module) -> Result<TinyWasmModule> {
-    let parser = tinywasm_parser::Parser::new();
-    Ok(parser.parse_module_bytes(module.encode().expect("failed to encode module"))?)
 }
 
 pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {

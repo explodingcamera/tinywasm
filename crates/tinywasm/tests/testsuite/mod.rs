@@ -43,7 +43,6 @@ impl TestSuite {
 
         // Check if the last line starts with the current commit
         if let Some(last) = last_line {
-            println!("last line: {}", last);
             if last.starts_with(version) {
                 // Truncate the file size to remove the last line
                 let len_to_truncate = last.len() as i64;
