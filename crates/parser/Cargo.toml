@@ -12,7 +12,7 @@ repository.workspace=true
 # TODO: create dependency free parser
 wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
 log={version="0.4", optional=true}
-tinywasm-types={version="0.0.5-alpha.0", path="../types"}
+tinywasm-types={version="0.0.6-alpha.0", path="../types"}
 
 [features]
 default=["std", "logging"]
