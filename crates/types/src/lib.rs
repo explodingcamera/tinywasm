@@ -48,13 +48,19 @@ pub struct TinyWasmModule {
     pub funcs: Box<[Function]>,
 
     /// The types of the WebAssembly module.
-    pub types: Box<[FuncType]>,
+    pub func_types: Box<[FuncType]>,
 
     /// The exports of the WebAssembly module.
     pub exports: Box<[Export]>,
+
+    /// The tables of the WebAssembly module.
     pub globals: Box<[Global]>,
-    // pub tables: Option<TableType>,
-    // pub memories: Option<MemoryType>,
+
+    /// The tables of the WebAssembly module.
+    pub table_types: Box<[TableType]>,
+
+    /// The memories of the WebAssembly module.
+    pub memory_types: Box<[MemoryType]>,
     // pub elements: Option<ElementSectionReader<'a>>,
     // pub imports: Option<ImportSectionReader<'a>>,
     // pub data_segments: Option<DataSectionReader<'a>>,
@@ -299,4 +305,27 @@ pub struct Global {
     pub mutable: bool,
     pub ty: ValType,
     pub init: ConstInstruction,
+}
+
+#[derive(Debug, Clone)]
+pub struct TableType {
+    pub element_type: ValType,
+    pub size_initial: u32,
+    pub size_max: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+
+/// Represents a memory's type.
+#[derive(Copy, PartialEq, Eq, Hash)]
+pub struct MemoryType {
+    pub arch: MemoryArch,
+    pub page_count_initial: u64,
+    pub page_count_max: Option<u64>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum MemoryArch {
+    I32,
+    I64,
 }

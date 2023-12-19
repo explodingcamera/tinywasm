@@ -1,11 +1,52 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use log::info;
 use tinywasm_types::{
-    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, Instruction, MemArg, ValType,
+    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, Instruction, MemArg, MemoryArch, MemoryType,
+    TableType, ValType,
 };
 use wasmparser::{FuncValidator, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
+
+pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
+    memory_types: T,
+) -> Result<Vec<MemoryType>> {
+    let memory_type = memory_types
+        .into_iter()
+        .map(|memory| {
+            let memory = memory?;
+            Ok(MemoryType {
+                arch: match memory.memory64 {
+                    true => MemoryArch::I64,
+                    false => MemoryArch::I32,
+                },
+                page_count_initial: memory.initial,
+                page_count_max: memory.maximum,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(memory_type)
+}
+
+pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wasmparser::TableType>>>(
+    table_types: T,
+) -> Result<Vec<TableType>> {
+    let table_type = table_types
+        .into_iter()
+        .map(|table| {
+            let table = table?;
+            let ty = convert_valtype(&table.element_type);
+            Ok(TableType {
+                element_type: ty,
+                size_initial: table.initial,
+                size_max: table.maximum,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(table_type)
+}
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
     globals: T,

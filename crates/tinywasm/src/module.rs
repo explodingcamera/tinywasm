@@ -62,7 +62,7 @@ impl Module {
 
         let func_addrs = store.add_funcs(self.data.funcs.into(), idx);
         let instance = ModuleInstance::new(
-            self.data.types,
+            self.data.func_types,
             self.data.start_func,
             self.data.exports,
             func_addrs,

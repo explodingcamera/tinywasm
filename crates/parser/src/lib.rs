@@ -102,9 +102,9 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             return Err(ParseError::EndNotReached);
         }
 
-        let func_types = reader.function_section;
+        let func_types = reader.func_addrs;
         let funcs = reader
-            .code_section
+            .code
             .into_iter()
             .zip(func_types)
             .map(|(f, ty)| Function {
@@ -114,15 +114,18 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             })
             .collect::<Vec<_>>();
 
-        let globals = reader.global_section;
+        let globals = reader.globals;
+        let table_types = reader.table_types;
 
         Ok(TinyWasmModule {
             version: reader.version,
             start_func: reader.start_func,
-            types: reader.type_section.into_boxed_slice(),
+            func_types: reader.func_types.into_boxed_slice(),
             funcs: funcs.into_boxed_slice(),
-            exports: reader.export_section.into_boxed_slice(),
+            exports: reader.exports.into_boxed_slice(),
             globals: globals.into_boxed_slice(),
+            table_types: table_types.into_boxed_slice(),
+            memory_types: reader.memory_types.into_boxed_slice(),
         })
     }
 }

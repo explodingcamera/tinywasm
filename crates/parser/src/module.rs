@@ -1,7 +1,7 @@
 use crate::log::debug;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tinywasm_types::{Export, FuncType, Global, Instruction, ValType};
+use tinywasm_types::{Export, FuncType, Global, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
 
 use crate::{conversion, ParseError, Result};
@@ -17,14 +17,14 @@ pub struct ModuleReader {
     pub version: Option<u16>,
     pub start_func: Option<u32>,
 
-    pub type_section: Vec<FuncType>,
-    pub function_section: Vec<u32>,
-    pub export_section: Vec<Export>,
-    pub code_section: Vec<CodeSection>,
-    pub global_section: Vec<Global>,
+    pub func_types: Vec<FuncType>,
+    pub func_addrs: Vec<u32>,
+    pub exports: Vec<Export>,
+    pub code: Vec<CodeSection>,
+    pub globals: Vec<Global>,
+    pub table_types: Vec<TableType>,
+    pub memory_types: Vec<MemoryType>,
 
-    // pub table_section: Option<TableSectionReader<'a>>,
-    // pub memory_section: Option<MemorySectionReader<'a>>,
     // pub element_section: Option<ElementSectionReader<'a>>,
     // pub data_section: Option<DataSectionReader<'a>>,
     // pub import_section: Option<ImportSectionReader<'a>>,
@@ -35,13 +35,13 @@ impl Debug for ModuleReader {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.debug_struct("ModuleReader")
             .field("version", &self.version)
-            .field("type_section", &self.type_section)
-            .field("function_section", &self.function_section)
-            .field("code_section", &self.code_section)
-            .field("export_section", &self.export_section)
-            .field("global_section", &self.global_section)
-            // .field("table_section", &self.table_section)
-            // .field("memory_section", &self.memory_section)
+            .field("func_types", &self.func_types)
+            .field("func_addrs", &self.func_addrs)
+            .field("code", &self.code)
+            .field("exports", &self.exports)
+            .field("globals", &self.globals)
+            .field("table_types", &self.table_types)
+            .field("memory_types", &self.memory_types)
             // .field("element_section", &self.element_section)
             // .field("data_section", &self.data_section)
             // .field("import_section", &self.import_section)
@@ -74,7 +74,7 @@ impl ModuleReader {
             TypeSection(reader) => {
                 debug!("Found type section");
                 validator.type_section(&reader)?;
-                self.type_section = reader
+                self.func_types = reader
                     .into_iter()
                     .map(|t| conversion::convert_module_type(t?))
                     .collect::<Result<Vec<FuncType>>>()?;
@@ -82,26 +82,23 @@ impl ModuleReader {
             FunctionSection(reader) => {
                 debug!("Found function section");
                 validator.function_section(&reader)?;
-                self.function_section = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
+                self.func_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             GlobalSection(reader) => {
                 debug!("Found global section");
                 validator.global_section(&reader)?;
-                self.global_section = conversion::convert_module_globals(reader)?;
+                self.globals = conversion::convert_module_globals(reader)?;
             }
-            TableSection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Table section".into()));
-                // debug!("Found table section");
-                // validator.table_section(&reader)?;
-                // self.table_section = Some(reader);
+            TableSection(reader) => {
+                debug!("Found table section");
+                validator.table_section(&reader)?;
+                self.table_types = conversion::convert_module_tables(reader)?;
             }
-            MemorySection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Memory section".into()));
-                // debug!("Found memory section");
-                // validator.memory_section(&reader)?;
-                // self.memory_section = Some(reader);
+            MemorySection(reader) => {
+                debug!("Found memory section");
+                validator.memory_section(&reader)?;
+                self.memory_types = conversion::convert_module_memories(reader)?;
             }
-
             ElementSection(_reader) => {
                 return Err(ParseError::UnsupportedSection("Element section".into()));
                 // debug!("Found element section");
@@ -116,7 +113,7 @@ impl ModuleReader {
             }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);
-                if !self.code_section.is_empty() {
+                if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
 
@@ -127,7 +124,7 @@ impl ModuleReader {
                 let v = validator.code_section_entry(&function)?;
                 let func_validator = v.into_validator(Default::default());
 
-                self.code_section
+                self.code
                     .push(conversion::convert_module_code(function, func_validator)?);
             }
             ImportSection(_reader) => {
@@ -140,7 +137,7 @@ impl ModuleReader {
             ExportSection(reader) => {
                 debug!("Found export section");
                 validator.export_section(&reader)?;
-                self.export_section = reader
+                self.exports = reader
                     .into_iter()
                     .map(|e| conversion::convert_module_export(e?))
                     .collect::<Result<Vec<_>>>()?;
@@ -158,6 +155,10 @@ impl ModuleReader {
                 debug!("Found custom section");
                 debug!("Skipping custom section: {:?}", reader.name());
             }
+            // TagSection(tag) => {
+            //     debug!("Found tag section");
+            //     validator.tag_section(&tag)?;
+            // }
             UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => {
                 return Err(ParseError::UnsupportedSection(format!(
