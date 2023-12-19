@@ -129,10 +129,7 @@ impl ModuleReader {
             ImportSection(reader) => {
                 debug!("Found import section");
                 validator.import_section(&reader)?;
-                self.imports = reader
-                    .into_iter()
-                    .map(|i| conversion::convert_module_import(i?))
-                    .collect::<Result<Vec<_>>>()?;
+                self.imports = conversion::convert_module_imports(reader)?;
             }
             ExportSection(reader) => {
                 debug!("Found export section");

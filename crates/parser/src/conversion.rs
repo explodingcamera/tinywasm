@@ -18,7 +18,7 @@ pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Resu
     Ok(imports)
 }
 
-pub(crate) fn convert_module_import<'a>(import: wasmparser::Import<'a>) -> Result<Import> {
+pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
     Ok(Import {
         module: import.module.to_string(),
         name: import.name.to_string(),
