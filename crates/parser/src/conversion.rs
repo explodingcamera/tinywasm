@@ -1,32 +1,65 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use log::info;
 use tinywasm_types::{
-    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, Instruction, MemArg, MemoryArch, MemoryType,
-    TableType, ValType,
+    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind, Instruction,
+    MemArg, MemoryArch, MemoryType, TableType, ValType,
 };
 use wasmparser::{FuncValidator, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
+
+pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
+    imports: T,
+) -> Result<Vec<Import>> {
+    let imports = imports
+        .into_iter()
+        .map(|import| convert_module_import(import?))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(imports)
+}
+
+pub(crate) fn convert_module_import<'a>(import: wasmparser::Import<'a>) -> Result<Import> {
+    Ok(Import {
+        module: import.module.to_string(),
+        name: import.name.to_string(),
+        kind: match import.ty {
+            wasmparser::TypeRef::Func(ty) => ImportKind::Func(ty),
+            wasmparser::TypeRef::Table(ty) => ImportKind::Table(convert_module_table(ty)?),
+            wasmparser::TypeRef::Memory(ty) => ImportKind::Mem(convert_module_memory(ty)?),
+            wasmparser::TypeRef::Global(ty) => ImportKind::Global(GlobalType {
+                mutable: ty.mutable,
+                ty: convert_valtype(&ty.content_type),
+            }),
+            wasmparser::TypeRef::Tag(ty) => {
+                return Err(crate::ParseError::UnsupportedOperator(format!(
+                    "Unsupported import kind: {:?}",
+                    ty
+                )))
+            }
+        },
+    })
+}
 
 pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
     memory_types: T,
 ) -> Result<Vec<MemoryType>> {
     let memory_type = memory_types
         .into_iter()
-        .map(|memory| {
-            let memory = memory?;
-            Ok(MemoryType {
-                arch: match memory.memory64 {
-                    true => MemoryArch::I64,
-                    false => MemoryArch::I32,
-                },
-                page_count_initial: memory.initial,
-                page_count_max: memory.maximum,
-            })
-        })
+        .map(|memory| convert_module_memory(memory?))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(memory_type)
+}
+
+pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<MemoryType> {
+    Ok(MemoryType {
+        arch: match memory.memory64 {
+            true => MemoryArch::I64,
+            false => MemoryArch::I32,
+        },
+        page_count_initial: memory.initial,
+        page_count_max: memory.maximum,
+    })
 }
 
 pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wasmparser::TableType>>>(
@@ -34,18 +67,19 @@ pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wa
 ) -> Result<Vec<TableType>> {
     let table_type = table_types
         .into_iter()
-        .map(|table| {
-            let table = table?;
-            let ty = convert_valtype(&table.element_type);
-            Ok(TableType {
-                element_type: ty,
-                size_initial: table.initial,
-                size_max: table.maximum,
-            })
-        })
+        .map(|table| convert_module_table(table?))
         .collect::<Result<Vec<_>>>()?;
 
     Ok(table_type)
+}
+
+pub(crate) fn convert_module_table(table: wasmparser::TableType) -> Result<TableType> {
+    let ty = convert_valtype(&table.element_type);
+    Ok(TableType {
+        element_type: ty,
+        size_initial: table.initial,
+        size_max: table.maximum,
+    })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
@@ -70,9 +104,11 @@ pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Resu
             assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
 
             Ok(Global {
-                ty,
                 init: process_const_operator(ops[ops.len() - 2].clone())?,
-                mutable: global.ty.mutable,
+                ty: GlobalType {
+                    mutable: global.ty.mutable,
+                    ty,
+                },
             })
         })
         .collect::<Result<Vec<_>>>()?;

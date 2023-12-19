@@ -28,7 +28,7 @@ extern crate alloc;
 mod instructions;
 use core::fmt::Debug;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::String};
 pub use instructions::*;
 
 /// A TinyWasm WebAssembly Module
@@ -302,9 +302,14 @@ pub struct Export {
 
 #[derive(Debug, Clone)]
 pub struct Global {
+    pub ty: GlobalType,
+    pub init: ConstInstruction,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
-    pub init: ConstInstruction,
 }
 
 #[derive(Debug, Clone)]
@@ -328,4 +333,20 @@ pub struct MemoryType {
 pub enum MemoryArch {
     I32,
     I64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Import {
+    /// Represents an import in a WebAssembly module.
+    pub module: String,
+    pub name: String,
+    pub kind: ImportKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportKind {
+    Func(TypeAddr),
+    Table(TableType),
+    Mem(MemoryType),
+    Global(GlobalType),
 }

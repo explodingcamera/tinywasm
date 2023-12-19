@@ -1,7 +1,7 @@
 use crate::log::debug;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tinywasm_types::{Export, FuncType, Global, Instruction, MemoryType, TableType, ValType};
+use tinywasm_types::{Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
 
 use crate::{conversion, ParseError, Result};
@@ -24,10 +24,10 @@ pub struct ModuleReader {
     pub globals: Vec<Global>,
     pub table_types: Vec<TableType>,
     pub memory_types: Vec<MemoryType>,
+    pub imports: Vec<Import>,
 
     // pub element_section: Option<ElementSectionReader<'a>>,
     // pub data_section: Option<DataSectionReader<'a>>,
-    // pub import_section: Option<ImportSectionReader<'a>>,
     pub end_reached: bool,
 }
 
@@ -42,9 +42,9 @@ impl Debug for ModuleReader {
             .field("globals", &self.globals)
             .field("table_types", &self.table_types)
             .field("memory_types", &self.memory_types)
+            .field("import_section", &self.imports)
             // .field("element_section", &self.element_section)
             // .field("data_section", &self.data_section)
-            // .field("import_section", &self.import_section)
             .finish()
     }
 }
@@ -116,7 +116,6 @@ impl ModuleReader {
                 if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
-
                 validator.code_section_start(count, &range)?;
             }
             CodeSectionEntry(function) => {
@@ -127,12 +126,13 @@ impl ModuleReader {
                 self.code
                     .push(conversion::convert_module_code(function, func_validator)?);
             }
-            ImportSection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Import section".into()));
-
-                // debug!("Found import section");
-                // validator.import_section(&reader)?;
-                // self.import_section = Some(reader);
+            ImportSection(reader) => {
+                debug!("Found import section");
+                validator.import_section(&reader)?;
+                self.imports = reader
+                    .into_iter()
+                    .map(|i| conversion::convert_module_import(i?))
+                    .collect::<Result<Vec<_>>>()?;
             }
             ExportSection(reader) => {
                 debug!("Found export section");
