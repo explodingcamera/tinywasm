@@ -10,7 +10,7 @@
   Generate test result charts
 
 - **`cargo test-mvp`**\
-  Run the WebAssembly MVP (1.0) test suite
+  Run the WebAssembly MVP (1.0) test suite. Be sure to cloned this repo with `--recursive` or initialize the submodules with `git submodule update --init --recursive`
 
 - **`cargo version-dev`**\
   Bump the version to the next dev version. This should be used after a release so test results are not overwritten. Does not create a new github release.

@@ -52,8 +52,8 @@ v0.0.5 (11135)
 v0.0.6-alpha.0 (11200)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="875,345 875,350 "/>
-<rect x="539" y="185" width="218" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="312" y="212" width="217" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="767" y="184" width="217" height="160" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="85" y="212" width="217" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="539" y="185" width="218" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="767" y="184" width="217" height="160" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>
