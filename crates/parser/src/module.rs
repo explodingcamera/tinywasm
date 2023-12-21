@@ -1,10 +1,9 @@
 use crate::log::debug;
+use crate::{conversion, ParseError, Result};
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tinywasm_types::{Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
+use tinywasm_types::{Data, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
-
-use crate::{conversion, ParseError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodeSection {
@@ -25,9 +24,9 @@ pub struct ModuleReader {
     pub table_types: Vec<TableType>,
     pub memory_types: Vec<MemoryType>,
     pub imports: Vec<Import>,
+    pub data: Vec<Data>,
 
     // pub element_section: Option<ElementSectionReader<'a>>,
-    // pub data_section: Option<DataSectionReader<'a>>,
     pub end_reached: bool,
 }
 
@@ -67,11 +66,19 @@ impl ModuleReader {
                 }
             }
             StartSection { func, range } => {
+                if self.start_func.is_some() {
+                    return Err(ParseError::DuplicateSection("Start section".into()));
+                }
+
                 debug!("Found start section");
                 validator.start_section(func, &range)?;
                 self.start_func = Some(func);
             }
             TypeSection(reader) => {
+                if !self.func_types.is_empty() {
+                    return Err(ParseError::DuplicateSection("Type section".into()));
+                }
+
                 debug!("Found type section");
                 validator.type_section(&reader)?;
                 self.func_types = reader
@@ -80,21 +87,37 @@ impl ModuleReader {
                     .collect::<Result<Vec<FuncType>>>()?;
             }
             FunctionSection(reader) => {
+                if !self.func_addrs.is_empty() {
+                    return Err(ParseError::DuplicateSection("Function section".into()));
+                }
+
                 debug!("Found function section");
                 validator.function_section(&reader)?;
                 self.func_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             GlobalSection(reader) => {
+                if !self.globals.is_empty() {
+                    return Err(ParseError::DuplicateSection("Global section".into()));
+                }
+
                 debug!("Found global section");
                 validator.global_section(&reader)?;
                 self.globals = conversion::convert_module_globals(reader)?;
             }
             TableSection(reader) => {
+                if !self.table_types.is_empty() {
+                    return Err(ParseError::DuplicateSection("Table section".into()));
+                }
+
                 debug!("Found table section");
                 validator.table_section(&reader)?;
                 self.table_types = conversion::convert_module_tables(reader)?;
             }
             MemorySection(reader) => {
+                if !self.memory_types.is_empty() {
+                    return Err(ParseError::DuplicateSection("Memory section".into()));
+                }
+
                 debug!("Found memory section");
                 validator.memory_section(&reader)?;
                 self.memory_types = conversion::convert_module_memories(reader)?;
@@ -105,11 +128,14 @@ impl ModuleReader {
                 // validator.element_section(&reader)?;
                 // self.element_section = Some(reader);
             }
-            DataSection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Data section".into()));
-                // debug!("Found data section");
-                // validator.data_section(&reader)?;
-                // self.data_section = Some(reader);
+            DataSection(reader) => {
+                if !self.data.is_empty() {
+                    return Err(ParseError::DuplicateSection("Data section".into()));
+                }
+
+                debug!("Found data section");
+                validator.data_section(&reader)?;
+                self.data = conversion::convert_module_data_sections(reader)?;
             }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);
@@ -127,11 +153,19 @@ impl ModuleReader {
                     .push(conversion::convert_module_code(function, func_validator)?);
             }
             ImportSection(reader) => {
+                if !self.imports.is_empty() {
+                    return Err(ParseError::DuplicateSection("Import section".into()));
+                }
+
                 debug!("Found import section");
                 validator.import_section(&reader)?;
                 self.imports = conversion::convert_module_imports(reader)?;
             }
             ExportSection(reader) => {
+                if !self.exports.is_empty() {
+                    return Err(ParseError::DuplicateSection("Export section".into()));
+                }
+
                 debug!("Found export section");
                 validator.export_section(&reader)?;
                 self.exports = reader

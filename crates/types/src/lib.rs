@@ -26,9 +26,9 @@ extern crate alloc;
 // }
 
 mod instructions;
-use core::fmt::Debug;
+use core::{fmt::Debug, ops::Range};
 
-use alloc::{boxed::Box, string::String};
+use alloc::boxed::Box;
 pub use instructions::*;
 
 /// A TinyWasm WebAssembly Module
@@ -61,9 +61,13 @@ pub struct TinyWasmModule {
 
     /// The memories of the WebAssembly module.
     pub memory_types: Box<[MemoryType]>,
+
+    /// The imports of the WebAssembly module.
+    pub imports: Box<[Import]>,
+
+    /// Data segments of the WebAssembly module.
+    pub data: Box<[Data]>,
     // pub elements: Option<ElementSectionReader<'a>>,
-    // pub imports: Option<ImportSectionReader<'a>>,
-    // pub data_segments: Option<DataSectionReader<'a>>,
 }
 
 /// A WebAssembly value.
@@ -337,9 +341,8 @@ pub enum MemoryArch {
 
 #[derive(Debug, Clone)]
 pub struct Import {
-    /// Represents an import in a WebAssembly module.
-    pub module: String,
-    pub name: String,
+    pub module: Box<str>,
+    pub name: Box<str>,
     pub kind: ImportKind,
 }
 
@@ -349,4 +352,17 @@ pub enum ImportKind {
     Table(TableType),
     Mem(MemoryType),
     Global(GlobalType),
+}
+
+#[derive(Debug, Clone)]
+pub struct Data {
+    pub data: Box<[u8]>,
+    pub range: Range<usize>,
+    pub kind: DataKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum DataKind {
+    Active { mem: MemAddr, offset: ConstInstruction },
+    Passive,
 }

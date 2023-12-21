@@ -126,6 +126,8 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             globals: globals.into_boxed_slice(),
             table_types: table_types.into_boxed_slice(),
             memory_types: reader.memory_types.into_boxed_slice(),
+            imports: reader.imports.into_boxed_slice(),
+            data: reader.data.into_boxed_slice(),
         })
     }
 }

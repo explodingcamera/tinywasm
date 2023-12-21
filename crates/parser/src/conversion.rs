@@ -4,9 +4,39 @@ use tinywasm_types::{
     BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind, Instruction,
     MemArg, MemoryArch, MemoryType, TableType, ValType,
 };
-use wasmparser::{FuncValidator, ValidatorResources};
+use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
+
+pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
+    data_sections: T,
+) -> Result<Vec<tinywasm_types::Data>> {
+    let data_sections = data_sections
+        .into_iter()
+        .map(|data| convert_module_data(data?))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(data_sections)
+}
+
+pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm_types::Data> {
+    Ok(tinywasm_types::Data {
+        data: data.data.to_vec().into_boxed_slice(),
+        range: data.range,
+        kind: match data.kind {
+            wasmparser::DataKind::Active {
+                memory_index,
+                offset_expr,
+            } => {
+                let offset = process_const_operators(offset_expr.get_operators_reader())?;
+                tinywasm_types::DataKind::Active {
+                    mem: memory_index,
+                    offset,
+                }
+            }
+            wasmparser::DataKind::Passive => tinywasm_types::DataKind::Passive,
+        },
+    })
+}
 
 pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
     imports: T,
@@ -20,8 +50,8 @@ pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Resu
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
     Ok(Import {
-        module: import.module.to_string(),
-        name: import.name.to_string(),
+        module: import.module.to_string().into_boxed_str(),
+        name: import.name.to_string().into_boxed_str(),
         kind: match import.ty {
             wasmparser::TypeRef::Func(ty) => ImportKind::Func(ty),
             wasmparser::TypeRef::Table(ty) => ImportKind::Table(convert_module_table(ty)?),
@@ -90,21 +120,10 @@ pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Resu
         .map(|global| {
             let global = global?;
             let ty = convert_valtype(&global.ty.content_type);
-
-            let ops = global
-                .init_expr
-                .get_operators_reader()
-                .into_iter()
-                .collect::<wasmparser::Result<Vec<_>>>()?;
-
-            // In practice, the len can never be something other than 2,
-            // but we'll keep this here since it's part of the spec
-            // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
-            assert!(ops.len() >= 2);
-            assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
+            let ops = global.init_expr.get_operators_reader();
 
             Ok(Global {
-                init: process_const_operator(ops[ops.len() - 2].clone())?,
+                init: process_const_operators(ops)?,
                 ty: GlobalType {
                     mutable: global.ty.mutable,
                     ty,
@@ -213,6 +232,17 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
         offset: memarg.offset,
         align: memarg.align,
     }
+}
+
+pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstruction> {
+    let ops = ops.into_iter().collect::<wasmparser::Result<Vec<_>>>()?;
+    // In practice, the len can never be something other than 2,
+    // but we'll keep this here since it's part of the spec
+    // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
+    assert!(ops.len() >= 2);
+    assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
+
+    Ok(process_const_operator(ops[ops.len() - 2].clone())?)
 }
 
 pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstruction> {
