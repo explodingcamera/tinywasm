@@ -242,7 +242,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstr
     assert!(ops.len() >= 2);
     assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
 
-    Ok(process_const_operator(ops[ops.len() - 2].clone())?)
+    process_const_operator(ops[ops.len() - 2].clone())
 }
 
 pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstruction> {

@@ -2,5 +2,6 @@
 version-dev="workspaces version --no-git-commit --force tinywasm*"
 dev="run -- -l debug run"
 
-test-mvp="test --package tinywasm --test mvp -- test_mvp --exact --nocapture --ignored"
-generate-charts="test --package tinywasm --test mvp -- generate_charts --ignored"
+test-mvp="test --package tinywasm --test test-mvp"
+test-wast="test --package tinywasm --test test-wast --"
+generate-charts="test --package tinywasm --test generate-charts"

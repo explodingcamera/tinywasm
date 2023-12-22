@@ -307,6 +307,11 @@ fn exec_one(
         I32DivU => checked_arithmetic_cast!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
         I64DivU => checked_arithmetic_cast!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
 
+        I32RemS => checked_arithmetic!(checked_rem, i32, stack, crate::Trap::DivisionByZero),
+        I64RemS => checked_arithmetic!(checked_rem, i64, stack, crate::Trap::DivisionByZero),
+        I32RemU => checked_arithmetic_cast!(checked_rem, i32, u32, stack, crate::Trap::DivisionByZero),
+        I64RemU => checked_arithmetic_cast!(checked_rem, i64, u64, stack, crate::Trap::DivisionByZero),
+
         F32ConvertI32S => conv_1!(i32, f32, stack),
         F32ConvertI64S => conv_1!(i64, f32, stack),
         F64ConvertI32S => conv_1!(i32, f64, stack),

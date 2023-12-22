@@ -1,4 +1,5 @@
 use crate::testsuite::util::*;
+use std::borrow::Cow;
 
 use super::TestSuite;
 use eyre::{eyre, Result};
@@ -10,7 +11,13 @@ impl TestSuite {
         tests.iter().for_each(|group| {
             let test_group = self.test_group(group);
 
-            let wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
+            let wast = if group.starts_with("./") {
+                let file = std::fs::read(group).expect("failed to read test wast");
+                Cow::Owned(file)
+            } else {
+                wasm_testsuite::get_test_wast(group).expect("failed to get test wast")
+            };
+
             let wast = std::str::from_utf8(&wast).expect("failed to convert wast to utf8");
 
             let mut lexer = Lexer::new(wast);
