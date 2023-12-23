@@ -9,7 +9,7 @@ fn main() -> Result<()> {
 fn test_mvp() -> Result<()> {
     let mut test_suite = TestSuite::new();
 
-    test_suite.run(wasm_testsuite::MVP_TESTS)?;
+    test_suite.run_spec_group(wasm_testsuite::MVP_TESTS)?;
     test_suite.save_csv("./tests/generated/mvp.csv", env!("CARGO_PKG_VERSION"))?;
 
     if test_suite.failed() {
