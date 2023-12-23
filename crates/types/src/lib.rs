@@ -67,7 +67,9 @@ pub struct TinyWasmModule {
 
     /// Data segments of the WebAssembly module.
     pub data: Box<[Data]>,
-    // pub elements: Option<ElementSectionReader<'a>>,
+
+    /// Element segments of the WebAssembly module.
+    pub elements: Box<[Element]>,
 }
 
 /// A WebAssembly value.
@@ -365,4 +367,25 @@ pub struct Data {
 pub enum DataKind {
     Active { mem: MemAddr, offset: ConstInstruction },
     Passive,
+}
+
+#[derive(Debug, Clone)]
+pub struct Element {
+    pub kind: ElementKind,
+    pub items: Box<[ElementItem]>,
+    pub range: Range<usize>,
+    pub ty: ValType,
+}
+
+#[derive(Debug, Clone)]
+pub enum ElementKind {
+    Passive,
+    Active { table: TableAddr, offset: ConstInstruction },
+    Declared,
+}
+
+#[derive(Debug, Clone)]
+pub enum ElementItem {
+    Func(FuncAddr),
+    Expr(ConstInstruction),
 }

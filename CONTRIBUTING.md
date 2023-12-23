@@ -1,16 +1,20 @@
-# Common Commands
+# Scripts and Commands
 
-> To improve the development experience, a number of aliases have been added to the `.cargo/config.toml` file. These can be run using `cargo <command>`.
+> To improve the development experience, a number of custom commands and aliases have been added to the `.cargo/config.toml` file. These can be run using `cargo <command>`.
 
-- **`cargo dev`**\
+- **`cargo dev [args]`**\
   e.g. `cargo dev -f check ./examples/wasm/call.wat -a i32:0`\
-  Run the development version of the tinywasm-cli. This is the main command used for developing new features.
+  Run the development version of the tinywasm-cli. This is the main command used for developing new features.\
+  See [tinywasm-cli](./crates/cli) for more information.
 
 - **`cargo generate-charts`**\
-  Generate test result charts
+  Generate test result charts from the previous test runs. This is used to generate the charts in the [README](./README.md).
 
 - **`cargo test-mvp`**\
   Run the WebAssembly MVP (1.0) test suite. Be sure to cloned this repo with `--recursive` or initialize the submodules with `git submodule update --init --recursive`
+
+- **`cargo test-wast <path>`**\
+  Run a single WAST test file. e.g. `cargo test-wast ./examples/wast/i32.wast`
 
 - **`cargo version-dev`**\
   Bump the version to the next dev version. This should be used after a release so test results are not overwritten. Does not create a new github release.

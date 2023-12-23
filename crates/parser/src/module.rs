@@ -2,7 +2,7 @@ use crate::log::debug;
 use crate::{conversion, ParseError, Result};
 use alloc::{boxed::Box, format, vec::Vec};
 use core::fmt::Debug;
-use tinywasm_types::{Data, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
+use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,7 @@ pub struct ModuleReader {
     pub memory_types: Vec<MemoryType>,
     pub imports: Vec<Import>,
     pub data: Vec<Data>,
+    pub elements: Vec<Element>,
 
     // pub element_section: Option<ElementSectionReader<'a>>,
     pub end_reached: bool,
@@ -122,11 +123,10 @@ impl ModuleReader {
                 validator.memory_section(&reader)?;
                 self.memory_types = conversion::convert_module_memories(reader)?;
             }
-            ElementSection(_reader) => {
-                return Err(ParseError::UnsupportedSection("Element section".into()));
-                // debug!("Found element section");
-                // validator.element_section(&reader)?;
-                // self.element_section = Some(reader);
+            ElementSection(reader) => {
+                debug!("Found element section");
+                validator.element_section(&reader)?;
+                self.elements = conversion::convert_module_elements(reader)?;
             }
             DataSection(reader) => {
                 if !self.data.is_empty() {

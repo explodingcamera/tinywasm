@@ -1,12 +1,61 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use log::info;
 use tinywasm_types::{
-    BlockArgs, ConstInstruction, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind, Instruction,
-    MemArg, MemoryArch, MemoryType, TableType, ValType,
+    BlockArgs, ConstInstruction, ElementItem, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind,
+    Instruction, MemArg, MemoryArch, MemoryType, TableType, ValType,
 };
 use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
+
+pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
+    elements: T,
+) -> Result<Vec<tinywasm_types::Element>> {
+    let elements = elements
+        .into_iter()
+        .map(|element| convert_module_element(element?))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(elements)
+}
+
+pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
+    let kind = match element.kind {
+        wasmparser::ElementKind::Active {
+            table_index,
+            offset_expr,
+        } => tinywasm_types::ElementKind::Active {
+            table: table_index,
+            offset: process_const_operators(offset_expr.get_operators_reader())?,
+        },
+        wasmparser::ElementKind::Passive => tinywasm_types::ElementKind::Passive,
+        wasmparser::ElementKind::Declared => tinywasm_types::ElementKind::Declared,
+    };
+
+    let items = match element.items {
+        wasmparser::ElementItems::Functions(funcs) => funcs
+            .into_iter()
+            .map(|func| Ok(ElementItem::Func(func?)))
+            .collect::<Result<Vec<_>>>()?
+            .into_boxed_slice(),
+
+        wasmparser::ElementItems::Expressions(exprs) => exprs
+            .into_iter()
+            .map(|expr| {
+                Ok(ElementItem::Expr(process_const_operators(
+                    expr?.get_operators_reader(),
+                )?))
+            })
+            .collect::<Result<Vec<_>>>()?
+            .into_boxed_slice(),
+    };
+
+    Ok(tinywasm_types::Element {
+        kind,
+        items,
+        ty: convert_valtype(&element.ty),
+        range: element.range,
+    })
+}
 
 pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
     data_sections: T,
