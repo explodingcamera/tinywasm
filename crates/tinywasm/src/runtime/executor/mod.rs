@@ -352,6 +352,8 @@ fn exec_one(
         F32ConvertI64U => conv_2!(i64, u64, f32, stack),
         F64ConvertI32U => conv_2!(i32, u32, f64, stack),
         F64ConvertI64U => conv_2!(i64, u64, f64, stack),
+        I32Extend8S => conv_2!(i32, i8, i32, stack),
+        I32Extend16S => conv_2!(i32, i16, i32, stack),
         I64ExtendI32U => conv_2!(i32, u32, i64, stack),
         I64ExtendI32S => conv_1!(i32, i64, stack),
         I32WrapI64 => conv_1!(i64, i32, stack),
