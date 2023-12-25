@@ -59,8 +59,8 @@ impl Module {
         // imports: Option<()>,
     ) -> Result<ModuleInstance> {
         let idx = store.next_module_instance_idx();
-
         let func_addrs = store.add_funcs(self.data.funcs.into(), idx);
+
         let instance = ModuleInstance::new(
             self.data.func_types,
             self.data.start_func,

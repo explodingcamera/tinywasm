@@ -126,12 +126,12 @@ impl Store {
 
     pub(crate) fn add_funcs(&mut self, funcs: Vec<Function>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let mut func_addrs = Vec::with_capacity(funcs.len());
-        for func in funcs.into_iter() {
+        for (i, func) in funcs.into_iter().enumerate() {
             self.data.funcs.push(Rc::new(FunctionInstance {
                 func,
                 _module_instance: idx,
             }));
-            func_addrs.push(idx as FuncAddr);
+            func_addrs.push(i as FuncAddr);
         }
         func_addrs
     }

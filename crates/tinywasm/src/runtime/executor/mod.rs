@@ -85,7 +85,11 @@ fn exec_one(
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
-        Select => {
+        Select(t) => {
+            if t.is_some() {
+                unimplemented!("select with type");
+            }
+
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
 
@@ -283,34 +287,34 @@ fn exec_one(
         F32Gt => comp!(>, f32, stack),
         F64Gt => comp!(>, f64, stack),
 
-        I64Add => arithmetic!(+, i64, stack),
-        I32Add => arithmetic!(+, i32, stack),
-        F32Add => arithmetic!(+, f32, stack),
-        F64Add => arithmetic!(+, f64, stack),
+        I64Add => arithmetic_method!(wrapping_add, i64, stack),
+        I32Add => arithmetic_method!(wrapping_add, i32, stack),
+        F32Add => arithmetic_op!(+, f32, stack),
+        F64Add => arithmetic_op!(+, f64, stack),
 
-        I32Sub => arithmetic!(-, i32, stack),
-        I64Sub => arithmetic!(-, i64, stack),
-        F32Sub => arithmetic!(-, f32, stack),
-        F64Sub => arithmetic!(-, f64, stack),
+        I32Sub => arithmetic_method!(wrapping_sub, i32, stack),
+        I64Sub => arithmetic_method!(wrapping_sub, i64, stack),
+        F32Sub => arithmetic_op!(-, f32, stack),
+        F64Sub => arithmetic_op!(-, f64, stack),
 
-        F32Div => arithmetic!(/, f32, stack),
-        F64Div => arithmetic!(/, f64, stack),
+        F32Div => arithmetic_op!(/, f32, stack),
+        F64Div => arithmetic_op!(/, f64, stack),
 
-        I32Mul => arithmetic!(*, i32, stack),
-        I64Mul => arithmetic!(*, i64, stack),
-        F32Mul => arithmetic!(*, f32, stack),
-        F64Mul => arithmetic!(*, f64, stack),
+        I32Mul => arithmetic_method!(wrapping_mul, i32, stack),
+        I64Mul => arithmetic_method!(wrapping_mul, i64, stack),
+        F32Mul => arithmetic_op!(*, f32, stack),
+        F64Mul => arithmetic_op!(*, f64, stack),
 
         // these can trap
-        I32DivS => checked_arithmetic!(checked_div, i32, stack, crate::Trap::DivisionByZero),
-        I64DivS => checked_arithmetic!(checked_div, i64, stack, crate::Trap::DivisionByZero),
-        I32DivU => checked_arithmetic_cast!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
-        I64DivU => checked_arithmetic_cast!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
+        I32DivS => checked_arithmetic_method!(checked_div, i32, stack, crate::Trap::DivisionByZero),
+        I64DivS => checked_arithmetic_method!(checked_div, i64, stack, crate::Trap::DivisionByZero),
+        I32DivU => checked_arithmetic_method_cast!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
+        I64DivU => checked_arithmetic_method_cast!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
 
-        I32RemS => checked_arithmetic!(checked_rem, i32, stack, crate::Trap::DivisionByZero),
-        I64RemS => checked_arithmetic!(checked_rem, i64, stack, crate::Trap::DivisionByZero),
-        I32RemU => checked_arithmetic_cast!(checked_rem, i32, u32, stack, crate::Trap::DivisionByZero),
-        I64RemU => checked_arithmetic_cast!(checked_rem, i64, u64, stack, crate::Trap::DivisionByZero),
+        I32RemS => checked_arithmetic_method!(checked_rem, i32, stack, crate::Trap::DivisionByZero),
+        I64RemS => checked_arithmetic_method!(checked_rem, i64, stack, crate::Trap::DivisionByZero),
+        I32RemU => checked_arithmetic_method_cast!(checked_rem, i32, u32, stack, crate::Trap::DivisionByZero),
+        I64RemU => checked_arithmetic_method_cast!(checked_rem, i64, u64, stack, crate::Trap::DivisionByZero),
 
         F32ConvertI32S => conv_1!(i32, f32, stack),
         F32ConvertI64S => conv_1!(i64, f32, stack),

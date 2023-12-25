@@ -65,7 +65,7 @@ pub enum Instruction {
     // Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
     Drop,
-    Select,
+    Select(Option<ValType>),
 
     // Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
@@ -213,6 +213,8 @@ pub enum Instruction {
     I32TruncF32U,
     I32TruncF64S,
     I32TruncF64U,
+    I32Extend8S,
+    I32Extend16S,
     I64ExtendI32S,
     I64ExtendI32U,
     I64TruncF32S,

@@ -1239,6 +1239,7 @@ dependencies = [
  "log",
  "owo-colors 4.0.0",
  "plotters",
+ "pretty_env_logger",
  "serde",
  "serde_json",
  "tinywasm-parser",

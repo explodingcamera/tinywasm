@@ -407,7 +407,8 @@ pub fn process_operators<'a>(
                 ..
             } => Instruction::CallIndirect(type_index, table_index),
             Drop => Instruction::Drop,
-            Select => Instruction::Select,
+            Select => Instruction::Select(None),
+            TypedSelect { ty } => Instruction::Select(Some(convert_valtype(&ty))),
             LocalGet { local_index } => Instruction::LocalGet(local_index),
             LocalSet { local_index } => Instruction::LocalSet(local_index),
             LocalTee { local_index } => Instruction::LocalTee(local_index),
@@ -547,6 +548,8 @@ pub fn process_operators<'a>(
             I32TruncF64U => Instruction::I32TruncF64U,
             I64ExtendI32S => Instruction::I64ExtendI32S,
             I64ExtendI32U => Instruction::I64ExtendI32U,
+            I32Extend8S => Instruction::I32Extend8S,
+            I32Extend16S => Instruction::I32Extend16S,
             I64TruncF32S => Instruction::I64TruncF32S,
             I64TruncF32U => Instruction::I64TruncF32U,
             I64TruncF64S => Instruction::I64TruncF64S,

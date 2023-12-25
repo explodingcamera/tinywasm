@@ -65,9 +65,16 @@ impl ModuleInstance {
         }
 
         let export = self.0.exports.get(name, ExternalKind::Func)?;
+        log::debug!("get_func: export: {:?}", export);
+
+        log::debug!("{:?}", self.0.func_addrs);
         let func_addr = self.0.func_addrs[export.index as usize];
+        log::debug!("get_func: func index: {}", export.index);
         let func = store.get_func(func_addr as usize)?;
+        log::debug!("get_func: func_addr: {}, func: {:?}", func_addr, func);
         let ty = self.0.types[func.ty_addr() as usize].clone();
+        log::debug!("get_func: ty: {:?}", ty);
+        log::debug!("types: {:?}", self.0.types);
 
         Ok(FuncHandle {
             addr: export.index,

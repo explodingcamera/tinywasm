@@ -51,7 +51,7 @@ macro_rules! comp_zero {
 }
 
 /// Apply an arithmetic operation to two values on the stack
-macro_rules! arithmetic {
+macro_rules! arithmetic_op {
     ($op:tt, $ty:ty, $stack:ident) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $ty = a.into();
@@ -60,19 +60,36 @@ macro_rules! arithmetic {
     }};
 }
 
+macro_rules! arithmetic_method {
+    ($op:ident, $ty:ty, $stack:ident) => {{
+        let [a, b] = $stack.values.pop_n_const::<2>()?;
+        let a: $ty = a.into();
+        let b: $ty = b.into();
+        let result = a.$op(b);
+        $stack.values.push(result.into());
+    }};
+}
+
 /// Apply an arithmetic operation to two values on the stack
-macro_rules! checked_arithmetic {
+macro_rules! checked_arithmetic_method {
     ($op:ident, $ty:ty, $stack:ident, $trap:expr) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $ty = a.into();
         let b: $ty = b.into();
         let result = a.$op(b).ok_or_else(|| Error::Trap($trap))?;
+        debug!(
+            "checked_arithmetic_method: {}, a: {}, b: {}, res: {}",
+            stringify!($op),
+            a,
+            b,
+            result
+        );
         $stack.values.push(result.into());
     }};
 }
 
 /// Apply an arithmetic operation to two values on the stack (cast to ty2 before operation)
-macro_rules! checked_arithmetic_cast {
+macro_rules! checked_arithmetic_method_cast {
     ($op:ident, $ty:ty, $ty2:ty, $stack:ident, $trap:expr) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $ty = a.into();
@@ -87,9 +104,10 @@ macro_rules! checked_arithmetic_cast {
     }};
 }
 
-pub(super) use arithmetic;
-pub(super) use checked_arithmetic;
-pub(super) use checked_arithmetic_cast;
+pub(super) use arithmetic_method;
+pub(super) use arithmetic_op;
+pub(super) use checked_arithmetic_method;
+pub(super) use checked_arithmetic_method_cast;
 pub(super) use comp;
 pub(super) use comp_cast;
 pub(super) use comp_zero;

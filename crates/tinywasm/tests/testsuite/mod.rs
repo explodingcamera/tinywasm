@@ -23,6 +23,20 @@ pub struct TestGroupResult {
 pub struct TestSuite(BTreeMap<String, TestGroup>);
 
 impl TestSuite {
+    pub fn set_log_level(level: log::LevelFilter) {
+        pretty_env_logger::formatted_builder().filter_level(level).init();
+    }
+
+    pub fn print_errors(&self) {
+        for (group_name, group) in &self.0 {
+            for (test_name, test) in &group.tests {
+                if let Err(e) = &test.result {
+                    eprintln!("{}: {} failed: {:?}", group_name, test_name, e);
+                }
+            }
+        }
+    }
+
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
