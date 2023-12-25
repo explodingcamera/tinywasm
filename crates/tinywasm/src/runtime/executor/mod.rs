@@ -125,8 +125,6 @@ fn exec_one(
             return Ok(ExecResult::Call);
         }
 
-        Return => todo!("called function returned"),
-
         If(args, else_offset, end_offset) => {
             let end_instr_ptr = cf.instr_ptr + *end_offset;
 
@@ -209,6 +207,14 @@ fn exec_one(
                 cf.break_to(*v, &mut stack.values)?
             };
         }
+
+        Return => match stack.call_stack.is_empty() {
+            true => return Ok(ExecResult::Return),
+            false => {
+                *cf = stack.call_stack.pop()?;
+                return Ok(ExecResult::Call);
+            }
+        },
 
         EndFunc => {
             if cf.labels.len() > 0 {

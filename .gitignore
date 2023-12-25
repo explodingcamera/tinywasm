@@ -1,3 +1,4 @@
 /target
 notes.md
 examples/tinywasm.wat
+examples/wast/*
