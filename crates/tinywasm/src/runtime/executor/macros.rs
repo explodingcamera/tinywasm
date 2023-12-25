@@ -70,6 +70,29 @@ macro_rules! arithmetic_method {
     }};
 }
 
+macro_rules! arithmetic_method_self {
+    ($op:ident, $ty:ty, $stack:ident) => {{
+        let a: $ty = $stack.values.pop()?.into();
+        let result = a.$op();
+        $stack.values.push((result as $ty).into());
+    }};
+}
+
+macro_rules! arithmetic_method_cast {
+    ($op:ident, $ty:ty, $ty2:ty, $stack:ident) => {{
+        let [a, b] = $stack.values.pop_n_const::<2>()?;
+        let a: $ty = a.into();
+        let b: $ty = b.into();
+
+        // Cast to unsigned type before operation
+        let a_unsigned: $ty2 = a as $ty2;
+        let b_unsigned: $ty2 = b as $ty2;
+
+        let result = a_unsigned.$op(b_unsigned);
+        $stack.values.push((result as $ty).into());
+    }};
+}
+
 /// Apply an arithmetic operation to two values on the stack
 macro_rules! checked_arithmetic_method {
     ($op:ident, $ty:ty, $stack:ident, $trap:expr) => {{
@@ -105,6 +128,8 @@ macro_rules! checked_arithmetic_method_cast {
 }
 
 pub(super) use arithmetic_method;
+pub(super) use arithmetic_method_cast;
+pub(super) use arithmetic_method_self;
 pub(super) use arithmetic_op;
 pub(super) use checked_arithmetic_method;
 pub(super) use checked_arithmetic_method_cast;

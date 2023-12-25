@@ -5,27 +5,40 @@ where
     fn checked_wrapping_rem(self, rhs: Self) -> Option<Self>;
 }
 
-pub(crate) trait ShlI32 {
-    fn shl_i32(self, rhs: i32) -> Self;
+pub(crate) trait WrappingSelfOps {
+    fn wrapping_shl_self(self, rhs: Self) -> Self;
+    fn wrapping_shr_self(self, rhs: Self) -> Self;
+    fn wrapping_rotl_self(self, rhs: Self) -> Self;
+    fn wrapping_rotr_self(self, rhs: Self) -> Self;
 }
 
-impl ShlI32 for i32 {
-    #[inline]
-    fn shl_i32(self, rhs: i32) -> Self {
-        self.wrapping_shl(rhs as u32)
-    }
+macro_rules! impl_wrapping_self_sh {
+    ($($t:ty)*) => ($(
+        impl WrappingSelfOps for $t {
+            #[inline]
+            fn wrapping_shl_self(self, rhs: Self) -> Self {
+                self.wrapping_shl(rhs as u32)
+            }
+
+            #[inline]
+            fn wrapping_shr_self(self, rhs: Self) -> Self {
+                self.wrapping_shr(rhs as u32)
+            }
+
+            #[inline]
+            fn wrapping_rotl_self(self, rhs: Self) -> Self {
+                self.rotate_left(rhs as u32)
+            }
+
+            #[inline]
+            fn wrapping_rotr_self(self, rhs: Self) -> Self {
+                self.rotate_right(rhs as u32)
+            }
+        }
+    )*)
 }
 
-pub(crate) trait ShlI64 {
-    fn shl_i64(self, rhs: i64) -> Self;
-}
-
-impl ShlI64 for i64 {
-    #[inline]
-    fn shl_i64(self, rhs: i64) -> Self {
-        self.wrapping_shl(rhs as u32)
-    }
-}
+impl_wrapping_self_sh! { i32 i64 u32 u64 }
 
 macro_rules! impl_checked_wrapping_rem {
     ($($t:ty)*) => ($(
@@ -42,4 +55,4 @@ macro_rules! impl_checked_wrapping_rem {
     )*)
 }
 
-impl_checked_wrapping_rem! { i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize }
+impl_checked_wrapping_rem! { i32 i64 u32 u64 }
