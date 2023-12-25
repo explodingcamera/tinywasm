@@ -1,3 +1,5 @@
+use core::ops::{BitAnd, BitOr, BitXor};
+
 use super::{DefaultRuntime, Stack};
 use crate::{
     get_label_args,
@@ -10,7 +12,9 @@ use log::info;
 use tinywasm_types::Instruction;
 
 mod macros;
+mod traits;
 use macros::*;
+use traits::*;
 
 impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
@@ -311,10 +315,19 @@ fn exec_one(
         I32DivU => checked_arithmetic_method_cast!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
         I64DivU => checked_arithmetic_method_cast!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
 
-        I32RemS => checked_arithmetic_method!(checked_rem, i32, stack, crate::Trap::DivisionByZero),
-        I64RemS => checked_arithmetic_method!(checked_rem, i64, stack, crate::Trap::DivisionByZero),
-        I32RemU => checked_arithmetic_method_cast!(checked_rem, i32, u32, stack, crate::Trap::DivisionByZero),
-        I64RemU => checked_arithmetic_method_cast!(checked_rem, i64, u64, stack, crate::Trap::DivisionByZero),
+        I32RemS => checked_arithmetic_method!(checked_wrapping_rem, i32, stack, crate::Trap::DivisionByZero),
+        I64RemS => checked_arithmetic_method!(checked_wrapping_rem, i64, stack, crate::Trap::DivisionByZero),
+        I32RemU => checked_arithmetic_method_cast!(checked_wrapping_rem, i32, u32, stack, crate::Trap::DivisionByZero),
+        I64RemU => checked_arithmetic_method_cast!(checked_wrapping_rem, i64, u64, stack, crate::Trap::DivisionByZero),
+
+        I32And => arithmetic_method!(bitand, i32, stack),
+        I64And => arithmetic_method!(bitand, i64, stack),
+        I32Or => arithmetic_method!(bitor, i32, stack),
+        I64Or => arithmetic_method!(bitor, i64, stack),
+        I32Xor => arithmetic_method!(bitxor, i32, stack),
+        I64Xor => arithmetic_method!(bitxor, i64, stack),
+        I32Shl => arithmetic_method!(shl_i32, i32, stack),
+        I64Shl => arithmetic_method!(shl_i64, i64, stack),
 
         F32ConvertI32S => conv_1!(i32, f32, stack),
         F32ConvertI64S => conv_1!(i64, f32, stack),
