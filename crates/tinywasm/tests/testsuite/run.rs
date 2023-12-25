@@ -192,18 +192,30 @@ impl TestSuite {
                         debug!("expected: {:?}", expected);
 
                         if outcomes.len() != expected.len() {
-                            error!("expected {} results, got {}", expected.len(), outcomes.len());
-                            return Err(eyre!("expected {} results, got {}", expected.len(), outcomes.len()));
+                            return Err(eyre!(
+                                "span: {:?} expected {} results, got {}",
+                                span,
+                                expected.len(),
+                                outcomes.len()
+                            ));
                         }
+
+                        println!("expected: {:?}", expected);
+                        println!("outcomes: {:?}", outcomes);
 
                         outcomes
                             .iter()
                             .zip(expected)
                             .enumerate()
                             .try_for_each(|(i, (outcome, exp))| {
-                                (outcome.eq_bits(&exp)).then_some(()).ok_or_else(|| {
-                                    error!("result {} did not match: {:?} != {:?}", i, outcome, exp);
-                                    eyre!("result {} did not match: {:?} != {:?}", i, outcome, exp)
+                                (outcome.eq_loose(&exp)).then_some(()).ok_or_else(|| {
+                                    eyre!(
+                                        "span: {:?}: result {} did not match: {:?} != {:?}",
+                                        span.linecol_in(&wast),
+                                        i,
+                                        outcome,
+                                        exp
+                                    )
                                 })
                             })
                     });

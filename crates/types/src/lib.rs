@@ -104,13 +104,24 @@ impl WasmValue {
         }
     }
 
-    pub fn eq_bits(&self, other: &Self) -> bool {
+    pub fn eq_loose(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
-            (Self::F32(a), Self::F32(b)) => a.to_bits() == b.to_bits(),
-            (Self::F64(a), Self::F64(b)) => a.to_bits() == b.to_bits(),
-            // (Self::V128(a), Self::V128(b)) => a == b,
+            (Self::F32(a), Self::F32(b)) => {
+                if a.is_nan() && b.is_nan() {
+                    true // Both are NaN, treat them as equal
+                } else {
+                    a.to_bits() == b.to_bits()
+                }
+            }
+            (Self::F64(a), Self::F64(b)) => {
+                if a.is_nan() && b.is_nan() {
+                    true // Both are NaN, treat them as equal
+                } else {
+                    a.to_bits() == b.to_bits()
+                }
+            }
             _ => false,
         }
     }

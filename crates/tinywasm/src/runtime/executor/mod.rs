@@ -1,4 +1,4 @@
-use core::ops::{BitAnd, BitOr, BitXor};
+use core::ops::{BitAnd, BitOr, BitXor, Neg};
 
 use super::{DefaultRuntime, Stack};
 use crate::{
@@ -332,16 +332,16 @@ fn exec_one(
         I64Or => arithmetic_method!(bitor, i64, stack),
         I32Xor => arithmetic_method!(bitxor, i32, stack),
         I64Xor => arithmetic_method!(bitxor, i64, stack),
-        I32Shl => arithmetic_method!(wrapping_shl_self, i32, stack),
-        I64Shl => arithmetic_method!(wrapping_shl_self, i64, stack),
-        I32ShrS => arithmetic_method!(wrapping_shr_self, i32, stack),
-        I64ShrS => arithmetic_method!(wrapping_shr_self, i64, stack),
-        I32ShrU => arithmetic_method_cast!(wrapping_shr_self, i32, u32, stack),
-        I64ShrU => arithmetic_method_cast!(wrapping_shr_self, i64, u64, stack),
-        I32Rotl => arithmetic_method!(wrapping_rotl_self, i32, stack),
-        I64Rotl => arithmetic_method!(wrapping_rotl_self, i64, stack),
-        I32Rotr => arithmetic_method!(wrapping_rotr_self, i32, stack),
-        I64Rotr => arithmetic_method!(wrapping_rotr_self, i64, stack),
+        I32Shl => arithmetic_method!(wasm_shl, i32, stack),
+        I64Shl => arithmetic_method!(wasm_shl, i64, stack),
+        I32ShrS => arithmetic_method!(wasm_shr, i32, stack),
+        I64ShrS => arithmetic_method!(wasm_shr, i64, stack),
+        I32ShrU => arithmetic_method_cast!(wasm_shr, i32, u32, stack),
+        I64ShrU => arithmetic_method_cast!(wasm_shr, i64, u64, stack),
+        I32Rotl => arithmetic_method!(wasm_rotl, i32, stack),
+        I64Rotl => arithmetic_method!(wasm_rotl, i64, stack),
+        I32Rotr => arithmetic_method!(wasm_rotr, i32, stack),
+        I64Rotr => arithmetic_method!(wasm_rotr, i64, stack),
 
         I32Clz => arithmetic_method_self!(leading_zeros, i32, stack),
         I64Clz => arithmetic_method_self!(leading_zeros, i64, stack),
@@ -366,6 +366,27 @@ fn exec_one(
         I64ExtendI32U => conv_2!(i32, u32, i64, stack),
         I64ExtendI32S => conv_1!(i32, i64, stack),
         I32WrapI64 => conv_1!(i64, i32, stack),
+
+        F32Abs => arithmetic_method_self!(abs, f32, stack),
+        F64Abs => arithmetic_method_self!(abs, f64, stack),
+        F32Neg => arithmetic_method_self!(neg, f32, stack),
+        F64Neg => arithmetic_method_self!(neg, f64, stack),
+        F32Ceil => arithmetic_method_self!(ceil, f32, stack),
+        F64Ceil => arithmetic_method_self!(ceil, f64, stack),
+        F32Floor => arithmetic_method_self!(floor, f32, stack),
+        F64Floor => arithmetic_method_self!(floor, f64, stack),
+        F32Trunc => arithmetic_method_self!(trunc, f32, stack),
+        F64Trunc => arithmetic_method_self!(trunc, f64, stack),
+        F32Nearest => arithmetic_method_self!(wasm_nearest, f32, stack),
+        F64Nearest => arithmetic_method_self!(wasm_nearest, f64, stack),
+        F32Sqrt => arithmetic_method_self!(sqrt, f32, stack),
+        F64Sqrt => arithmetic_method_self!(sqrt, f64, stack),
+        F32Min => arithmetic_method!(wasm_min, f32, stack),
+        F64Min => arithmetic_method!(wasm_min, f64, stack),
+        F32Max => arithmetic_method!(wasm_max, f32, stack),
+        F64Max => arithmetic_method!(wasm_max, f64, stack),
+        F32Copysign => arithmetic_method!(copysign, f32, stack),
+        F64Copysign => arithmetic_method!(copysign, f64, stack),
 
         // no-op instructions since types are erased at runtime
         I32ReinterpretF32 => {}

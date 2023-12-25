@@ -1,7 +1,7 @@
 use std::panic;
 
 use eyre::{eyre, Result};
-use tinywasm_types::TinyWasmModule;
+use tinywasm_types::{TinyWasmModule, WasmValue};
 
 pub fn exec_fn(
     module: Option<&TinyWasmModule>,
@@ -69,15 +69,39 @@ enum Bits {
 }
 trait FloatToken {
     fn bits(&self) -> Bits;
+    fn canonical_nan() -> WasmValue;
+    fn arithmetic_nan() -> WasmValue;
+    fn value(&self) -> WasmValue {
+        match self.bits() {
+            Bits::U32(v) => WasmValue::F32(f32::from_bits(v)),
+            Bits::U64(v) => WasmValue::F64(f64::from_bits(v)),
+        }
+    }
 }
 impl FloatToken for wast::token::Float32 {
     fn bits(&self) -> Bits {
         Bits::U32(self.bits)
     }
+
+    fn canonical_nan() -> WasmValue {
+        WasmValue::F32(f32::NAN)
+    }
+
+    fn arithmetic_nan() -> WasmValue {
+        WasmValue::F32(f32::NAN)
+    }
 }
 impl FloatToken for wast::token::Float64 {
     fn bits(&self) -> Bits {
         Bits::U64(self.bits)
+    }
+
+    fn canonical_nan() -> WasmValue {
+        WasmValue::F64(f64::NAN)
+    }
+
+    fn arithmetic_nan() -> WasmValue {
+        WasmValue::F64(f64::NAN)
     }
 }
 
@@ -87,11 +111,8 @@ where
 {
     use wast::core::NanPattern::*;
     Ok(match arg {
-        CanonicalNan => tinywasm_types::WasmValue::F32(f32::NAN),
-        ArithmeticNan => tinywasm_types::WasmValue::F32(f32::NAN),
-        Value(v) => match v.bits() {
-            Bits::U32(v) => tinywasm_types::WasmValue::F32(f32::from_bits(v)),
-            Bits::U64(v) => tinywasm_types::WasmValue::F64(f64::from_bits(v)),
-        },
+        CanonicalNan => T::canonical_nan(),
+        ArithmeticNan => T::arithmetic_nan(),
+        Value(v) => v.value(),
     })
 }
