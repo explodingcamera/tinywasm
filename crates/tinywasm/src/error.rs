@@ -17,6 +17,12 @@ pub enum Trap {
 
     /// A division by zero occurred
     DivisionByZero,
+
+    /// Invalid Integer Conversion
+    InvalidConversionToInt,
+
+    /// Integer Overflow
+    IntegerOverflow,
 }
 
 #[derive(Debug)]

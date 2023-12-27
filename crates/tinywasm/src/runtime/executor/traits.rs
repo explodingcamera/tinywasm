@@ -20,8 +20,8 @@ macro_rules! impl_wasm_float_ops {
                 match self {
                     x if x.is_nan() => x,
                     x if x.is_infinite() || x == 0.0 => x,
-                    x if x > 0.0 && x <= 0.5 => 0.0,
-                    x if x < 0.0 && x >= -0.5 => -0.0,
+                    x if (0.0..=0.5).contains(&x) => 0.0,
+                    x if (-0.5..0.0).contains(&x) => -0.0,
                     x => x.round(),
                 }
             }

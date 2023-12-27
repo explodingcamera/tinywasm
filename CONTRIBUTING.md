@@ -26,5 +26,5 @@
 - **`cargo workspaces version`**\
   Bump the version of all crates in the workspace and push changes to git. This is used for releasing new versions on github.
 
-- **`cargo workspaces publish --from-git`**\
+- **`cargo workspaces publish --publish-as-is`**\
   Publish all crates in the workspace to crates.io. This should be used a new version has been released on github. After publishing, the version should be bumped to the next dev version.

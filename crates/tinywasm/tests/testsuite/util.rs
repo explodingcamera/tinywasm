@@ -36,7 +36,6 @@ pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmV
         return Err(eyre!("unsupported arg type"));
     };
 
-    use tinywasm_types::WasmValue;
     use wast::core::WastArgCore::*;
     Ok(match arg {
         F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
@@ -52,7 +51,6 @@ pub fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmV
         return Err(eyre!("unsupported arg type"));
     };
 
-    use tinywasm_types::WasmValue;
     use wast::core::WastRetCore::*;
     Ok(match arg {
         F32(f) => nanpattern2tinywasmvalue(f)?,

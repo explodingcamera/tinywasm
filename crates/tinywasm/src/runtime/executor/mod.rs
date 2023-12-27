@@ -172,7 +172,6 @@ fn exec_one(
         }
 
         Block(args, end_offset) => {
-            // let params = stack.values.pop_block_params(*args, &module)?;
             cf.enter_label(
                 LabelFrame {
                     instr_ptr: cf.instr_ptr,
@@ -394,7 +393,20 @@ fn exec_one(
         F32ReinterpretI32 => {}
         F64ReinterpretI64 => {}
 
-        i => todo!("{:?}", i),
+        // unsigned versions of these are a bit broken atm
+        I32TruncF32S => checked_float_conv_1!(f32, i32, stack),
+        I32TruncF64S => checked_float_conv_1!(f64, i32, stack),
+        I32TruncF32U => checked_float_conv_2!(f32, u32, i32, stack),
+        I32TruncF64U => checked_float_conv_2!(f64, u32, i32, stack),
+        I64TruncF32S => checked_float_conv_1!(f32, i64, stack),
+        I64TruncF64S => checked_float_conv_1!(f64, i64, stack),
+        I64TruncF32U => checked_float_conv_2!(f32, u64, i64, stack),
+        I64TruncF64U => checked_float_conv_2!(f64, u64, i64, stack),
+
+        i => {
+            log::error!("unimplemented instruction: {:?}", i);
+            panic!("Unimplemented instruction: {:?}", i)
+        }
     };
 
     Ok(ExecResult::Ok)

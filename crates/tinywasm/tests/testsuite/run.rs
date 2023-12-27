@@ -3,7 +3,7 @@ use std::borrow::Cow;
 
 use super::TestSuite;
 use eyre::{eyre, Result};
-use log::{debug, error};
+use log::{debug, error, info};
 use tinywasm_types::TinyWasmModule;
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
@@ -135,7 +135,7 @@ impl TestSuite {
                         Err(err) => test_group.add_result(
                             &format!("{}-trap", name),
                             span,
-                            Err(eyre!("test panicked: {:?}", err)),
+                            Err(eyre!("test panicked: {:?}, span: {:?}", err, span.linecol_in(&wast))),
                         ),
                         Ok(Err(tinywasm::Error::Trap(_))) => {
                             test_group.add_result(&format!("{}-trap", name), span, Ok(()))
@@ -143,15 +143,22 @@ impl TestSuite {
                         Ok(Err(err)) => test_group.add_result(
                             &format!("{}-trap", name),
                             span,
-                            Err(eyre!("expected trap, got error: {:?}", err)),
+                            Err(eyre!(
+                                "expected trap, got error: {:?}, span: {:?}",
+                                err,
+                                span.linecol_in(&wast)
+                            )),
                         ),
-                        Ok(Ok(())) => {
-                            test_group.add_result(&format!("{}-trap", name), span, Err(eyre!("expected trap, got ok")))
-                        }
+                        Ok(Ok(())) => test_group.add_result(
+                            &format!("{}-trap", name),
+                            span,
+                            Err(eyre!("expected trap, got ok, span: {:?}", span.linecol_in(&wast))),
+                        ),
                     }
                 }
 
                 AssertReturn { span, exec, results } => {
+                    info!("AssertReturn: {:?}", exec);
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                         let invoke = match exec {
                             wast::WastExecute::Wat(_) => {
@@ -200,9 +207,6 @@ impl TestSuite {
                             ));
                         }
 
-                        println!("expected: {:?}", expected);
-                        println!("outcomes: {:?}", outcomes);
-
                         outcomes
                             .iter()
                             .zip(expected)
@@ -221,10 +225,7 @@ impl TestSuite {
                     });
 
                     let res = res
-                        .map_err(|e| {
-                            error!("test panicked: {:?}", e);
-                            eyre!("test panicked: {:?}", e.downcast_ref::<&str>())
-                        })
+                        .map_err(|e| eyre!("test panicked: {:?}", e.downcast_ref::<&str>()))
                         .and_then(|r| r);
 
                     test_group.add_result(&format!("{}-return", name), span, res);
