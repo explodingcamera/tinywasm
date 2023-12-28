@@ -1,3 +1,5 @@
+use crate::MemAddr;
+
 use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -26,6 +28,8 @@ pub enum ConstInstruction {
     F32Const(f32),
     F64Const(f64),
     GlobalGet(GlobalAddr),
+    RefNull(ValType),
+    RefFunc(FuncAddr),
 }
 
 /// A WebAssembly Instruction
@@ -99,14 +103,19 @@ pub enum Instruction {
     I64Store8(MemArg),
     I64Store16(MemArg),
     I64Store32(MemArg),
-    MemorySize,
-    MemoryGrow,
+    MemorySize(MemAddr, u8),
+    MemoryGrow(MemAddr, u8),
 
     // Constants
     I32Const(i32),
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
+
+    // Reference Types
+    RefNull(ValType),
+    RefFunc(FuncAddr),
+    RefIsNull,
 
     // Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>

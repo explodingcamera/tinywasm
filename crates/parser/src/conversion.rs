@@ -296,6 +296,9 @@ pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstr
 
 pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstruction> {
     match op {
+        wasmparser::Operator::RefNull { ty } => Ok(ConstInstruction::RefNull(convert_valtype(&ty))),
+        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
+
         wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))), // TODO: check if this is correct
@@ -414,12 +417,15 @@ pub fn process_operators<'a>(
             LocalTee { local_index } => Instruction::LocalTee(local_index),
             GlobalGet { global_index } => Instruction::GlobalGet(global_index),
             GlobalSet { global_index } => Instruction::GlobalSet(global_index),
-            MemorySize { .. } => Instruction::MemorySize,
-            MemoryGrow { .. } => Instruction::MemoryGrow,
+            MemorySize { mem, mem_byte } => Instruction::MemorySize(mem, mem_byte),
+            MemoryGrow { mem, mem_byte } => Instruction::MemoryGrow(mem, mem_byte),
             I32Const { value } => Instruction::I32Const(value),
             I64Const { value } => Instruction::I64Const(value),
-            F32Const { value } => Instruction::F32Const(f32::from_bits(value.bits())), // TODO: check if this is correct
-            F64Const { value } => Instruction::F64Const(f64::from_bits(value.bits())), // TODO: check if this is correct
+            F32Const { value } => Instruction::F32Const(f32::from_bits(value.bits())),
+            F64Const { value } => Instruction::F64Const(f64::from_bits(value.bits())),
+            RefNull { ty } => Instruction::RefNull(convert_valtype(&ty)),
+            RefIsNull => Instruction::RefIsNull,
+            RefFunc { function_index } => Instruction::RefFunc(function_index),
             I32Load { memarg } => Instruction::I32Load(convert_memarg(memarg)),
             I64Load { memarg } => Instruction::I64Load(convert_memarg(memarg)),
             F32Load { memarg } => Instruction::F32Load(convert_memarg(memarg)),
@@ -580,10 +586,11 @@ pub fn process_operators<'a>(
             I64TruncSatF64S => Instruction::I64TruncSatF64S,
             I64TruncSatF64U => Instruction::I64TruncSatF64U,
             op => {
+                log::error!("Unsupported instruction: {:?}", op);
                 return Err(crate::ParseError::UnsupportedOperator(format!(
                     "Unsupported instruction: {:?}",
                     op
-                )))
+                )));
             }
         };
 
