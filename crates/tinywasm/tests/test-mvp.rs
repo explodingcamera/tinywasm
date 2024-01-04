@@ -1,5 +1,6 @@
 mod testsuite;
 use eyre::{eyre, Result};
+use owo_colors::OwoColorize;
 use testsuite::TestSuite;
 
 fn main() -> Result<()> {
@@ -13,8 +14,12 @@ fn test_mvp() -> Result<()> {
     test_suite.save_csv("./tests/generated/mvp.csv", env!("CARGO_PKG_VERSION"))?;
 
     if test_suite.failed() {
-        eprintln!("\n\nfailed one or more tests:\n{:#?}", test_suite);
-        Err(eyre!("failed one or more tests"))
+        println!();
+        Err(eyre!(format!(
+            "{}:\n{:#?}",
+            "failed one or more tests".red().bold(),
+            test_suite,
+        )))
     } else {
         println!("\n\npassed all tests:\n{:#?}", test_suite);
         Ok(())

@@ -1,6 +1,7 @@
 #![allow(dead_code)] // rust analyzer doesn't recognize that code is used by tests without harness
 
 use eyre::Result;
+use owo_colors::OwoColorize;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::{
     collections::BTreeMap,
@@ -20,6 +21,10 @@ pub struct TestGroupResult {
     pub failed: usize,
 }
 
+fn format_linecol(linecol: (usize, usize)) -> String {
+    format!("{}:{}", linecol.0 + 1, linecol.1 + 1)
+}
+
 pub struct TestSuite(BTreeMap<String, TestGroup>);
 
 impl TestSuite {
@@ -31,7 +36,15 @@ impl TestSuite {
         for (group_name, group) in &self.0 {
             for (test_name, test) in &group.tests {
                 if let Err(e) = &test.result {
-                    eprintln!("{}: {} failed: {:?}", group_name, test_name, e);
+                    eprintln!(
+                        "{} {} failed: {:?}",
+                        link(
+                            format!("{}:{}", group_name.red().underline(), test.linecol.0 + 1).as_str(),
+                            format!("{}:{}", group.file, test.linecol.0 + 1).as_str()
+                        ),
+                        test_name.bold(),
+                        e.to_string().bright_red()
+                    );
                 }
             }
         }
@@ -45,8 +58,8 @@ impl TestSuite {
         self.0.values().any(|group| group.stats().1 > 0)
     }
 
-    fn test_group(&mut self, name: &str) -> &mut TestGroup {
-        self.0.entry(name.to_string()).or_insert_with(TestGroup::new)
+    fn test_group(&mut self, name: &str, file: &str) -> &mut TestGroup {
+        self.0.entry(name.to_string()).or_insert_with(|| TestGroup::new(file))
     }
 
     // create or add to a test result file
@@ -93,9 +106,12 @@ impl TestSuite {
     }
 }
 
+fn link(name: &str, file: &str) -> String {
+    format!("\x1b]8;;file://{}\x1b\\{}\x1b]8;;\x1b\\", file, name)
+}
+
 impl Debug for TestSuite {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use owo_colors::OwoColorize;
         let mut total_passed = 0;
         let mut total_failed = 0;
 
@@ -104,7 +120,7 @@ impl Debug for TestSuite {
             total_passed += group_passed;
             total_failed += group_failed;
 
-            writeln!(f, "{}", group_name.bold().underline())?;
+            writeln!(f, "{}", link(group_name, &group.file).bold().underline())?;
             writeln!(f, "  Tests Passed: {}", group_passed.to_string().green())?;
             writeln!(f, "  Tests Failed: {}", group_failed.to_string().red())?;
 
@@ -133,14 +149,20 @@ impl Debug for TestSuite {
 
 struct TestGroup {
     tests: BTreeMap<String, TestCase>,
+    file: String,
 }
 
 impl TestGroup {
-    fn new() -> Self {
-        Self { tests: BTreeMap::new() }
+    fn new(file: &str) -> Self {
+        Self {
+            tests: BTreeMap::new(),
+            file: file.to_string(),
+        }
     }
 
     fn stats(&self) -> (usize, usize) {
+        log::error!("stats: {:?}", self.tests);
+
         let mut passed_count = 0;
         let mut failed_count = 0;
 
@@ -154,12 +176,13 @@ impl TestGroup {
         (passed_count, failed_count)
     }
 
-    fn add_result(&mut self, name: &str, span: wast::token::Span, result: Result<()>) {
-        self.tests.insert(name.to_string(), TestCase { result, _span: span });
+    fn add_result(&mut self, name: &str, linecol: (usize, usize), result: Result<()>) {
+        self.tests.insert(name.to_string(), TestCase { result, linecol });
     }
 }
 
+#[derive(Debug)]
 struct TestCase {
     result: Result<()>,
-    _span: wast::token::Span,
+    linecol: (usize, usize),
 }

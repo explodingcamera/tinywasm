@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use eyre::{bail, Result};
+use eyre::{bail, eyre, Result};
+use owo_colors::OwoColorize;
 use testsuite::TestSuite;
 
 mod testsuite;
@@ -40,9 +41,10 @@ fn test_wast(wast_file: &str) -> Result<()> {
     test_suite.run_paths(&[wast_file])?;
 
     if test_suite.failed() {
-        eprintln!("\n\nfailed one or more tests:\n{:#?}", test_suite);
+        println!();
         test_suite.print_errors();
-        bail!("failed one or more tests")
+        println!();
+        Err(eyre!(format!("{}", "failed one or more tests".red().bold())))
     } else {
         println!("\n\npassed all tests:\n{:#?}", test_suite);
         Ok(())

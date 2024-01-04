@@ -12,7 +12,6 @@ impl TestSuite {
         tests.iter().for_each(|group| {
             let group_wast = std::fs::read(group).expect("failed to read test wast");
             let group_wast = Cow::Owned(group_wast);
-            debug!("running group: {}", group);
             self.run_group(group, group_wast).expect("failed to run group");
         });
 
@@ -29,7 +28,8 @@ impl TestSuite {
     }
 
     pub fn run_group(&mut self, group_name: &str, group_wast: Cow<'_, [u8]>) -> Result<()> {
-        let test_group = self.test_group(group_name);
+        let file_name = group_name.split('/').last().unwrap_or(group_name);
+        let test_group = self.test_group(file_name, group_name);
         let wast = std::str::from_utf8(&group_wast).expect("failed to convert wast to utf8");
 
         let mut lexer = Lexer::new(wast);
@@ -45,8 +45,6 @@ impl TestSuite {
             let span = directive.span();
             use wast::WastDirective::*;
             let name = format!("{}-{}", group_name, i);
-
-            debug!("directive: {:?}", directive);
 
             match directive {
                 Wat(mut module) => {
@@ -65,7 +63,7 @@ impl TestSuite {
                         debug!("failed to parse module: {:?}", err)
                     }
 
-                    test_group.add_result(&format!("{}-parse", name), span, result.map(|_| ()));
+                    test_group.add_result(&format!("{}-parse", name), span.linecol_in(wast), result.map(|_| ()));
                 }
 
                 AssertMalformed {
@@ -74,7 +72,7 @@ impl TestSuite {
                     message: _,
                 } => {
                     let Ok(module) = module.encode() else {
-                        test_group.add_result(&format!("{}-malformed", name), span, Ok(()));
+                        test_group.add_result(&format!("{}-malformed", name), span.linecol_in(wast), Ok(()));
                         continue;
                     };
 
@@ -84,7 +82,7 @@ impl TestSuite {
 
                     test_group.add_result(
                         &format!("{}-malformed", name),
-                        span,
+                        span.linecol_in(wast),
                         match res {
                             Ok(_) => Err(eyre!("expected module to be malformed")),
                             Err(_) => Ok(()),
@@ -103,7 +101,7 @@ impl TestSuite {
 
                     test_group.add_result(
                         &format!("{}-invalid", name),
-                        span,
+                        span.linecol_in(wast),
                         match res {
                             Ok(_) => Err(eyre!("expected module to be invalid")),
                             Err(_) => Ok(()),
@@ -134,41 +132,46 @@ impl TestSuite {
                     match res {
                         Err(err) => test_group.add_result(
                             &format!("{}-trap", name),
-                            span,
-                            Err(eyre!("test panicked: {:?}, span: {:?}", err, span.linecol_in(&wast))),
+                            span.linecol_in(wast),
+                            Err(eyre!("test panicked: {:?}", err)),
                         ),
                         Ok(Err(tinywasm::Error::Trap(_))) => {
-                            test_group.add_result(&format!("{}-trap", name), span, Ok(()))
+                            test_group.add_result(&format!("{}-trap", name), span.linecol_in(wast), Ok(()))
                         }
                         Ok(Err(err)) => test_group.add_result(
                             &format!("{}-trap", name),
-                            span,
-                            Err(eyre!(
-                                "expected trap, got error: {:?}, span: {:?}",
-                                err,
-                                span.linecol_in(&wast)
-                            )),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected trap, got error: {:?}", err,)),
                         ),
                         Ok(Ok(())) => test_group.add_result(
                             &format!("{}-trap", name),
-                            span,
-                            Err(eyre!("expected trap, got ok, span: {:?}", span.linecol_in(&wast))),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected trap, got ok")),
                         ),
                     }
                 }
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
-                    let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        let invoke = match exec {
-                            wast::WastExecute::Wat(_) => {
-                                error!("wat not supported");
-                                return Err(eyre!("wat not supported"));
-                            }
-                            wast::WastExecute::Get { module: _, global: _ } => return Err(eyre!("get not supported")),
-                            wast::WastExecute::Invoke(invoke) => invoke,
-                        };
 
+                    let invoke = match match exec {
+                        wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
+                        wast::WastExecute::Get { module: _, global: _ } => Err(eyre!("get not supported")),
+                        wast::WastExecute::Invoke(invoke) => Ok(invoke),
+                    } {
+                        Ok(invoke) => invoke,
+                        Err(err) => {
+                            test_group.add_result(
+                                "AssertReturn(unknown)",
+                                span.linecol_in(wast),
+                                Err(eyre!("unsupported directive: {:?}", err)),
+                            );
+                            continue;
+                        }
+                    };
+                    let invoke_name = invoke.name;
+
+                    let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                         debug!("invoke: {:?}", invoke);
                         let args = invoke
                             .args
@@ -212,15 +215,9 @@ impl TestSuite {
                             .zip(expected)
                             .enumerate()
                             .try_for_each(|(i, (outcome, exp))| {
-                                (outcome.eq_loose(&exp)).then_some(()).ok_or_else(|| {
-                                    eyre!(
-                                        "span: {:?}: result {} did not match: {:?} != {:?}",
-                                        span.linecol_in(&wast),
-                                        i,
-                                        outcome,
-                                        exp
-                                    )
-                                })
+                                (outcome.eq_loose(&exp))
+                                    .then_some(())
+                                    .ok_or_else(|| eyre!(" result {} did not match: {:?} != {:?}", i, outcome, exp))
                             })
                     });
 
@@ -228,9 +225,17 @@ impl TestSuite {
                         .map_err(|e| eyre!("test panicked: {:?}", e.downcast_ref::<&str>()))
                         .and_then(|r| r);
 
-                    test_group.add_result(&format!("{}-return", name), span, res);
+                    test_group.add_result(
+                        &format!("AssertReturn({}-{})", invoke_name, i),
+                        span.linecol_in(wast),
+                        res,
+                    );
                 }
-                _ => test_group.add_result(&format!("{}-unknown", name), span, Err(eyre!("unsupported directive"))),
+                _ => test_group.add_result(
+                    &format!("Unknown({})", i),
+                    span.linecol_in(wast),
+                    Err(eyre!("unsupported directive")),
+                ),
             }
         }
 
