@@ -1,5 +1,8 @@
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
-use tinywasm_types::{Export, ExternalKind, FuncAddr, FuncType, ModuleInstanceAddr};
+use tinywasm_types::{
+    DataAddr, ElmAddr, Export, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr,
+    TableAddr,
+};
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
@@ -15,19 +18,21 @@ use crate::{
 pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 
 #[derive(Debug)]
-struct ModuleInstanceInner {
+pub(crate) struct ModuleInstanceInner {
     pub(crate) store_id: usize,
-    pub(crate) _idx: ModuleInstanceAddr,
-    pub(crate) func_start: Option<FuncAddr>,
-    pub(crate) types: Box<[FuncType]>,
-    pub(crate) exports: ExportInstance,
+    pub(crate) idx: ModuleInstanceAddr,
 
+    pub(crate) types: Box<[FuncType]>,
     pub(crate) func_addrs: Vec<FuncAddr>,
-    // pub table_addrs: Vec<TableAddr>,
-    // pub mem_addrs: Vec<MemAddr>,
-    // pub global_addrs: Vec<GlobalAddr>,
-    // pub elem_addrs: Vec<ElmAddr>,
-    // pub data_addrs: Vec<DataAddr>,
+    pub(crate) table_addrs: Vec<TableAddr>,
+    pub(crate) mem_addrs: Vec<MemAddr>,
+    pub(crate) global_addrs: Vec<GlobalAddr>,
+    pub(crate) elem_addrs: Vec<ElmAddr>,
+    pub(crate) data_addrs: Vec<DataAddr>,
+
+    pub(crate) func_start: Option<FuncAddr>,
+    pub(crate) imports: Box<[Import]>,
+    pub(crate) exports: ExportInstance,
 }
 
 impl ModuleInstance {
@@ -44,22 +49,8 @@ impl ModuleInstance {
         &self.0.types
     }
 
-    pub(crate) fn new(
-        types: Box<[FuncType]>,
-        func_start: Option<FuncAddr>,
-        exports: Box<[Export]>,
-        func_addrs: Vec<FuncAddr>,
-        idx: ModuleInstanceAddr,
-        store_id: usize,
-    ) -> Self {
-        Self(Arc::new(ModuleInstanceInner {
-            store_id,
-            _idx: idx,
-            types,
-            func_start,
-            func_addrs,
-            exports: ExportInstance(exports),
-        }))
+    pub(crate) fn new(inner: ModuleInstanceInner) -> Self {
+        Self(Arc::new(inner))
     }
 
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {

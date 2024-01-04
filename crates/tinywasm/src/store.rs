@@ -1,7 +1,10 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::{format, rc::Rc, vec::Vec};
-use tinywasm_types::{FuncAddr, Function, Instruction, ModuleInstanceAddr, TypeAddr, ValType};
+use tinywasm_types::{
+    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Instruction, MemAddr, MemoryType,
+    ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
+};
 
 use crate::{
     runtime::{self, DefaultRuntime},
@@ -69,42 +72,19 @@ impl Default for Store {
     }
 }
 
-#[derive(Debug)]
-/// A WebAssembly Function Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
-pub struct FunctionInstance {
-    pub(crate) func: Function,
-    pub(crate) _module_instance: ModuleInstanceAddr, // index into store.module_instances
-}
-
-impl FunctionInstance {
-    pub(crate) fn _module_instance_addr(&self) -> ModuleInstanceAddr {
-        self._module_instance
-    }
-
-    pub(crate) fn locals(&self) -> &[ValType] {
-        &self.func.locals
-    }
-
-    pub(crate) fn instructions(&self) -> &[Instruction] {
-        &self.func.instructions
-    }
-
-    pub(crate) fn ty_addr(&self) -> TypeAddr {
-        self.func.ty
-    }
-}
-
 #[derive(Debug, Default)]
 /// Global state that can be manipulated by WebAssembly programs
+///
+/// Data should only be addressable by the module that owns it
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
+// TODO: Arena allocate these?
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
-    // pub tables: Vec<TableAddr>,
-    // pub mems: Vec<MemAddr>,
-    // pub globals: Vec<GlobalAddr>,
-    // pub elems: Vec<ElmAddr>,
-    // pub datas: Vec<DataAddr>,
+    pub(crate) tables: Vec<TableInstance>,
+    pub(crate) mems: Vec<Rc<MemoryInstance>>,
+    pub(crate) globals: Vec<Rc<GlobalInstance>>,
+    pub(crate) elems: Vec<ElemInstance>,
+    pub(crate) datas: Vec<DataInstance>,
 }
 
 impl Store {
@@ -129,13 +109,67 @@ impl Store {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance {
-                func,
-                _module_instance: idx,
-            }));
+            self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
         func_addrs
+    }
+
+    /// Add tables to the store, returning their addresses in the store
+    pub(crate) fn add_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Vec<TableAddr> {
+        let table_count = self.data.tables.len();
+        let mut table_addrs = Vec::with_capacity(table_count);
+        for (i, table) in tables.into_iter().enumerate() {
+            self.data.tables.push(TableInstance::new(table, idx));
+            table_addrs.push((i + table_count) as TableAddr);
+        }
+        table_addrs
+    }
+
+    /// Add memories to the store, returning their addresses in the store
+    pub(crate) fn add_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Vec<MemAddr> {
+        let mem_count = self.data.mems.len();
+        let mut mem_addrs = Vec::with_capacity(mem_count);
+        for (i, mem) in mems.into_iter().enumerate() {
+            self.data.mems.push(Rc::new(MemoryInstance::new(mem, idx)));
+            mem_addrs.push((i + mem_count) as MemAddr);
+        }
+        mem_addrs
+    }
+
+    /// Add globals to the store, returning their addresses in the store
+    pub(crate) fn add_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+        let global_count = self.data.globals.len();
+        let mut global_addrs = Vec::with_capacity(global_count);
+        for (i, global) in globals.into_iter().enumerate() {
+            // TODO: initialize globals
+            // Don't fail here yet - we'll fail when we try to use the global
+            self.data.globals.push(Rc::new(GlobalInstance::new(global.ty, 0, idx)));
+            global_addrs.push((i + global_count) as Addr);
+        }
+        global_addrs
+    }
+
+    /// Add elements to the store, returning their addresses in the store
+    pub(crate) fn add_elems(&mut self, elems: Vec<Element>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+        let elem_count = self.data.elems.len();
+        let mut elem_addrs = Vec::with_capacity(elem_count);
+        for (i, elem) in elems.into_iter().enumerate() {
+            self.data.elems.push(ElemInstance::new(elem.kind, idx));
+            elem_addrs.push((i + elem_count) as Addr);
+        }
+        elem_addrs
+    }
+
+    /// Add data to the store, returning their addresses in the store
+    pub(crate) fn add_datas(&mut self, datas: Vec<Data>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+        let data_count = self.data.datas.len();
+        let mut data_addrs = Vec::with_capacity(data_count);
+        for (i, data) in datas.into_iter().enumerate() {
+            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
+            data_addrs.push((i + data_count) as Addr);
+        }
+        data_addrs
     }
 
     /// Get the function at the actual index in the store
@@ -144,5 +178,118 @@ impl Store {
             .funcs
             .get(addr)
             .ok_or_else(|| Error::Other(format!("function {} not found", addr)))
+    }
+}
+
+#[derive(Debug)]
+/// A WebAssembly Function Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
+pub struct FunctionInstance {
+    pub(crate) func: Function,
+    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl FunctionInstance {
+    pub(crate) fn _module_instance_addr(&self) -> ModuleInstanceAddr {
+        self.owner
+    }
+
+    pub(crate) fn locals(&self) -> &[ValType] {
+        &self.func.locals
+    }
+
+    pub(crate) fn instructions(&self) -> &[Instruction] {
+        &self.func.instructions
+    }
+
+    pub(crate) fn ty_addr(&self) -> TypeAddr {
+        self.func.ty
+    }
+}
+
+/// A WebAssembly Table Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
+#[derive(Debug)]
+pub(crate) struct TableInstance {
+    pub(crate) kind: TableType,
+    pub(crate) elements: Vec<Addr>,
+    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl TableInstance {
+    pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
+        Self {
+            kind,
+            elements: Vec::new(),
+            owner,
+        }
+    }
+}
+
+/// A WebAssembly Memory Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
+#[derive(Debug)]
+pub(crate) struct MemoryInstance {
+    pub(crate) kind: MemoryType,
+    pub(crate) data: Vec<u8>,
+    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl MemoryInstance {
+    pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
+        Self {
+            kind,
+            data: Vec::new(),
+            owner,
+        }
+    }
+}
+
+/// A WebAssembly Global Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
+#[derive(Debug)]
+pub(crate) struct GlobalInstance {
+    pub(crate) ty: GlobalType,
+    pub(crate) value: Addr,
+    owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl GlobalInstance {
+    pub(crate) fn new(ty: GlobalType, value: Addr, owner: ModuleInstanceAddr) -> Self {
+        Self { ty, value, owner }
+    }
+}
+
+/// A WebAssembly Element Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
+#[derive(Debug)]
+pub(crate) struct ElemInstance {
+    kind: ElementKind,
+    owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl ElemInstance {
+    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr) -> Self {
+        Self { kind, owner }
+    }
+}
+
+/// A WebAssembly Data Instance
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#data-instances>
+#[derive(Debug)]
+pub(crate) struct DataInstance {
+    pub(crate) data: Vec<u8>,
+    owner: ModuleInstanceAddr, // index into store.module_instances
+}
+
+impl DataInstance {
+    pub(crate) fn new(data: Vec<u8>, owner: ModuleInstanceAddr) -> Self {
+        Self { data, owner }
     }
 }
