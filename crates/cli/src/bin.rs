@@ -117,7 +117,7 @@ fn run(module: Module, func: Option<String>, args: Vec<WasmValue>) -> Result<()>
     let instance = module.instantiate(&mut store)?;
 
     if let Some(func) = func {
-        let func = instance.get_func(&store, &func)?;
+        let func = instance.exported_func_by_name(&store, &func)?;
         let res = func.call(&mut store, &args)?;
         info!("{res:?}");
     }

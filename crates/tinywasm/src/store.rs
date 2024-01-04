@@ -124,18 +124,21 @@ impl Store {
         Ok(())
     }
 
+    /// Add functions to the store, returning their addresses in the store
     pub(crate) fn add_funcs(&mut self, funcs: Vec<Function>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
-        let mut func_addrs = Vec::with_capacity(funcs.len());
+        let func_count = self.data.funcs.len();
+        let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
             self.data.funcs.push(Rc::new(FunctionInstance {
                 func,
                 _module_instance: idx,
             }));
-            func_addrs.push(i as FuncAddr);
+            func_addrs.push((i + func_count) as FuncAddr);
         }
         func_addrs
     }
 
+    /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: usize) -> Result<&Rc<FunctionInstance>> {
         self.data
             .funcs

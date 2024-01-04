@@ -51,7 +51,7 @@ impl TestSuite {
                     debug!("got wat module");
 
                     let result = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
 
                     match &result {
@@ -77,7 +77,7 @@ impl TestSuite {
                     };
 
                     let res = catch_unwind_silent(|| parse_module_bytes(&module))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
 
                     test_group.add_result(
@@ -96,7 +96,7 @@ impl TestSuite {
                     message: _,
                 } => {
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", e))
+                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
 
                     test_group.add_result(
@@ -133,7 +133,7 @@ impl TestSuite {
                         Err(err) => test_group.add_result(
                             &format!("AssertTrap({})", i),
                             span.linecol_in(wast),
-                            Err(eyre!("test panicked: {:?}", err)),
+                            Err(eyre!("test panicked: {:?}", try_downcast_panic(err))),
                         ),
                         Ok(Err(tinywasm::Error::Trap(_))) => {
                             test_group.add_result(&format!("AssertTrap({})", i), span.linecol_in(wast), Ok(()))
@@ -222,7 +222,7 @@ impl TestSuite {
                     });
 
                     let res = res
-                        .map_err(|e| eyre!("test panicked: {:?}", e.downcast_ref::<&str>()))
+                        .map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e)))
                         .and_then(|r| r);
 
                     test_group.add_result(

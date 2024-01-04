@@ -58,8 +58,17 @@ impl ModuleInstance {
         &self.0.types[addr as usize]
     }
 
+    // resolve a function address to the index of the function in the store
+    pub(crate) fn func_addr(&self, addr: FuncAddr) -> FuncAddr {
+        self.0.func_addrs[addr as usize]
+    }
+
+    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
+        &self.0.func_addrs
+    }
+
     /// Get an exported function by name
-    pub fn get_func(&self, store: &Store, name: &str) -> Result<FuncHandle> {
+    pub fn exported_func_by_name(&self, store: &Store, name: &str) -> Result<FuncHandle> {
         if self.0.store_id != store.id() {
             return Err(Error::InvalidStore);
         }
@@ -90,7 +99,7 @@ impl ModuleInstance {
         P: IntoWasmValueTuple,
         R: FromWasmValueTuple,
     {
-        let func = self.get_func(store, name)?;
+        let func = self.exported_func_by_name(store, name)?;
         Ok(TypedFuncHandle {
             func,
             marker: core::marker::PhantomData,

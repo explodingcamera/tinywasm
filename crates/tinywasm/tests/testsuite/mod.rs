@@ -161,8 +161,6 @@ impl TestGroup {
     }
 
     fn stats(&self) -> (usize, usize) {
-        log::error!("stats: {:?}", self.tests);
-
         let mut passed_count = 0;
         let mut failed_count = 0;
 

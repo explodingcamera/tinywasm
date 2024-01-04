@@ -3,6 +3,22 @@ use std::panic;
 use eyre::{eyre, Result};
 use tinywasm_types::{TinyWasmModule, WasmValue};
 
+pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
+    let info = panic
+        .downcast_ref::<panic::PanicInfo>()
+        .or(None)
+        .map(|p| p.to_string())
+        .clone();
+    let info_string = panic.downcast_ref::<String>().cloned();
+    let info_str = panic.downcast::<&str>().ok().map(|s| *s);
+
+    info.unwrap_or(
+        info_str
+            .unwrap_or(&info_string.unwrap_or("unknown panic".to_owned()))
+            .to_string(),
+    )
+}
+
 pub fn exec_fn(
     module: Option<&TinyWasmModule>,
     name: &str,
@@ -15,7 +31,7 @@ pub fn exec_fn(
     let mut store = tinywasm::Store::new();
     let module = tinywasm::Module::from(module);
     let instance = module.instantiate(&mut store)?;
-    instance.get_func(&store, name)?.call(&mut store, args)
+    instance.exported_func_by_name(&store, name)?.call(&mut store, args)
 }
 
 pub fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> std::thread::Result<R> {
