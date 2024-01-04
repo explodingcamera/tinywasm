@@ -21,6 +21,12 @@ impl TestSuite {
     pub fn run_spec_group(&mut self, tests: &[&str]) -> Result<()> {
         tests.iter().for_each(|group| {
             let group_wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
+            if self.1.contains(&group.to_string()) {
+                info!("skipping group: {}", group);
+                self.test_group(&format!("{} (skipped)", group), group);
+                return;
+            }
+
             self.run_group(group, group_wast).expect("failed to run group");
         });
 
@@ -40,7 +46,7 @@ impl TestSuite {
         let wast_data = wast::parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
         let mut last_module: Option<TinyWasmModule> = None;
-        debug!("running {} tests for group: {}", wast_data.directives.len(), group_name);
+        println!("running {} tests for group: {}", wast_data.directives.len(), group_name);
         for (i, directive) in wast_data.directives.into_iter().enumerate() {
             let span = directive.span();
             use wast::WastDirective::*;

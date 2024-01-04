@@ -20,6 +20,7 @@ impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
         log::info!("exports: {:?}", module.exports());
         log::info!("func_addrs: {:?}", module.func_addrs());
+        log::info!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
         log::info!("store funcs: {:?}", store.data.funcs.len());
 
         // The current call frame, gets updated inside of exec_one
@@ -110,9 +111,9 @@ fn exec_one(
         Call(v) => {
             debug!("start call");
             // prepare the call frame
-            let func_idx = module.func_addr(*v);
+            let func_idx = module.resolve_func_addr(*v);
             let func = store.get_func(func_idx as usize)?;
-            let func_ty = module.func_ty(func_idx);
+            let func_ty = module.func_ty(func.ty_addr());
 
             debug!("params: {:?}", func_ty.params);
             debug!("stack: {:?}", stack.values);

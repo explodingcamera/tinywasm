@@ -36,6 +36,14 @@ impl ModuleInstance {
         &self.0.exports
     }
 
+    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
+        &self.0.func_addrs
+    }
+
+    pub(crate) fn func_ty_addrs(&self) -> &[FuncType] {
+        &self.0.types
+    }
+
     pub(crate) fn new(
         types: Box<[FuncType]>,
         func_start: Option<FuncAddr>,
@@ -58,13 +66,9 @@ impl ModuleInstance {
         &self.0.types[addr as usize]
     }
 
-    // resolve a function address to the index of the function in the store
-    pub(crate) fn func_addr(&self, addr: FuncAddr) -> FuncAddr {
+    // resolve a function address to the global store address
+    pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         self.0.func_addrs[addr as usize]
-    }
-
-    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
-        &self.0.func_addrs
     }
 
     /// Get an exported function by name
@@ -74,16 +78,9 @@ impl ModuleInstance {
         }
 
         let export = self.0.exports.get(name, ExternalKind::Func)?;
-        log::debug!("get_func: export: {:?}", export);
-
-        log::debug!("{:?}", self.0.func_addrs);
         let func_addr = self.0.func_addrs[export.index as usize];
-        log::debug!("get_func: func index: {}", export.index);
         let func = store.get_func(func_addr as usize)?;
-        log::debug!("get_func: func_addr: {}, func: {:?}", func_addr, func);
         let ty = self.0.types[func.ty_addr() as usize].clone();
-        log::debug!("get_func: ty: {:?}", ty);
-        log::debug!("types: {:?}", self.0.types);
 
         Ok(FuncHandle {
             addr: export.index,
@@ -94,7 +91,7 @@ impl ModuleInstance {
     }
 
     /// Get a typed exported function by name
-    pub fn get_typed_func<P, R>(&self, store: &Store, name: &str) -> Result<TypedFuncHandle<P, R>>
+    pub fn typed_func<P, R>(&self, store: &Store, name: &str) -> Result<TypedFuncHandle<P, R>>
     where
         P: IntoWasmValueTuple,
         R: FromWasmValueTuple,
@@ -113,7 +110,7 @@ impl ModuleInstance {
     /// (which is not part of the spec, but used by llvm)
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
-    pub fn get_start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
+    pub fn start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
         if self.0.store_id != store.id() {
             return Err(Error::InvalidStore);
         }
@@ -148,7 +145,7 @@ impl ModuleInstance {
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
     pub fn start(&mut self, store: &mut Store) -> Result<Option<()>> {
-        let Some(func) = self.get_start_func(store)? else {
+        let Some(func) = self.start_func(store)? else {
             return Ok(None);
         };
 

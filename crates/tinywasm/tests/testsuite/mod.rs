@@ -25,9 +25,13 @@ fn format_linecol(linecol: (usize, usize)) -> String {
     format!("{}:{}", linecol.0 + 1, linecol.1 + 1)
 }
 
-pub struct TestSuite(BTreeMap<String, TestGroup>);
+pub struct TestSuite(BTreeMap<String, TestGroup>, Vec<String>);
 
 impl TestSuite {
+    pub fn skip(&mut self, groups: &[&str]) {
+        self.1.extend(groups.iter().map(|s| s.to_string()));
+    }
+
     pub fn set_log_level(level: log::LevelFilter) {
         pretty_env_logger::formatted_builder().filter_level(level).init();
     }
@@ -51,7 +55,7 @@ impl TestSuite {
     }
 
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(BTreeMap::new(), Vec::new())
     }
 
     pub fn failed(&self) -> bool {

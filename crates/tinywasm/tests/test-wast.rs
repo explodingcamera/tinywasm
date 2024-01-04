@@ -44,7 +44,11 @@ fn test_wast(wast_file: &str) -> Result<()> {
         println!();
         test_suite.print_errors();
         println!();
-        Err(eyre!(format!("{}", "failed one or more tests".red().bold())))
+        Err(eyre!(format!(
+            "{}:\n{:#?}",
+            "failed one or more tests".red().bold(),
+            test_suite,
+        )))
     } else {
         println!("\n\npassed all tests:\n{:#?}", test_suite);
         Ok(())
