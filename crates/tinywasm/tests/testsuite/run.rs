@@ -1,9 +1,13 @@
 use crate::testsuite::util::*;
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    panic::{catch_unwind, AssertUnwindSafe},
+};
 
 use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
+use tinywasm::ModuleInstance;
 use tinywasm_types::TinyWasmModule;
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
@@ -45,20 +49,33 @@ impl TestSuite {
         let buf = ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
         let wast_data = wast::parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
-        let mut last_module: Option<TinyWasmModule> = None;
+        let mut store = tinywasm::Store::default();
+        let mut last_module: Option<ModuleInstance> = None;
+
         println!("running {} tests for group: {}", wast_data.directives.len(), group_name);
         for (i, directive) in wast_data.directives.into_iter().enumerate() {
             let span = directive.span();
             use wast::WastDirective::*;
-            // let name = format!("{}-{}", group_name, i);
 
             match directive {
                 Wat(mut module) => {
                     debug!("got wat module");
 
-                    let result = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
-                        .and_then(|res| res);
+                    // TODO: Reusing store beaks some things
+                    store = tinywasm::Store::default();
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
+                            .expect("failed to parse module");
+                        tinywasm::Module::from(m)
+                            .instantiate(&mut store)
+                            .map_err(|e| {
+                                println!("failed to instantiate module: {:?}", e);
+                                e
+                            })
+                            .expect("failed to instantiate module")
+                    }))
+                    .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
+                    .and_then(|res| Ok(res));
 
                     match &result {
                         Err(_) => last_module = None,
@@ -132,7 +149,7 @@ impl TestSuite {
                             .collect::<Result<Vec<_>>>()
                             .expect("failed to convert args");
 
-                        exec_fn(module, name, &args).map(|_| ())
+                        exec_fn_instance(module, &mut store, name, &args).map(|_| ())
                     });
 
                     match res {
@@ -189,10 +206,11 @@ impl TestSuite {
                                 e
                             })?;
 
-                        let outcomes = exec_fn(last_module.as_ref(), invoke.name, &args).map_err(|e| {
-                            error!("failed to execute function: {:?}", e);
-                            e
-                        })?;
+                        let outcomes =
+                            exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
+                                error!("failed to execute function: {:?}", e);
+                                e
+                            })?;
 
                         debug!("outcomes: {:?}", outcomes);
 

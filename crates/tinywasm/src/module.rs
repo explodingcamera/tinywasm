@@ -59,7 +59,9 @@ impl Module {
         // imports: Option<()>,
     ) -> Result<ModuleInstance> {
         let instance = ModuleInstance::instantiate(store, self)?;
-        let _ = instance.start(store)?;
+
+        // TODO: this currently panics if theres no start fn
+        // let _ = instance.start(store)?;
         Ok(instance)
     }
 }

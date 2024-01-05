@@ -1,4 +1,4 @@
-use std::panic;
+use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{eyre, Result};
 use tinywasm_types::{TinyWasmModule, WasmValue};
@@ -19,6 +19,20 @@ pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     )
 }
 
+pub fn exec_fn_instance(
+    instance: Option<&tinywasm::ModuleInstance>,
+    store: &mut tinywasm::Store,
+    name: &str,
+    args: &[tinywasm_types::WasmValue],
+) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+    let Some(instance) = instance else {
+        return Err(tinywasm::Error::Other("no instance found".to_string()));
+    };
+
+    let func = instance.exported_func_by_name(store, name)?;
+    func.call(store, args)
+}
+
 pub fn exec_fn(
     module: Option<&TinyWasmModule>,
     name: &str,
@@ -34,10 +48,10 @@ pub fn exec_fn(
     instance.exported_func_by_name(&store, name)?.call(&mut store, args)
 }
 
-pub fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> std::thread::Result<R> {
+pub fn catch_unwind_silent<F: FnOnce() -> R, R>(f: F) -> std::thread::Result<R> {
     let prev_hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
-    let result = panic::catch_unwind(f);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| f()));
     panic::set_hook(prev_hook);
     result
 }

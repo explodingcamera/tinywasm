@@ -42,7 +42,8 @@ impl ModuleInstance {
         let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
         let table_addrs = store.add_tables(module.data.table_types.into(), idx);
         let mem_addrs = store.add_mems(module.data.memory_types.into(), idx);
-        let global_addrs = store.add_globals(module.data.globals.into(), idx);
+
+        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, idx);
         let elem_addrs = store.add_elems(module.data.elements.into(), idx);
         let data_addrs = store.add_datas(module.data.data.into(), idx);
 

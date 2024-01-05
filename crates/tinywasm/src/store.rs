@@ -5,7 +5,7 @@ use core::{
 
 use alloc::{format, rc::Rc, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Instruction, MemAddr, MemoryType,
+    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryType,
     ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
 };
 
@@ -141,11 +141,39 @@ impl Store {
     }
 
     /// Add globals to the store, returning their addresses in the store
-    pub(crate) fn add_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+    pub(crate) fn add_globals(
+        &mut self,
+        globals: Vec<Global>,
+        imports: &[Import],
+        idx: ModuleInstanceAddr,
+    ) -> Vec<Addr> {
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
+
+        // TODO: initialize imported globals
+        let imported_globals = imports
+            .iter()
+            .filter_map(|import| match &import.kind {
+                tinywasm_types::ImportKind::Global(t) => Some(t),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for (i, global) in imported_globals.into_iter().enumerate() {
+            log::debug!("imported global: {:?}", global);
+            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
+                global.clone(),
+                global.ty.default_value().into(),
+                idx,
+            ))));
+            global_addrs.push((i + global_count) as Addr);
+        }
+
+        let global_count = self.data.globals.len();
+        log::debug!("globals: {:?}", globals);
         for (i, global) in globals.into_iter().enumerate() {
             // TODO: initialize globals
+
             use tinywasm_types::ConstInstruction::*;
             let val = match global.init {
                 F32Const(f) => RawWasmValue::from(f),
@@ -168,6 +196,7 @@ impl Store {
 
             global_addrs.push((i + global_count) as Addr);
         }
+        log::debug!("global_addrs: {:?}", global_addrs);
         global_addrs
     }
 

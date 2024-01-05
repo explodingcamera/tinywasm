@@ -245,6 +245,12 @@ pub enum ValType {
     ExternRef,
 }
 
+impl ValType {
+    pub fn default_value(&self) -> WasmValue {
+        WasmValue::default_for(*self)
+    }
+}
+
 /// A WebAssembly External Kind.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
