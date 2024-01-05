@@ -1,4 +1,7 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    cell::RefCell,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::{format, rc::Rc, vec::Vec};
 use tinywasm_types::{
@@ -8,7 +11,7 @@ use tinywasm_types::{
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, ModuleInstance, Result,
+    Error, ModuleInstance, RawWasmValue, Result,
 };
 
 // global store id counter
@@ -82,7 +85,7 @@ pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) mems: Vec<Rc<MemoryInstance>>,
-    pub(crate) globals: Vec<Rc<GlobalInstance>>,
+    pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
     pub(crate) elems: Vec<ElemInstance>,
     pub(crate) datas: Vec<DataInstance>,
 }
@@ -143,8 +146,26 @@ impl Store {
         let mut global_addrs = Vec::with_capacity(global_count);
         for (i, global) in globals.into_iter().enumerate() {
             // TODO: initialize globals
-            // Don't fail here yet - we'll fail when we try to use the global
-            self.data.globals.push(Rc::new(GlobalInstance::new(global.ty, 0, idx)));
+            use tinywasm_types::ConstInstruction::*;
+            let val = match global.init {
+                F32Const(f) => RawWasmValue::from(f),
+                F64Const(f) => RawWasmValue::from(f),
+                I32Const(i) => RawWasmValue::from(i),
+                I64Const(i) => RawWasmValue::from(i),
+                GlobalGet(addr) => {
+                    let addr = global_addrs[addr as usize];
+                    let global = self.data.globals[addr as usize].clone();
+                    let val = global.borrow().value;
+                    val
+                }
+                RefNull(_) => RawWasmValue::default(),
+                RefFunc(idx) => RawWasmValue::from(idx as i64),
+            };
+
+            self.data
+                .globals
+                .push(Rc::new(RefCell::new(GlobalInstance::new(global.ty, val, idx))));
+
             global_addrs.push((i + global_count) as Addr);
         }
         global_addrs
@@ -178,6 +199,22 @@ impl Store {
             .funcs
             .get(addr)
             .ok_or_else(|| Error::Other(format!("function {} not found", addr)))
+    }
+
+    pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
+        self.data
+            .globals
+            .get(addr)
+            .ok_or_else(|| Error::Other(format!("global {} not found", addr)))
+            .map(|global| global.borrow().value)
+    }
+
+    pub(crate) fn set_global_val(&mut self, addr: usize, value: RawWasmValue) -> Result<()> {
+        self.data
+            .globals
+            .get(addr)
+            .ok_or_else(|| Error::Other(format!("global {} not found", addr)))
+            .map(|global| global.borrow_mut().value = value)
     }
 }
 
@@ -254,12 +291,12 @@ impl MemoryInstance {
 #[derive(Debug)]
 pub(crate) struct GlobalInstance {
     pub(crate) ty: GlobalType,
-    pub(crate) value: Addr,
+    pub(crate) value: RawWasmValue,
     owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl GlobalInstance {
-    pub(crate) fn new(ty: GlobalType, value: Addr, owner: ModuleInstanceAddr) -> Self {
+    pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
         Self { ty, value, owner }
     }
 }

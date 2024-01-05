@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use tinywasm_types::{ValType, WasmValue};
+use tinywasm_types::{ConstInstruction, ValType, WasmValue};
 
 /// A raw wasm value.
 ///

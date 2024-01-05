@@ -75,19 +75,6 @@ enum ExecResult {
     Trap(crate::Trap),
 }
 
-/// Execute a const instruction
-pub(crate) fn exec_const(instr: ConstInstruction) -> RawWasmValue {
-    match instr {
-        ConstInstruction::F32Const(val) => val.into(),
-        ConstInstruction::F64Const(val) => val.into(),
-        ConstInstruction::I32Const(val) => val.into(),
-        ConstInstruction::I64Const(val) => val.into(),
-        ConstInstruction::GlobalGet(_) => unimplemented!("global get"),
-        ConstInstruction::RefFunc(_) => unimplemented!("ref func"),
-        ConstInstruction::RefNull(_) => unimplemented!("ref null"),
-    }
-}
-
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
@@ -268,6 +255,17 @@ fn exec_one(
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
         LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
         LocalTee(local_index) => cf.set_local(*local_index as usize, *stack.values.last()?),
+
+        GlobalGet(global_index) => {
+            let idx = module.resolve_global_addr(*global_index);
+            let global = store.get_global_val(idx as usize)?;
+            stack.values.push(global);
+        }
+
+        GlobalSet(global_index) => {
+            let idx = module.resolve_global_addr(*global_index);
+            store.set_global_val(idx as usize, stack.values.pop()?)?;
+        }
 
         I32Const(val) => stack.values.push((*val).into()),
         I64Const(val) => stack.values.push((*val).into()),

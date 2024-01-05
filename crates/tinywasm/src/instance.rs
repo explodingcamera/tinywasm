@@ -76,6 +76,10 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
+    pub(crate) fn global_addrs(&self) -> &[GlobalAddr] {
+        &self.0.global_addrs
+    }
+
     pub(crate) fn func_ty_addrs(&self) -> &[FuncType] {
         &self.0.types
     }
@@ -91,6 +95,11 @@ impl ModuleInstance {
     // resolve a function address to the global store address
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         self.0.func_addrs[addr as usize]
+    }
+
+    // resolve a global address to the global store address
+    pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
+        self.0.global_addrs[addr as usize]
     }
 
     /// Get an exported function by name
