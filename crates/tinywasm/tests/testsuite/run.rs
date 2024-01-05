@@ -8,7 +8,6 @@ use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::ModuleInstance;
-use tinywasm_types::TinyWasmModule;
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {

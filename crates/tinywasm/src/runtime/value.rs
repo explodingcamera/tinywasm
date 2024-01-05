@@ -23,9 +23,9 @@ impl RawWasmValue {
             ValType::I64 => WasmValue::I64(self.0 as i64),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.0 as u32)),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.0)),
-            ValType::ExternRef => todo!(),
-            ValType::FuncRef => todo!(),
-            ValType::V128 => todo!(),
+            ValType::ExternRef => todo!("externref"),
+            ValType::FuncRef => todo!("funcref"),
+            ValType::V128 => todo!("v128"),
         }
     }
 }

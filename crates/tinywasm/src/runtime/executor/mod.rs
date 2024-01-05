@@ -203,7 +203,7 @@ fn exec_one(
                 panic!("Expected {} BrLabel instructions, got {}", len, instr.len());
             }
 
-            todo!()
+            todo!("br_table");
         }
 
         Br(v) => cf.break_to(*v, &mut stack.values)?,

@@ -9,10 +9,13 @@ use std::{
     io::BufReader,
 };
 
+mod indexmap;
 mod run;
 mod util;
 
 use serde::{Deserialize, Serialize};
+
+use self::indexmap::IndexMap;
 
 #[derive(Serialize, Deserialize)]
 pub struct TestGroupResult {
@@ -38,14 +41,14 @@ impl TestSuite {
 
     pub fn print_errors(&self) {
         for (group_name, group) in &self.0 {
-            for (test_name, test) in &group.tests {
+            let tests = &group.tests;
+            for (test_name, test) in tests.iter() {
                 if let Err(e) = &test.result {
                     eprintln!(
                         "{} {} failed: {:?}",
-                        link(
-                            format!("{}:{}", group_name.red().underline(), test.linecol.0 + 1).as_str(),
-                            format!("{}:{}", group.file, test.linecol.0 + 1).as_str()
-                        ),
+                        link(group_name, &group.file, Some(test.linecol.0 + 1))
+                            .bold()
+                            .underline(),
                         test_name.bold(),
                         e.to_string().bright_red()
                     );
@@ -110,8 +113,13 @@ impl TestSuite {
     }
 }
 
-fn link(name: &str, file: &str) -> String {
-    format!("\x1b]8;;file://{}\x1b\\{}\x1b]8;;\x1b\\", file, name)
+fn link(name: &str, file: &str, line: Option<usize>) -> String {
+    let (path, name) = match line {
+        None => (file.to_string(), name.to_owned()),
+        Some(line) => (format!("{}:{}:0", file, line), (format!("{}:{}", name, line))),
+    };
+
+    format!("\x1b]8;;file://{}\x1b\\{}\x1b]8;;\x1b\\", path, name)
 }
 
 impl Debug for TestSuite {
@@ -124,7 +132,7 @@ impl Debug for TestSuite {
             total_passed += group_passed;
             total_failed += group_failed;
 
-            writeln!(f, "{}", link(group_name, &group.file).bold().underline())?;
+            writeln!(f, "{}", link(group_name, &group.file, None).bold().underline())?;
             writeln!(f, "  Tests Passed: {}", group_passed.to_string().green())?;
             writeln!(f, "  Tests Failed: {}", group_failed.to_string().red())?;
 
@@ -152,14 +160,14 @@ impl Debug for TestSuite {
 }
 
 struct TestGroup {
-    tests: BTreeMap<String, TestCase>,
+    tests: IndexMap<String, TestCase>,
     file: String,
 }
 
 impl TestGroup {
     fn new(file: &str) -> Self {
         Self {
-            tests: BTreeMap::new(),
+            tests: IndexMap::new(),
             file: file.to_string(),
         }
     }

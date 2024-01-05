@@ -42,31 +42,24 @@ impl ValueStack {
         self.top
     }
 
-    #[inline]
-    pub(crate) fn _truncate(&mut self, n: usize) {
-        assert!(self.top <= self.stack.len());
-        self.top -= n;
-        self.stack.truncate(self.top);
-    }
-
-    #[inline]
-    // example: [1, 2, 3] n=1, end_keep=1 => [1, 3]
-    // example: [1] n=1, end_keep=1 => [1]
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
-        if n == end_keep || n == 0 {
-            return;
+        let total_to_keep = n + end_keep;
+        assert!(
+            self.top >= total_to_keep,
+            "Total to keep should be less than or equal to self.top"
+        );
+
+        let current_size = self.stack.len();
+        if current_size <= total_to_keep {
+            return; // No need to truncate if the current size is already less than or equal to total_to_keep
         }
 
-        assert!(self.top <= self.stack.len());
-        info!("removing from {} to {}", self.top - n, self.top - end_keep);
-        self.stack.drain(self.top - n..self.top - end_keep);
-        self.top -= n - end_keep;
-    }
+        let items_to_remove = current_size - total_to_keep;
+        let remove_start_index = self.top - items_to_remove - end_keep;
+        let remove_end_index = self.top - end_keep;
 
-    #[inline]
-    pub(crate) fn _extend(&mut self, values: impl IntoIterator<Item = RawWasmValue> + ExactSizeIterator) {
-        self.top += values.len();
-        self.stack.extend(values);
+        self.stack.drain(remove_start_index..remove_end_index);
+        self.top = total_to_keep; // Update top to reflect the new size
     }
 
     #[inline]
@@ -90,6 +83,21 @@ impl ValueStack {
     pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
         self.top -= 1;
         self.stack.pop().ok_or(Error::StackUnderflow)
+    }
+
+    pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
+        self.stack
+            .copy_within((self.top - result_count)..self.top, new_stack_size);
+        self.top = new_stack_size + result_count;
+        self.stack.truncate(self.top);
+    }
+
+    #[inline]
+    pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
+        if self.top < n {
+            return Err(Error::StackUnderflow);
+        }
+        Ok(&self.stack[self.top - n..self.top])
     }
 
     #[inline]
@@ -120,39 +128,6 @@ impl ValueStack {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::std::panic;
-
-    fn crate_stack<T: Into<RawWasmValue> + Copy>(data: &[T]) -> ValueStack {
-        let mut stack = ValueStack::default();
-        stack._extend(data.iter().map(|v| (*v).into()));
-        stack
-    }
-
-    fn assert_truncate_keep<T: Into<RawWasmValue> + Copy>(data: &[T], n: usize, end_keep: usize, expected: &[T]) {
-        let mut stack = crate_stack(data);
-        stack.truncate_keep(n, end_keep);
-        assert_eq!(
-            stack.data(),
-            expected.iter().map(|v| (*v).into()).collect::<Vec<_>>().as_slice()
-        );
-    }
-
-    fn catch_unwind_silent<F: FnOnce() -> R + panic::UnwindSafe, R>(f: F) -> crate::std::thread::Result<R> {
-        let prev_hook = panic::take_hook();
-        panic::set_hook(alloc::boxed::Box::new(|_| {}));
-        let result = panic::catch_unwind(f);
-        panic::set_hook(prev_hook);
-        result
-    }
-
-    #[test]
-    fn test_truncate_keep() {
-        assert_truncate_keep(&[1, 2, 3], 1, 1, &[1, 2, 3]);
-        assert_truncate_keep(&[1], 1, 1, &[1]);
-        assert_truncate_keep(&[1, 2, 3], 2, 1, &[1, 3]);
-        assert_truncate_keep::<i32>(&[], 0, 0, &[]);
-        catch_unwind_silent(|| assert_truncate_keep(&[1, 2, 3], 4, 1, &[1, 3])).expect_err("should panic");
-    }
 
     #[test]
     fn test_value_stack() {

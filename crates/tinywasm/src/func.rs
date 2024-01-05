@@ -67,7 +67,7 @@ impl FuncHandle {
 
         // Once the function returns:
         let result_m = func_ty.results.len();
-        let res = stack.values.pop_n(result_m)?;
+        let res = stack.values.last_n(result_m)?;
 
         Ok(res
             .iter()
