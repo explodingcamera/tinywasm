@@ -1,12 +1,11 @@
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
 use tinywasm_types::{
-    DataAddr, ElmAddr, Export, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr,
-    TableAddr,
+    DataAddr, ElmAddr, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr, TableAddr,
 };
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    Error, ExportInstance, FuncHandle, Result, Store, TypedFuncHandle,
+    Error, ExportInstance, FuncHandle, Module, Result, Store, TypedFuncHandle,
 };
 
 /// A WebAssembly Module Instance
@@ -36,6 +35,38 @@ pub(crate) struct ModuleInstanceInner {
 }
 
 impl ModuleInstance {
+    /// Instantiate the module in the given store
+    pub fn instantiate(store: &mut Store, module: Module) -> Result<Self> {
+        let idx = store.next_module_instance_idx();
+
+        let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
+        let table_addrs = store.add_tables(module.data.table_types.into(), idx);
+        let mem_addrs = store.add_mems(module.data.memory_types.into(), idx);
+        let global_addrs = store.add_globals(module.data.globals.into(), idx);
+        let elem_addrs = store.add_elems(module.data.elements.into(), idx);
+        let data_addrs = store.add_datas(module.data.data.into(), idx);
+
+        let instance = ModuleInstanceInner {
+            store_id: store.id(),
+            idx,
+
+            types: module.data.func_types,
+            func_addrs,
+            table_addrs,
+            mem_addrs,
+            global_addrs,
+            elem_addrs,
+            data_addrs,
+
+            func_start: module.data.start_func,
+            imports: module.data.imports,
+            exports: crate::ExportInstance(module.data.exports),
+        };
+        let instance = ModuleInstance::new(instance);
+        store.add_instance(instance.clone())?;
+        Ok(instance)
+    }
+
     /// Get the module's exports
     pub fn exports(&self) -> &ExportInstance {
         &self.0.exports
@@ -101,7 +132,7 @@ impl ModuleInstance {
     /// (which is not part of the spec, but used by llvm)
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
-    pub fn start_func(&mut self, store: &Store) -> Result<Option<FuncHandle>> {
+    pub fn start_func(&self, store: &Store) -> Result<Option<FuncHandle>> {
         if self.0.store_id != store.id() {
             return Err(Error::InvalidStore);
         }
@@ -135,7 +166,7 @@ impl ModuleInstance {
     /// Returns None if the module has no start function
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
-    pub fn start(&mut self, store: &mut Store) -> Result<Option<()>> {
+    pub fn start(&self, store: &mut Store) -> Result<Option<()>> {
         let Some(func) = self.start_func(store)? else {
             return Ok(None);
         };

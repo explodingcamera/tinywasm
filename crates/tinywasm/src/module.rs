@@ -1,14 +1,13 @@
-use alloc::vec::Vec;
 use tinywasm_types::TinyWasmModule;
 
-use crate::{instance::ModuleInstanceInner, ModuleInstance, Result, Store};
+use crate::{ModuleInstance, Result, Store};
 
 #[derive(Debug)]
 /// A WebAssembly Module
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
 pub struct Module {
-    data: TinyWasmModule,
+    pub(crate) data: TinyWasmModule,
 }
 
 impl From<&TinyWasmModule> for Module {
@@ -50,8 +49,8 @@ impl Module {
 
     /// Instantiate the module in the given store
     ///
-    // TODO: /// Runs the start function if it exists
-    //       /// If you want to run the start function yourself, use `ModuleInstance::new`
+    /// Runs the start function if it exists
+    /// If you want to run the start function yourself, use `ModuleInstance::instantiate`
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate(
@@ -59,37 +58,8 @@ impl Module {
         store: &mut Store,
         // imports: Option<()>,
     ) -> Result<ModuleInstance> {
-        let idx = store.next_module_instance_idx();
-
-        let func_addrs = store.add_funcs(self.data.funcs.into(), idx);
-        let table_addrs = store.add_tables(self.data.table_types.into(), idx);
-        let mem_addrs = store.add_mems(self.data.memory_types.into(), idx);
-        let global_addrs = store.add_globals(self.data.globals.into(), idx);
-        let elem_addrs = store.add_elems(self.data.elements.into(), idx);
-        let data_addrs = store.add_datas(self.data.data.into(), idx);
-
-        let instance = ModuleInstanceInner {
-            store_id: store.id(),
-            idx,
-
-            types: self.data.func_types,
-            func_addrs,
-            table_addrs,
-            mem_addrs,
-            global_addrs,
-            elem_addrs,
-            data_addrs,
-
-            func_start: self.data.start_func,
-            imports: self.data.imports,
-            exports: crate::ExportInstance(self.data.exports),
-        };
-
-        let instance = ModuleInstance::new(instance);
-        store.add_instance(instance.clone())?;
-
-        // TODO: Auto-run start function?
-        // let _ = instance.start(store)?;
+        let instance = ModuleInstance::instantiate(store, self)?;
+        let _ = instance.start(store)?;
         Ok(instance)
     }
 }

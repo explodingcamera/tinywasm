@@ -5,11 +5,11 @@ use crate::{
     get_label_args,
     log::debug,
     runtime::{BlockType, LabelFrame},
-    CallFrame, Error, ModuleInstance, Result, Store,
+    CallFrame, Error, ModuleInstance, RawWasmValue, Result, Store,
 };
 use alloc::vec::Vec;
 use log::info;
-use tinywasm_types::Instruction;
+use tinywasm_types::{ConstInstruction, Instruction};
 
 mod macros;
 mod traits;
@@ -73,6 +73,19 @@ enum ExecResult {
     Return,
     Call,
     Trap(crate::Trap),
+}
+
+/// Execute a const instruction
+pub(crate) fn exec_const(instr: ConstInstruction) -> RawWasmValue {
+    match instr {
+        ConstInstruction::F32Const(val) => val.into(),
+        ConstInstruction::F64Const(val) => val.into(),
+        ConstInstruction::I32Const(val) => val.into(),
+        ConstInstruction::I64Const(val) => val.into(),
+        ConstInstruction::GlobalGet(_) => unimplemented!("global get"),
+        ConstInstruction::RefFunc(_) => unimplemented!("ref func"),
+        ConstInstruction::RefNull(_) => unimplemented!("ref null"),
+    }
 }
 
 /// Run a single step of the interpreter
