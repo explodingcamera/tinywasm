@@ -12,7 +12,9 @@ pub enum BlockArgs {
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct MemArg {
+    pub mem_addr: MemAddr,
     pub align: u8,
+    pub align_max: u8,
     pub offset: u64,
 }
 

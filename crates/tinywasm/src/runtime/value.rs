@@ -17,6 +17,10 @@ impl Debug for RawWasmValue {
 }
 
 impl RawWasmValue {
+    pub fn raw_value(&self) -> u64 {
+        self.0
+    }
+
     pub fn attach_type(self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.0 as i32),

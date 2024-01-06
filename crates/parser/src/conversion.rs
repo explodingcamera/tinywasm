@@ -280,6 +280,8 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
     MemArg {
         offset: memarg.offset,
         align: memarg.align,
+        align_max: memarg.max_align,
+        mem_addr: memarg.memory,
     }
 }
 

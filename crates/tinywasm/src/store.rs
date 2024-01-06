@@ -5,8 +5,8 @@ use core::{
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
-    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
+    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemArg,
+    MemoryArch, MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
 };
 
 use crate::{
@@ -341,6 +341,35 @@ impl MemoryInstance {
             page_count: kind.page_count_initial as usize,
             owner,
         }
+    }
+
+    pub(crate) fn store(&mut self, addr: usize, align: usize, data: &[u8]) -> Result<()> {
+        if addr + data.len() > self.data.len() {
+            return Err(Error::Other(format!(
+                "memory store out of bounds: offset={}, len={}, mem_size={}",
+                addr,
+                data.len(),
+                self.data.len()
+            )));
+        }
+
+        // WebAssembly doesn't require alignment for stores
+        self.data[addr..addr + data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
+    pub(crate) fn load(&self, addr: usize, align: usize, len: usize) -> Result<&[u8]> {
+        if addr + len > self.data.len() {
+            return Err(Error::Other(format!(
+                "memory load out of bounds: offset={}, len={}, mem_size={}",
+                addr,
+                len,
+                self.data.len()
+            )));
+        }
+
+        // WebAssembly doesn't require alignment for loads
+        Ok(&self.data[addr..addr + len])
     }
 
     pub(crate) fn size(&self) -> i32 {

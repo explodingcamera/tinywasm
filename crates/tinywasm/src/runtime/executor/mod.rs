@@ -7,7 +7,7 @@ use crate::{
     runtime::{BlockType, LabelFrame},
     CallFrame, Error, ModuleInstance, Result, Store,
 };
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 use log::info;
 use tinywasm_types::Instruction;
 
@@ -300,6 +300,32 @@ fn exec_one(
                 Ok(_) => stack.values.push(prev_size.into()),
                 Err(_) => stack.values.push((-1).into()),
             }
+        }
+
+        I32Store(arg) => {
+            let mem_idx = module.resolve_mem_addr(arg.mem_addr);
+            let mem = store.get_mem(mem_idx as usize)?;
+
+            let val = stack.values.pop()?.raw_value();
+            let addr = stack.values.pop()?.raw_value();
+
+            mem.borrow_mut()
+                .store((arg.offset + addr) as usize, arg.align as usize, &val.to_le_bytes())?;
+        }
+
+        I32Load(arg) => {
+            let mem_idx = module.resolve_mem_addr(arg.mem_addr);
+            let mem = store.get_mem(mem_idx as usize)?;
+
+            let addr = stack.values.pop()?.raw_value();
+
+            let val: [u8; 4] = {
+                let mem = mem.borrow_mut();
+                let val = mem.load((arg.offset + addr) as usize, arg.align as usize, 4)?;
+                val.try_into().expect("slice with incorrect length")
+            };
+
+            stack.values.push(i32::from_le_bytes(val).into());
         }
 
         I64Eqz => comp_zero!(==, i64, stack),
