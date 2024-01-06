@@ -37,6 +37,7 @@ pub fn exec_fn(
     module: Option<&TinyWasmModule>,
     name: &str,
     args: &[tinywasm_types::WasmValue],
+    imports: Option<tinywasm::Imports>,
 ) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
     let Some(module) = module else {
         return Err(tinywasm::Error::Other("no module found".to_string()));
@@ -44,7 +45,7 @@ pub fn exec_fn(
 
     let mut store = tinywasm::Store::new();
     let module = tinywasm::Module::from(module);
-    let instance = module.instantiate(&mut store)?;
+    let instance = module.instantiate(&mut store, imports)?;
     instance.exported_func_by_name(&store, name)?.call(&mut store, args)
 }
 

@@ -11,7 +11,7 @@ use tinywasm_types::{
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, ModuleInstance, RawWasmValue, Result,
+    Error, Extern, Imports, ModuleInstance, RawWasmValue, Result,
 };
 
 // global store id counter
@@ -144,36 +144,42 @@ impl Store {
     pub(crate) fn add_globals(
         &mut self,
         globals: Vec<Global>,
-        imports: &[Import],
+        wasm_imports: &[Import],
+        user_imports: &Imports,
         idx: ModuleInstanceAddr,
-    ) -> Vec<Addr> {
+    ) -> Result<Vec<Addr>> {
+        // TODO: initialize imported globals
+        let imported_globals = wasm_imports
+            .iter()
+            .filter_map(|import| match &import.kind {
+                tinywasm_types::ImportKind::Global(_) => Some(import),
+                _ => None,
+            })
+            .map(|import| {
+                let Some(global) = user_imports.get(&import.module, &import.name) else {
+                    return Err(Error::Other(format!(
+                        "global import not found for {}::{}",
+                        import.module, import.name
+                    )));
+                };
+                match global {
+                    Extern::Global(global) => Ok(global),
+                    _ => Err(Error::Other(format!(
+                        "expected global import for {}::{}",
+                        import.module, import.name
+                    ))),
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
 
-        // TODO: initialize imported globals
-        let imported_globals = imports
-            .iter()
-            .filter_map(|import| match &import.kind {
-                tinywasm_types::ImportKind::Global(t) => Some(t),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-
-        for (i, global) in imported_globals.into_iter().enumerate() {
-            log::debug!("imported global: {:?}", global);
-            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
-                global.clone(),
-                global.ty.default_value().into(),
-                idx,
-            ))));
-            global_addrs.push((i + global_count) as Addr);
-        }
-
-        let global_count = self.data.globals.len();
         log::debug!("globals: {:?}", globals);
-        for (i, global) in globals.into_iter().enumerate() {
-            // TODO: initialize globals
+        let globals = globals.into_iter();
+        let iterator = imported_globals.into_iter().chain(globals.as_ref());
 
+        for (i, global) in iterator.enumerate() {
             use tinywasm_types::ConstInstruction::*;
             let val = match global.init {
                 F32Const(f) => RawWasmValue::from(f),
@@ -197,7 +203,7 @@ impl Store {
             global_addrs.push((i + global_count) as Addr);
         }
         log::debug!("global_addrs: {:?}", global_addrs);
-        global_addrs
+        Ok(global_addrs)
     }
 
     /// Add elements to the store, returning their addresses in the store

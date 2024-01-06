@@ -5,7 +5,7 @@ use tinywasm_types::{
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    Error, ExportInstance, FuncHandle, Module, Result, Store, TypedFuncHandle,
+    Error, ExportInstance, FuncHandle, Imports, Module, Result, Store, TypedFuncHandle,
 };
 
 /// A WebAssembly Module Instance
@@ -36,14 +36,15 @@ pub(crate) struct ModuleInstanceInner {
 
 impl ModuleInstance {
     /// Instantiate the module in the given store
-    pub fn instantiate(store: &mut Store, module: Module) -> Result<Self> {
+    pub fn instantiate(store: &mut Store, module: Module, imports: Option<Imports>) -> Result<Self> {
         let idx = store.next_module_instance_idx();
+        let imports = imports.unwrap_or_default();
 
         let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
         let table_addrs = store.add_tables(module.data.table_types.into(), idx);
         let mem_addrs = store.add_mems(module.data.memory_types.into(), idx);
 
-        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, idx);
+        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &imports, idx)?;
         let elem_addrs = store.add_elems(module.data.elements.into(), idx);
         let data_addrs = store.add_datas(module.data.data.into(), idx);
 

@@ -7,7 +7,8 @@ use std::{
 use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
-use tinywasm::ModuleInstance;
+use tinywasm::{Extern, Imports, ModuleInstance};
+use tinywasm_types::{Global, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {
@@ -19,6 +20,16 @@ impl TestSuite {
         });
 
         Ok(())
+    }
+
+    fn imports() -> Result<Imports> {
+        let mut imports = Imports::new();
+        imports.define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?;
+        imports.define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?;
+        imports.define("spectest", "global_f32", Extern::global(WasmValue::F32(666.0), false))?;
+        imports.define("spectest", "global_f64", Extern::global(WasmValue::F64(666.0), false))?;
+
+        Ok(imports)
     }
 
     pub fn run_spec_group(&mut self, tests: &[&str]) -> Result<()> {
@@ -66,7 +77,7 @@ impl TestSuite {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
                         tinywasm::Module::from(m)
-                            .instantiate(&mut store)
+                            .instantiate(&mut store, Some(Self::imports().unwrap()))
                             .map_err(|e| {
                                 println!("failed to instantiate module: {:?}", e);
                                 e

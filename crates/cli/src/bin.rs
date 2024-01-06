@@ -114,7 +114,7 @@ fn main() -> Result<()> {
 
 fn run(module: Module, func: Option<String>, args: Vec<WasmValue>) -> Result<()> {
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store)?;
+    let instance = module.instantiate(&mut store, None)?;
 
     if let Some(func) = func {
         let func = instance.exported_func_by_name(&store, &func)?;

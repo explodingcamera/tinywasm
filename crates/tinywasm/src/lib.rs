@@ -38,7 +38,7 @@
 //! // This will allocate the module and its globals into the store
 //! // and execute the module's start function.
 //! // Every ModuleInstance has its own ID space for functions, globals, etc.
-//! let instance = module.instantiate(&mut store)?;
+//! let instance = module.instantiate(&mut store, None)?;
 //!
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.get_func` to get an untyped handle
@@ -93,6 +93,9 @@ pub use export::ExportInstance;
 
 mod func;
 pub use func::{FuncHandle, TypedFuncHandle};
+
+mod imports;
+pub use imports::*;
 
 mod runtime;
 pub use runtime::*;

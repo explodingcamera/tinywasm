@@ -91,6 +91,15 @@ pub enum WasmValue {
 }
 
 impl WasmValue {
+    pub fn const_instr(&self) -> ConstInstruction {
+        match self {
+            Self::I32(i) => ConstInstruction::I32Const(*i),
+            Self::I64(i) => ConstInstruction::I64Const(*i),
+            Self::F32(i) => ConstInstruction::F32Const(*i),
+            Self::F64(i) => ConstInstruction::F64Const(*i),
+        }
+    }
+
     /// Get the default value for a given type.
     pub fn default_for(ty: ValType) -> Self {
         match ty {
@@ -227,7 +236,7 @@ impl WasmValue {
 }
 
 /// Type of a WebAssembly value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValType {
     /// A 32-bit integer.
     I32,
@@ -340,7 +349,7 @@ pub struct Global {
     pub init: ConstInstruction,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,

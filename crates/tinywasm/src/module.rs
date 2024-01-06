@@ -1,6 +1,6 @@
 use tinywasm_types::TinyWasmModule;
 
-use crate::{ModuleInstance, Result, Store};
+use crate::{Imports, ModuleInstance, Result, Store};
 
 #[derive(Debug)]
 /// A WebAssembly Module
@@ -53,12 +53,8 @@ impl Module {
     /// If you want to run the start function yourself, use `ModuleInstance::instantiate`
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
-    pub fn instantiate(
-        self,
-        store: &mut Store,
-        // imports: Option<()>,
-    ) -> Result<ModuleInstance> {
-        let instance = ModuleInstance::instantiate(store, self)?;
+    pub fn instantiate(self, store: &mut Store, imports: Option<Imports>) -> Result<ModuleInstance> {
+        let instance = ModuleInstance::instantiate(store, self, imports)?;
 
         // TODO: this currently panics if theres no start fn
         // let _ = instance.start(store)?;
