@@ -5,11 +5,11 @@ use crate::{
     get_label_args,
     log::debug,
     runtime::{BlockType, LabelFrame},
-    CallFrame, Error, ModuleInstance, RawWasmValue, Result, Store,
+    CallFrame, Error, ModuleInstance, Result, Store,
 };
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 use log::info;
-use tinywasm_types::{ConstInstruction, Instruction};
+use tinywasm_types::Instruction;
 
 mod macros;
 mod traits;
@@ -271,6 +271,37 @@ fn exec_one(
         I64Const(val) => stack.values.push((*val).into()),
         F32Const(val) => stack.values.push((*val).into()),
         F64Const(val) => stack.values.push((*val).into()),
+
+        MemorySize(addr, byte) => {
+            if *byte != 0 {
+                unimplemented!("memory.size with byte != 0");
+            }
+
+            let mem_idx = module.resolve_mem_addr(*addr);
+            let mem = store.get_mem(mem_idx as usize)?;
+            stack.values.push(mem.borrow().size().into());
+        }
+
+        MemoryGrow(addr, byte) => {
+            if *byte != 0 {
+                unimplemented!("memory.grow with byte != 0");
+            }
+
+            let mem_idx = module.resolve_mem_addr(*addr);
+            let mem = store.get_mem(mem_idx as usize)?;
+
+            let (res, prev_size) = {
+                let mut mem = mem.borrow_mut();
+                let prev_size = mem.size();
+                let new_size = prev_size + stack.values.pop_t::<i32>()?;
+                (mem.grow(new_size), prev_size)
+            };
+
+            match res {
+                Ok(_) => stack.values.push(prev_size.into()),
+                Err(_) => stack.values.push((-1).into()),
+            }
+        }
 
         I64Eqz => comp_zero!(==, i64, stack),
         I32Eqz => comp_zero!(==, i32, stack),

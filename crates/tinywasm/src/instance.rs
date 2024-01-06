@@ -42,7 +42,7 @@ impl ModuleInstance {
 
         let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
         let table_addrs = store.add_tables(module.data.table_types.into(), idx);
-        let mem_addrs = store.add_mems(module.data.memory_types.into(), idx);
+        let mem_addrs = store.add_mems(module.data.memory_types.into(), idx)?;
 
         let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &imports, idx)?;
         let elem_addrs = store.add_elems(module.data.elements.into(), idx);
@@ -97,6 +97,16 @@ impl ModuleInstance {
     // resolve a function address to the global store address
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         self.0.func_addrs[addr as usize]
+    }
+
+    // resolve a table address to the global store address
+    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
+        self.0.table_addrs[addr as usize]
+    }
+
+    // resolve a memory address to the global store address
+    pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
+        self.0.mem_addrs[addr as usize]
     }
 
     // resolve a global address to the global store address

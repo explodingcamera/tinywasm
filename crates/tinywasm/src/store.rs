@@ -3,10 +3,10 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{format, rc::Rc, vec::Vec};
+use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryType,
-    ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
+    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
+    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
 };
 
 use crate::{
@@ -84,7 +84,7 @@ impl Default for Store {
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     pub(crate) tables: Vec<TableInstance>,
-    pub(crate) mems: Vec<Rc<MemoryInstance>>,
+    pub(crate) mems: Vec<Rc<RefCell<MemoryInstance>>>,
     pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
     pub(crate) elems: Vec<ElemInstance>,
     pub(crate) datas: Vec<DataInstance>,
@@ -130,14 +130,20 @@ impl Store {
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn add_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Vec<MemAddr> {
+    pub(crate) fn add_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.data.mems.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in mems.into_iter().enumerate() {
-            self.data.mems.push(Rc::new(MemoryInstance::new(mem, idx)));
+            if let MemoryArch::I64 = mem.arch {
+                return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
+            }
+            self.data
+                .mems
+                .push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+
             mem_addrs.push((i + mem_count) as MemAddr);
         }
-        mem_addrs
+        Ok(mem_addrs)
     }
 
     /// Add globals to the store, returning their addresses in the store
@@ -236,6 +242,15 @@ impl Store {
             .ok_or_else(|| Error::Other(format!("function {} not found", addr)))
     }
 
+    /// Get the memory at the actual index in the store
+    pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
+        self.data
+            .mems
+            .get(addr)
+            .ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
+    }
+
+    /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
         self.data
             .globals
@@ -300,6 +315,10 @@ impl TableInstance {
     }
 }
 
+pub(crate) const PAGE_SIZE: usize = 64_000;
+pub(crate) const MAX_PAGES: usize = 65536;
+pub(crate) const MAX_SIZE: usize = PAGE_SIZE * MAX_PAGES;
+
 /// A WebAssembly Memory Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
@@ -307,16 +326,39 @@ impl TableInstance {
 pub(crate) struct MemoryInstance {
     pub(crate) kind: MemoryType,
     pub(crate) data: Vec<u8>,
+    pub(crate) page_count: usize,
     pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl MemoryInstance {
     pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
+        debug_assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
+
         Self {
             kind,
-            data: Vec::new(),
+            data: vec![0; PAGE_SIZE * kind.page_count_initial as usize],
+            page_count: kind.page_count_initial as usize,
             owner,
         }
+    }
+
+    pub(crate) fn size(&self) -> i32 {
+        self.page_count as i32
+    }
+
+    pub(crate) fn grow(&mut self, delta: i32) -> Result<i32> {
+        let current_pages = self.size();
+        let new_pages = current_pages + delta;
+        if new_pages < 0 || new_pages > MAX_PAGES as i32 {
+            return Err(Error::Other(format!("memory size out of bounds: {}", new_pages)));
+        }
+        let new_size = new_pages as usize * PAGE_SIZE;
+        if new_size > MAX_SIZE {
+            return Err(Error::Other(format!("memory size out of bounds: {}", new_size)));
+        }
+        self.data.resize(new_size, 0);
+        self.page_count = new_pages as usize;
+        Ok(current_pages)
     }
 }
 
