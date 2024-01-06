@@ -8,7 +8,7 @@ use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
-use tinywasm_types::{Global, WasmValue};
+use tinywasm_types::WasmValue;
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {
@@ -70,8 +70,6 @@ impl TestSuite {
             match directive {
                 Wat(mut module) => {
                     debug!("got wat module");
-
-                    // TODO: Reusing store beaks some things
                     store = tinywasm::Store::default();
                     let result = catch_unwind(AssertUnwindSafe(|| {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))

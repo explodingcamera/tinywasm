@@ -293,8 +293,7 @@ fn exec_one(
             let (res, prev_size) = {
                 let mut mem = mem.borrow_mut();
                 let prev_size = mem.size();
-                let new_size = prev_size + stack.values.pop_t::<i32>()?;
-                (mem.grow(new_size), prev_size)
+                (mem.grow(stack.values.pop_t::<i32>()?), prev_size)
             };
 
             match res {

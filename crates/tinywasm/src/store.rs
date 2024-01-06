@@ -333,6 +333,7 @@ pub(crate) struct MemoryInstance {
 impl MemoryInstance {
     pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
         debug_assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
+        log::debug!("initializing memory with {} pages", kind.page_count_initial);
 
         Self {
             kind,
@@ -358,6 +359,11 @@ impl MemoryInstance {
         }
         self.data.resize(new_size, 0);
         self.page_count = new_pages as usize;
+
+        log::debug!("memory was {} pages", current_pages);
+        log::debug!("memory grown by {} pages", delta);
+        log::debug!("memory grown to {} pages", self.page_count);
+
         Ok(current_pages)
     }
 }
