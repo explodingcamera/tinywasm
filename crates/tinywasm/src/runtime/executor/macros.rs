@@ -30,6 +30,27 @@ macro_rules! mem_load {
     }};
 }
 
+/// Store a value to memory
+macro_rules! mem_store {
+    ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        mem_store!($type, $type, $arg, $stack, $store, $module)
+    }};
+
+    ($store_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
+        let mem = $store.get_mem(mem_idx as usize)?;
+
+        let val = $stack.values.pop()?.raw_value();
+        let addr = $stack.values.pop()?.raw_value();
+
+        let val = val as $store_type;
+        let val = val.to_le_bytes();
+
+        mem.borrow_mut()
+            .store(($arg.offset + addr) as usize, $arg.align as usize, &val)?;
+    }};
+}
+
 /// Doing the actual conversion from float to int is a bit tricky, because
 /// we need to check for overflow. This macro generates the min/max values
 /// for a specific conversion, which are then used in the actual conversion.
@@ -193,3 +214,4 @@ pub(super) use comp_zero;
 pub(super) use conv;
 pub(super) use float_min_max;
 pub(super) use mem_load;
+pub(super) use mem_store;

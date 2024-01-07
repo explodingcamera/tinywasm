@@ -302,16 +302,15 @@ fn exec_one(
             }
         }
 
-        I32Store(arg) => {
-            let mem_idx = module.resolve_mem_addr(arg.mem_addr);
-            let mem = store.get_mem(mem_idx as usize)?;
-
-            let val = stack.values.pop()?.raw_value();
-            let addr = stack.values.pop()?.raw_value();
-
-            mem.borrow_mut()
-                .store((arg.offset + addr) as usize, arg.align as usize, &val.to_le_bytes())?;
-        }
+        I32Store(arg) => mem_store!(i32, arg, stack, store, module),
+        I64Store(arg) => mem_store!(i64, arg, stack, store, module),
+        F32Store(arg) => mem_store!(f32, arg, stack, store, module),
+        F64Store(arg) => mem_store!(f64, arg, stack, store, module),
+        I32Store8(arg) => mem_store!(i8, i32, arg, stack, store, module),
+        I32Store16(arg) => mem_store!(i16, i32, arg, stack, store, module),
+        I64Store8(arg) => mem_store!(i8, i64, arg, stack, store, module),
+        I64Store16(arg) => mem_store!(i16, i64, arg, stack, store, module),
+        I64Store32(arg) => mem_store!(i32, i64, arg, stack, store, module),
 
         I32Load(arg) => mem_load!(i32, arg, stack, store, module),
         I64Load(arg) => mem_load!(i64, arg, stack, store, module),
