@@ -2,10 +2,9 @@ use core::ops::{BitAnd, BitOr, BitXor, Neg};
 
 use super::{DefaultRuntime, Stack};
 use crate::{
-    get_label_args,
     log::debug,
     runtime::{BlockType, LabelFrame},
-    CallFrame, Error, ModuleInstance, Result, Store,
+    CallFrame, Error, LabelArgs, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
 use log::info;
@@ -132,30 +131,32 @@ fn exec_one(
         }
 
         If(args, else_offset, end_offset) => {
-            let end_instr_ptr = cf.instr_ptr + *end_offset;
-
-            info!(
-                "if it's true, we'll jump to the next instruction (@{})",
-                cf.instr_ptr + 1
-            );
-
-            if let Some(else_offset) = else_offset {
-                info!(
-                    "else: {:?} (@{})",
-                    instrs[cf.instr_ptr + else_offset],
-                    cf.instr_ptr + else_offset
-                );
-            };
-
-            info!("end: {:?} (@{})", instrs[end_instr_ptr], end_instr_ptr);
-
-            if stack.values.pop_t::<i32>()? != 0 {
+            if stack.values.pop_t::<i32>()? == 0 {
+                if let Some(else_offset) = else_offset {
+                    log::info!("entering else at {}", cf.instr_ptr + *else_offset);
+                    cf.enter_label(
+                        LabelFrame {
+                            instr_ptr: cf.instr_ptr + *else_offset,
+                            end_instr_ptr: cf.instr_ptr + *end_offset,
+                            stack_ptr: stack.values.len(), // - params,
+                            args: crate::LabelArgs::new(*args, module)?,
+                            ty: BlockType::Else,
+                        },
+                        &mut stack.values,
+                    );
+                    cf.instr_ptr += *else_offset;
+                } else {
+                    log::info!("skipping if");
+                    cf.instr_ptr += *end_offset
+                }
+            } else {
+                log::info!("entering then");
                 cf.enter_label(
                     LabelFrame {
                         instr_ptr: cf.instr_ptr,
                         end_instr_ptr: cf.instr_ptr + *end_offset,
                         stack_ptr: stack.values.len(), // - params,
-                        args: get_label_args(*args, module)?,
+                        args: LabelArgs::new(*args, module)?,
                         ty: BlockType::If,
                     },
                     &mut stack.values,
@@ -163,6 +164,10 @@ fn exec_one(
             }
         }
 
+        // Else(_end_offset) => {
+        //     // end the if block
+        //     cf.break_to(0, &mut stack.values)?;
+        // }
         Loop(args, end_offset) => {
             // let params = stack.values.pop_block_params(*args, &module)?;
             cf.enter_label(
@@ -170,7 +175,7 @@ fn exec_one(
                     instr_ptr: cf.instr_ptr,
                     end_instr_ptr: cf.instr_ptr + *end_offset,
                     stack_ptr: stack.values.len(), // - params,
-                    args: get_label_args(*args, module)?,
+                    args: LabelArgs::new(*args, module)?,
                     ty: BlockType::Loop,
                 },
                 &mut stack.values,
@@ -183,7 +188,7 @@ fn exec_one(
                     instr_ptr: cf.instr_ptr,
                     end_instr_ptr: cf.instr_ptr + *end_offset,
                     stack_ptr: stack.values.len(), //- params,
-                    args: get_label_args(*args, module)?,
+                    args: LabelArgs::new(*args, module)?,
                     ty: BlockType::Block,
                 },
                 &mut stack.values,
@@ -210,7 +215,7 @@ fn exec_one(
         BrIf(v) => {
             if stack.values.pop_t::<i32>()? > 0 {
                 cf.break_to(*v, &mut stack.values)?
-            };
+            }
         }
 
         Return => match stack.call_stack.is_empty() {
@@ -235,21 +240,22 @@ fn exec_one(
             }
         }
 
-        EndBlockFrame => {
-            let blocks = &mut cf.labels;
-
-            // remove the label from the label stack
-            let Some(block) = blocks.pop() else {
-                panic!("end: no label to end, this should have been validated by the parser");
+        Else(end_offset) => {
+            let Some(block) = cf.labels.pop() else {
+                panic!("else: no label to end, this should have been validated by the parser");
             };
 
             let res_count = block.args.results;
-            info!("we want to keep {} values on the stack", res_count);
-            info!("current block stack ptr: {}", block.stack_ptr);
-            info!("stack: {:?}", stack.values);
+            stack.values.truncate_keep(block.stack_ptr, res_count);
+            cf.instr_ptr += *end_offset;
+        }
 
-            // trim the lable's stack from the stack
-            stack.values.truncate_keep(block.stack_ptr, res_count)
+        EndBlockFrame => {
+            // remove the label from the label stack
+            let Some(block) = cf.labels.pop() else {
+                panic!("end: no label to end, this should have been validated by the parser");
+            };
+            stack.values.truncate_keep(block.stack_ptr, block.args.results)
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),

@@ -18,11 +18,6 @@ impl Labels {
     }
 
     #[inline]
-    pub(crate) fn top(&self) -> Option<&LabelFrame> {
-        self.0.last()
-    }
-
-    #[inline]
     /// get the block at the given index, where 0 is the top of the stack
     pub(crate) fn get_relative_to_top(&self, index: usize) -> Option<&LabelFrame> {
         info!("get block: {}", index);
@@ -64,19 +59,21 @@ pub(crate) enum BlockType {
     Block,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct LabelArgs {
     pub(crate) params: usize,
     pub(crate) results: usize,
 }
 
-pub(crate) fn get_label_args(args: BlockArgs, module: &ModuleInstance) -> Result<LabelArgs> {
-    Ok(match args {
-        BlockArgs::Empty => LabelArgs { params: 0, results: 0 },
-        BlockArgs::Type(_) => LabelArgs { params: 0, results: 1 },
-        BlockArgs::FuncType(t) => LabelArgs {
-            params: module.func_ty(t).params.len(),
-            results: module.func_ty(t).results.len(),
-        },
-    })
+impl LabelArgs {
+    pub(crate) fn new(args: BlockArgs, module: &ModuleInstance) -> Result<Self> {
+        Ok(match args {
+            BlockArgs::Empty => LabelArgs { params: 0, results: 0 },
+            BlockArgs::Type(_) => LabelArgs { params: 0, results: 1 },
+            BlockArgs::FuncType(t) => LabelArgs {
+                params: module.func_ty(t).params.len(),
+                results: module.func_ty(t).results.len(),
+            },
+        })
+    }
 }

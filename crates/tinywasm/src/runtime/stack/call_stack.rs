@@ -91,7 +91,6 @@ impl CallFrame {
     /// Break to a block at the given index (relative to the current frame)
     #[inline]
     pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Result<()> {
-        let current_label = self.labels.top().ok_or(Error::LabelStackUnderflow)?;
         let break_to = self
             .labels
             .get_relative_to_top(break_to_relative as usize)
@@ -109,7 +108,7 @@ impl CallFrame {
                 // we also want to trim the label stack to the loop (but not including the loop)
                 self.labels.truncate(self.labels.len() - break_to_relative as usize);
             }
-            BlockType::Block => {
+            BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.end_instr_ptr;
 
@@ -117,7 +116,6 @@ impl CallFrame {
                 self.labels
                     .truncate(self.labels.len() - (break_to_relative as usize + 1));
             }
-            _ => unimplemented!("break to block type: {:?}", current_label.ty),
         }
 
         // self.instr_ptr = block_frame.instr_ptr;
