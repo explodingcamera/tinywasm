@@ -444,6 +444,9 @@ fn exec_one(
         I64ExtendI32S => conv!(i32, i64, stack),
         I32WrapI64 => conv!(i64, i32, stack),
 
+        F32DemoteF64 => conv!(f64, f32, stack),
+        F64PromoteF32 => conv!(f32, f64, stack),
+
         F32Abs => arithmetic_single!(abs, f32, stack),
         F64Abs => arithmetic_single!(abs, f64, stack),
         F32Neg => arithmetic_single!(neg, f32, stack),

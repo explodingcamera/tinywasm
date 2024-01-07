@@ -181,6 +181,33 @@ impl TestSuite {
                     }
                 }
 
+                Invoke(invoke) => {
+                    let name = invoke.name;
+                    let res: Result<Result<()>, _> = catch_unwind_silent(|| {
+                        let args = invoke
+                            .args
+                            .into_iter()
+                            .map(wastarg2tinywasmvalue)
+                            .collect::<Result<Vec<_>>>()
+                            .map_err(|e| {
+                                error!("failed to convert args: {:?}", e);
+                                e
+                            })?;
+
+                        exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
+                            error!("failed to execute function: {:?}", e);
+                            e
+                        })?;
+                        Ok(())
+                    });
+
+                    let res = res
+                        .map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e)))
+                        .and_then(|r| r);
+
+                    test_group.add_result(&format!("Invoke({}-{})", name, i), span.linecol_in(wast), res);
+                }
+
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
 

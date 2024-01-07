@@ -69,3 +69,6 @@ impl_from_raw_wasm_value!(i32, |x| x as u64, |x| x as i32);
 impl_from_raw_wasm_value!(i64, |x| x as u64, |x| x as i64);
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x| f32::from_bits(x as u32));
 impl_from_raw_wasm_value!(f64, f64::to_bits, f64::from_bits);
+
+impl_from_raw_wasm_value!(i8, |x| x as u64, |x| x as i8);
+impl_from_raw_wasm_value!(i16, |x| x as u64, |x| x as i16);

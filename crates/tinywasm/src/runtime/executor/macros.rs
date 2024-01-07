@@ -40,7 +40,7 @@ macro_rules! mem_store {
         let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
 
-        let val = $stack.values.pop()?.raw_value();
+        let val = $stack.values.pop_t::<$store_type>()?;
         let addr = $stack.values.pop()?.raw_value();
 
         let val = val as $store_type;
