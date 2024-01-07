@@ -2,6 +2,32 @@
 //!
 //! These macros are used to generate the actual instruction implementations.
 
+macro_rules! mem_load {
+    ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        mem_load!($type, $type, $arg, $stack, $store, $module)
+    }};
+
+    ($load_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
+        let mem = $store.get_mem(mem_idx as usize)?;
+
+        let addr = $stack.values.pop()?.raw_value();
+
+        let val: [u8; core::mem::size_of::<$load_type>()] = {
+            let mem = mem.borrow_mut();
+            let val = mem.load(
+                ($arg.offset + addr) as usize,
+                $arg.align as usize,
+                core::mem::size_of::<$load_type>(),
+            )?;
+            val.try_into().expect("slice with incorrect length")
+        };
+
+        let loaded_value = <$load_type>::from_le_bytes(val);
+        $stack.values.push((loaded_value as $target_type).into());
+    }};
+}
+
 /// Convert the top value on the stack to a specific type
 macro_rules! conv_1 {
     ($from:ty, $to:ty, $stack:ident) => {{
@@ -10,6 +36,10 @@ macro_rules! conv_1 {
     }};
 }
 
+/// Doing the actual conversion from float to int is a bit tricky, because
+/// we need to check for overflow. This macro generates the min/max values
+/// for a specific conversion, which are then used in the actual conversion.
+/// Rust sadly doesn't have wrapping casts for floats (yet)
 macro_rules! float_min_max {
     (f32, i32) => {
         (-2147483904.0_f32, 2147483648.0_f32)
@@ -18,22 +48,22 @@ macro_rules! float_min_max {
         (-2147483649.0_f64, 2147483648.0_f64)
     };
     (f32, u32) => {
-        (-1.0_f32, 4294967296.0_f32)
+        (-1.0_f32, 4294967296.0_f32) // 2^32
     };
     (f64, u32) => {
-        (-1.0_f64, 4294967296.0_f64)
+        (-1.0_f64, 4294967296.0_f64) // 2^32
     };
     (f32, i64) => {
-        (-9223373136366403584.0_f32, 9223372036854775808.0_f32)
+        (-9223373136366403584.0_f32, 9223372036854775808.0_f32) // 2^63 + 2^40 | 2^63
     };
     (f64, i64) => {
-        (-9223372036854777856.0_f64, 9223372036854775808.0_f64)
+        (-9223372036854777856.0_f64, 9223372036854775808.0_f64) // 2^63 + 2^40 | 2^63
     };
     (f32, u64) => {
-        (-1.0_f32, 18446744073709551616.0_f32)
+        (-1.0_f32, 18446744073709551616.0_f32) // 2^64
     };
     (f64, u64) => {
-        (-1.0_f64, 18446744073709551616.0_f64)
+        (-1.0_f64, 18446744073709551616.0_f64) // 2^64
     };
     // other conversions are not allowed
     ($from:ty, $to:ty) => {
@@ -212,3 +242,4 @@ pub(super) use comp_zero;
 pub(super) use conv_1;
 pub(super) use conv_2;
 pub(super) use float_min_max;
+pub(super) use mem_load;

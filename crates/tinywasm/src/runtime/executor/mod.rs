@@ -313,20 +313,20 @@ fn exec_one(
                 .store((arg.offset + addr) as usize, arg.align as usize, &val.to_le_bytes())?;
         }
 
-        I32Load(arg) => {
-            let mem_idx = module.resolve_mem_addr(arg.mem_addr);
-            let mem = store.get_mem(mem_idx as usize)?;
-
-            let addr = stack.values.pop()?.raw_value();
-
-            let val: [u8; 4] = {
-                let mem = mem.borrow_mut();
-                let val = mem.load((arg.offset + addr) as usize, arg.align as usize, 4)?;
-                val.try_into().expect("slice with incorrect length")
-            };
-
-            stack.values.push(i32::from_le_bytes(val).into());
-        }
+        I32Load(arg) => mem_load!(i32, arg, stack, store, module),
+        I64Load(arg) => mem_load!(i64, arg, stack, store, module),
+        F32Load(arg) => mem_load!(f32, arg, stack, store, module),
+        F64Load(arg) => mem_load!(f64, arg, stack, store, module),
+        I32Load8S(arg) => mem_load!(i8, i32, arg, stack, store, module),
+        I32Load8U(arg) => mem_load!(u8, i32, arg, stack, store, module),
+        I32Load16S(arg) => mem_load!(i16, i32, arg, stack, store, module),
+        I32Load16U(arg) => mem_load!(u16, i32, arg, stack, store, module),
+        I64Load8S(arg) => mem_load!(i8, i64, arg, stack, store, module),
+        I64Load8U(arg) => mem_load!(u8, i64, arg, stack, store, module),
+        I64Load16S(arg) => mem_load!(i16, i64, arg, stack, store, module),
+        I64Load16U(arg) => mem_load!(u16, i64, arg, stack, store, module),
+        I64Load32S(arg) => mem_load!(i32, i64, arg, stack, store, module),
+        I64Load32U(arg) => mem_load!(u32, i64, arg, stack, store, module),
 
         I64Eqz => comp_zero!(==, i64, stack),
         I32Eqz => comp_zero!(==, i32, stack),
