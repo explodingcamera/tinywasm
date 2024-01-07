@@ -15,8 +15,8 @@ where
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        if self.map.contains_key(&key) {
-            return self.map.insert(key, value);
+        if let std::collections::hash_map::Entry::Occupied(mut e) = self.map.entry(key.clone()) {
+            return Some(e.insert(value));
         }
 
         self.keys.push(key.clone());

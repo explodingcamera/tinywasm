@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO: remove this
+
 use core::{
     cell::RefCell,
     sync::atomic::{AtomicUsize, Ordering},
@@ -5,8 +7,8 @@ use core::{
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemArg,
-    MemoryArch, MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
+    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
+    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
 };
 
 use crate::{
@@ -155,6 +157,7 @@ impl Store {
         idx: ModuleInstanceAddr,
     ) -> Result<Vec<Addr>> {
         // TODO: initialize imported globals
+        #![allow(clippy::unnecessary_filter_map)] // this is cleaner
         let imported_globals = wasm_imports
             .iter()
             .filter_map(|import| match &import.kind {
@@ -170,6 +173,8 @@ impl Store {
                 };
                 match global {
                     Extern::Global(global) => Ok(global),
+
+                    #[allow(unreachable_patterns)] // this is non-exhaustive
                     _ => Err(Error::Other(format!(
                         "expected global import for {}::{}",
                         import.module, import.name
@@ -343,7 +348,7 @@ impl MemoryInstance {
         }
     }
 
-    pub(crate) fn store(&mut self, addr: usize, align: usize, data: &[u8]) -> Result<()> {
+    pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8]) -> Result<()> {
         if addr + data.len() > self.data.len() {
             return Err(Error::Other(format!(
                 "memory store out of bounds: offset={}, len={}, mem_size={}",
@@ -358,7 +363,7 @@ impl MemoryInstance {
         Ok(())
     }
 
-    pub(crate) fn load(&self, addr: usize, align: usize, len: usize) -> Result<&[u8]> {
+    pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
         if addr + len > self.data.len() {
             return Err(Error::Other(format!(
                 "memory load out of bounds: offset={}, len={}, mem_size={}",

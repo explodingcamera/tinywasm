@@ -2,7 +2,6 @@ use core::ops::Range;
 
 use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::vec::Vec;
-use log::info;
 
 // minimum stack size
 pub(crate) const STACK_SIZE: usize = 1024;
@@ -25,11 +24,6 @@ impl Default for ValueStack {
 }
 
 impl ValueStack {
-    #[cfg(test)]
-    pub(crate) fn data(&self) -> &[RawWasmValue] {
-        &self.stack
-    }
-
     #[inline]
     pub(crate) fn extend_from_within(&mut self, range: Range<usize>) {
         self.top += range.len();

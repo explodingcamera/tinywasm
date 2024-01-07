@@ -16,6 +16,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ModuleInstanceInner {
     pub(crate) store_id: usize,
@@ -78,7 +79,7 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
-    pub(crate) fn global_addrs(&self) -> &[GlobalAddr] {
+    pub(crate) fn _global_addrs(&self) -> &[GlobalAddr] {
         &self.0.global_addrs
     }
 
@@ -100,7 +101,7 @@ impl ModuleInstance {
     }
 
     // resolve a table address to the global store address
-    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
+    pub(crate) fn _resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
         self.0.table_addrs[addr as usize]
     }
 

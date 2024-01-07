@@ -97,7 +97,7 @@ impl CallFrame {
             .get_relative_to_top(break_to_relative as usize)
             .ok_or(Error::LabelStackUnderflow)?;
 
-        value_stack.break_to(break_to.stack_ptr, break_to.args.results as usize);
+        value_stack.break_to(break_to.stack_ptr, break_to.args.results);
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr

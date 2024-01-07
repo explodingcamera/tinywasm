@@ -82,8 +82,7 @@ impl TestSuite {
                             })
                             .expect("failed to instantiate module")
                     }))
-                    .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
-                    .and_then(|res| Ok(res));
+                    .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)));
 
                     match &result {
                         Err(_) => last_module = None,
