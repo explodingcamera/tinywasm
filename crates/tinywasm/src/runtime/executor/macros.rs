@@ -2,12 +2,14 @@
 //!
 //! These macros are used to generate the actual instruction implementations.
 
+/// Load a value from memory
 macro_rules! mem_load {
     ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
         mem_load!($type, $type, $arg, $stack, $store, $module)
     }};
 
     ($load_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        // TODO: there could be a lot of performance improvements here
         let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
 
@@ -25,14 +27,6 @@ macro_rules! mem_load {
 
         let loaded_value = <$load_type>::from_le_bytes(val);
         $stack.values.push((loaded_value as $target_type).into());
-    }};
-}
-
-/// Convert the top value on the stack to a specific type
-macro_rules! conv_1 {
-    ($from:ty, $to:ty, $stack:ident) => {{
-        let a: $from = $stack.values.pop()?.into();
-        $stack.values.push((a as $to).into());
     }};
 }
 
@@ -71,75 +65,56 @@ macro_rules! float_min_max {
     };
 }
 
-// Convert a float to an int, checking for overflow
-macro_rules! checked_float_conv_1 {
-    ($from:tt, $to:tt, $stack:ident) => {{
-        let (min, max) = float_min_max!($from, $to);
+/// Convert a value on the stack
+macro_rules! conv {
+    ($from:ty, $intermediate:ty, $to:ty, $stack:ident) => {{
         let a: $from = $stack.values.pop()?.into();
-
-        if a.is_nan() {
-            return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
-        }
-
-        if a <= min || a >= max {
-            return Err(Error::Trap(crate::Trap::IntegerOverflow));
-        }
-
+        $stack.values.push((a as $intermediate as $to).into());
+    }};
+    ($from:ty, $to:ty, $stack:ident) => {{
+        let a: $from = $stack.values.pop()?.into();
         $stack.values.push((a as $to).into());
     }};
 }
 
-// Convert a float to an int, checking for overflow
-macro_rules! checked_float_conv_2 {
-    ($from:tt, $uty:tt, $to:tt, $stack:ident) => {{
-        let (min, max) = float_min_max!($from, $uty);
+/// Convert a value on the stack with error checking
+macro_rules! checked_conv_float {
+    // Direct conversion with error checking (two types)
+    ($from:tt, $to:tt, $stack:ident) => {{
+        checked_conv_float!($from, $to, $to, $stack)
+    }};
+    // Conversion with an intermediate unsigned type and error checking (three types)
+    ($from:tt, $intermediate:tt, $to:tt, $stack:ident) => {{
+        let (min, max) = float_min_max!($from, $intermediate);
         let a: $from = $stack.values.pop()?.into();
 
         if a.is_nan() {
             return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
         }
 
-        log::info!("a: {}", a);
-        log::info!("min: {}", min);
-        log::info!("max: {}", max);
-
         if a <= min || a >= max {
             return Err(Error::Trap(crate::Trap::IntegerOverflow));
         }
 
-        $stack.values.push((a as $uty as $to).into());
-    }};
-}
-
-/// Convert the unsigned value on the top of the stack to a specific type
-macro_rules! conv_2 {
-    ($ty:ty, $uty:ty, $to:ty, $stack:ident) => {{
-        let a: $ty = $stack.values.pop()?.into();
-        $stack.values.push((a as $uty as $to).into());
+        $stack.values.push((a as $intermediate as $to).into());
     }};
 }
 
 /// Compare two values on the stack
 macro_rules! comp {
     ($op:tt, $ty:ty, $stack:ident) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
-        $stack.values.push(((a $op b) as i32).into());
+        comp!($op, $ty, $ty, $stack)
     }};
-}
 
-/// Compare two values on the stack (cast to ty2 before comparison)
-macro_rules! comp_cast {
-    ($op:tt, $ty:ty, $ty2:ty, $stack:ident) => {{
+    ($op:tt, $intermediate:ty, $to:ty, $stack:ident) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
+        let a: $intermediate = a.into();
+        let b: $intermediate = b.into();
 
         // Cast to unsigned type before comparison
-        let a_unsigned: $ty2 = a as $ty2;
-        let b_unsigned: $ty2 = b as $ty2;
-        $stack.values.push(((a_unsigned $op b_unsigned) as i32).into());
+        let a = a as $to;
+        let b = b as $to;
+        $stack.values.push(((a $op b) as i32).into());
     }};
 }
 
@@ -151,27 +126,35 @@ macro_rules! comp_zero {
     }};
 }
 
-/// Apply an arithmetic operation to two values on the stack
-macro_rules! arithmetic_op {
+/// Apply an arithmetic method to two values on the stack
+macro_rules! arithmetic {
+    ($op:ident, $ty:ty, $stack:ident) => {{
+        arithmetic!($op, $ty, $ty, $stack)
+    }};
+
+    // also allow operators such as +, -
     ($op:tt, $ty:ty, $stack:ident) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $ty = a.into();
         let b: $ty = b.into();
         $stack.values.push((a $op b).into());
     }};
-}
 
-macro_rules! arithmetic_method {
-    ($op:ident, $ty:ty, $stack:ident) => {{
+    ($op:ident, $intermediate:ty, $to:ty, $stack:ident) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
+        let a: $to = a.into();
+        let b: $to = b.into();
+
+        let a = a as $intermediate;
+        let b = b as $intermediate;
+
         let result = a.$op(b);
-        $stack.values.push(result.into());
+        $stack.values.push((result as $to).into());
     }};
 }
 
-macro_rules! arithmetic_method_self {
+/// Apply an arithmetic method to a single value on the stack
+macro_rules! arithmetic_single {
     ($op:ident, $ty:ty, $stack:ident) => {{
         let a: $ty = $stack.values.pop()?.into();
         let result = a.$op();
@@ -179,67 +162,34 @@ macro_rules! arithmetic_method_self {
     }};
 }
 
-macro_rules! arithmetic_method_cast {
-    ($op:ident, $ty:ty, $ty2:ty, $stack:ident) => {{
+/// Apply an arithmetic operation to two values on the stack with error checking
+macro_rules! checked_arithmetic {
+    // Direct conversion with error checking (two types)
+    ($from:tt, $to:tt, $stack:ident, $trap:expr) => {{
+        checked_arithmetic!($from, $to, $to, $stack, $trap)
+    }};
+
+    ($op:ident, $from:ty, $to:ty, $stack:ident, $trap:expr) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
+        let a: $from = a.into();
+        let b: $from = b.into();
 
-        // Cast to unsigned type before operation
-        let a_unsigned: $ty2 = a as $ty2;
-        let b_unsigned: $ty2 = b as $ty2;
+        let a_casted: $to = a as $to;
+        let b_casted: $to = b as $to;
 
-        let result = a_unsigned.$op(b_unsigned);
-        $stack.values.push((result as $ty).into());
+        let result = a_casted.$op(b_casted).ok_or_else(|| Error::Trap($trap))?;
+
+        // Cast back to original type if different
+        $stack.values.push((result as $from).into());
     }};
 }
 
-/// Apply an arithmetic operation to two values on the stack
-macro_rules! checked_arithmetic_method {
-    ($op:ident, $ty:ty, $stack:ident, $trap:expr) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
-        let result = a.$op(b).ok_or_else(|| Error::Trap($trap))?;
-        debug!(
-            "checked_arithmetic_method: {}, a: {}, b: {}, res: {}",
-            stringify!($op),
-            a,
-            b,
-            result
-        );
-        $stack.values.push(result.into());
-    }};
-}
-
-/// Apply an arithmetic operation to two values on the stack (cast to ty2 before operation)
-macro_rules! checked_arithmetic_method_cast {
-    ($op:ident, $ty:ty, $ty2:ty, $stack:ident, $trap:expr) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
-
-        // Cast to unsigned type before operation
-        let a_unsigned: $ty2 = a as $ty2;
-        let b_unsigned: $ty2 = b as $ty2;
-
-        let result = a_unsigned.$op(b_unsigned).ok_or_else(|| Error::Trap($trap))?;
-        $stack.values.push((result as $ty).into());
-    }};
-}
-
-pub(super) use arithmetic_method;
-pub(super) use arithmetic_method_cast;
-pub(super) use arithmetic_method_self;
-pub(super) use arithmetic_op;
-pub(super) use checked_arithmetic_method;
-pub(super) use checked_arithmetic_method_cast;
-pub(super) use checked_float_conv_1;
-pub(super) use checked_float_conv_2;
+pub(super) use arithmetic;
+pub(super) use arithmetic_single;
+pub(super) use checked_arithmetic;
+pub(super) use checked_conv_float;
 pub(super) use comp;
-pub(super) use comp_cast;
 pub(super) use comp_zero;
-pub(super) use conv_1;
-pub(super) use conv_2;
+pub(super) use conv;
 pub(super) use float_min_max;
 pub(super) use mem_load;
