@@ -36,17 +36,22 @@ pub(crate) struct ModuleInstanceInner {
 }
 
 impl ModuleInstance {
+    /// Get the module instance's address
+    pub fn id(&self) -> ModuleInstanceAddr {
+        self.0.idx
+    }
+
     /// Instantiate the module in the given store
     pub fn instantiate(store: &mut Store, module: Module, imports: Option<Imports>) -> Result<Self> {
         let idx = store.next_module_instance_idx();
         let imports = imports.unwrap_or_default();
+        let linked_imports = imports.link(store, &module)?;
 
         let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
         let table_addrs = store.add_tables(module.data.table_types.into(), idx);
         let mem_addrs = store.add_mems(module.data.memory_types.into(), idx)?;
-
-        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &imports, idx)?;
-        let elem_addrs = store.add_elems(module.data.elements.into(), idx);
+        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &linked_imports, idx)?;
+        let elem_addrs = store.add_elems(module.data.elements.into(), idx)?;
         let data_addrs = store.add_datas(module.data.data.into(), idx);
 
         let instance = ModuleInstanceInner {

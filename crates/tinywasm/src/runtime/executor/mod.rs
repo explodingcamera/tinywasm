@@ -164,10 +164,6 @@ fn exec_one(
             }
         }
 
-        // Else(_end_offset) => {
-        //     // end the if block
-        //     cf.break_to(0, &mut stack.values)?;
-        // }
         Loop(args, end_offset) => {
             // let params = stack.values.pop_block_params(*args, &module)?;
             cf.enter_label(
@@ -240,6 +236,7 @@ fn exec_one(
             }
         }
 
+        // We're essentially using else as a EndBlockFrame instruction
         Else(end_offset) => {
             let Some(block) = cf.labels.pop() else {
                 panic!("else: no label to end, this should have been validated by the parser");

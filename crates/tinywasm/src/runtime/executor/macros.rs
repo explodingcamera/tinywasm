@@ -1,6 +1,8 @@
 //! More generic macros for various instructions
 //!
 //! These macros are used to generate the actual instruction implementations.
+//! In some basic tests this generated better assembly than using generic functions, even when inlined.
+//! (Something to revisit in the future)
 
 /// Load a value from memory
 macro_rules! mem_load {
@@ -37,6 +39,7 @@ macro_rules! mem_store {
     }};
 
     ($store_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        // likewise, there could be a lot of performance improvements here
         let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
 

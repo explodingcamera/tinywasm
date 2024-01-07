@@ -13,7 +13,7 @@ use tinywasm_types::{
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, Extern, Imports, ModuleInstance, RawWasmValue, Result,
+    Error, Extern, LinkedImports, ModuleInstance, RawWasmValue, Result,
 };
 
 // global store id counter
@@ -153,7 +153,7 @@ impl Store {
         &mut self,
         globals: Vec<Global>,
         wasm_imports: &[Import],
-        user_imports: &Imports,
+        user_imports: &LinkedImports,
         idx: ModuleInstanceAddr,
     ) -> Result<Vec<Addr>> {
         // TODO: initialize imported globals
@@ -191,41 +191,58 @@ impl Store {
         let iterator = imported_globals.into_iter().chain(globals.as_ref());
 
         for (i, global) in iterator.enumerate() {
-            use tinywasm_types::ConstInstruction::*;
-            let val = match global.init {
-                F32Const(f) => RawWasmValue::from(f),
-                F64Const(f) => RawWasmValue::from(f),
-                I32Const(i) => RawWasmValue::from(i),
-                I64Const(i) => RawWasmValue::from(i),
-                GlobalGet(addr) => {
-                    let addr = global_addrs[addr as usize];
-                    let global = self.data.globals[addr as usize].clone();
-                    let val = global.borrow().value;
-                    val
-                }
-                RefNull(_) => RawWasmValue::default(),
-                RefFunc(idx) => RawWasmValue::from(idx as i64),
-            };
-
-            self.data
-                .globals
-                .push(Rc::new(RefCell::new(GlobalInstance::new(global.ty, val, idx))));
-
+            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
+                global.ty,
+                self.eval_const(&global.init)?,
+                idx,
+            ))));
             global_addrs.push((i + global_count) as Addr);
         }
-        log::debug!("global_addrs: {:?}", global_addrs);
+
         Ok(global_addrs)
     }
 
+    pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
+        use tinywasm_types::ConstInstruction::*;
+        let val = match const_instr {
+            F32Const(f) => RawWasmValue::from(*f),
+            F64Const(f) => RawWasmValue::from(*f),
+            I32Const(i) => RawWasmValue::from(*i),
+            I64Const(i) => RawWasmValue::from(*i),
+            GlobalGet(addr) => {
+                let addr = *addr as usize;
+                let global = self.data.globals[addr].clone();
+                let val = global.borrow().value;
+                val
+            }
+            RefNull(_) => RawWasmValue::default(),
+            RefFunc(idx) => RawWasmValue::from(*idx as i64),
+        };
+        Ok(val)
+    }
+
     /// Add elements to the store, returning their addresses in the store
-    pub(crate) fn add_elems(&mut self, elems: Vec<Element>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+    /// Should be called after the tables have been added
+    pub(crate) fn add_elems(&mut self, elems: Vec<Element>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
             self.data.elems.push(ElemInstance::new(elem.kind, idx));
             elem_addrs.push((i + elem_count) as Addr);
+
+            // match elem.kind {
+            //     ElementKind::Active { table, offset } => {
+            //         // let table = self.data.tables[table as usize];
+
+            //         // let offset = self.eval_const(&offset)?;
+            //         // let offset = offset.raw_value() as usize;
+            //         // let offset = offset + elem_addrs[i] as usize;
+            //         // let offset = offset as Addr;
+            //     }
+            // }
         }
-        elem_addrs
+
+        Ok(elem_addrs)
     }
 
     /// Add data to the store, returning their addresses in the store
@@ -313,8 +330,8 @@ pub(crate) struct TableInstance {
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
         Self {
+            elements: vec![0; kind.size_initial as usize],
             kind,
-            elements: Vec::new(),
             owner,
         }
     }

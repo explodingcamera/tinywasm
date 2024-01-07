@@ -8,7 +8,7 @@ use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
-use tinywasm_types::WasmValue;
+use tinywasm_types::{ModuleInstanceAddr, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {
@@ -22,12 +22,18 @@ impl TestSuite {
         Ok(())
     }
 
-    fn imports() -> Result<Imports> {
+    fn imports(registered_modules: Vec<(String, ModuleInstanceAddr)>) -> Result<Imports> {
         let mut imports = Imports::new();
-        imports.define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?;
-        imports.define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?;
-        imports.define("spectest", "global_f32", Extern::global(WasmValue::F32(666.0), false))?;
-        imports.define("spectest", "global_f64", Extern::global(WasmValue::F64(666.0), false))?;
+
+        imports
+            .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
+            .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
+            .define("spectest", "global_f32", Extern::global(WasmValue::F32(666.0), false))?
+            .define("spectest", "global_f64", Extern::global(WasmValue::F64(666.0), false))?;
+
+        for (name, addr) in registered_modules {
+            imports.link_module(&name, addr)?;
+        }
 
         Ok(imports)
     }
@@ -60,6 +66,7 @@ impl TestSuite {
         let wast_data = wast::parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
         let mut store = tinywasm::Store::default();
+        let mut registered_modules = Vec::new();
         let mut last_module: Option<ModuleInstance> = None;
 
         println!("running {} tests for group: {}", wast_data.directives.len(), group_name);
@@ -68,14 +75,29 @@ impl TestSuite {
             use wast::WastDirective::*;
 
             match directive {
+                Register { span, name, .. } => {
+                    let Some(last) = &last_module else {
+                        test_group.add_result(
+                            &format!("Register({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("no module to register")),
+                        );
+                        continue;
+                    };
+
+                    registered_modules.push((name.to_string(), last.id()));
+                    test_group.add_result(&format!("Register({})", i), span.linecol_in(wast), Ok(()));
+                }
+
                 Wat(mut module) => {
-                    debug!("got wat module");
+                    // TODO: modules are not properly isolated from each other - tests fail because of this otherwise
                     store = tinywasm::Store::default();
+                    debug!("got wat module");
                     let result = catch_unwind(AssertUnwindSafe(|| {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
                         tinywasm::Module::from(m)
-                            .instantiate(&mut store, Some(Self::imports().unwrap()))
+                            .instantiate(&mut store, Some(Self::imports(registered_modules.clone()).unwrap()))
                             .map_err(|e| {
                                 println!("failed to instantiate module: {:?}", e);
                                 e
@@ -210,7 +232,6 @@ impl TestSuite {
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
-
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
                         wast::WastExecute::Get { module: _, global: _ } => Err(eyre!("get not supported")),
