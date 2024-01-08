@@ -1,10 +1,10 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use log::info;
 use tinywasm_types::BlockArgs;
 
 use crate::{ModuleInstance, Result};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Labels(Vec<LabelFrame>);
 
 impl Labels {
@@ -13,15 +13,18 @@ impl Labels {
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, block: LabelFrame) {
-        self.0.push(block);
+    pub(crate) fn push(&mut self, label: LabelFrame) {
+        self.0.push(label);
     }
 
     #[inline]
-    /// get the block at the given index, where 0 is the top of the stack
+    /// get the label at the given index, where 0 is the top of the stack
     pub(crate) fn get_relative_to_top(&self, index: usize) -> Option<&LabelFrame> {
-        info!("get block: {}", index);
-        info!("blocks: {:?}", self.0);
+        let len = self.0.len();
+        if index >= len {
+            return None;
+        }
+
         self.0.get(self.0.len() - index - 1)
     }
 

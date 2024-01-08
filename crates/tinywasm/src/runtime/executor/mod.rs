@@ -74,6 +74,24 @@ enum ExecResult {
     Trap(crate::Trap),
 }
 
+// Break to a block at the given index (relative to the current frame)
+// If there is no block at the given index, return or call the parent function
+macro_rules! break_to {
+    ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
+        let res = $cf.break_to(*$break_to_relative, &mut $stack.values);
+        match res {
+            Some(()) => {}
+            None => match $stack.call_stack.is_empty() {
+                true => return Ok(ExecResult::Return),
+                false => {
+                    *$cf = $stack.call_stack.pop()?;
+                    return Ok(ExecResult::Call);
+                }
+            },
+        }
+    }};
+}
+
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
@@ -207,10 +225,10 @@ fn exec_one(
             todo!("br_table");
         }
 
-        Br(v) => cf.break_to(*v, &mut stack.values)?,
+        Br(v) => break_to!(cf, stack, v),
         BrIf(v) => {
             if stack.values.pop_t::<i32>()? > 0 {
-                cf.break_to(*v, &mut stack.values)?
+                break_to!(cf, stack, v);
             }
         }
 

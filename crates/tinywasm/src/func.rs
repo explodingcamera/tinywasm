@@ -57,9 +57,8 @@ impl FuncHandle {
         let call_frame = CallFrame::new(self.addr as usize, params, func_inst.locals().to_vec());
 
         // 7. Push the frame f to the call stack
+        // & 8. Push the values to the stack (Not needed since the call frame owns the values)
         stack.call_stack.push(call_frame);
-
-        // 8. Push the values to the stack (Not needed since the call frame owns the values)
 
         // 9. Invoke the function instance
         let runtime = store.runtime();

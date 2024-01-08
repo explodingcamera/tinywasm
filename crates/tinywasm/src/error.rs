@@ -54,6 +54,9 @@ pub enum Error {
     /// The label stack is empty
     LabelStackUnderflow,
 
+    /// An invalid label type was encountered
+    InvalidLabelType,
+
     /// The call stack is empty
     CallStackEmpty,
 
@@ -72,6 +75,7 @@ impl Display for Error {
 
             Self::Trap(trap) => write!(f, "trap: {:?}", trap),
 
+            Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),

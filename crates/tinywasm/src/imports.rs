@@ -11,8 +11,6 @@ use tinywasm_types::{Global, GlobalType, ModuleInstanceAddr, WasmValue};
 pub enum Extern {
     /// A global value
     Global(Global),
-    /// A registered module
-    Module(String),
     // Func(HostFunc),
     // Table(Table),
 }
