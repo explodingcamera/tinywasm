@@ -13,7 +13,14 @@ pub enum Trap {
     Unreachable,
 
     /// An out-of-bounds memory access occurred
-    MemoryOutOfBounds,
+    MemoryOutOfBounds {
+        /// The offset of the access
+        offset: usize,
+        /// The size of the access
+        len: usize,
+        /// The maximum size of the memory
+        max: usize,
+    },
 
     /// A division by zero occurred
     DivisionByZero,

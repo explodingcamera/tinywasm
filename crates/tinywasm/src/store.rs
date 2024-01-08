@@ -337,7 +337,7 @@ impl TableInstance {
     }
 }
 
-pub(crate) const PAGE_SIZE: usize = 64_000;
+pub(crate) const PAGE_SIZE: usize = 65536;
 pub(crate) const MAX_PAGES: usize = 65536;
 pub(crate) const MAX_SIZE: usize = PAGE_SIZE * MAX_PAGES;
 
@@ -366,35 +366,51 @@ impl MemoryInstance {
     }
 
     pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8]) -> Result<()> {
-        if addr + data.len() > self.data.len() {
-            return Err(Error::Other(format!(
-                "memory store out of bounds: offset={}, len={}, mem_size={}",
-                addr,
-                data.len(),
-                self.data.len()
-            )));
+        let end = addr.checked_add(data.len()).ok_or_else(|| {
+            Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: addr,
+                len: data.len(),
+                max: self.data.len(),
+            })
+        })?;
+
+        if end > self.data.len() || end < addr {
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: addr,
+                len: data.len(),
+                max: self.data.len(),
+            }));
         }
 
         // WebAssembly doesn't require alignment for stores
-        self.data[addr..addr + data.len()].copy_from_slice(data);
+        self.data[addr..end].copy_from_slice(data);
         Ok(())
     }
 
     pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
-        if addr + len > self.data.len() {
-            return Err(Error::Other(format!(
-                "memory load out of bounds: offset={}, len={}, mem_size={}",
-                addr,
+        let end = addr.checked_add(len).ok_or_else(|| {
+            Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: addr,
                 len,
-                self.data.len()
-            )));
+                max: self.data.len(),
+            })
+        })?;
+
+        if end > self.data.len() {
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: addr,
+                len,
+                max: self.data.len(),
+            }));
         }
 
         // WebAssembly doesn't require alignment for loads
-        Ok(&self.data[addr..addr + len])
+        Ok(&self.data[addr..end])
     }
 
     pub(crate) fn size(&self) -> i32 {
+        log::debug!("memory pages: {}", self.page_count);
+        log::debug!("memory size: {}", self.page_count * PAGE_SIZE);
         self.page_count as i32
     }
 

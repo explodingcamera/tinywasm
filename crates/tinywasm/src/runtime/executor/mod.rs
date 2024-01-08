@@ -238,7 +238,7 @@ fn exec_one(
 
         EndFunc => {
             debug_assert!(
-                cf.labels.len() > 0,
+                cf.labels.len() == 0,
                 "endfunc: block frames not empty, this should have been validated by the parser"
             );
 

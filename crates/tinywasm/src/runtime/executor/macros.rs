@@ -35,6 +35,8 @@ macro_rules! mem_load {
 /// Store a value to memory
 macro_rules! mem_store {
     ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+        log::debug!("mem_store!({}, {:?})", stringify!($type), $arg);
+
         mem_store!($type, $type, $arg, $stack, $store, $module)
     }};
 
