@@ -1,5 +1,4 @@
-use alloc::{vec, vec::Vec};
-use log::info;
+use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
 use crate::{ModuleInstance, Result};

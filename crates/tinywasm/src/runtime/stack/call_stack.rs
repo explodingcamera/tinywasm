@@ -89,13 +89,10 @@ impl CallFrame {
     }
 
     /// Break to a block at the given index (relative to the current frame)
-    /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is validated by the parser)
+    /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     #[inline]
     pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Option<()> {
-        let Some(break_to) = self.labels.get_relative_to_top(break_to_relative as usize) else {
-            return None;
-        };
-
+        let break_to = self.labels.get_relative_to_top(break_to_relative as usize)?;
         value_stack.break_to(break_to.stack_ptr, break_to.args.results);
 
         // instr_ptr points to the label instruction, but the next step

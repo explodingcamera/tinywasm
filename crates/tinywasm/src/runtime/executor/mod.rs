@@ -35,6 +35,7 @@ impl DefaultRuntime {
             match exec_one(&mut cf, instr, instrs, stack, store, &module)? {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
+                    cf = stack.call_stack.pop()?;
                     func = store.get_func(cf.func_ptr)?.clone();
                     instrs = func.instructions();
                     continue;
@@ -76,18 +77,17 @@ enum ExecResult {
 
 // Break to a block at the given index (relative to the current frame)
 // If there is no block at the given index, return or call the parent function
+//
+// This is a bit hard to see from the spec, but it's vaild to use breaks to return
+// from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
     ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
-        let res = $cf.break_to(*$break_to_relative, &mut $stack.values);
-        match res {
-            Some(()) => {}
-            None => match $stack.call_stack.is_empty() {
-                true => return Ok(ExecResult::Return),
-                false => {
-                    *$cf = $stack.call_stack.pop()?;
-                    return Ok(ExecResult::Call);
-                }
-            },
+        if $cf.break_to(*$break_to_relative, &mut $stack.values).is_none() {
+            if $stack.call_stack.is_empty() {
+                return Ok(ExecResult::Return);
+            } else {
+                return Ok(ExecResult::Call);
+            }
         }
     }};
 }
@@ -143,8 +143,6 @@ fn exec_one(
             stack.call_stack.push(call_frame);
 
             // call the function
-            *cf = stack.call_stack.pop()?;
-            debug!("calling: {:?}", func);
             return Ok(ExecResult::Call);
         }
 
@@ -221,6 +219,7 @@ fn exec_one(
             if instr.len() != *len {
                 panic!("Expected {} BrLabel instructions, got {}", len, instr.len());
             }
+            cf.instr_ptr += *len;
 
             todo!("br_table");
         }
@@ -234,27 +233,22 @@ fn exec_one(
 
         Return => match stack.call_stack.is_empty() {
             true => return Ok(ExecResult::Return),
-            false => {
-                *cf = stack.call_stack.pop()?;
-                return Ok(ExecResult::Call);
-            }
+            false => return Ok(ExecResult::Call),
         },
 
         EndFunc => {
-            if cf.labels.len() > 0 {
-                panic!("endfunc: block frames not empty, this should have been validated by the parser");
-            }
+            debug_assert!(
+                cf.labels.len() > 0,
+                "endfunc: block frames not empty, this should have been validated by the parser"
+            );
 
             match stack.call_stack.is_empty() {
                 true => return Ok(ExecResult::Return),
-                false => {
-                    *cf = stack.call_stack.pop()?;
-                    return Ok(ExecResult::Call);
-                }
+                false => return Ok(ExecResult::Call),
             }
         }
 
-        // We're essentially using else as a EndBlockFrame instruction
+        // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
             let Some(block) = cf.labels.pop() else {
                 panic!("else: no label to end, this should have been validated by the parser");

@@ -84,7 +84,8 @@ impl Imports {
         Ok(self)
     }
 
-    pub(crate) fn link(self, store: &mut crate::Store, module: &crate::Module) -> Result<LinkedImports> {
+    pub(crate) fn link(self, _store: &mut crate::Store, _module: &crate::Module) -> Result<LinkedImports> {
+        // TODO: link to other modules (currently only direct imports are supported)
         let values = self.values;
         Ok(LinkedImports { values })
     }
