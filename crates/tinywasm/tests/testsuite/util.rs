@@ -64,7 +64,7 @@ pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {
 
 pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
     let wast::WastArg::Core(arg) = arg else {
-        return Err(eyre!("unsupported arg type"));
+        return Err(eyre!("unsupported arg type: Component"));
     };
 
     use wast::core::WastArgCore::*;
@@ -73,7 +73,13 @@ pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmV
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        _ => return Err(eyre!("unsupported arg type")),
+        // RefExtern(v) => WasmValue::RefExtern(v),
+        RefNull(t) => WasmValue::RefNull(match t {
+            wast::core::HeapType::Func => tinywasm_types::ValType::FuncRef,
+            wast::core::HeapType::Extern => tinywasm_types::ValType::ExternRef,
+            _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
+        }),
+        v => return Err(eyre!("unsupported arg type: {:?}", v)),
     })
 }
 

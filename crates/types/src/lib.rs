@@ -88,6 +88,9 @@ pub enum WasmValue {
     F64(f64),
     // Vec types
     // V128(i128),
+    // RefExtern(ExternAddr),
+    // RefHost(FuncAddr),
+    RefNull(ValType),
 }
 
 impl WasmValue {
@@ -97,6 +100,9 @@ impl WasmValue {
             Self::I64(i) => ConstInstruction::I64Const(*i),
             Self::F32(i) => ConstInstruction::F32Const(*i),
             Self::F64(i) => ConstInstruction::F64Const(*i),
+            Self::RefNull(ty) => ConstInstruction::RefNull(*ty),
+            // Self::RefExtern(addr) => ConstInstruction::RefExtern(*addr),
+            // _ => unimplemented!("const_instr for {:?}", self),
         }
     }
 
@@ -217,6 +223,7 @@ impl Debug for WasmValue {
             WasmValue::I64(i) => write!(f, "i64({})", i),
             WasmValue::F32(i) => write!(f, "f32({})", i),
             WasmValue::F64(i) => write!(f, "f64({})", i),
+            WasmValue::RefNull(ty) => write!(f, "ref.null({:?})", ty),
             // WasmValue::V128(i) => write!(f, "v128({})", i),
         }
     }
@@ -230,6 +237,7 @@ impl WasmValue {
             Self::I64(_) => ValType::I64,
             Self::F32(_) => ValType::F32,
             Self::F64(_) => ValType::F64,
+            Self::RefNull(ty) => *ty,
             // Self::V128(_) => ValType::V128,
         }
     }

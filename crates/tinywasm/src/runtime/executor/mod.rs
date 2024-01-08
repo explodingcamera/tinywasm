@@ -207,7 +207,7 @@ fn exec_one(
             );
         }
 
-        BrTable(_default, len) => {
+        BrTable(default, len) => {
             let instr = instrs[cf.instr_ptr + 1..cf.instr_ptr + 1 + *len]
                 .iter()
                 .map(|i| match i {
@@ -219,9 +219,13 @@ fn exec_one(
             if instr.len() != *len {
                 panic!("Expected {} BrLabel instructions, got {}", len, instr.len());
             }
-            cf.instr_ptr += *len;
 
-            todo!("br_table");
+            let idx = stack.values.pop_t::<i32>()? as usize;
+            if let Some(label) = instr.get(idx) {
+                break_to!(cf, stack, label);
+            } else {
+                break_to!(cf, stack, default);
+            }
         }
 
         Br(v) => break_to!(cf, stack, v),
