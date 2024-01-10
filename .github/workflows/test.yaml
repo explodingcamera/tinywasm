@@ -20,10 +20,10 @@ jobs:
           rustup default stable
 
       - name: Build (stable)
-        run: cargo +stable build --verbose
+        run: cargo +stable build --all
 
       - name: Run tests (stable)
-        run: cargo +stable test --verbose
+        run: cargo +stable test --all
 
   test-no-std:
     name: Test without default features on nightly Rust
@@ -37,7 +37,7 @@ jobs:
           rustup default nightly
 
       - name: Build (nightly, no default features)
-        run: cargo +nightly build --verbose --no-default-features
+        run: cargo +nightly build --all --no-default-features
 
       - name: Run tests (nightly, no default features)
-        run: cargo +nightly test --verbose --no-default-features
+        run: cargo +nightly test --all --no-default-features

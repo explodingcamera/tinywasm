@@ -8,8 +8,12 @@ mod testsuite;
 
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
-    if args.len() < 2 {
-        bail!("usage: cargo test-wast <wast-file>")
+    if args.len() < 2 || args[1] != "--enable" {
+        return Ok(());
+    }
+
+    if args.len() < 3 {
+        bail!("usage: cargo test-wast <wast-file>");
     }
 
     // cwd for relative paths, absolute paths are kept as-is
@@ -22,7 +26,7 @@ fn main() -> Result<()> {
         PathBuf::from("./")
     };
 
-    wast_file.push(&args[1]);
+    wast_file.push(&args[2]);
     let wast_file = cwd.join(wast_file);
 
     test_wast(wast_file.to_str().expect("wast_file is not a valid path"))?;

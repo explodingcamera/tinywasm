@@ -10,6 +10,7 @@ extern crate alloc;
 #[allow(clippy::single_component_path_imports)]
 use log;
 
+// noop fallback if logging is disabled.
 #[cfg(not(feature = "logging"))]
 mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );

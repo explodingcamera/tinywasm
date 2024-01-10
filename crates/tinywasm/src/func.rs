@@ -19,7 +19,7 @@ pub struct FuncHandle {
 }
 
 impl FuncHandle {
-    /// Call a function
+    /// Call a function (Invocation)
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
@@ -66,8 +66,14 @@ impl FuncHandle {
 
         // Once the function returns:
         let result_m = func_ty.results.len();
+
+        // 1. Assert: m values are on the top of the stack (Ensured by validation)
+        debug_assert!(stack.values.len() >= result_m);
+
+        // 2. Pop m values from the stack
         let res = stack.values.last_n(result_m)?;
 
+        // The values are returned as the results of the invocation.
         Ok(res
             .iter()
             .zip(func_ty.results.iter())

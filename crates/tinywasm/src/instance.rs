@@ -42,16 +42,30 @@ impl ModuleInstance {
     }
 
     /// Instantiate the module in the given store
+    ///
+    /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate(store: &mut Store, module: Module, imports: Option<Imports>) -> Result<Self> {
+        // This doesn't completely follow the steps in the spec, but the end result is the same
+        // Constant expressions are evaluated directly where they are used, so we
+        // don't need to create a auxiliary frame etc.
+
         let idx = store.next_module_instance_idx();
         let imports = imports.unwrap_or_default();
-        let linked_imports = imports.link(store, &module)?;
 
+        // TODO: doesn't link other modules yet
+        let linked_imports = imports.link(store, &module)?;
+        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &linked_imports, idx)?;
+
+        // TODO: imported functions missing
         let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
+
         let table_addrs = store.add_tables(module.data.table_types.into(), idx);
         let mem_addrs = store.add_mems(module.data.memory_types.into(), idx)?;
-        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &linked_imports, idx)?;
+
+        // TODO: active/declared elems need to be initialized
         let elem_addrs = store.add_elems(module.data.elements.into(), idx)?;
+
+        // TODO: active data segments need to be initialized
         let data_addrs = store.add_datas(module.data.data.into(), idx);
 
         let instance = ModuleInstanceInner {
@@ -70,8 +84,10 @@ impl ModuleInstance {
             imports: module.data.imports,
             exports: crate::ExportInstance(module.data.exports),
         };
+
         let instance = ModuleInstance::new(instance);
         store.add_instance(instance.clone())?;
+
         Ok(instance)
     }
 
@@ -176,13 +192,18 @@ impl ModuleInstance {
             }
         };
 
-        let func_addr = self.0.func_addrs[func_index as usize];
-        let func = store.get_func(func_addr as usize)?;
+        let func_addr = self
+            .0
+            .func_addrs
+            .get(func_index as usize)
+            .expect("No func addr for start func, this is a bug");
+
+        let func = store.get_func(*func_addr as usize)?;
         let ty = self.0.types[func.ty_addr() as usize].clone();
 
         Ok(Some(FuncHandle {
             module: self.clone(),
-            addr: func_addr,
+            addr: *func_addr,
             ty,
             name: None,
         }))

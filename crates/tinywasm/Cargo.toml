@@ -19,7 +19,7 @@ tinywasm-types={version="0.2.0-alpha.0", path="../types", default-features=false
 
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}
-wast={version="69.0"}
+wast={version="70.0"}
 owo-colors={version="4.0"}
 eyre={version="0.6"}
 serde_json={version="1.0"}

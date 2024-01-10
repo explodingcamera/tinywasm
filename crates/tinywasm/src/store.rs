@@ -227,19 +227,28 @@ impl Store {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
+            match elem.kind {
+                // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
+                ElementKind::Passive => {}
+
+                // this one is active, so we need to initialize it (essentially a `table.init` instruction)
+                ElementKind::Active { .. } => {
+                    // a. Let n be the length of the vector elem[i].init
+                    // b. Execute the instruction sequence einstrs
+                    // c. Execute the instruction i32.const 0
+                    // d. Execute the instruction i32.const n
+                    // e. Execute the instruction table.init tableidx i
+                    // f. Execute the instruction elm.drop i
+                }
+
+                // this one is not available to the runtime but needs to be initialized to declare references
+                ElementKind::Declared => {
+                    // a. Execute the instruction elm.drop i
+                }
+            }
+
             self.data.elems.push(ElemInstance::new(elem.kind, idx));
             elem_addrs.push((i + elem_count) as Addr);
-
-            // match elem.kind {
-            //     ElementKind::Active { table, offset } => {
-            //         // let table = self.data.tables[table as usize];
-
-            //         // let offset = self.eval_const(&offset)?;
-            //         // let offset = offset.raw_value() as usize;
-            //         // let offset = offset + elem_addrs[i] as usize;
-            //         // let offset = offset as Addr;
-            //     }
-            // }
         }
 
         Ok(elem_addrs)
@@ -252,6 +261,20 @@ impl Store {
         for (i, data) in datas.into_iter().enumerate() {
             self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
             data_addrs.push((i + data_count) as Addr);
+
+            use tinywasm_types::DataKind::*;
+            match data.kind {
+                Active { .. } => {
+                    // a. Assert: memidx == 0
+                    // b. Let n be the length of the vector
+                    // c. Execute the instruction sequence
+                    // d. Execute the instruction
+                    // e. Execute the instruction
+                    // f. Execute the instruction
+                    // g. Execute the instruction
+                }
+                Passive => {}
+            }
         }
         data_addrs
     }

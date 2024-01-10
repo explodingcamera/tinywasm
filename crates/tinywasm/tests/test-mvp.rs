@@ -4,6 +4,11 @@ use owo_colors::OwoColorize;
 use testsuite::TestSuite;
 
 fn main() -> Result<()> {
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() < 2 || args[1] != "--enable" {
+        return Ok(());
+    }
+
     test_mvp()
 }
 

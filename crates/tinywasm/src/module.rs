@@ -55,9 +55,7 @@ impl Module {
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate(self, store: &mut Store, imports: Option<Imports>) -> Result<ModuleInstance> {
         let instance = ModuleInstance::instantiate(store, self, imports)?;
-
-        // TODO: this currently panics if theres no start fn
-        // let _ = instance.start(store)?;
+        let _ = instance.start(store)?;
         Ok(instance)
     }
 }

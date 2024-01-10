@@ -43,7 +43,7 @@
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.get_func` to get an untyped handle
 //! // that takes and returns WasmValue types
-//! let func = instance.get_typed_func::<(i32, i32), (i32,)>(&mut store, "add")?;
+//! let func = instance.typed_func::<(i32, i32), (i32,)>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
 //! assert_eq!(res, (3,));
@@ -60,7 +60,7 @@
 //! a custom allocator. This removes support for parsing from files and streams,
 //! but otherwise the API is the same.
 //!
-//! Additionally, if you want proper error types, you must use a `nightly` compiler.
+//! Additionally, if you want proper error types, you must use a `nightly` compiler to have the error trait in core.
 
 mod std;
 extern crate alloc;
@@ -70,6 +70,7 @@ extern crate alloc;
 #[allow(clippy::single_component_path_imports)]
 use log;
 
+// noop fallback if logging is disabled.
 #[cfg(not(feature = "logging"))]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );

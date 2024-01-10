@@ -95,7 +95,7 @@ impl TestSuite {
                     debug!("got wat module");
                     let result = catch_unwind(AssertUnwindSafe(|| {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
-                            .expect("failed to parse module");
+                            .expect("failed to parse module bytes");
                         tinywasm::Module::from(m)
                             .instantiate(&mut store, Some(Self::imports(registered_modules.clone()).unwrap()))
                             .map_err(|e| {
@@ -104,7 +104,7 @@ impl TestSuite {
                             })
                             .expect("failed to instantiate module")
                     }))
-                    .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)));
+                    .map_err(|e| eyre!("failed to parse wat module: {:?}", try_downcast_panic(e)));
 
                     match &result {
                         Err(_) => last_module = None,
@@ -129,7 +129,7 @@ impl TestSuite {
                     };
 
                     let res = catch_unwind_silent(|| parse_module_bytes(&module))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
+                        .map_err(|e| eyre!("failed to parse module (expected): {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
 
                     test_group.add_result(
@@ -148,7 +148,7 @@ impl TestSuite {
                     message: _,
                 } => {
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
-                        .map_err(|e| eyre!("failed to parse module: {:?}", try_downcast_panic(e)))
+                        .map_err(|e| eyre!("failed to parse module (invalid): {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
 
                     test_group.add_result(
@@ -164,11 +164,18 @@ impl TestSuite {
                 AssertTrap { exec, message: _, span } => {
                     let res: Result<tinywasm::Result<()>, _> = catch_unwind_silent(|| {
                         let (module, name, args) = match exec {
-                            wast::WastExecute::Wat(_wat) => {
-                                panic!("wat not supported");
+                            wast::WastExecute::Wat(mut wat) => {
+                                let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
+                                    .expect("failed to parse module");
+                                let module = tinywasm::Module::from(module);
+                                module.instantiate(
+                                    &mut store,
+                                    Some(Self::imports(registered_modules.clone()).unwrap()),
+                                )?;
+                                return Ok(());
                             }
                             wast::WastExecute::Get { module: _, global: _ } => {
-                                panic!("wat not supported");
+                                panic!("get not supported");
                             }
                             wast::WastExecute::Invoke(invoke) => (last_module.as_ref(), invoke.name, invoke.args),
                         };
