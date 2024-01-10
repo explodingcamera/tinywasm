@@ -22,10 +22,10 @@ jobs:
           rustup default stable
 
       - name: Build (stable)
-        run: cargo +stable build --all
+        run: cargo +stable build --workspace --exclude wasm-testsuite
 
       - name: Run tests (stable)
-        run: cargo +stable test --all
+        run: cargo +stable test --workspace --exclude wasm-testsuite
 
   test-no-std:
     name: Test without default features on nightly Rust
@@ -39,7 +39,7 @@ jobs:
           rustup default nightly
 
       - name: Build (nightly, no default features)
-        run: cargo +nightly build --all --no-default-features
+        run: cargo +nightly build --workspace --exclude wasm-testsuite --no-default-features
 
       - name: Run tests (nightly, no default features)
-        run: cargo +nightly test --all --no-default-features
+        run: cargo +nightly test --workspace --exclude wasm-testsuite --no-default-features
