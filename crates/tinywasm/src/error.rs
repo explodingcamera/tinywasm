@@ -22,6 +22,16 @@ pub enum Trap {
         max: usize,
     },
 
+    /// An out-of-bounds table access occurred
+    TableOutOfBounds {
+        /// The offset of the access
+        offset: usize,
+        /// The size of the access
+        len: usize,
+        /// The maximum size of the memory
+        max: usize,
+    },
+
     /// A division by zero occurred
     DivisionByZero,
 

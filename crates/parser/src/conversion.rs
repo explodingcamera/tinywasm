@@ -307,7 +307,7 @@ pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstructi
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))), // TODO: check if this is correct
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!(
-            "Unsupported instruction: {:?}",
+            "Unsupported const instruction: {:?}",
             op
         ))),
     }
@@ -587,6 +587,16 @@ pub fn process_operators<'a>(
             I64TruncSatF32U => Instruction::I64TruncSatF32U,
             I64TruncSatF64S => Instruction::I64TruncSatF64S,
             I64TruncSatF64U => Instruction::I64TruncSatF64U,
+            TableGet { table } => Instruction::TableGet(table),
+            TableSet { table } => Instruction::TableSet(table),
+            TableInit { table, elem_index } => Instruction::TableInit(table, elem_index),
+            TableCopy { src_table, dst_table } => Instruction::TableCopy {
+                from: src_table,
+                to: dst_table,
+            },
+            TableGrow { table } => Instruction::TableGrow(table),
+            TableSize { table } => Instruction::TableSize(table),
+            TableFill { table } => Instruction::TableFill(table),
             op => {
                 log::error!("Unsupported instruction: {:?}", op);
                 return Err(crate::ParseError::UnsupportedOperator(format!(

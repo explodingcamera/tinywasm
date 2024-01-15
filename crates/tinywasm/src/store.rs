@@ -242,45 +242,38 @@ impl Store {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
+            let init = elem
+                .items
+                .iter()
+                .map(|item| {
+                    item.addr().ok_or_else(|| {
+                        Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+
             let items = match elem.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
-                ElementKind::Passive => None,
-                // TODO: ElementKind::Passive => Some(elem.items.iter().map(|item| item.addr()).collect()),
-
-                // this one is active, so we need to initialize it (essentially a `table.init` instruction)
-                ElementKind::Active { offset, table } => {
-                    let init = elem
-                        .items
-                        .iter()
-                        .map(|item| {
-                            item.addr().ok_or_else(|| {
-                                Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
-                            })
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-
-                    // a. Let n be the length of the vector elem[i].init
-                    let n = elem.items.len();
-
-                    // b. Execute the instruction sequence einstrs
-                    let table_idx = self.eval_i32_const(&offset)? as usize;
-
-                    // c. Execute the instruction i32.const 0
-                    let elem_idx = 0;
-
-                    // d. Execute the instruction i32.const n
-                    let elem_count = n;
-
-                    // e. Execute the instruction table.init tableidx i
-                    // self.data.tables[table_idx].elements[elem_idx..elem_count].copy_from_slice(&init);
-
-                    // f. Execute the instruction elm.drop i
-                    None
-                }
+                ElementKind::Passive => Some(init),
 
                 // this one is not available to the runtime but needs to be initialized to declare references
                 ElementKind::Declared => {
                     // a. Execute the instruction elm.drop i
+                    None
+                }
+
+                // this one is active, so we need to initialize it (essentially a `table.init` instruction)
+                ElementKind::Active { offset, table } => {
+                    let offset = self.eval_i32_const(&offset)?;
+
+                    // a. Let n be the length of the vector elem[i].init
+                    // b. Execute the instruction sequence einstrs
+                    // c. Execute the instruction i32.const 0
+                    // d. Execute the instruction i32.const n
+                    // e. Execute the instruction table.init tableidx i
+                    self.data.tables[table as usize].init(offset, &init)?;
+
+                    // f. Execute the instruction elm.drop i
                     None
                 }
             };
@@ -395,6 +388,28 @@ impl TableInstance {
             kind,
             owner,
         }
+    }
+
+    pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
+        let offset = offset as usize;
+        let end = offset.checked_add(init.len()).ok_or_else(|| {
+            Error::Trap(crate::Trap::TableOutOfBounds {
+                offset,
+                len: init.len(),
+                max: self.elements.len(),
+            })
+        })?;
+
+        if end > self.elements.len() || end < offset {
+            return Err(Error::Trap(crate::Trap::TableOutOfBounds {
+                offset,
+                len: init.len(),
+                max: self.elements.len(),
+            }));
+        }
+
+        self.elements[offset..end].copy_from_slice(init);
+        Ok(())
     }
 }
 

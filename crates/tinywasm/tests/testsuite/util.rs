@@ -73,7 +73,7 @@ pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmV
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        // RefExtern(v) => WasmValue::RefExtern(v),
+        RefExtern(v) => WasmValue::RefExtern(v),
         RefNull(t) => WasmValue::RefNull(match t {
             wast::core::HeapType::Func => tinywasm_types::ValType::FuncRef,
             wast::core::HeapType::Extern => tinywasm_types::ValType::ExternRef,

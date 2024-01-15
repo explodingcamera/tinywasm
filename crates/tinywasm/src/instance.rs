@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
 use tinywasm_types::{
-    DataAddr, ElmAddr, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr, TableAddr,
+    DataAddr, ElemAddr, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr, TableAddr,
 };
 
 use crate::{
@@ -27,7 +27,7 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) table_addrs: Vec<TableAddr>,
     pub(crate) mem_addrs: Vec<MemAddr>,
     pub(crate) global_addrs: Vec<GlobalAddr>,
-    pub(crate) elem_addrs: Vec<ElmAddr>,
+    pub(crate) elem_addrs: Vec<ElemAddr>,
     pub(crate) data_addrs: Vec<DataAddr>,
 
     pub(crate) func_start: Option<FuncAddr>,
