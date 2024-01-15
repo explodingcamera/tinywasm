@@ -202,6 +202,21 @@ impl Store {
         Ok(global_addrs)
     }
 
+    pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
+        use tinywasm_types::ConstInstruction::*;
+        let val = match const_instr {
+            I32Const(i) => *i,
+            GlobalGet(addr) => {
+                let addr = *addr as usize;
+                let global = self.data.globals[addr].clone();
+                let val = global.borrow().value;
+                i32::from(val)
+            }
+            _ => return Err(Error::Other("expected i32".to_string())),
+        };
+        Ok(val)
+    }
+
     pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
@@ -227,27 +242,50 @@ impl Store {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
-            match elem.kind {
+            let items = match elem.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
-                ElementKind::Passive => {}
+                ElementKind::Passive => None,
+                // TODO: ElementKind::Passive => Some(elem.items.iter().map(|item| item.addr()).collect()),
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
-                ElementKind::Active { .. } => {
+                ElementKind::Active { offset, table } => {
+                    let init = elem
+                        .items
+                        .iter()
+                        .map(|item| {
+                            item.addr().ok_or_else(|| {
+                                Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
+                            })
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+
                     // a. Let n be the length of the vector elem[i].init
+                    let n = elem.items.len();
+
                     // b. Execute the instruction sequence einstrs
+                    let table_idx = self.eval_i32_const(&offset)? as usize;
+
                     // c. Execute the instruction i32.const 0
+                    let elem_idx = 0;
+
                     // d. Execute the instruction i32.const n
+                    let elem_count = n;
+
                     // e. Execute the instruction table.init tableidx i
+                    // self.data.tables[table_idx].elements[elem_idx..elem_count].copy_from_slice(&init);
+
                     // f. Execute the instruction elm.drop i
+                    None
                 }
 
                 // this one is not available to the runtime but needs to be initialized to declare references
                 ElementKind::Declared => {
                     // a. Execute the instruction elm.drop i
+                    None
                 }
-            }
+            };
 
-            self.data.elems.push(ElemInstance::new(elem.kind, idx));
+            self.data.elems.push(ElemInstance::new(elem.kind, idx, items));
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -377,7 +415,7 @@ pub(crate) struct MemoryInstance {
 
 impl MemoryInstance {
     pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
-        debug_assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
+        assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
         log::debug!("initializing memory with {} pages", kind.page_count_initial);
 
         Self {
@@ -480,12 +518,13 @@ impl GlobalInstance {
 #[derive(Debug)]
 pub(crate) struct ElemInstance {
     kind: ElementKind,
+    items: Option<Vec<u32>>,   // none is the element was dropped
     owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl ElemInstance {
-    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr) -> Self {
-        Self { kind, owner }
+    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
+        Self { kind, owner, items }
     }
 }
 

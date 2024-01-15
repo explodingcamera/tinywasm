@@ -434,3 +434,14 @@ pub enum ElementItem {
     Func(FuncAddr),
     Expr(ConstInstruction),
 }
+
+impl ElementItem {
+    pub fn addr(&self) -> Option<FuncAddr> {
+        match self {
+            Self::Func(addr) => Some(*addr),
+            Self::Expr(ConstInstruction::RefFunc(addr)) => Some(*addr),
+            Self::Expr(ConstInstruction::RefNull(_ty)) => Some(0),
+            _ => None,
+        }
+    }
+}

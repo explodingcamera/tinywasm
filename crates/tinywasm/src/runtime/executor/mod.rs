@@ -7,7 +7,6 @@ use crate::{
     CallFrame, Error, LabelArgs, ModuleInstance, Result, Store,
 };
 use alloc::vec::Vec;
-use log::info;
 use tinywasm_types::Instruction;
 
 mod macros;
@@ -104,7 +103,7 @@ fn exec_one(
     store: &mut Store,
     module: &ModuleInstance,
 ) -> Result<ExecResult> {
-    info!("ptr: {} instr: {:?}", cf.instr_ptr, instr);
+    debug!("ptr: {} instr: {:?}", cf.instr_ptr, instr);
 
     use tinywasm_types::Instruction::*;
     match instr {
@@ -217,7 +216,11 @@ fn exec_one(
                 .collect::<Result<Vec<_>>>()?;
 
             if instr.len() != *len {
-                panic!("Expected {} BrLabel instructions, got {}", len, instr.len());
+                panic!(
+                    "Expected {} BrLabel instructions, got {}, this should have been validated by the parser",
+                    len,
+                    instr.len()
+                );
             }
 
             let idx = stack.values.pop_t::<i32>()? as usize;
@@ -241,7 +244,7 @@ fn exec_one(
         },
 
         EndFunc => {
-            debug_assert!(
+            assert!(
                 cf.labels.len() == 0,
                 "endfunc: block frames not empty, this should have been validated by the parser"
             );
@@ -499,7 +502,10 @@ fn exec_one(
 
         i => {
             log::error!("unimplemented instruction: {:?}", i);
-            panic!("Unimplemented instruction: {:?}", i)
+            return Err(Error::UnsupportedFeature(alloc::format!(
+                "unimplemented instruction: {:?}",
+                i
+            )));
         }
     };
 

@@ -68,7 +68,7 @@ impl FuncHandle {
         let result_m = func_ty.results.len();
 
         // 1. Assert: m values are on the top of the stack (Ensured by validation)
-        debug_assert!(stack.values.len() >= result_m);
+        assert!(stack.values.len() >= result_m);
 
         // 2. Pop m values from the stack
         let res = stack.values.last_n(result_m)?;

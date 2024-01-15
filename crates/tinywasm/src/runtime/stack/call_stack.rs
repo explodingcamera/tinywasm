@@ -39,27 +39,12 @@ impl CallStack {
     }
 
     #[inline]
-    pub(crate) fn _top(&self) -> Result<&CallFrame> {
-        assert!(self.top <= self.stack.len());
-        if self.top == 0 {
-            return Err(Error::CallStackEmpty);
-        }
-        Ok(&self.stack[self.top - 1])
-    }
-
-    #[inline]
-    pub(crate) fn _top_mut(&mut self) -> Result<&mut CallFrame> {
-        assert!(self.top <= self.stack.len());
-        if self.top == 0 {
-            return Err(Error::CallStackEmpty);
-        }
-        Ok(&mut self.stack[self.top - 1])
-    }
-
-    #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) {
-        assert!(self.top <= self.stack.len());
-        assert!(self.stack.len() <= CALL_STACK_MAX_SIZE);
+        assert!(self.top <= self.stack.len(), "stack is too small");
+        assert!(
+            self.stack.len() <= CALL_STACK_MAX_SIZE,
+            "call stack size exceeded, this should have been caught"
+        );
 
         self.top += 1;
         self.stack.push(call_frame);
@@ -68,7 +53,6 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
-    // having real pointers here would be nice :( but we can't really do that in safe rust
     pub(crate) instr_ptr: usize,
     pub(crate) func_ptr: usize,
 
@@ -115,19 +99,6 @@ impl CallFrame {
             }
         }
 
-        // self.instr_ptr = block_frame.instr_ptr;
-        // value_stack.trim(block_frame.stack_ptr);
-
-        // // // Adjusting how to trim the blocks stack based on the block type
-        // // let trim_index = match block_frame.block {
-        // //     // if we are breaking to a loop, we want to jump back to the start of the loop
-        // //     BlockFrameInner::Loop => block_index as usize - 1,
-        // //     // if we are breaking to any other block, we want to jump to the end of the block
-        // //     // TODO: check if this is correct
-        // //     BlockFrameInner::If | BlockFrameInner::Else | BlockFrameInner::Block => block_index as usize - 1,
-        // // };
-
-        // self.block_frames.trim(block_index as usize);
         Some(())
     }
 
@@ -155,19 +126,13 @@ impl CallFrame {
 
     #[inline]
     pub(crate) fn set_local(&mut self, local_index: usize, value: RawWasmValue) {
-        if local_index >= self.local_count {
-            panic!("Invalid local index");
-        }
-
+        assert!(local_index < self.local_count, "Invalid local index");
         self.locals[local_index] = value;
     }
 
     #[inline]
     pub(crate) fn get_local(&self, local_index: usize) -> RawWasmValue {
-        if local_index >= self.local_count {
-            panic!("Invalid local index");
-        }
-
+        assert!(local_index < self.local_count, "Invalid local index");
         self.locals[local_index]
     }
 }

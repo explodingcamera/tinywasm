@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
-use log::info;
+use log::debug;
 use tinywasm_types::{
     BlockArgs, ConstInstruction, ElementItem, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind,
     Instruction, MemArg, MemoryArch, MemoryType, TableType, ValType,
@@ -322,7 +322,7 @@ pub fn process_operators<'a>(
     let mut labels_ptrs = Vec::new(); // indexes into the instructions array
 
     for op in ops {
-        info!("op: {:?}", op);
+        debug!("op: {:?}", op);
 
         let op = op?;
         validator.op(offset, &op)?;
@@ -359,7 +359,7 @@ pub fn process_operators<'a>(
             }
             End => {
                 if let Some(label_pointer) = labels_ptrs.pop() {
-                    info!("ending block: {:?}", instructions[label_pointer]);
+                    debug!("ending block: {:?}", instructions[label_pointer]);
 
                     let current_instr_ptr = instructions.len();
 
