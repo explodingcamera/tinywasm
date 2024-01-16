@@ -300,28 +300,39 @@ impl Store {
     }
 
     /// Add data to the store, returning their addresses in the store
-    pub(crate) fn add_datas(&mut self, datas: Vec<Data>, idx: ModuleInstanceAddr) -> Vec<Addr> {
+    pub(crate) fn add_datas(&mut self, datas: Vec<Data>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
-            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
-            data_addrs.push((i + data_count) as Addr);
-
             use tinywasm_types::DataKind::*;
             match data.kind {
-                Active { .. } => {
+                Active { mem: mem_addr, offset } => {
                     // a. Assert: memidx == 0
-                    // b. Let n be the length of the vector
-                    // c. Execute the instruction sequence
-                    // d. Execute the instruction
-                    // e. Execute the instruction
-                    // f. Execute the instruction
-                    // g. Execute the instruction
+                    if mem_addr != 0 {
+                        return Err(Error::UnsupportedFeature(
+                            "data segments for non-zero memories".to_string(),
+                        ));
+                    }
+
+                    let offset = self.eval_i32_const(&offset)?;
+
+                    let mem =
+                        self.data.mems.get_mut(mem_addr as usize).ok_or_else(|| {
+                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
+                        })?;
+
+                    mem.borrow_mut().store(offset as usize, 0, &data.data)?;
+
+                    // drop the date
+                    continue;
                 }
                 Passive => {}
             }
+
+            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
+            data_addrs.push((i + data_count) as Addr);
         }
-        data_addrs
+        Ok(data_addrs)
     }
 
     /// Get the function at the actual index in the store
@@ -477,12 +488,16 @@ impl MemoryInstance {
         Ok(())
     }
 
+    pub(crate) fn max_pages(&self) -> usize {
+        self.kind.page_count_max.unwrap_or(MAX_PAGES as u64) as usize
+    }
+
     pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
         let end = addr.checked_add(len).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: addr,
                 len,
-                max: self.data.len(),
+                max: self.max_pages(),
             })
         })?;
 

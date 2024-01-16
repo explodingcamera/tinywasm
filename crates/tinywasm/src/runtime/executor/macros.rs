@@ -17,13 +17,25 @@ macro_rules! mem_load {
 
         let addr = $stack.values.pop()?.raw_value();
 
+        let addr = $arg.offset.checked_add(addr).ok_or_else(|| {
+            Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: $arg.offset as usize,
+                len: core::mem::size_of::<$load_type>(),
+                max: mem.borrow().max_pages(),
+            })
+        })?;
+
+        let addr: usize = addr.try_into().ok().ok_or_else(|| {
+            Error::Trap(crate::Trap::MemoryOutOfBounds {
+                offset: $arg.offset as usize,
+                len: core::mem::size_of::<$load_type>(),
+                max: mem.borrow().max_pages(),
+            })
+        })?;
+
         let val: [u8; core::mem::size_of::<$load_type>()] = {
             let mem = mem.borrow_mut();
-            let val = mem.load(
-                ($arg.offset + addr) as usize,
-                $arg.align as usize,
-                core::mem::size_of::<$load_type>(),
-            )?;
+            let val = mem.load(addr, $arg.align as usize, core::mem::size_of::<$load_type>())?;
             val.try_into().expect("slice with incorrect length")
         };
 

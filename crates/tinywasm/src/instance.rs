@@ -66,7 +66,7 @@ impl ModuleInstance {
         let elem_addrs = store.add_elems(module.data.elements.into(), idx)?;
 
         // TODO: active data segments need to be initialized
-        let data_addrs = store.add_datas(module.data.data.into(), idx);
+        let data_addrs = store.add_datas(module.data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
