@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, string::ToString, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use tinywasm_types::{
     DataAddr, ElemAddr, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr, TableAddr,
 };
@@ -142,7 +142,12 @@ impl ModuleInstance {
             return Err(Error::InvalidStore);
         }
 
-        let export = self.0.exports.get(name, ExternalKind::Func)?;
+        let export = self
+            .0
+            .exports
+            .get(name, ExternalKind::Func)
+            .ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+
         let func_addr = self.0.func_addrs[export.index as usize];
         let func = store.get_func(func_addr as usize)?;
         let ty = self.0.types[func.ty_addr() as usize].clone();
@@ -184,7 +189,7 @@ impl ModuleInstance {
             Some(func_index) => func_index,
             None => {
                 // alternatively, check for a _start function in the exports
-                let Ok(start) = self.0.exports.get("_start", ExternalKind::Func) else {
+                let Some(start) = self.0.exports.get("_start", ExternalKind::Func) else {
                     return Ok(None);
                 };
 

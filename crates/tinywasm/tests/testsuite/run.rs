@@ -101,7 +101,7 @@ impl TestSuite {
                     // TODO: modules are not properly isolated from each other - tests fail because of this otherwise
                     store = tinywasm::Store::default();
                     debug!("got wat module");
-                    let result = catch_unwind(AssertUnwindSafe(|| {
+                    let result = catch_unwind_silent(|| {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module bytes");
                         tinywasm::Module::from(m)
@@ -111,7 +111,7 @@ impl TestSuite {
                                 e
                             })
                             .expect("failed to instantiate module")
-                    }))
+                    })
                     .map_err(|e| eyre!("failed to parse wat module: {:?}", try_downcast_panic(e)));
 
                     match &result {

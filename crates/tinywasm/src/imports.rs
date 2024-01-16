@@ -3,7 +3,7 @@ use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
 };
-use tinywasm_types::{GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue};
+use tinywasm_types::{ExternVal, ExternalKind, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -63,6 +63,15 @@ impl Extern {
     pub fn memory(ty: MemoryType) -> Self {
         Self::Memory(ExternMemory { ty })
     }
+
+    pub(crate) fn kind(&self) -> ExternalKind {
+        match self {
+            Self::Global(_) => ExternalKind::Global,
+            Self::Table(_) => ExternalKind::Table,
+            Self::Memory(_) => ExternalKind::Memory,
+            Self::Func => ExternalKind::Func,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -80,12 +89,16 @@ pub struct Imports {
 }
 
 pub(crate) struct LinkedImports {
-    pub(crate) values: BTreeMap<ExternName, Extern>,
+    // externs that were defined and need to be instantiated
+    pub(crate) externs: BTreeMap<ExternName, Extern>,
+
+    // externs that were linked to other modules and already exist in the store
+    pub(crate) linked_externs: BTreeMap<ExternName, ExternVal>,
 }
 
 impl LinkedImports {
     pub(crate) fn get(&self, module: &str, name: &str) -> Option<&Extern> {
-        self.values.get(&ExternName {
+        self.externs.get(&ExternName {
             module: module.to_string(),
             name: name.to_string(),
         })
@@ -103,7 +116,7 @@ impl Imports {
 
     /// Link a module
     ///
-    /// This will automatically link all imported values
+    /// This will automatically link all imported values on instantiation
     pub fn link_module(&mut self, name: &str, addr: ModuleInstanceAddr) -> Result<&mut Self> {
         self.modules.insert(name.to_string(), addr);
         Ok(self)
@@ -121,9 +134,75 @@ impl Imports {
         Ok(self)
     }
 
-    pub(crate) fn link(self, _store: &mut crate::Store, _module: &crate::Module) -> Result<LinkedImports> {
+    pub(crate) fn link(self, store: &mut crate::Store, module: &crate::Module) -> Result<LinkedImports> {
+        let mut links = BTreeMap::new();
+
+        for import in module.data.imports.iter() {
+            if let Some(i) = self.values.get(&ExternName {
+                module: import.module.to_string(),
+                name: import.name.to_string(),
+            }) {
+                if i.kind() != (&import.kind).into() {
+                    return Err(crate::Error::InvalidImportType {
+                        module: import.module.to_string(),
+                        name: import.name.to_string(),
+                    });
+                }
+
+                continue;
+            }
+
+            let module_addr =
+                self.modules
+                    .get(&import.module.to_string())
+                    .ok_or_else(|| crate::Error::MissingImport {
+                        module: import.module.to_string(),
+                        name: import.name.to_string(),
+                    })?;
+
+            let module =
+                store
+                    .get_module_instance(*module_addr)
+                    .ok_or_else(|| crate::Error::CouldNotResolveImport {
+                        module: import.module.to_string(),
+                        name: import.name.to_string(),
+                    })?;
+
+            let export = module.exports().get_untyped(&import.name.to_string()).ok_or_else(|| {
+                crate::Error::CouldNotResolveImport {
+                    module: import.module.to_string(),
+                    name: import.name.to_string(),
+                }
+            })?;
+
+            // validate import
+            if export.kind != (&import.kind).into() {
+                return Err(crate::Error::InvalidImportType {
+                    module: import.module.to_string(),
+                    name: import.name.to_string(),
+                });
+            }
+
+            let val = match export.kind {
+                ExternalKind::Func => ExternVal::Func(export.index.clone()),
+                ExternalKind::Global => ExternVal::Global(export.index.clone()),
+                ExternalKind::Table => ExternVal::Table(export.index.clone()),
+                ExternalKind::Memory => ExternVal::Mem(export.index.clone()),
+            };
+
+            links.insert(
+                ExternName {
+                    module: import.module.to_string(),
+                    name: import.name.to_string(),
+                },
+                val,
+            );
+        }
+
         // TODO: link to other modules (currently only direct imports are supported)
-        let values = self.values;
-        Ok(LinkedImports { values })
+        Ok(LinkedImports {
+            externs: self.values,
+            linked_externs: links,
+        })
     }
 }

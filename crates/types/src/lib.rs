@@ -442,6 +442,17 @@ pub enum ImportKind {
     Global(GlobalType),
 }
 
+impl From<&ImportKind> for ExternalKind {
+    fn from(kind: &ImportKind) -> Self {
+        match kind {
+            ImportKind::Func(_) => Self::Func,
+            ImportKind::Table(_) => Self::Table,
+            ImportKind::Mem(_) => Self::Memory,
+            ImportKind::Global(_) => Self::Global,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Data {
     pub data: Box<[u8]>,

@@ -49,6 +49,10 @@ impl Store {
         Self::default()
     }
 
+    pub(crate) fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+        self.module_instances.get(addr as usize)
+    }
+
     /// Create a new store with the given runtime
     pub(crate) fn runtime(&self) -> runtime::DefaultRuntime {
         match self.runtime {

@@ -79,6 +79,30 @@ pub enum Error {
 
     /// The store is not the one that the module instance was instantiated in
     InvalidStore,
+
+    /// Missing import
+    MissingImport {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+
+    /// Could not resolve an import
+    CouldNotResolveImport {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+
+    /// Invalid import type
+    InvalidImportType {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
 }
 
 impl Display for Error {
@@ -100,6 +124,18 @@ impl Display for Error {
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidStore => write!(f, "invalid store"),
+
+            Self::MissingImport { module, name } => {
+                write!(f, "missing import: {}.{}", module, name)
+            }
+
+            Self::CouldNotResolveImport { module, name } => {
+                write!(f, "could not resolve import: {}.{}", module, name)
+            }
+
+            Self::InvalidImportType { module, name } => {
+                write!(f, "invalid import type: {}.{}", module, name)
+            }
         }
     }
 }
