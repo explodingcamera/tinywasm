@@ -41,8 +41,9 @@ impl From<WasmValue> for RawWasmValue {
             WasmValue::I64(i) => Self(i as u64),
             WasmValue::F32(i) => Self(i.to_bits() as u64),
             WasmValue::F64(i) => Self(i.to_bits()),
-            WasmValue::RefNull(_) => Self(0),
+            WasmValue::RefNull(v) => v.default_value().into(),
             WasmValue::RefExtern(v) => Self(v as u64),
+            WasmValue::RefFunc(v) => Self(v as u64),
         }
     }
 }

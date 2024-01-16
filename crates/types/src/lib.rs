@@ -91,6 +91,7 @@ pub enum WasmValue {
     // RefHost(FuncAddr),
     RefExtern(ExternAddr),
     RefNull(ValType),
+    RefFunc(FuncAddr),
 }
 
 impl WasmValue {
@@ -114,8 +115,8 @@ impl WasmValue {
             ValType::F32 => Self::F32(0.0),
             ValType::F64 => Self::F64(0.0),
             ValType::V128 => unimplemented!("V128 is not yet supported"),
-            ValType::FuncRef => unimplemented!("FuncRef is not yet supported"),
-            ValType::ExternRef => unimplemented!("ExternRef is not yet supported"),
+            ValType::FuncRef => Self::RefFunc(0),
+            ValType::ExternRef => Self::RefExtern(0),
         }
     }
 
@@ -225,6 +226,7 @@ impl Debug for WasmValue {
             WasmValue::F64(i) => write!(f, "f64({})", i),
             WasmValue::RefNull(ty) => write!(f, "ref.null({:?})", ty),
             WasmValue::RefExtern(addr) => write!(f, "ref.extern({})", addr),
+            WasmValue::RefFunc(addr) => write!(f, "ref.func({})", addr),
             // WasmValue::V128(i) => write!(f, "v128({})", i),
         }
     }
@@ -240,6 +242,7 @@ impl WasmValue {
             Self::F64(_) => ValType::F64,
             Self::RefNull(ty) => *ty,
             Self::RefExtern(_) => ValType::ExternRef,
+            Self::RefFunc(_) => ValType::FuncRef,
             // Self::V128(_) => ValType::V128,
         }
     }
@@ -372,6 +375,24 @@ pub struct TableType {
     pub size_max: Option<u32>,
 }
 
+impl TableType {
+    pub fn empty() -> Self {
+        Self {
+            element_type: ValType::FuncRef,
+            size_initial: 0,
+            size_max: None,
+        }
+    }
+
+    pub fn new(element_type: ValType, size_initial: u32, size_max: Option<u32>) -> Self {
+        Self {
+            element_type,
+            size_initial,
+            size_max,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 
 /// Represents a memory's type.
@@ -380,6 +401,24 @@ pub struct MemoryType {
     pub arch: MemoryArch,
     pub page_count_initial: u64,
     pub page_count_max: Option<u64>,
+}
+
+impl MemoryType {
+    pub fn new_32(page_count_initial: u64, page_count_max: Option<u64>) -> Self {
+        Self {
+            arch: MemoryArch::I32,
+            page_count_initial,
+            page_count_max,
+        }
+    }
+
+    // pub fn new_64(page_count_initial: u64, page_count_max: Option<u64>) -> Self {
+    //     Self {
+    //         arch: MemoryArch::I64,
+    //         page_count_initial,
+    //         page_count_max,
+    //     }
+    // }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

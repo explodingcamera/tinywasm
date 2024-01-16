@@ -3,28 +3,65 @@ use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
 };
-use tinywasm_types::{Global, GlobalType, ModuleInstanceAddr, WasmValue};
+use tinywasm_types::{GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue};
 
 #[derive(Debug)]
 #[non_exhaustive]
 /// An external value
 pub enum Extern {
     /// A global value
-    Global(Global),
-    // Func(HostFunc),
-    // Table(Table),
+    Global(ExternGlobal),
+
+    /// A table
+    Table(ExternTable),
+
+    /// A memory
+    Memory(ExternMemory),
+
+    /// A function
+    Func,
+}
+
+/// A global value
+#[derive(Debug)]
+pub struct ExternGlobal {
+    pub(crate) ty: GlobalType,
+    pub(crate) val: WasmValue,
+}
+
+/// A table
+#[derive(Debug)]
+pub struct ExternTable {
+    pub(crate) ty: TableType,
+    pub(crate) val: WasmValue,
+}
+
+/// A memory
+#[derive(Debug)]
+pub struct ExternMemory {
+    pub(crate) ty: MemoryType,
 }
 
 impl Extern {
     /// Create a new global import
     pub fn global(val: WasmValue, mutable: bool) -> Self {
-        Self::Global(Global {
+        Self::Global(ExternGlobal {
             ty: GlobalType {
                 ty: val.val_type(),
                 mutable,
             },
-            init: val.const_instr(),
+            val,
         })
+    }
+
+    /// Create a new table import
+    pub fn table(ty: TableType, val: WasmValue) -> Self {
+        Self::Table(ExternTable { ty, val })
+    }
+
+    /// Create a new memory import
+    pub fn memory(ty: MemoryType) -> Self {
+        Self::Memory(ExternMemory { ty })
     }
 }
 

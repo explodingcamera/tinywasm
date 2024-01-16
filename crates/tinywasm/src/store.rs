@@ -173,8 +173,6 @@ impl Store {
                 };
                 match global {
                     Extern::Global(global) => Ok(global),
-
-                    #[allow(unreachable_patterns)] // this is non-exhaustive
                     _ => Err(Error::Other(format!(
                         "expected global import for {}::{}",
                         import.module, import.name
@@ -185,12 +183,20 @@ impl Store {
 
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
-
         log::debug!("globals: {:?}", globals);
-        let globals = globals.into_iter();
-        let iterator = imported_globals.into_iter().chain(globals.as_ref());
 
-        for (i, global) in iterator.enumerate() {
+        // first add the imported globals
+        for (i, global) in imported_globals.iter().enumerate() {
+            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
+                global.ty,
+                global.val.into(),
+                idx,
+            ))));
+            global_addrs.push((i + global_count) as Addr);
+        }
+
+        // then add the module globals
+        for (i, global) in globals.iter().enumerate() {
             self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
                 global.ty,
                 self.eval_const(&global.init)?,
@@ -230,7 +236,7 @@ impl Store {
                 let val = global.borrow().value;
                 val
             }
-            RefNull(_) => RawWasmValue::default(),
+            RefNull(v) => v.default_value().into(),
             RefFunc(idx) => RawWasmValue::from(*idx as i64),
         };
         Ok(val)
@@ -271,7 +277,11 @@ impl Store {
                     // c. Execute the instruction i32.const 0
                     // d. Execute the instruction i32.const n
                     // e. Execute the instruction table.init tableidx i
-                    self.data.tables[table as usize].init(offset, &init)?;
+                    if let Some(table) = self.data.tables.get_mut(table as usize) {
+                        table.init(offset, &init)?;
+                    } else {
+                        log::error!("table {} not found", table);
+                    }
 
                     // f. Execute the instruction elm.drop i
                     None

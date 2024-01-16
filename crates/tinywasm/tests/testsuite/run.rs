@@ -8,7 +8,7 @@ use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
-use tinywasm_types::{ModuleInstanceAddr, WasmValue};
+use tinywasm_types::{MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 impl TestSuite {
@@ -25,7 +25,15 @@ impl TestSuite {
     fn imports(registered_modules: Vec<(String, ModuleInstanceAddr)>) -> Result<Imports> {
         let mut imports = Imports::new();
 
+        let memory = Extern::memory(MemoryType::new_32(1, Some(2)));
+        let table = Extern::table(
+            TableType::new(ValType::FuncRef, 10, Some(20)),
+            WasmValue::default_for(ValType::FuncRef),
+        );
+
         imports
+            .define("spectest", "memory", memory)?
+            .define("spectest", "table", table)?
             .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
             .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
             .define("spectest", "global_f32", Extern::global(WasmValue::F32(666.0), false))?
