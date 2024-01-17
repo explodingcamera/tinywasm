@@ -195,7 +195,7 @@ impl TestSuite {
                         test_group.add_result(
                             &format!("AssertExhaustion({})", i),
                             span.linecol_in(wast),
-                            Err(eyre!("expected trap: {}", message)),
+                            Err(eyre!("expected trap: {}, got: {}", message, trap.message())),
                         );
                         continue;
                     }
@@ -203,7 +203,7 @@ impl TestSuite {
                     test_group.add_result(&format!("AssertExhaustion({})", i), span.linecol_in(wast), Ok(()));
                 }
 
-                AssertTrap { exec, message: _, span } => {
+                AssertTrap { exec, message, span } => {
                     let res: Result<tinywasm::Result<()>, _> = catch_unwind_silent(|| {
                         let (module, name, args) = match exec {
                             wast::WastExecute::Wat(mut wat) => {
@@ -236,7 +236,16 @@ impl TestSuite {
                             span.linecol_in(wast),
                             Err(eyre!("test panicked: {:?}", try_downcast_panic(err))),
                         ),
-                        Ok(Err(tinywasm::Error::Trap(_))) => {
+                        Ok(Err(tinywasm::Error::Trap(trap))) => {
+                            if trap.message() != message {
+                                test_group.add_result(
+                                    &format!("AssertTrap({})", i),
+                                    span.linecol_in(wast),
+                                    Err(eyre!("expected trap: {}, got: {}", message, trap.message())),
+                                );
+                                continue;
+                            }
+
                             test_group.add_result(&format!("AssertTrap({})", i), span.linecol_in(wast), Ok(()))
                         }
                         Ok(Err(err)) => test_group.add_result(

@@ -433,15 +433,15 @@ fn exec_one(
         F64Mul => arithmetic!(*, f64, stack),
 
         // these can trap
-        I32DivS => checked_arithmetic!(checked_div, i32, stack, crate::Trap::DivisionByZero),
-        I64DivS => checked_arithmetic!(checked_div, i64, stack, crate::Trap::DivisionByZero),
-        I32DivU => checked_arithmetic!(checked_div, i32, u32, stack, crate::Trap::DivisionByZero),
-        I64DivU => checked_arithmetic!(checked_div, i64, u64, stack, crate::Trap::DivisionByZero),
+        I32DivS => checked_int_arithmetic!(checked_div, i32, stack),
+        I64DivS => checked_int_arithmetic!(checked_div, i64, stack),
+        I32DivU => checked_int_arithmetic!(checked_div, i32, u32, stack),
+        I64DivU => checked_int_arithmetic!(checked_div, i64, u64, stack),
 
-        I32RemS => checked_arithmetic!(checked_wrapping_rem, i32, stack, crate::Trap::DivisionByZero),
-        I64RemS => checked_arithmetic!(checked_wrapping_rem, i64, stack, crate::Trap::DivisionByZero),
-        I32RemU => checked_arithmetic!(checked_wrapping_rem, i32, u32, stack, crate::Trap::DivisionByZero),
-        I64RemU => checked_arithmetic!(checked_wrapping_rem, i64, u64, stack, crate::Trap::DivisionByZero),
+        I32RemS => checked_int_arithmetic!(checked_wrapping_rem, i32, stack),
+        I64RemS => checked_int_arithmetic!(checked_wrapping_rem, i64, stack),
+        I32RemU => checked_int_arithmetic!(checked_wrapping_rem, i32, u32, stack),
+        I64RemU => checked_int_arithmetic!(checked_wrapping_rem, i64, u64, stack),
 
         I32And => arithmetic!(bitand, i32, stack),
         I64And => arithmetic!(bitand, i64, stack),

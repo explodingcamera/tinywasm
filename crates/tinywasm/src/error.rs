@@ -50,10 +50,10 @@ impl Trap {
     pub fn message(&self) -> &'static str {
         match self {
             Self::Unreachable => "unreachable",
-            Self::MemoryOutOfBounds { .. } => "memory out of bounds",
-            Self::TableOutOfBounds { .. } => "table out of bounds",
-            Self::DivisionByZero => "division by zero",
-            Self::InvalidConversionToInt => "invalid conversion to int",
+            Self::MemoryOutOfBounds { .. } => "out of bounds memory access",
+            Self::TableOutOfBounds { .. } => "out of bounds table access",
+            Self::DivisionByZero => "integer divide by zero",
+            Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
         }

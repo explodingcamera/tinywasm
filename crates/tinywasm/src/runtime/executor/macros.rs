@@ -201,13 +201,13 @@ macro_rules! arithmetic_single {
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking
-macro_rules! checked_arithmetic {
+macro_rules! checked_int_arithmetic {
     // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $stack:ident, $trap:expr) => {{
-        checked_arithmetic!($from, $to, $to, $stack, $trap)
+    ($from:tt, $to:tt, $stack:ident) => {{
+        checked_int_arithmetic!($from, $to, $to, $stack)
     }};
 
-    ($op:ident, $from:ty, $to:ty, $stack:ident, $trap:expr) => {{
+    ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
         let [a, b] = $stack.values.pop_n_const::<2>()?;
         let a: $from = a.into();
         let b: $from = b.into();
@@ -215,7 +215,13 @@ macro_rules! checked_arithmetic {
         let a_casted: $to = a as $to;
         let b_casted: $to = b as $to;
 
-        let result = a_casted.$op(b_casted).ok_or_else(|| Error::Trap($trap))?;
+        if b_casted == 0 {
+            return Err(Error::Trap(crate::Trap::DivisionByZero));
+        }
+
+        let result = a_casted
+            .$op(b_casted)
+            .ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
 
         // Cast back to original type if different
         $stack.values.push((result as $from).into());
@@ -224,8 +230,8 @@ macro_rules! checked_arithmetic {
 
 pub(super) use arithmetic;
 pub(super) use arithmetic_single;
-pub(super) use checked_arithmetic;
 pub(super) use checked_conv_float;
+pub(super) use checked_int_arithmetic;
 pub(super) use comp;
 pub(super) use comp_zero;
 pub(super) use conv;
