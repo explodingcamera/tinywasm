@@ -58,7 +58,7 @@ impl FuncHandle {
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
-        stack.call_stack.push(call_frame);
+        stack.call_stack.push(call_frame)?;
 
         // 9. Invoke the function instance
         let runtime = store.runtime();

@@ -1,12 +1,12 @@
-use crate::{runtime::RawWasmValue, BlockType, Error, LabelFrame, Result};
+use crate::{runtime::RawWasmValue, BlockType, Error, LabelFrame, Result, Trap};
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
 use super::blocks::Labels;
 
 // minimum call stack size
-const CALL_STACK_SIZE: usize = 1024;
-const CALL_STACK_MAX_SIZE: usize = 1024 * 1024;
+const CALL_STACK_SIZE: usize = 128;
+const CALL_STACK_MAX_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -39,15 +39,17 @@ impl CallStack {
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) {
+    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
         assert!(self.top <= self.stack.len(), "stack is too small");
-        assert!(
-            self.stack.len() <= CALL_STACK_MAX_SIZE,
-            "call stack size exceeded, this should have been caught"
-        );
+
+        log::info!("stack size: {}", self.stack.len());
+        if self.stack.len() >= CALL_STACK_MAX_SIZE {
+            return Err(Trap::CallStackOverflow.into());
+        }
 
         self.top += 1;
         self.stack.push(call_frame);
+        Ok(())
     }
 }
 

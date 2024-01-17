@@ -53,7 +53,7 @@ impl DefaultRuntime {
                     cf.instr_ptr += 1;
                     // push the call frame back onto the stack so that it can be resumed
                     // if the trap can be handled
-                    stack.call_stack.push(cf);
+                    stack.call_stack.push(cf)?;
                     return Err(Error::Trap(trap));
                 }
             }
@@ -138,8 +138,8 @@ fn exec_one(
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
-            stack.call_stack.push(cf.clone());
-            stack.call_stack.push(call_frame);
+            stack.call_stack.push(cf.clone())?;
+            stack.call_stack.push(call_frame)?;
 
             // call the function
             return Ok(ExecResult::Call);
@@ -148,7 +148,7 @@ fn exec_one(
         If(args, else_offset, end_offset) => {
             if stack.values.pop_t::<i32>()? == 0 {
                 if let Some(else_offset) = else_offset {
-                    log::info!("entering else at {}", cf.instr_ptr + *else_offset);
+                    log::debug!("entering else at {}", cf.instr_ptr + *else_offset);
                     cf.enter_label(
                         LabelFrame {
                             instr_ptr: cf.instr_ptr + *else_offset,

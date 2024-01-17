@@ -426,11 +426,12 @@ impl TableInstance {
         })?;
 
         if end > self.elements.len() || end < offset {
-            return Err(Error::Trap(crate::Trap::TableOutOfBounds {
+            return Err(crate::Trap::TableOutOfBounds {
                 offset,
                 len: init.len(),
                 max: self.elements.len(),
-            }));
+            }
+            .into());
         }
 
         self.elements[offset..end].copy_from_slice(init);

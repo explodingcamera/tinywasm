@@ -40,6 +40,24 @@ pub enum Trap {
 
     /// Integer Overflow
     IntegerOverflow,
+
+    /// Call stack overflow
+    CallStackOverflow,
+}
+
+impl Trap {
+    /// Get the message of the trap
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::Unreachable => "unreachable",
+            Self::MemoryOutOfBounds { .. } => "memory out of bounds",
+            Self::TableOutOfBounds { .. } => "table out of bounds",
+            Self::DivisionByZero => "division by zero",
+            Self::InvalidConversionToInt => "invalid conversion to int",
+            Self::IntegerOverflow => "integer overflow",
+            Self::CallStackOverflow => "call stack exhausted",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -105,6 +123,12 @@ pub enum Error {
     },
 }
 
+impl From<Trap> for Error {
+    fn from(value: Trap) -> Self {
+        Self::Trap(value)
+    }
+}
+
 impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -114,15 +138,14 @@ impl Display for Error {
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {}", err),
 
-            Self::Trap(trap) => write!(f, "trap: {:?}", trap),
-
+            Self::Trap(trap) => write!(f, "trap: {}", trap.message()),
+            Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
             Self::LabelStackUnderflow => write!(f, "label stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
-            Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidStore => write!(f, "invalid store"),
 
             Self::MissingImport { module, name } => {

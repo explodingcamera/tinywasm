@@ -7,7 +7,7 @@ use std::{
 use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
-use tinywasm::{Extern, Imports, ModuleInstance};
+use tinywasm::{Extern, Imports, ModuleInstance, Trap};
 use tinywasm_types::{MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
@@ -167,6 +167,40 @@ impl TestSuite {
                             Err(_) => Ok(()),
                         },
                     );
+                }
+
+                AssertExhaustion { call, message, span } => {
+                    let module = last_module.as_ref();
+                    let name = call.name;
+
+                    let args = call
+                        .args
+                        .into_iter()
+                        .map(wastarg2tinywasmvalue)
+                        .collect::<Result<Vec<_>>>()
+                        .expect("failed to convert args");
+
+                    let res = catch_unwind_silent(|| exec_fn_instance(module, &mut store, name, &args).map(|_| ()));
+
+                    let Ok(Err(tinywasm::Error::Trap(trap))) = res else {
+                        test_group.add_result(
+                            &format!("AssertExhaustion({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected trap")),
+                        );
+                        continue;
+                    };
+
+                    if trap.message() != message {
+                        test_group.add_result(
+                            &format!("AssertExhaustion({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected trap: {}", message)),
+                        );
+                        continue;
+                    }
+
+                    test_group.add_result(&format!("AssertExhaustion({})", i), span.linecol_in(wast), Ok(()));
                 }
 
                 AssertTrap { exec, message: _, span } => {

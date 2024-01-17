@@ -4,4 +4,5 @@ dev="run -- -l debug run"
 
 test-mvp="test --package tinywasm --test test-mvp --release -- --enable "
 test-wast="test --package tinywasm --test test-wast -- --enable "
+test-wast-release="test --package tinywasm --test test-wast --release -- --enable "
 generate-charts="test --package tinywasm --test generate-charts -- --enable "
