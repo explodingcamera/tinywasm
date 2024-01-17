@@ -27,8 +27,8 @@ impl RawWasmValue {
             ValType::I64 => WasmValue::I64(self.0 as i64),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.0 as u32)),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.0)),
-            ValType::ExternRef => todo!("externref"),
-            ValType::FuncRef => todo!("funcref"),
+            ValType::ExternRef => WasmValue::RefExtern(self.0 as u32),
+            ValType::FuncRef => WasmValue::RefFunc(self.0 as u32),
             ValType::V128 => todo!("v128"),
         }
     }
@@ -73,5 +73,8 @@ impl_from_raw_wasm_value!(i64, |x| x as u64, |x| x as i64);
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x| f32::from_bits(x as u32));
 impl_from_raw_wasm_value!(f64, f64::to_bits, f64::from_bits);
 
+// convenience impls (not actually part of the spec)
 impl_from_raw_wasm_value!(i8, |x| x as u64, |x| x as i8);
 impl_from_raw_wasm_value!(i16, |x| x as u64, |x| x as i16);
+impl_from_raw_wasm_value!(u32, |x| x as u64, |x| x as u32);
+impl_from_raw_wasm_value!(u64, |x| x as u64, |x| x as u64);

@@ -122,8 +122,12 @@ impl ModuleInstance {
     }
 
     // resolve a table address to the global store address
-    pub(crate) fn _resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
+    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
         self.0.table_addrs[addr as usize]
+    }
+
+    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
+        self.0.elem_addrs[addr as usize]
     }
 
     // resolve a memory address to the global store address

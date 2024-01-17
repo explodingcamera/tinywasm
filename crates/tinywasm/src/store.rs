@@ -89,7 +89,7 @@ impl Default for Store {
 // TODO: Arena allocate these?
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
-    pub(crate) tables: Vec<TableInstance>,
+    pub(crate) tables: Vec<Rc<RefCell<TableInstance>>>,
     pub(crate) mems: Vec<Rc<RefCell<MemoryInstance>>>,
     pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
     pub(crate) elems: Vec<ElemInstance>,
@@ -129,7 +129,10 @@ impl Store {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            self.data.tables.push(TableInstance::new(table, idx));
+            self.data
+                .tables
+                .push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+
             table_addrs.push((i + table_count) as TableAddr);
         }
         table_addrs
@@ -282,7 +285,7 @@ impl Store {
                     // d. Execute the instruction i32.const n
                     // e. Execute the instruction table.init tableidx i
                     if let Some(table) = self.data.tables.get_mut(table as usize) {
-                        table.init(offset, &init)?;
+                        table.borrow_mut().init(offset, &init)?;
                     } else {
                         log::error!("table {} not found", table);
                     }
@@ -351,6 +354,21 @@ impl Store {
             .ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
     }
 
+    /// Get the table at the actual index in the store
+    pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
+        self.data
+            .tables
+            .get(addr)
+            .ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+    }
+
+    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
+        self.data
+            .elems
+            .get(addr)
+            .ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+    }
+
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
         self.data
@@ -413,6 +431,25 @@ impl TableInstance {
             kind,
             owner,
         }
+    }
+
+    pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
+        self.elements
+            .get(addr)
+            .copied()
+            .ok_or_else(|| Error::Other(format!("table element {} not found", addr)))
+    }
+
+    pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
+        if addr >= self.elements.len() {
+            return Err(Error::Other(format!("table element {} not found", addr)));
+        }
+        self.elements[addr] = value;
+        Ok(())
+    }
+
+    pub(crate) fn size(&self) -> i32 {
+        self.elements.len() as i32
     }
 
     pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
@@ -527,6 +564,11 @@ impl MemoryInstance {
             return Err(Error::Other(format!("memory size out of bounds: {}", new_pages)));
         }
         let new_size = new_pages as usize * PAGE_SIZE;
+
+        if self.max_pages() < new_pages as usize {
+            return Ok(current_pages);
+        }
+
         if new_size > MAX_SIZE {
             return Err(Error::Other(format!("memory size out of bounds: {}", new_size)));
         }

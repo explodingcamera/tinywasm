@@ -6,7 +6,7 @@ use crate::{
     runtime::{BlockType, LabelFrame},
     CallFrame, Error, LabelArgs, ModuleInstance, Result, Store,
 };
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 use tinywasm_types::Instruction;
 
 mod macros;
@@ -16,10 +16,10 @@ use traits::*;
 
 impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
-        log::info!("exports: {:?}", module.exports());
-        log::info!("func_addrs: {:?}", module.func_addrs());
-        log::info!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
-        log::info!("store funcs: {:?}", store.data.funcs.len());
+        log::debug!("exports: {:?}", module.exports());
+        log::debug!("func_addrs: {:?}", module.func_addrs());
+        log::debug!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
+        log::debug!("store funcs: {:?}", store.data.funcs.len());
 
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
@@ -124,6 +124,7 @@ fn exec_one(
                 stack.values.push(val2);
             }
         }
+
         Call(v) => {
             debug!("start call");
             // prepare the call frame
@@ -135,6 +136,29 @@ fn exec_one(
             debug!("stack: {:?}", stack.values);
             let params = stack.values.pop_n(func_ty.params.len())?;
             let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals().to_vec());
+
+            // push the call frame
+            cf.instr_ptr += 1; // skip the call instruction
+            stack.call_stack.push(cf.clone())?;
+            stack.call_stack.push(call_frame)?;
+
+            // call the function
+            return Ok(ExecResult::Call);
+        }
+
+        CallIndirect(_type_addr, table_addr) => {
+            let table_idx = module.resolve_table_addr(*table_addr);
+            let table = store.get_table(table_idx as usize)?;
+
+            let func_idx = stack.values.pop_t::<u32>()?;
+            let func_addr = table.borrow().get(func_idx as usize)?;
+
+            // prepare the call frame
+            let func = store.get_func(func_addr as usize)?;
+            let func_ty = module.func_ty(func.ty_addr());
+
+            let params = stack.values.pop_n(func_ty.params.len())?;
+            let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals().to_vec());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -306,7 +330,7 @@ fn exec_one(
 
         MemoryGrow(addr, byte) => {
             if *byte != 0 {
-                unimplemented!("memory.grow with byte != 0");
+                return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
             }
 
             let mem_idx = module.resolve_mem_addr(*addr);
@@ -499,6 +523,27 @@ fn exec_one(
         I64TruncF64S => checked_conv_float!(f64, i64, stack),
         I64TruncF32U => checked_conv_float!(f32, u64, i64, stack),
         I64TruncF64U => checked_conv_float!(f64, u64, i64, stack),
+
+        TableGet(table_index) => {
+            let table_idx = module.resolve_table_addr(*table_index);
+            let table = store.get_table(table_idx as usize)?;
+            let idx = stack.values.pop_t::<i32>()? as usize;
+            stack.values.push(table.borrow().get(idx)?.into());
+        }
+
+        TableSet(table_index) => {
+            let table_idx = module.resolve_table_addr(*table_index);
+            let table = store.get_table(table_idx as usize)?;
+            let idx = stack.values.pop_t::<u32>()? as usize;
+            let val = stack.values.pop_t::<u32>()?;
+            table.borrow_mut().set(idx, val)?;
+        }
+
+        TableSize(table_index) => {
+            let table_idx = module.resolve_table_addr(*table_index);
+            let table = store.get_table(table_idx as usize)?;
+            stack.values.push(table.borrow().size().into());
+        }
 
         i => {
             log::error!("unimplemented instruction: {:?}", i);
