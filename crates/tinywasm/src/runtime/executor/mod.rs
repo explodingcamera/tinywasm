@@ -4,7 +4,7 @@ use super::{DefaultRuntime, Stack};
 use crate::{
     log::debug,
     runtime::{BlockType, LabelFrame},
-    CallFrame, Error, LabelArgs, ModuleInstance, Result, Store,
+    CallFrame, Error, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
 use tinywasm_types::Instruction;
@@ -146,9 +146,11 @@ fn exec_one(
             return Ok(ExecResult::Call);
         }
 
-        CallIndirect(_type_addr, table_addr) => {
+        CallIndirect(type_addr, table_addr) => {
             let table_idx = module.resolve_table_addr(*table_addr);
             let table = store.get_table(table_idx as usize)?;
+
+            let call_ty = module.func_ty(*type_addr);
 
             let func_idx = stack.values.pop_t::<u32>()?;
             let func_addr = table.borrow().get(func_idx as usize)?;
@@ -156,6 +158,14 @@ fn exec_one(
             // prepare the call frame
             let func = store.get_func(func_addr as usize)?;
             let func_ty = module.func_ty(func.ty_addr());
+
+            if func_ty != call_ty {
+                return Err(Trap::IndirectCallTypeMismatch {
+                    actual: func_ty.clone(),
+                    expected: call_ty.clone(),
+                }
+                .into());
+            }
 
             let params = stack.values.pop_n(func_ty.params.len())?;
             let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals().to_vec());

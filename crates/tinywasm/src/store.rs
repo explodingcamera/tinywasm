@@ -13,7 +13,7 @@ use tinywasm_types::{
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, Extern, LinkedImports, ModuleInstance, RawWasmValue, Result,
+    Error, Extern, LinkedImports, ModuleInstance, RawWasmValue, Result, Trap,
 };
 
 // global store id counter
@@ -437,7 +437,7 @@ impl TableInstance {
         self.elements
             .get(addr)
             .copied()
-            .ok_or_else(|| Error::Other(format!("table element {} not found", addr)))
+            .ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
     }
 
     pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {

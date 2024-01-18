@@ -1,5 +1,6 @@
 use alloc::string::String;
 use core::fmt::Display;
+use tinywasm_types::FuncType;
 
 #[cfg(feature = "parser")]
 use tinywasm_parser::ParseError;
@@ -43,6 +44,26 @@ pub enum Trap {
 
     /// Call stack overflow
     CallStackOverflow,
+
+    /// An undefined element was encountered
+    UndefinedElement {
+        /// The element index
+        index: usize,
+    },
+
+    /// An uninitialized element was encountered
+    UninitializedElement {
+        /// The element index
+        index: usize,
+    },
+
+    /// Indirect call type mismatch
+    IndirectCallTypeMismatch {
+        /// The expected type
+        expected: FuncType,
+        /// The actual type
+        actual: FuncType,
+    },
 }
 
 impl Trap {
@@ -56,6 +77,9 @@ impl Trap {
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
+            Self::UndefinedElement { .. } => "undefined element",
+            Self::UninitializedElement { .. } => "uninitialized element",
+            Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
         }
     }
 }

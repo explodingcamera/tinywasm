@@ -251,12 +251,12 @@ impl TestSuite {
                         Ok(Err(err)) => test_group.add_result(
                             &format!("AssertTrap({})", i),
                             span.linecol_in(wast),
-                            Err(eyre!("expected trap, got error: {:?}", err,)),
+                            Err(eyre!("expected trap, {}, got: {:?}", message, err)),
                         ),
                         Ok(Ok(())) => test_group.add_result(
                             &format!("AssertTrap({})", i),
                             span.linecol_in(wast),
-                            Err(eyre!("expected trap, got ok")),
+                            Err(eyre!("expected trap {}, got Ok", message)),
                         ),
                     }
                 }
