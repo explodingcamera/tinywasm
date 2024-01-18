@@ -198,6 +198,12 @@ macro_rules! arithmetic_single {
         let result = a.$op();
         $stack.values.push((result as $ty).into());
     }};
+
+    ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
+        let a: $from = $stack.values.pop()?.into();
+        let result = a.$op();
+        $stack.values.push((result as $to).into());
+    }};
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking

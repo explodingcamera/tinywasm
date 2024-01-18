@@ -555,6 +555,15 @@ fn exec_one(
             stack.values.push(table.borrow().size().into());
         }
 
+        I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, stack),
+        I32TruncSatF32U => arithmetic_single!(trunc, f32, u32, stack),
+        I32TruncSatF64S => arithmetic_single!(trunc, f64, i32, stack),
+        I32TruncSatF64U => arithmetic_single!(trunc, f64, u32, stack),
+        I64TruncSatF32S => arithmetic_single!(trunc, f32, i64, stack),
+        I64TruncSatF32U => arithmetic_single!(trunc, f32, u64, stack),
+        I64TruncSatF64S => arithmetic_single!(trunc, f64, i64, stack),
+        I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, stack),
+
         i => {
             log::error!("unimplemented instruction: {:?}", i);
             return Err(Error::UnsupportedFeature(alloc::format!(
