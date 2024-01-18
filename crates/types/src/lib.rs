@@ -124,6 +124,8 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::RefNull(ty), Self::RefNull(ty2)) => ty == ty2,
+            (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
                 if a.is_nan() && b.is_nan() {
                     true // Both are NaN, treat them as equal

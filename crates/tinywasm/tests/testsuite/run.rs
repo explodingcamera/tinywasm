@@ -1,13 +1,10 @@
 use crate::testsuite::util::*;
-use std::{
-    borrow::Cow,
-    panic::{catch_unwind, AssertUnwindSafe},
-};
+use std::borrow::Cow;
 
 use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
-use tinywasm::{Extern, Imports, ModuleInstance, Trap};
+use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 

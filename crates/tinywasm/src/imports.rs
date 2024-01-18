@@ -168,12 +168,14 @@ impl Imports {
                         name: import.name.to_string(),
                     })?;
 
-            let export = module.exports().get_untyped(&import.name.to_string()).ok_or_else(|| {
-                crate::Error::CouldNotResolveImport {
-                    module: import.module.to_string(),
-                    name: import.name.to_string(),
-                }
-            })?;
+            let export =
+                module
+                    .exports()
+                    .get_untyped(&import.name)
+                    .ok_or_else(|| crate::Error::CouldNotResolveImport {
+                        module: import.module.to_string(),
+                        name: import.name.to_string(),
+                    })?;
 
             // validate import
             if export.kind != (&import.kind).into() {
@@ -184,10 +186,10 @@ impl Imports {
             }
 
             let val = match export.kind {
-                ExternalKind::Func => ExternVal::Func(export.index.clone()),
-                ExternalKind::Global => ExternVal::Global(export.index.clone()),
-                ExternalKind::Table => ExternVal::Table(export.index.clone()),
-                ExternalKind::Memory => ExternVal::Mem(export.index.clone()),
+                ExternalKind::Func => ExternVal::Func(export.index),
+                ExternalKind::Global => ExternVal::Global(export.index),
+                ExternalKind::Table => ExternVal::Table(export.index),
+                ExternalKind::Memory => ExternVal::Mem(export.index),
             };
 
             links.insert(

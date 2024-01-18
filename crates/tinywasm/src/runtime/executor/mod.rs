@@ -110,11 +110,8 @@ fn exec_one(
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
-        Select(t) => {
-            if t.is_some() {
-                unimplemented!("select with type");
-            }
-
+        Select(_) => {
+            // due to validation, we know that the type of the values on the stack
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
 

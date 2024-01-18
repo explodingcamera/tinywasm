@@ -94,7 +94,16 @@ pub fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmV
         F64(f) => nanpattern2tinywasmvalue(f)?,
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        _ => return Err(eyre!("unsupported arg type")),
+        RefNull(t) => WasmValue::RefNull(match t {
+            Some(wast::core::HeapType::Func) => tinywasm_types::ValType::FuncRef,
+            Some(wast::core::HeapType::Extern) => tinywasm_types::ValType::ExternRef,
+            _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
+        }),
+        RefExtern(v) => match v {
+            Some(v) => WasmValue::RefExtern(v),
+            None => WasmValue::RefNull(tinywasm_types::ValType::ExternRef),
+        },
+        a => return Err(eyre!("unsupported arg type {:?}", a)),
     })
 }
 
