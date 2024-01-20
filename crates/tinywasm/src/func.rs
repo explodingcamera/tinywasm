@@ -1,6 +1,6 @@
-use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use log::{debug, info};
-use tinywasm_types::{FuncAddr, FuncType, Function, WasmValue};
+use tinywasm_types::{FuncAddr, FuncType, ValType, WasmValue};
 
 use crate::{
     runtime::{CallFrame, Stack},
@@ -130,6 +130,21 @@ macro_rules! impl_into_wasm_value_tuple {
     }
 }
 
+macro_rules! impl_into_wasm_value_tuple_single {
+    ($T:ident) => {
+        impl IntoWasmValueTuple for $T {
+            fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+                vec![self.into()]
+            }
+        }
+    };
+}
+
+impl_into_wasm_value_tuple_single!(i32);
+impl_into_wasm_value_tuple_single!(i64);
+impl_into_wasm_value_tuple_single!(f32);
+impl_into_wasm_value_tuple_single!(f64);
+
 impl_into_wasm_value_tuple!();
 impl_into_wasm_value_tuple!(T1);
 impl_into_wasm_value_tuple!(T1, T2);
@@ -163,6 +178,27 @@ macro_rules! impl_from_wasm_value_tuple {
     }
 }
 
+macro_rules! impl_from_wasm_value_tuple_single {
+    ($T:ident) => {
+        impl FromWasmValueTuple for $T {
+            fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
+                #[allow(unused_variables, unused_mut)]
+                let mut iter = values.into_iter();
+                Ok($T::try_from(
+                    iter.next()
+                        .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?,
+                )
+                .map_err(|_| Error::Other("Could not convert WasmValue to expected type".to_string()))?)
+            }
+        }
+    };
+}
+
+impl_from_wasm_value_tuple_single!(i32);
+impl_from_wasm_value_tuple_single!(i64);
+impl_from_wasm_value_tuple_single!(f32);
+impl_from_wasm_value_tuple_single!(f64);
+
 impl_from_wasm_value_tuple!();
 impl_from_wasm_value_tuple!(T1);
 impl_from_wasm_value_tuple!(T1, T2);
@@ -172,3 +208,70 @@ impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5);
 impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
 impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7);
 impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7, T8);
+
+pub trait ValTypesFromTuple {
+    fn val_types() -> Box<[ValType]>;
+}
+
+pub trait ToValType {
+    fn to_val_type() -> ValType;
+}
+
+impl ToValType for i32 {
+    fn to_val_type() -> ValType {
+        ValType::I32
+    }
+}
+
+impl ToValType for i64 {
+    fn to_val_type() -> ValType {
+        ValType::I64
+    }
+}
+
+impl ToValType for f32 {
+    fn to_val_type() -> ValType {
+        ValType::F32
+    }
+}
+
+impl ToValType for f64 {
+    fn to_val_type() -> ValType {
+        ValType::F64
+    }
+}
+
+macro_rules! impl_val_types_from_tuple {
+    ($($t:ident),+) => {
+        impl<$($t),+> ValTypesFromTuple for ($($t,)+)
+        where
+            $($t: ToValType,)+
+        {
+            fn val_types() -> Box<[ValType]> {
+                Box::new([$($t::to_val_type(),)+])
+            }
+        }
+    };
+}
+
+impl ValTypesFromTuple for () {
+    fn val_types() -> Box<[ValType]> {
+        Box::new([])
+    }
+}
+
+impl<T1> ValTypesFromTuple for T1
+where
+    T1: ToValType,
+{
+    fn val_types() -> Box<[ValType]> {
+        Box::new([T1::to_val_type()])
+    }
+}
+
+impl_val_types_from_tuple!(T1);
+impl_val_types_from_tuple!(T1, T2);
+impl_val_types_from_tuple!(T1, T2, T3);
+impl_val_types_from_tuple!(T1, T2, T3, T4);
+impl_val_types_from_tuple!(T1, T2, T3, T4, T5);
+impl_val_types_from_tuple!(T1, T2, T3, T4, T5, T6);

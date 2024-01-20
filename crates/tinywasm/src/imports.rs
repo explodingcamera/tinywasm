@@ -1,11 +1,39 @@
-use crate::Result;
+use core::fmt::Debug;
+
+use crate::{
+    func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple},
+    Result,
+};
 use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
 };
 use tinywasm_types::{
-    ExternVal, ExternalKind, FuncAddr, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue,
+    ExternVal, ExternalKind, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmFunction, WasmValue,
 };
+
+#[derive(Debug)]
+pub(crate) enum Function {
+    Host(HostFunction),
+    Wasm(WasmFunction),
+}
+
+/// A host function
+pub struct HostFunction {
+    pub(crate) ty: tinywasm_types::FuncType,
+    pub(crate) func: Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>,
+}
+
+impl Debug for HostFunction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostFunction")
+            .field("ty", &self.ty)
+            .field("func", &"...")
+            .finish()
+    }
+}
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -21,13 +49,13 @@ pub enum Extern {
     Memory(ExternMemory),
 
     /// A function
-    Func(ExternFunc),
+    Func(HostFunction),
 }
 
 /// A function
 #[derive(Debug)]
 pub struct ExternFunc {
-    pub(crate) addr: FuncAddr,
+    pub(crate) inner: HostFunction,
 }
 
 /// A global value
@@ -70,6 +98,45 @@ impl Extern {
     /// Create a new memory import
     pub fn memory(ty: MemoryType) -> Self {
         Self::Memory(ExternMemory { ty })
+    }
+
+    /// Create a new function import
+    pub fn func(
+        ty: &tinywasm_types::FuncType,
+        func: impl Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync,
+    ) -> Self {
+        let inner_func = move |store: &mut crate::Store, args: &[WasmValue]| {
+            let args = args.to_vec();
+            func(store, &args)
+        };
+
+        Self::Func(HostFunction {
+            func: Arc::new(inner_func),
+            ty: ty.clone(),
+        })
+    }
+
+    /// Create a new typed function import
+    pub fn typed_func<P, R>(func: impl Fn(&mut crate::Store, P) -> Result<R> + 'static + Send + Sync) -> Self
+    where
+        P: FromWasmValueTuple + ValTypesFromTuple,
+        R: IntoWasmValueTuple + ValTypesFromTuple,
+    {
+        let inner_func = move |store: &mut crate::Store, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
+            let args = P::from_wasm_value_tuple(args.to_vec())?;
+            let result = func(store, args)?;
+            Ok(result.into_wasm_value_tuple())
+        };
+
+        let ty = tinywasm_types::FuncType {
+            params: P::val_types(),
+            results: R::val_types(),
+        };
+
+        Self::Func(HostFunction {
+            func: Arc::new(inner_func),
+            ty: ty.clone(),
+        })
     }
 
     pub(crate) fn kind(&self) -> ExternalKind {

@@ -7,7 +7,7 @@ use crate::{
     CallFrame, Error, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
-use tinywasm_types::{Function, Instruction};
+use tinywasm_types::Instruction;
 
 mod macros;
 mod traits;
@@ -129,16 +129,12 @@ fn exec_one(
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?;
-            let func_ty = module.func_ty(func_inst.ty_addr());
+            let func = func_inst.assert_wasm()?;
+            let func_ty = module.func_ty(func.ty_addr);
 
             debug!("params: {:?}", func_ty.params);
             debug!("stack: {:?}", stack.values);
             let params = stack.values.pop_n(func_ty.params.len())?;
-
-            let func = match &func_inst.func {
-                Function::WasmFunction(wasm_func) => wasm_func,
-                _ => return Err(Error::UnsupportedFeature("Host functions cannot be called".to_string())),
-            };
 
             let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals.to_vec());
 
@@ -162,7 +158,8 @@ fn exec_one(
 
             // prepare the call frame
             let func_inst = store.get_func(func_addr as usize)?;
-            let func_ty = module.func_ty(func_inst.ty_addr());
+            let func = func_inst.assert_wasm()?;
+            let func_ty = module.func_ty(func.ty_addr);
 
             if func_ty != call_ty {
                 return Err(Trap::IndirectCallTypeMismatch {
@@ -173,15 +170,6 @@ fn exec_one(
             }
 
             let params = stack.values.pop_n(func_ty.params.len())?;
-
-            let func = match &func_inst.func {
-                Function::WasmFunction(wasm_func) => wasm_func,
-                _ => {
-                    return Err(Error::UnsupportedFeature(
-                        "Host functions cannot be called indirectly".to_string(),
-                    ))
-                }
-            };
 
             let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals.to_vec());
 

@@ -28,7 +28,7 @@ extern crate alloc;
 mod instructions;
 use core::{fmt::Debug, ops::Range};
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 pub use instructions::*;
 
 /// A TinyWasm WebAssembly Module
@@ -45,7 +45,7 @@ pub struct TinyWasmModule {
     pub start_func: Option<FuncAddr>,
 
     /// The functions of the WebAssembly module.
-    pub funcs: Box<[Function]>,
+    pub funcs: Box<[WasmFunction]>,
 
     /// The types of the WebAssembly module.
     pub func_types: Box<[FuncType]>,
@@ -168,12 +168,6 @@ impl From<f64> for WasmValue {
         Self::F64(i)
     }
 }
-
-// impl From<i128> for WasmValue {
-//     fn from(i: i128) -> Self {
-//         Self::V128(i)
-//     }
-// }
 
 impl TryFrom<WasmValue> for i32 {
     type Error = ();
@@ -339,33 +333,11 @@ impl FuncType {
     }
 }
 
-// A WebAssembly Function
-#[derive(Debug, Clone)]
-pub enum Function {
-    WasmFunction(WasmFunction),
-    HostFunction(HostFunction),
-}
-
-impl Function {
-    pub fn ty(&self) -> TypeAddr {
-        match self {
-            Self::WasmFunction(f) => f.ty,
-            Self::HostFunction(f) => f.ty,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct WasmFunction {
-    pub ty: TypeAddr,
+    pub ty_addr: TypeAddr,
     pub instructions: Box<[Instruction]>,
     pub locals: Box<[ValType]>,
-}
-
-#[derive(Debug, Clone)]
-pub struct HostFunction {
-    pub ty: TypeAddr,
-    pub func: fn(&mut [WasmValue]) -> Result<(), ()>,
 }
 
 /// A WebAssembly Module Export

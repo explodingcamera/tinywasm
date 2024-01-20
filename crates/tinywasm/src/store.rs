@@ -7,13 +7,13 @@ use core::{
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
+    Addr, Data, Element, ElementKind, FuncAddr, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
     MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType, WasmFunction,
 };
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, Extern, LinkedImports, ModuleInstance, RawWasmValue, Result, Trap,
+    Error, Extern, Function, LinkedImports, ModuleInstance, RawWasmValue, Result, Trap,
 };
 
 // global store id counter
@@ -114,11 +114,14 @@ impl Store {
     }
 
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn add_funcs(&mut self, funcs: Vec<Function>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
+    pub(crate) fn add_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
+            self.data.funcs.push(Rc::new(FunctionInstance {
+                func: Function::Wasm(func),
+                owner: idx,
+            }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
         func_addrs
@@ -404,16 +407,12 @@ const fn cold() {}
 impl FunctionInstance {
     pub(crate) fn assert_wasm(&self) -> Result<&WasmFunction> {
         match &self.func {
-            Function::WasmFunction(w) => Ok(w),
-            Function::HostFunction(_) => {
+            Function::Wasm(w) => Ok(w),
+            Function::Host(_) => {
                 cold();
                 Err(Error::Other("expected wasm function".to_string()))
             }
         }
-    }
-
-    pub(crate) fn ty_addr(&self) -> TypeAddr {
-        self.func.ty()
     }
 }
 

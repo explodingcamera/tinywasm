@@ -153,8 +153,9 @@ impl ModuleInstance {
             .ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
 
         let func_addr = self.0.func_addrs[export.index as usize];
-        let func = store.get_func(func_addr as usize)?;
-        let ty = self.0.types[func.ty_addr() as usize].clone();
+        let func_inst = store.get_func(func_addr as usize)?;
+        let func = func_inst.assert_wasm()?;
+        let ty = self.0.types[func.ty_addr as usize].clone();
 
         Ok(FuncHandle {
             addr: export.index,
@@ -207,8 +208,9 @@ impl ModuleInstance {
             .get(func_index as usize)
             .expect("No func addr for start func, this is a bug");
 
-        let func = store.get_func(*func_addr as usize)?;
-        let ty = self.0.types[func.ty_addr() as usize].clone();
+        let func_inst = store.get_func(*func_addr as usize)?;
+        let func = func_inst.assert_wasm()?;
+        let ty = self.0.types[func.ty_addr as usize].clone();
 
         Ok(Some(FuncHandle {
             module: self.clone(),

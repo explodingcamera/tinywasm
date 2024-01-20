@@ -23,7 +23,7 @@ mod module;
 use alloc::vec::Vec;
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::{Function, WasmFunction};
+use tinywasm_types::WasmFunction;
 use wasmparser::Validator;
 
 pub use tinywasm_types::TinyWasmModule;
@@ -108,12 +108,10 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             .code
             .into_iter()
             .zip(func_types)
-            .map(|(f, ty)| {
-                Function::WasmFunction(WasmFunction {
-                    instructions: f.body,
-                    locals: f.locals,
-                    ty,
-                })
+            .map(|(f, ty)| WasmFunction {
+                instructions: f.body,
+                locals: f.locals,
+                ty_addr: ty,
             })
             .collect::<Vec<_>>();
 
