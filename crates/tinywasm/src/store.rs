@@ -8,7 +8,7 @@ use core::{
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
     Addr, Data, Element, ElementKind, FuncAddr, Function, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
-    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType,
+    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType, WasmFunction,
 };
 
 use crate::{
@@ -393,24 +393,27 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 
+// TODO: check if this actually helps
+#[inline(always)]
+#[cold]
+const fn cold() {}
+
 impl FunctionInstance {
-    pub(crate) fn _module_instance_addr(&self) -> ModuleInstanceAddr {
-        self.owner
-    }
-
-    pub(crate) fn locals(&self) -> &[ValType] {
-        &self.func.locals
-    }
-
-    pub(crate) fn instructions(&self) -> &[Instruction] {
-        &self.func.instructions
+    pub(crate) fn assert_wasm(&self) -> Result<&WasmFunction> {
+        match &self.func {
+            Function::WasmFunction(w) => Ok(w),
+            Function::HostFunction(_) => {
+                cold();
+                Err(Error::Other("expected wasm function".to_string()))
+            }
+        }
     }
 
     pub(crate) fn ty_addr(&self) -> TypeAddr {
-        self.func.ty
+        self.func.ty()
     }
 }
 

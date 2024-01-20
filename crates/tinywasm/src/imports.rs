@@ -3,7 +3,9 @@ use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
 };
-use tinywasm_types::{ExternVal, ExternalKind, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue};
+use tinywasm_types::{
+    ExternVal, ExternalKind, FuncAddr, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmValue,
+};
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -19,7 +21,13 @@ pub enum Extern {
     Memory(ExternMemory),
 
     /// A function
-    Func,
+    Func(ExternFunc),
+}
+
+/// A function
+#[derive(Debug)]
+pub struct ExternFunc {
+    pub(crate) addr: FuncAddr,
 }
 
 /// A global value
@@ -69,7 +77,7 @@ impl Extern {
             Self::Global(_) => ExternalKind::Global,
             Self::Table(_) => ExternalKind::Table,
             Self::Memory(_) => ExternalKind::Memory,
-            Self::Func => ExternalKind::Func,
+            Self::Func(_) => ExternalKind::Func,
         }
     }
 }

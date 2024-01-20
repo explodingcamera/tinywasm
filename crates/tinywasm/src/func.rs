@@ -1,6 +1,6 @@
 use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use log::{debug, info};
-use tinywasm_types::{FuncAddr, FuncType, WasmValue};
+use tinywasm_types::{FuncAddr, FuncType, Function, WasmValue};
 
 use crate::{
     runtime::{CallFrame, Stack},
@@ -52,9 +52,11 @@ impl FuncHandle {
             }
         }
 
+        let wasm_func = &func_inst.assert_wasm()?;
+
         // 6. Let f be the dummy frame
-        debug!("locals: {:?}", func_inst.locals());
-        let call_frame = CallFrame::new(self.addr as usize, params, func_inst.locals().to_vec());
+        debug!("locals: {:?}", wasm_func.locals);
+        let call_frame = CallFrame::new(self.addr as usize, params, wasm_func.locals.to_vec());
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)

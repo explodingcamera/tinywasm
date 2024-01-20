@@ -7,7 +7,7 @@ use crate::{
     CallFrame, Error, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
-use tinywasm_types::Instruction;
+use tinywasm_types::{Function, Instruction};
 
 mod macros;
 mod traits;
@@ -25,8 +25,9 @@ impl DefaultRuntime {
         let mut cf = stack.call_stack.pop()?;
 
         // The function to execute, gets updated from ExecResult::Call
-        let mut func = store.get_func(cf.func_ptr)?.clone();
-        let mut instrs = func.instructions();
+        let mut func_inst = store.get_func(cf.func_ptr)?.clone();
+        let mut wasm_func = func_inst.assert_wasm()?;
+        let mut instrs = &wasm_func.instructions;
 
         // TODO: we might be able to index into the instructions directly
         // since the instruction pointer should always be in bounds
@@ -35,8 +36,9 @@ impl DefaultRuntime {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
-                    func = store.get_func(cf.func_ptr)?.clone();
-                    instrs = func.instructions();
+                    func_inst = store.get_func(cf.func_ptr)?.clone();
+                    wasm_func = func_inst.assert_wasm()?;
+                    instrs = &wasm_func.instructions;
                     continue;
                 }
 
@@ -126,13 +128,19 @@ fn exec_one(
             debug!("start call");
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
-            let func = store.get_func(func_idx as usize)?;
-            let func_ty = module.func_ty(func.ty_addr());
+            let func_inst = store.get_func(func_idx as usize)?;
+            let func_ty = module.func_ty(func_inst.ty_addr());
 
             debug!("params: {:?}", func_ty.params);
             debug!("stack: {:?}", stack.values);
             let params = stack.values.pop_n(func_ty.params.len())?;
-            let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals().to_vec());
+
+            let func = match &func_inst.func {
+                Function::WasmFunction(wasm_func) => wasm_func,
+                _ => return Err(Error::UnsupportedFeature("Host functions cannot be called".to_string())),
+            };
+
+            let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals.to_vec());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -153,8 +161,8 @@ fn exec_one(
             let func_addr = table.borrow().get(func_idx as usize)?;
 
             // prepare the call frame
-            let func = store.get_func(func_addr as usize)?;
-            let func_ty = module.func_ty(func.ty_addr());
+            let func_inst = store.get_func(func_addr as usize)?;
+            let func_ty = module.func_ty(func_inst.ty_addr());
 
             if func_ty != call_ty {
                 return Err(Trap::IndirectCallTypeMismatch {
@@ -165,7 +173,17 @@ fn exec_one(
             }
 
             let params = stack.values.pop_n(func_ty.params.len())?;
-            let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals().to_vec());
+
+            let func = match &func_inst.func {
+                Function::WasmFunction(wasm_func) => wasm_func,
+                _ => {
+                    return Err(Error::UnsupportedFeature(
+                        "Host functions cannot be called indirectly".to_string(),
+                    ))
+                }
+            };
+
+            let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals.to_vec());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction

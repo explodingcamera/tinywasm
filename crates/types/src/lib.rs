@@ -339,12 +339,33 @@ impl FuncType {
     }
 }
 
-/// A WebAssembly Function
+// A WebAssembly Function
 #[derive(Debug, Clone)]
-pub struct Function {
+pub enum Function {
+    WasmFunction(WasmFunction),
+    HostFunction(HostFunction),
+}
+
+impl Function {
+    pub fn ty(&self) -> TypeAddr {
+        match self {
+            Self::WasmFunction(f) => f.ty,
+            Self::HostFunction(f) => f.ty,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WasmFunction {
     pub ty: TypeAddr,
-    pub locals: Box<[ValType]>,
     pub instructions: Box<[Instruction]>,
+    pub locals: Box<[ValType]>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HostFunction {
+    pub ty: TypeAddr,
+    pub func: fn(&mut [WasmValue]) -> Result<(), ()>,
 }
 
 /// A WebAssembly Module Export
