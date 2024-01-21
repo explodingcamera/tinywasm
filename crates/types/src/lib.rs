@@ -306,7 +306,7 @@ pub type ModuleInstanceAddr = Addr;
 /// A WebAssembly External Value.
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#external-values>
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExternVal {
     Func(FuncAddr),
     Table(TableAddr),

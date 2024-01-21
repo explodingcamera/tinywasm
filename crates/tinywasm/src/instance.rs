@@ -52,14 +52,13 @@ impl ModuleInstance {
         let idx = store.next_module_instance_idx();
         let imports = imports.unwrap_or_default();
 
-        // TODO: doesn't link other modules yet
         let linked_imports = imports.link(store, &module)?;
-        let global_addrs = store.add_globals(module.data.globals.into(), &module.data.imports, &linked_imports, idx)?;
+        let global_addrs = store.add_globals(module.data.globals.into(), idx)?;
 
         // TODO: imported functions missing
-        let func_addrs = store.add_funcs(module.data.funcs.into(), idx);
+        let func_addrs = store.add_funcs(module.data.funcs.into(), idx)?;
 
-        let table_addrs = store.add_tables(module.data.table_types.into(), idx);
+        let table_addrs = store.add_tables(module.data.table_types.into(), idx)?;
         let mem_addrs = store.add_mems(module.data.memory_types.into(), idx)?;
 
         // TODO: active/declared elems need to be initialized
@@ -152,8 +151,13 @@ impl ModuleInstance {
             .get(name, ExternalKind::Func)
             .ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
 
-        let func_addr = self.0.func_addrs[export.index as usize];
-        let func_inst = store.get_func(func_addr as usize)?;
+        let func_addr = self
+            .0
+            .func_addrs
+            .get(export.index as usize)
+            .expect("No func addr for export, this is a bug");
+
+        let func_inst = store.get_func(*func_addr as usize)?;
         let func = func_inst.assert_wasm()?;
         let ty = self.0.types[func.ty_addr as usize].clone();
 

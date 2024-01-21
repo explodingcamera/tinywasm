@@ -7,13 +7,13 @@ use core::{
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
-    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType, WasmFunction,
+    Addr, Data, DataAddr, ElemAddr, Element, ElementKind, FuncAddr, Global, GlobalType, Import, MemAddr, MemoryArch,
+    MemoryType, ModuleInstanceAddr, TableAddr, TableType, WasmFunction,
 };
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, Extern, Function, LinkedImports, ModuleInstance, RawWasmValue, Result, Trap,
+    Error, Function, ModuleInstance, RawWasmValue, Result, Trap,
 };
 
 // global store id counter
@@ -114,31 +114,23 @@ impl Store {
     }
 
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn add_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
+    pub(crate) fn add_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
-        for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance {
-                func: Function::Wasm(func),
-                owner: idx,
-            }));
-            func_addrs.push((i + func_count) as FuncAddr);
+        for func in funcs.into_iter() {
+            func_addrs.push(self.add_func(Function::Wasm(func), idx)?);
         }
-        func_addrs
+        Ok(func_addrs)
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn add_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Vec<TableAddr> {
+    pub(crate) fn add_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            self.data
-                .tables
-                .push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
-
-            table_addrs.push((i + table_count) as TableAddr);
+            table_addrs.push(self.add_table(table, idx)?);
         }
-        table_addrs
+        Ok(table_addrs)
     }
 
     /// Add memories to the store, returning their addresses in the store
@@ -146,76 +138,69 @@ impl Store {
         let mem_count = self.data.mems.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in mems.into_iter().enumerate() {
-            if let MemoryArch::I64 = mem.arch {
-                return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
-            }
-            self.data
-                .mems
-                .push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
-
-            mem_addrs.push((i + mem_count) as MemAddr);
+            mem_addrs.push(self.add_mem(mem, idx)?);
         }
         Ok(mem_addrs)
     }
 
     /// Add globals to the store, returning their addresses in the store
-    pub(crate) fn add_globals(
-        &mut self,
-        globals: Vec<Global>,
-        wasm_imports: &[Import],
-        user_imports: &LinkedImports,
-        idx: ModuleInstanceAddr,
-    ) -> Result<Vec<Addr>> {
-        // TODO: initialize imported globals
-        #![allow(clippy::unnecessary_filter_map)] // this is cleaner
-        let imported_globals = wasm_imports
-            .iter()
-            .filter_map(|import| match &import.kind {
-                tinywasm_types::ImportKind::Global(_) => Some(import),
-                _ => None,
-            })
-            .map(|import| {
-                let Some(global) = user_imports.get(&import.module, &import.name) else {
-                    return Err(Error::Other(format!(
-                        "global import not found for {}::{}",
-                        import.module, import.name
-                    )));
-                };
-                match global {
-                    Extern::Global(global) => Ok(global),
-                    _ => Err(Error::Other(format!(
-                        "expected global import for {}::{}",
-                        import.module, import.name
-                    ))),
-                }
-            })
-            .collect::<Result<Vec<_>>>()?;
-
+    pub(crate) fn add_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
-        log::debug!("globals: {:?}", globals);
-
-        // first add the imported globals
-        for (i, global) in imported_globals.iter().enumerate() {
-            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
-                global.ty,
-                global.val.into(),
-                idx,
-            ))));
-            global_addrs.push((i + global_count) as Addr);
-        }
-
         // then add the module globals
         for (i, global) in globals.iter().enumerate() {
-            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
-                global.ty,
-                self.eval_const(&global.init)?,
-                idx,
-            ))));
-            global_addrs.push((i + global_count) as Addr);
+            global_addrs.push(self.add_global(global.ty, self.eval_const(&global.init)?, idx)?.into());
         }
 
         Ok(global_addrs)
+    }
+
+    pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
+        self.data
+            .globals
+            .push(Rc::new(RefCell::new(GlobalInstance::new(ty, value, idx))));
+        Ok(self.data.globals.len() as Addr - 1)
+    }
+
+    pub(crate) fn add_table(&mut self, table: TableType, idx: ModuleInstanceAddr) -> Result<TableAddr> {
+        self.data
+            .tables
+            .push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+        Ok(self.data.tables.len() as TableAddr - 1)
+    }
+
+    pub(crate) fn add_mem(&mut self, mem: MemoryType, idx: ModuleInstanceAddr) -> Result<MemAddr> {
+        if let MemoryArch::I64 = mem.arch {
+            return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
+        }
+        self.data
+            .mems
+            .push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+        Ok(self.data.mems.len() as MemAddr - 1)
+    }
+
+    pub(crate) fn add_elem(&mut self, elem: Element, idx: ModuleInstanceAddr) -> Result<ElemAddr> {
+        let init = elem
+            .items
+            .iter()
+            .map(|item| {
+                item.addr()
+                    .ok_or_else(|| Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item)))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        self.data.elems.push(ElemInstance::new(elem.kind, idx, Some(init)));
+        Ok(self.data.elems.len() as ElemAddr - 1)
+    }
+
+    pub(crate) fn add_data(&mut self, data: Data, idx: ModuleInstanceAddr) -> Result<DataAddr> {
+        self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
+        Ok(self.data.datas.len() as DataAddr - 1)
+    }
+
+    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
+        self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
+        Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
     pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
