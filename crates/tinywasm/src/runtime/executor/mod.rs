@@ -16,7 +16,6 @@ use traits::*;
 
 impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
-        log::debug!("exports: {:?}", module.exports());
         log::debug!("func_addrs: {:?}", module.func_addrs());
         log::debug!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
         log::debug!("store funcs: {:?}", store.data.funcs.len());
@@ -162,11 +161,9 @@ fn exec_one(
             let func_ty = module.func_ty(func.ty_addr);
 
             if func_ty != call_ty {
-                return Err(Trap::IndirectCallTypeMismatch {
-                    actual: func_ty.clone(),
-                    expected: call_ty.clone(),
-                }
-                .into());
+                return Err(
+                    Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
+                );
             }
 
             let params = stack.values.pop_n(func_ty.params.len())?;
@@ -569,10 +566,7 @@ fn exec_one(
 
         i => {
             log::error!("unimplemented instruction: {:?}", i);
-            return Err(Error::UnsupportedFeature(alloc::format!(
-                "unimplemented instruction: {:?}",
-                i
-            )));
+            return Err(Error::UnsupportedFeature(alloc::format!("unimplemented instruction: {:?}", i)));
         }
     };
 

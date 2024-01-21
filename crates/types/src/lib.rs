@@ -2,10 +2,7 @@
 #![forbid(unsafe_code)]
 #![doc(test(
     no_crate_inject,
-    attr(
-        deny(warnings, rust_2018_idioms),
-        allow(dead_code, unused_assignments, unused_variables)
-    )
+    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 
@@ -314,6 +311,26 @@ pub enum ExternVal {
     Global(GlobalAddr),
 }
 
+impl ExternVal {
+    pub fn kind(&self) -> ExternalKind {
+        match self {
+            Self::Func(_) => ExternalKind::Func,
+            Self::Table(_) => ExternalKind::Table,
+            Self::Mem(_) => ExternalKind::Memory,
+            Self::Global(_) => ExternalKind::Global,
+        }
+    }
+
+    pub fn new(kind: ExternalKind, addr: Addr) -> Self {
+        match kind {
+            ExternalKind::Func => Self::Func(addr),
+            ExternalKind::Table => Self::Table(addr),
+            ExternalKind::Memory => Self::Mem(addr),
+            ExternalKind::Global => Self::Global(addr),
+        }
+    }
+}
+
 /// The type of a WebAssembly Function.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
@@ -326,10 +343,7 @@ pub struct FuncType {
 impl FuncType {
     /// Get the number of parameters of a function type.
     pub fn empty() -> Self {
-        Self {
-            params: Box::new([]),
-            results: Box::new([]),
-        }
+        Self { params: Box::new([]), results: Box::new([]) }
     }
 }
 
@@ -372,19 +386,11 @@ pub struct TableType {
 
 impl TableType {
     pub fn empty() -> Self {
-        Self {
-            element_type: ValType::FuncRef,
-            size_initial: 0,
-            size_max: None,
-        }
+        Self { element_type: ValType::FuncRef, size_initial: 0, size_max: None }
     }
 
     pub fn new(element_type: ValType, size_initial: u32, size_max: Option<u32>) -> Self {
-        Self {
-            element_type,
-            size_initial,
-            size_max,
-        }
+        Self { element_type, size_initial, size_max }
     }
 }
 
@@ -400,11 +406,7 @@ pub struct MemoryType {
 
 impl MemoryType {
     pub fn new_32(page_count_initial: u64, page_count_max: Option<u64>) -> Self {
-        Self {
-            arch: MemoryArch::I32,
-            page_count_initial,
-            page_count_max,
-        }
+        Self { arch: MemoryArch::I32, page_count_initial, page_count_max }
     }
 
     // pub fn new_64(page_count_initial: u64, page_count_max: Option<u64>) -> Self {

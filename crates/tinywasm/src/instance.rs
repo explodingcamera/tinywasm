@@ -1,11 +1,12 @@
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use tinywasm_types::{
-    DataAddr, ElemAddr, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr, ModuleInstanceAddr, TableAddr,
+    DataAddr, ElemAddr, Export, ExternVal, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr,
+    ModuleInstanceAddr, TableAddr,
 };
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    Error, ExportInstance, FuncHandle, Imports, Module, Result, Store, TypedFuncHandle,
+    Error, FuncHandle, Imports, Module, Result, Store, TypedFuncHandle,
 };
 
 /// A WebAssembly Module Instance
@@ -32,7 +33,7 @@ pub(crate) struct ModuleInstanceInner {
 
     pub(crate) func_start: Option<FuncAddr>,
     pub(crate) imports: Box<[Import]>,
-    pub(crate) exports: ExportInstance,
+    pub(crate) exports: Box<[Export]>,
 }
 
 impl ModuleInstance {
@@ -52,36 +53,33 @@ impl ModuleInstance {
         let idx = store.next_module_instance_idx();
         let imports = imports.unwrap_or_default();
 
-        let linked_imports = imports.link(store, &module)?;
-        let global_addrs = store.add_globals(module.data.globals.into(), idx)?;
+        let mut addrs = imports.link(store, &module, idx)?;
+        let data = module.data;
 
-        // TODO: imported functions missing
-        let func_addrs = store.add_funcs(module.data.funcs.into(), idx)?;
+        addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
+        addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
+        addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
+        addrs.mems.extend(store.init_mems(data.memory_types.into(), idx)?);
 
-        let table_addrs = store.add_tables(module.data.table_types.into(), idx)?;
-        let mem_addrs = store.add_mems(module.data.memory_types.into(), idx)?;
-
-        // TODO: active/declared elems need to be initialized
-        let elem_addrs = store.add_elems(module.data.elements.into(), idx)?;
-
-        // TODO: active data segments need to be initialized
-        let data_addrs = store.add_datas(module.data.data.into(), idx)?;
+        let elem_addrs = store.add_elems(data.elements.into(), idx)?;
+        let data_addrs = store.add_datas(data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
             idx,
 
-            types: module.data.func_types,
-            func_addrs,
-            table_addrs,
-            mem_addrs,
-            global_addrs,
+            types: data.func_types,
+
+            func_addrs: addrs.funcs,
+            table_addrs: addrs.tables,
+            mem_addrs: addrs.mems,
+            global_addrs: addrs.globals,
             elem_addrs,
             data_addrs,
 
-            func_start: module.data.start_func,
-            imports: module.data.imports,
-            exports: crate::ExportInstance(module.data.exports),
+            func_start: data.start_func,
+            imports: data.imports,
+            exports: data.exports,
         };
 
         let instance = ModuleInstance::new(instance);
@@ -91,8 +89,17 @@ impl ModuleInstance {
     }
 
     /// Get the module's exports
-    pub fn exports(&self) -> &ExportInstance {
-        &self.0.exports
+    pub(crate) fn export(&self, name: &str) -> Option<ExternVal> {
+        let exports = self.0.exports.iter().find(|e| e.name == name.into())?;
+        let kind = exports.kind.clone();
+        let addr = match kind {
+            ExternalKind::Func => self.0.func_addrs.get(exports.index as usize)?,
+            ExternalKind::Table => self.0.table_addrs.get(exports.index as usize)?,
+            ExternalKind::Memory => self.0.mem_addrs.get(exports.index as usize)?,
+            ExternalKind::Global => self.0.global_addrs.get(exports.index as usize)?,
+        };
+
+        Some(ExternVal::new(kind, *addr))
     }
 
     pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
@@ -145,28 +152,21 @@ impl ModuleInstance {
             return Err(Error::InvalidStore);
         }
 
-        let export = self
-            .0
-            .exports
-            .get(name, ExternalKind::Func)
-            .ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let export = self.export(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let ExternVal::Func(func_addr) = export else {
+            return Err(Error::Other(format!("Export is not a function: {}", name)));
+        };
 
-        let func_addr = self
-            .0
-            .func_addrs
-            .get(export.index as usize)
-            .expect("No func addr for export, this is a bug");
-
-        let func_inst = store.get_func(*func_addr as usize)?;
+        let func_inst = store.get_func(func_addr as usize)?;
         let func = func_inst.assert_wasm()?;
-        let ty = self.0.types[func.ty_addr as usize].clone();
+        let ty = self
+            .0
+            .types
+            .get(func.ty_addr as usize)
+            .ok_or_else(|| Error::Other(format!("Invalid function type address: {}", func.ty_addr)))?
+            .clone();
 
-        Ok(FuncHandle {
-            addr: export.index,
-            module: self.clone(),
-            name: Some(name.to_string()),
-            ty,
-        })
+        Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty })
     }
 
     /// Get a typed exported function by name
@@ -176,10 +176,7 @@ impl ModuleInstance {
         R: FromWasmValueTuple,
     {
         let func = self.exported_func_by_name(store, name)?;
-        Ok(TypedFuncHandle {
-            func,
-            marker: core::marker::PhantomData,
-        })
+        Ok(TypedFuncHandle { func, marker: core::marker::PhantomData })
     }
 
     /// Get the start function of the module
@@ -198,30 +195,21 @@ impl ModuleInstance {
             Some(func_index) => func_index,
             None => {
                 // alternatively, check for a _start function in the exports
-                let Some(start) = self.0.exports.get("_start", ExternalKind::Func) else {
+                let Some(ExternVal::Func(func_addr)) = self.export("_start") else {
                     return Ok(None);
                 };
 
-                start.index
+                func_addr
             }
         };
 
-        let func_addr = self
-            .0
-            .func_addrs
-            .get(func_index as usize)
-            .expect("No func addr for start func, this is a bug");
+        let func_addr = self.0.func_addrs.get(func_index as usize).expect("No func addr for start func, this is a bug");
 
         let func_inst = store.get_func(*func_addr as usize)?;
         let func = func_inst.assert_wasm()?;
         let ty = self.0.types[func.ty_addr as usize].clone();
 
-        Ok(Some(FuncHandle {
-            module: self.clone(),
-            addr: *func_addr,
-            ty,
-            name: None,
-        }))
+        Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty, name: None }))
     }
 
     /// Invoke the start function of the module

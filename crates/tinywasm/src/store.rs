@@ -7,7 +7,7 @@ use core::{
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::{
-    Addr, Data, DataAddr, ElemAddr, Element, ElementKind, FuncAddr, Global, GlobalType, Import, MemAddr, MemoryArch,
+    Addr, Data, DataAddr, ElemAddr, Element, ElementKind, FuncAddr, Global, GlobalType, MemAddr, MemoryArch,
     MemoryType, ModuleInstanceAddr, TableAddr, TableType, WasmFunction,
 };
 
@@ -114,7 +114,7 @@ impl Store {
     }
 
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn add_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
+    pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for func in funcs.into_iter() {
@@ -124,7 +124,7 @@ impl Store {
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn add_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
+    pub(crate) fn init_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
@@ -134,7 +134,7 @@ impl Store {
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn add_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
+    pub(crate) fn init_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.data.mems.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in mems.into_iter().enumerate() {
@@ -144,7 +144,7 @@ impl Store {
     }
 
     /// Add globals to the store, returning their addresses in the store
-    pub(crate) fn add_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
+    pub(crate) fn init_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
         // then add the module globals
@@ -156,16 +156,12 @@ impl Store {
     }
 
     pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
-        self.data
-            .globals
-            .push(Rc::new(RefCell::new(GlobalInstance::new(ty, value, idx))));
+        self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(ty, value, idx))));
         Ok(self.data.globals.len() as Addr - 1)
     }
 
     pub(crate) fn add_table(&mut self, table: TableType, idx: ModuleInstanceAddr) -> Result<TableAddr> {
-        self.data
-            .tables
-            .push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+        self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
         Ok(self.data.tables.len() as TableAddr - 1)
     }
 
@@ -173,9 +169,7 @@ impl Store {
         if let MemoryArch::I64 = mem.arch {
             return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
         }
-        self.data
-            .mems
-            .push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+        self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
         Ok(self.data.mems.len() as MemAddr - 1)
     }
 
@@ -203,6 +197,7 @@ impl Store {
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
+    /// Evaluate a constant expression, only supporting i32 globals and i32.const
     pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
@@ -218,6 +213,7 @@ impl Store {
         Ok(val)
     }
 
+    /// Evaluate a constant expression
     pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
@@ -300,9 +296,7 @@ impl Store {
                 Active { mem: mem_addr, offset } => {
                     // a. Assert: memidx == 0
                     if mem_addr != 0 {
-                        return Err(Error::UnsupportedFeature(
-                            "data segments for non-zero memories".to_string(),
-                        ));
+                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
                     }
 
                     let offset = self.eval_i32_const(&offset)?;
@@ -328,33 +322,21 @@ impl Store {
 
     /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: usize) -> Result<&Rc<FunctionInstance>> {
-        self.data
-            .funcs
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("function {} not found", addr)))
+        self.data.funcs.get(addr).ok_or_else(|| Error::Other(format!("function {} not found", addr)))
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
-        self.data
-            .mems
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
+        self.data.mems.get(addr).ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
     }
 
     /// Get the table at the actual index in the store
     pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
-        self.data
-            .tables
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+        self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
     }
 
     pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
-        self.data
-            .elems
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+        self.data.elems.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
     }
 
     /// Get the global at the actual index in the store
@@ -413,18 +395,11 @@ pub(crate) struct TableInstance {
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self {
-            elements: vec![0; kind.size_initial as usize],
-            kind,
-            owner,
-        }
+        Self { elements: vec![0; kind.size_initial as usize], kind, owner }
     }
 
     pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
-        self.elements
-            .get(addr)
-            .copied()
-            .ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
+        self.elements.get(addr).copied().ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
     }
 
     pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
@@ -442,20 +417,11 @@ impl TableInstance {
     pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
-            Error::Trap(crate::Trap::TableOutOfBounds {
-                offset,
-                len: init.len(),
-                max: self.elements.len(),
-            })
+            Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
         })?;
 
         if end > self.elements.len() || end < offset {
-            return Err(crate::Trap::TableOutOfBounds {
-                offset,
-                len: init.len(),
-                max: self.elements.len(),
-            }
-            .into());
+            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
         }
 
         self.elements[offset..end].copy_from_slice(init);
@@ -493,11 +459,7 @@ impl MemoryInstance {
 
     pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8]) -> Result<()> {
         let end = addr.checked_add(data.len()).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len: data.len(),
-                max: self.data.len(),
-            })
+            Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len: data.len(), max: self.data.len() })
         })?;
 
         if end > self.data.len() || end < addr {
@@ -518,20 +480,12 @@ impl MemoryInstance {
     }
 
     pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
-        let end = addr.checked_add(len).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len,
-                max: self.max_pages(),
-            })
-        })?;
+        let end = addr
+            .checked_add(len)
+            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.max_pages() }))?;
 
         if end > self.data.len() {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len,
-                max: self.data.len(),
-            }));
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }));
         }
 
         // WebAssembly doesn't require alignment for loads
