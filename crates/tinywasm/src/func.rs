@@ -167,13 +167,17 @@ macro_rules! impl_from_wasm_value_tuple {
             fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.into_iter();
+
+                log::error!("from_wasm_value_tuple: {:?}", iter);
+
                 Ok((
                     $(
                         $T::try_from(
                             iter.next()
                             .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
                         )
-                        .map_err(|_| Error::Other("Could not convert WasmValue to expected type".to_string()))?,
+                        .map_err(|e| Error::Other(format!("FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}", e,
+                    )))?,
                     )*
                 ))
             }
@@ -188,7 +192,12 @@ macro_rules! impl_from_wasm_value_tuple_single {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.into_iter();
                 $T::try_from(iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
-                    .map_err(|_| Error::Other("Could not convert WasmValue to expected type".to_string()))
+                    .map_err(|e| {
+                        Error::Other(format!(
+                            "FromWasmValueTupleSingle: Could not convert WasmValue to expected type: {:?}",
+                            e
+                        ))
+                    })
             }
         }
     };

@@ -160,11 +160,13 @@ impl Extern {
     pub fn typed_func<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static + Send + Sync) -> Self
     where
         P: FromWasmValueTuple + ValTypesFromTuple,
-        R: IntoWasmValueTuple + ValTypesFromTuple,
+        R: IntoWasmValueTuple + ValTypesFromTuple + Debug,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
+            log::error!("args: {:?}", args);
             let args = P::from_wasm_value_tuple(args.to_vec())?;
             let result = func(ctx, args)?;
+            log::error!("result: {:?}", result);
             Ok(result.into_wasm_value_tuple())
         };
 
@@ -250,7 +252,6 @@ impl Imports {
         import: &Import,
     ) -> Option<ResolvedExtern<ExternVal, Extern>> {
         let name = ExternName::from(import);
-        log::error!("provided externs: {:?}", self.values.keys());
         if let Some(v) = self.values.get(&name) {
             return Some(ResolvedExtern::Extern(v.clone()));
         }

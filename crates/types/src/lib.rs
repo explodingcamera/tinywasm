@@ -171,7 +171,10 @@ impl TryFrom<WasmValue> for i32 {
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::I32(i) => Ok(i),
-            _ => Err(()),
+            _ => {
+                log::error!("i32: try_from failed: {:?}", value);
+                Err(())
+            }
         }
     }
 }
@@ -182,7 +185,10 @@ impl TryFrom<WasmValue> for i64 {
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::I64(i) => Ok(i),
-            _ => Err(()),
+            _ => {
+                log::error!("i64: try_from failed: {:?}", value);
+                Err(())
+            }
         }
     }
 }
@@ -193,7 +199,10 @@ impl TryFrom<WasmValue> for f32 {
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::F32(i) => Ok(i),
-            _ => Err(()),
+            _ => {
+                log::error!("f32: try_from failed: {:?}", value);
+                Err(())
+            }
         }
     }
 }
@@ -204,7 +213,10 @@ impl TryFrom<WasmValue> for f64 {
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::F64(i) => Ok(i),
-            _ => Err(()),
+            _ => {
+                log::error!("f64: try_from failed: {:?}", value);
+                Err(())
+            }
         }
     }
 }

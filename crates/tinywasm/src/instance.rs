@@ -15,7 +15,7 @@ use crate::{
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Debug, Clone)]
-pub struct ModuleInstance(Arc<ModuleInstanceInner>);
+pub struct ModuleInstance(pub(crate) Arc<ModuleInstanceInner>);
 
 #[allow(dead_code)]
 #[derive(Debug)]

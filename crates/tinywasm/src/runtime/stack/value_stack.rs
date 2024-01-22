@@ -30,6 +30,10 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
+        if values.is_empty() {
+            return;
+        }
+
         self.top += values.len();
         self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
     }
@@ -82,12 +86,16 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        let n = types.len();
-        if self.top < n {
-            return Err(Error::StackUnderflow);
+        log::info!("pop_params: types={:?}", types);
+        log::info!("stack={:?}", self.stack);
+
+        let mut res = Vec::with_capacity(types.len());
+        for ty in types.iter() {
+            let v = self.pop()?;
+            let v = v.attach_type(*ty);
+            res.push(v.into());
         }
-        self.top -= n;
-        let res = self.stack.drain(self.top..).rev().map(|v| v.attach_type(types[n - 1])).collect();
+
         Ok(res)
     }
 
