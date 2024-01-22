@@ -17,11 +17,28 @@ macro_rules! impl_wasm_float_ops {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
             fn wasm_nearest(self) -> Self {
                 match self {
-                    x if x.is_nan() => x,
-                    x if x.is_infinite() || x == 0.0 => x,
+                    x if x.is_nan() => x, // preserve NaN
+                    x if x.is_infinite() || x == 0.0 => x, // preserve infinities and zeros
                     x if (0.0..=0.5).contains(&x) => 0.0,
                     x if (-0.5..0.0).contains(&x) => -0.0,
-                    x => x.round(),
+                    // x => x.round(),
+                    x => {
+                        // Handle normal and halfway cases
+                        let rounded = x.round();
+                        let diff = (x - rounded).abs();
+
+                        if diff == 0.5 {
+                            // Halfway case: round to even
+                            if rounded % 2.0 == 0.0 {
+                                rounded // Already even
+                            } else {
+                                rounded - x.signum() // Make even
+                            }
+                        } else {
+                            // Normal case
+                            rounded
+                        }
+                    }
                 }
             }
 
