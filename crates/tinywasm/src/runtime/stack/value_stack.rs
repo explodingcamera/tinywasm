@@ -107,16 +107,6 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn pop_n(&mut self, n: usize) -> Result<Vec<RawWasmValue>> {
-        if self.top < n {
-            return Err(Error::StackUnderflow);
-        }
-        self.top -= n;
-        let res = self.stack.drain(self.top..).rev().collect::<Vec<_>>();
-        Ok(res)
-    }
-
-    #[inline]
     pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<Vec<RawWasmValue>> {
         if self.top < n {
             return Err(Error::StackUnderflow);

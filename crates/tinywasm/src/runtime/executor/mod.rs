@@ -7,7 +7,7 @@ use crate::{
     CallFrame, Error, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
-use tinywasm_types::Instruction;
+use tinywasm_types::{ElementKind, Instruction};
 
 mod macros;
 mod traits;
@@ -111,7 +111,10 @@ fn exec_one(
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
-        Select(t) => {
+
+        Select(
+            _valtype, // due to validation, we know that the type of the values on the stack are correct
+        ) => {
             // due to validation, we know that the type of the values on the stack
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
@@ -554,6 +557,7 @@ fn exec_one(
         I64TruncF32U => checked_conv_float!(f32, u64, i64, stack),
         I64TruncF64U => checked_conv_float!(f64, u64, i64, stack),
 
+        // TODO: uninitialized element traps
         TableGet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
@@ -573,6 +577,24 @@ fn exec_one(
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
             stack.values.push(table.borrow().size().into());
+        }
+
+        TableInit(table_index, elem_index) => {
+            let table_idx = module.resolve_table_addr(*table_index);
+            let table = store.get_table(table_idx as usize)?;
+
+            let elem_idx = module.resolve_elem_addr(*elem_index);
+            let elem = store.get_elem(elem_idx as usize)?;
+
+            if elem.kind != ElementKind::Passive {
+                return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
+            }
+
+            let Some(items) = elem.items.as_ref() else {
+                return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
+            };
+
+            table.borrow_mut().init(0, items)?;
         }
 
         I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, stack),

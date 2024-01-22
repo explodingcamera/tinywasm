@@ -144,6 +144,11 @@ impl ModuleInstance {
         *self.0.mem_addrs.get(addr as usize).expect("No mem addr for mem, this is a bug")
     }
 
+    // resolve a memory address to the global store address
+    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
+        *self.0.elem_addrs.get(addr as usize).expect("No elem addr for elem, this is a bug")
+    }
+
     // resolve a global address to the global store address
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
         self.0.global_addrs[addr as usize]

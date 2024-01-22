@@ -342,6 +342,11 @@ impl Store {
         self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
     }
 
+    /// Get the element at the actual index in the store
+    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
+        self.data.elems.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+    }
+
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
         self.data
@@ -548,14 +553,14 @@ impl GlobalInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
 #[derive(Debug)]
 pub(crate) struct ElemInstance {
-    _kind: ElementKind,
-    _items: Option<Vec<u32>>,   // none is the element was dropped
-    _owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) kind: ElementKind,
+    pub(crate) items: Option<Vec<u32>>, // none is the element was dropped
+    _owner: ModuleInstanceAddr,         // index into store.module_instances
 }
 
 impl ElemInstance {
     pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
-        Self { _kind: kind, _owner: owner, _items: items }
+        Self { kind, _owner: owner, items }
     }
 }
 
