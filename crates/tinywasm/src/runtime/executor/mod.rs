@@ -376,8 +376,8 @@ fn exec_one(
             };
 
             match res {
-                Ok(_) => stack.values.push(prev_size.into()),
-                Err(_) => stack.values.push((-1).into()),
+                Some(_) => stack.values.push(prev_size.into()),
+                None => stack.values.push((-1).into()),
             }
         }
 

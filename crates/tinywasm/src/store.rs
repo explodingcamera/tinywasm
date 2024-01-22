@@ -506,21 +506,25 @@ impl MemoryInstance {
         self.page_count as i32
     }
 
-    pub(crate) fn grow(&mut self, delta: i32) -> Result<i32> {
+    pub(crate) fn grow(&mut self, delta: i32) -> Option<i32> {
         let current_pages = self.size();
         let new_pages = current_pages + delta;
+
         if new_pages < 0 || new_pages > MAX_PAGES as i32 {
-            return Err(Error::Other(format!("memory size out of bounds: {}", new_pages)));
+            return None;
         }
+
+        if new_pages as usize > self.max_pages() {
+            log::info!("memory size out of bounds: {}", new_pages);
+            return None;
+        }
+
         let new_size = new_pages as usize * PAGE_SIZE;
-
-        if self.max_pages() < new_pages as usize {
-            return Ok(current_pages);
-        }
-
         if new_size > MAX_SIZE {
-            return Err(Error::Other(format!("memory size out of bounds: {}", new_size)));
+            return None;
         }
+
+        // Zero initialize the new pages
         self.data.resize(new_size, 0);
         self.page_count = new_pages as usize;
 
@@ -528,7 +532,7 @@ impl MemoryInstance {
         log::debug!("memory grown by {} pages", delta);
         log::debug!("memory grown to {} pages", self.page_count);
 
-        Ok(current_pages)
+        Some(current_pages)
     }
 }
 
