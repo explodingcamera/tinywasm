@@ -5,7 +5,7 @@ use super::TestSuite;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
-use tinywasm_types::{MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
+use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
 
 impl TestSuite {
@@ -332,9 +332,70 @@ impl TestSuite {
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
+                    let expected =
+                        results.into_iter().map(wastret2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(|e| {
+                            error!("failed to convert expected results: {:?}", e);
+                            e
+                        })?;
+
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
-                        wast::WastExecute::Get { module: _, global: _ } => Err(eyre!("get not supported")),
+                        wast::WastExecute::Get { module: module_id, global } => {
+                            let module = match module_id {
+                                None => last_module.as_ref(),
+                                Some(module_id) => registered_modules
+                                    .iter()
+                                    .find(|(m, _)| m == module_id.name())
+                                    .map(|(_, addr)| store.get_module_instance(*addr))
+                                    .flatten(),
+                            };
+
+                            let Some(module) = module else {
+                                test_group.add_result(
+                                    &format!("AssertReturn(unsupported-{})", i),
+                                    span.linecol_in(wast),
+                                    Err(eyre!("no module to get global from")),
+                                );
+                                continue;
+                            };
+
+                            let module_global = match match module.export(global) {
+                                Some(ExternVal::Global(addr)) => {
+                                    store.get_global_val(addr as usize).map_err(|_| eyre!("failed to get global"))
+                                }
+                                _ => Err(eyre!("no module to get global from")),
+                            } {
+                                Ok(module_global) => module_global,
+                                Err(err) => {
+                                    test_group.add_result(
+                                        &format!("AssertReturn(unsupported-{})", i),
+                                        span.linecol_in(wast),
+                                        Err(eyre!("failed to get global: {:?}", err)),
+                                    );
+                                    continue;
+                                }
+                            };
+                            let expected = expected.get(0).expect("expected global value");
+                            let module_global = module_global.attach_type(expected.val_type());
+
+                            if !module_global.eq_loose(expected) {
+                                test_group.add_result(
+                                    &format!("AssertReturn(unsupported-{})", i),
+                                    span.linecol_in(wast),
+                                    Err(eyre!("global value did not match: {:?} != {:?}", module_global, expected)),
+                                );
+                                continue;
+                            }
+
+                            test_group.add_result(
+                                &format!("AssertReturn({}-{})", global, i),
+                                span.linecol_in(wast),
+                                Ok(()),
+                            );
+
+                            continue;
+                            // check if module_global matches the expected results
+                        }
                         wast::WastExecute::Invoke(invoke) => Ok(invoke),
                     } {
                         Ok(invoke) => invoke,
@@ -366,14 +427,6 @@ impl TestSuite {
                             })?;
 
                         debug!("outcomes: {:?}", outcomes);
-
-                        let expected =
-                            results.into_iter().map(wastret2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
-                                |e| {
-                                    error!("failed to convert expected results: {:?}", e);
-                                    e
-                                },
-                            )?;
 
                         debug!("expected: {:?}", expected);
 

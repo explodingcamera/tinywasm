@@ -95,8 +95,8 @@ impl ModuleInstance {
         Ok(instance)
     }
 
-    /// Get the module's exports
-    pub(crate) fn export(&self, name: &str) -> Option<ExternVal> {
+    /// Get a export by name
+    pub fn export(&self, name: &str) -> Option<ExternVal> {
         let exports = self.0.exports.iter().find(|e| e.name == name.into())?;
         let kind = exports.kind.clone();
         let addr = match kind {

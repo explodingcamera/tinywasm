@@ -44,7 +44,8 @@ impl Store {
         Self::default()
     }
 
-    pub(crate) fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+    /// Get a module instance by the internal id
+    pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
         self.module_instances.get(addr as usize)
     }
 
@@ -348,7 +349,7 @@ impl Store {
     }
 
     /// Get the global at the actual index in the store
-    pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
+    pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
         self.data
             .globals
             .get(addr)

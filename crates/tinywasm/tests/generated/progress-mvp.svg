@@ -53,12 +53,12 @@ v0.2.0 (19344)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="716,345 716,350 "/>
 <text x="898" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.3.0-alpha.0 (19982)
+v0.3.0-alpha.0 (20068)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="898,345 898,350 "/>
-<rect x="812" y="58" width="172" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="85" y="212" width="171" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="266" y="185" width="172" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="448" y="92" width="172" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="812" y="57" width="172" height="287" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="266" y="185" width="172" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="85" y="212" width="171" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="630" y="67" width="172" height="277" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>
