@@ -2,6 +2,7 @@ use core::ops::Range;
 
 use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::vec::Vec;
+use tinywasm_types::{ValType, WasmValue};
 
 // minimum stack size
 pub(crate) const STACK_SIZE: usize = 1024;
@@ -16,10 +17,7 @@ pub(crate) struct ValueStack {
 
 impl Default for ValueStack {
     fn default() -> Self {
-        Self {
-            stack: Vec::with_capacity(STACK_SIZE),
-            top: 0,
-        }
+        Self { stack: Vec::with_capacity(STACK_SIZE), top: 0 }
     }
 }
 
@@ -31,6 +29,12 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
+        self.top += values.len();
+        self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
+    }
+
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         assert!(self.top <= self.stack.len());
         self.top
@@ -38,10 +42,7 @@ impl ValueStack {
 
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         let total_to_keep = n + end_keep;
-        assert!(
-            self.top >= total_to_keep,
-            "Total to keep should be less than or equal to self.top"
-        );
+        assert!(self.top >= total_to_keep, "Total to keep should be less than or equal to self.top");
 
         let current_size = self.stack.len();
         if current_size <= total_to_keep {
@@ -79,9 +80,19 @@ impl ValueStack {
         self.stack.pop().ok_or(Error::StackUnderflow)
     }
 
+    #[inline]
+    pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
+        let n = types.len();
+        if self.top < n {
+            return Err(Error::StackUnderflow);
+        }
+        self.top -= n;
+        let res = self.stack.drain(self.top..).rev().map(|v| v.attach_type(types[n - 1])).collect();
+        Ok(res)
+    }
+
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
-        self.stack
-            .copy_within((self.top - result_count)..self.top, new_stack_size);
+        self.stack.copy_within((self.top - result_count)..self.top, new_stack_size);
         self.top = new_stack_size + result_count;
         self.stack.truncate(self.top);
     }

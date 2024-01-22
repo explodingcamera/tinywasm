@@ -12,7 +12,7 @@ use alloc::{
 };
 use tinywasm_types::{
     Addr, Export, ExternVal, ExternalKind, FuncAddr, GlobalAddr, GlobalType, Import, MemAddr, MemoryType,
-    ModuleInstanceAddr, TableAddr, TableType, WasmFunction, WasmValue,
+    ModuleInstanceAddr, TableAddr, TableType, TypeAddr, WasmFunction, WasmValue,
 };
 
 /// The internal representation of a function
@@ -23,6 +23,16 @@ pub enum Function {
 
     /// A function defined in WebAssembly
     Wasm(WasmFunction),
+}
+
+impl Function {
+    /// Get the function's type
+    pub fn ty(&self, module: &crate::ModuleInstance) -> tinywasm_types::FuncType {
+        match self {
+            Self::Host(f) => f.ty.clone(),
+            Self::Wasm(f) => module.func_ty(f.ty_addr).clone(),
+        }
+    }
 }
 
 /// A host function

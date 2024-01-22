@@ -106,8 +106,8 @@ impl Store {
         self.module_instance_count as ModuleInstanceAddr
     }
 
-    /// Initialize the store with global state from the given module
     pub(crate) fn add_instance(&mut self, instance: ModuleInstance) -> Result<()> {
+        assert!(instance.id() == self.module_instance_count as ModuleInstanceAddr);
         self.module_instances.push(instance);
         self.module_instance_count += 1;
         Ok(())
@@ -117,8 +117,9 @@ impl Store {
     pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
-        for func in funcs.into_iter() {
-            func_addrs.push(self.add_func(Function::Wasm(func), idx)?);
+        for (i, func) in funcs.into_iter().enumerate() {
+            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), owner: idx }));
+            func_addrs.push((i + func_count) as FuncAddr);
         }
         Ok(func_addrs)
     }
@@ -128,7 +129,8 @@ impl Store {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            table_addrs.push(self.add_table(table, idx)?);
+            self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+            table_addrs.push((i + table_count) as TableAddr);
         }
         Ok(table_addrs)
     }
@@ -138,7 +140,13 @@ impl Store {
         let mem_count = self.data.mems.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in mems.into_iter().enumerate() {
-            mem_addrs.push(self.add_mem(mem, idx)?);
+            if let MemoryArch::I64 = mem.arch {
+                return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
+            }
+            log::info!("adding memory: {:?}", mem);
+            self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+
+            mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)
     }
@@ -153,6 +161,112 @@ impl Store {
         }
 
         Ok(global_addrs)
+    }
+
+    /// Add elements to the store, returning their addresses in the store
+    /// Should be called after the tables have been added
+    pub(crate) fn init_elems(
+        &mut self,
+        table_addrs: &[TableAddr],
+        elems: Vec<Element>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<Addr>> {
+        let elem_count = self.data.elems.len();
+        let mut elem_addrs = Vec::with_capacity(elem_count);
+        for (i, elem) in elems.into_iter().enumerate() {
+            let init = elem
+                .items
+                .iter()
+                .map(|item| {
+                    item.addr().ok_or_else(|| {
+                        Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            let items = match elem.kind {
+                // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
+                ElementKind::Passive => Some(init),
+
+                // this one is not available to the runtime but needs to be initialized to declare references
+                ElementKind::Declared => {
+                    // a. Execute the instruction elm.drop i
+                    None
+                }
+
+                // this one is active, so we need to initialize it (essentially a `table.init` instruction)
+                ElementKind::Active { offset, table } => {
+                    let offset = self.eval_i32_const(&offset)?;
+                    let table_addr = table_addrs
+                        .get(table as usize)
+                        .copied()
+                        .ok_or_else(|| Error::Other(format!("table {} not found for element {}", table, i)))?;
+
+                    // a. Let n be the length of the vector elem[i].init
+                    // b. Execute the instruction sequence einstrs
+                    // c. Execute the instruction i32.const 0
+                    // d. Execute the instruction i32.const n
+                    // e. Execute the instruction table.init tableidx i
+                    if let Some(table) = self.data.tables.get_mut(table_addr as usize) {
+                        table.borrow_mut().init(offset, &init)?;
+                    } else {
+                        log::error!("table {} not found", table);
+                    }
+
+                    // f. Execute the instruction elm.drop i
+                    None
+                }
+            };
+
+            self.data.elems.push(ElemInstance::new(elem.kind, idx, items));
+            elem_addrs.push((i + elem_count) as Addr);
+        }
+
+        Ok(elem_addrs)
+    }
+
+    /// Add data to the store, returning their addresses in the store
+    pub(crate) fn init_datas(
+        &mut self,
+        mem_addrs: &[MemAddr],
+        datas: Vec<Data>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<Addr>> {
+        let data_count = self.data.datas.len();
+        let mut data_addrs = Vec::with_capacity(data_count);
+        for (i, data) in datas.into_iter().enumerate() {
+            use tinywasm_types::DataKind::*;
+            match data.kind {
+                Active { mem: mem_addr, offset } => {
+                    // a. Assert: memidx == 0
+                    if mem_addr != 0 {
+                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
+                    }
+
+                    let mem_addr = mem_addrs
+                        .get(mem_addr as usize)
+                        .copied()
+                        .ok_or_else(|| Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)))?;
+
+                    let offset = self.eval_i32_const(&offset)?;
+
+                    let mem =
+                        self.data.mems.get_mut(mem_addr as usize).ok_or_else(|| {
+                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
+                        })?;
+
+                    mem.borrow_mut().store(offset as usize, 0, &data.data)?;
+
+                    // drop the data
+                    continue;
+                }
+                Passive => {}
+            }
+
+            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
+            data_addrs.push((i + data_count) as Addr);
+        }
+        Ok(data_addrs)
     }
 
     pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
@@ -231,93 +345,6 @@ impl Store {
             RefFunc(idx) => RawWasmValue::from(*idx as i64),
         };
         Ok(val)
-    }
-
-    /// Add elements to the store, returning their addresses in the store
-    /// Should be called after the tables have been added
-    pub(crate) fn add_elems(&mut self, elems: Vec<Element>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
-        let elem_count = self.data.elems.len();
-        let mut elem_addrs = Vec::with_capacity(elem_count);
-        for (i, elem) in elems.into_iter().enumerate() {
-            let init = elem
-                .items
-                .iter()
-                .map(|item| {
-                    item.addr().ok_or_else(|| {
-                        Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            let items = match elem.kind {
-                // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
-                ElementKind::Passive => Some(init),
-
-                // this one is not available to the runtime but needs to be initialized to declare references
-                ElementKind::Declared => {
-                    // a. Execute the instruction elm.drop i
-                    None
-                }
-
-                // this one is active, so we need to initialize it (essentially a `table.init` instruction)
-                ElementKind::Active { offset, table } => {
-                    let offset = self.eval_i32_const(&offset)?;
-
-                    // a. Let n be the length of the vector elem[i].init
-                    // b. Execute the instruction sequence einstrs
-                    // c. Execute the instruction i32.const 0
-                    // d. Execute the instruction i32.const n
-                    // e. Execute the instruction table.init tableidx i
-                    if let Some(table) = self.data.tables.get_mut(table as usize) {
-                        table.borrow_mut().init(offset, &init)?;
-                    } else {
-                        log::error!("table {} not found", table);
-                    }
-
-                    // f. Execute the instruction elm.drop i
-                    None
-                }
-            };
-
-            self.data.elems.push(ElemInstance::new(elem.kind, idx, items));
-            elem_addrs.push((i + elem_count) as Addr);
-        }
-
-        Ok(elem_addrs)
-    }
-
-    /// Add data to the store, returning their addresses in the store
-    pub(crate) fn add_datas(&mut self, datas: Vec<Data>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
-        let data_count = self.data.datas.len();
-        let mut data_addrs = Vec::with_capacity(data_count);
-        for (i, data) in datas.into_iter().enumerate() {
-            use tinywasm_types::DataKind::*;
-            match data.kind {
-                Active { mem: mem_addr, offset } => {
-                    // a. Assert: memidx == 0
-                    if mem_addr != 0 {
-                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
-                    }
-
-                    let offset = self.eval_i32_const(&offset)?;
-
-                    let mem =
-                        self.data.mems.get_mut(mem_addr as usize).ok_or_else(|| {
-                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
-                        })?;
-
-                    mem.borrow_mut().store(offset as usize, 0, &data.data)?;
-
-                    // drop the date
-                    continue;
-                }
-                Passive => {}
-            }
-
-            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
-            data_addrs.push((i + data_count) as Addr);
-        }
-        Ok(data_addrs)
     }
 
     /// Get the function at the actual index in the store

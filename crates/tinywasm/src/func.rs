@@ -52,7 +52,13 @@ impl FuncHandle {
             }
         }
 
-        let wasm_func = &func_inst.assert_wasm()?;
+        let wasm_func = match &func_inst.func {
+            crate::Function::Host(h) => {
+                let func = h.func.clone();
+                return (func)(store, params);
+            }
+            crate::Function::Wasm(ref f) => f,
+        };
 
         // 6. Let f be the dummy frame
         debug!("locals: {:?}", wasm_func.locals);
@@ -76,11 +82,7 @@ impl FuncHandle {
         let res = stack.values.last_n(result_m)?;
 
         // The values are returned as the results of the invocation.
-        Ok(res
-            .iter()
-            .zip(func_ty.results.iter())
-            .map(|(v, ty)| v.attach_type(*ty))
-            .collect())
+        Ok(res.iter().zip(func_ty.results.iter()).map(|(v, ty)| v.attach_type(*ty)).collect())
     }
 }
 
@@ -184,11 +186,8 @@ macro_rules! impl_from_wasm_value_tuple_single {
             fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.into_iter();
-                Ok($T::try_from(
-                    iter.next()
-                        .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?,
-                )
-                .map_err(|_| Error::Other("Could not convert WasmValue to expected type".to_string()))?)
+                Ok($T::try_from(iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
+                    .map_err(|_| Error::Other("Could not convert WasmValue to expected type".to_string()))?)
             }
         }
     };

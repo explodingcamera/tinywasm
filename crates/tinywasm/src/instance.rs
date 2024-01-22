@@ -59,10 +59,17 @@ impl ModuleInstance {
         addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
-        addrs.mems.extend(store.init_mems(data.memory_types.into(), idx)?);
 
-        let elem_addrs = store.add_elems(data.elements.into(), idx)?;
-        let data_addrs = store.add_datas(data.data.into(), idx)?;
+        log::info!("init_mems: {:?}", addrs.mems);
+        addrs.mems.extend(store.init_mems(data.memory_types.into(), idx)?);
+        log::info!("init_mems2: {:?}", addrs.mems);
+        log::info!("init_mems g: {:?}", store.data.mems.len());
+
+        let elem_addrs = store.init_elems(&addrs.tables, data.elements.into(), idx)?;
+        log::info!("init_elems: {:?}", addrs.mems);
+
+        let data_addrs = store.init_datas(&addrs.mems, data.data.into(), idx)?;
+        log::info!("init_datas: {:?}", addrs.mems);
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
@@ -119,26 +126,22 @@ impl ModuleInstance {
     }
 
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
-        &self.0.types[addr as usize]
+        &self.0.types.get(addr as usize).expect("No func type for func, this is a bug")
     }
 
     // resolve a function address to the global store address
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        self.0.func_addrs[addr as usize]
+        *self.0.func_addrs.get(addr as usize).expect("No func addr for func, this is a bug")
     }
 
     // resolve a table address to the global store address
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        self.0.table_addrs[addr as usize]
-    }
-
-    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        self.0.elem_addrs[addr as usize]
+        *self.0.table_addrs.get(addr as usize).expect("No table addr for table, this is a bug")
     }
 
     // resolve a memory address to the global store address
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        self.0.mem_addrs[addr as usize]
+        *self.0.mem_addrs.get(addr as usize).expect("No mem addr for mem, this is a bug")
     }
 
     // resolve a global address to the global store address
@@ -158,15 +161,9 @@ impl ModuleInstance {
         };
 
         let func_inst = store.get_func(func_addr as usize)?;
-        let func = func_inst.assert_wasm()?;
-        let ty = self
-            .0
-            .types
-            .get(func.ty_addr as usize)
-            .ok_or_else(|| Error::Other(format!("Invalid function type address: {}", func.ty_addr)))?
-            .clone();
+        let ty = func_inst.func.ty(&self);
 
-        Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty })
+        Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty: ty.clone() })
     }
 
     /// Get a typed exported function by name
@@ -206,8 +203,7 @@ impl ModuleInstance {
         let func_addr = self.0.func_addrs.get(func_index as usize).expect("No func addr for start func, this is a bug");
 
         let func_inst = store.get_func(*func_addr as usize)?;
-        let func = func_inst.assert_wasm()?;
-        let ty = self.0.types[func.ty_addr as usize].clone();
+        let ty = func_inst.func.ty(&self);
 
         Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty, name: None }))
     }
