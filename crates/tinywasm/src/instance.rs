@@ -126,7 +126,7 @@ impl ModuleInstance {
     }
 
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
-        &self.0.types.get(addr as usize).expect("No func type for func, this is a bug")
+        self.0.types.get(addr as usize).expect("No func type for func, this is a bug")
     }
 
     // resolve a function address to the global store address
@@ -161,7 +161,7 @@ impl ModuleInstance {
         };
 
         let func_inst = store.get_func(func_addr as usize)?;
-        let ty = func_inst.func.ty(&self);
+        let ty = func_inst.func.ty(self);
 
         Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty: ty.clone() })
     }
@@ -203,7 +203,7 @@ impl ModuleInstance {
         let func_addr = self.0.func_addrs.get(func_index as usize).expect("No func addr for start func, this is a bug");
 
         let func_inst = store.get_func(*func_addr as usize)?;
-        let ty = func_inst.func.ty(&self);
+        let ty = func_inst.func.ty(self);
 
         Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty, name: None }))
     }

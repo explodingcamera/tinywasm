@@ -25,7 +25,7 @@ extern crate alloc;
 mod instructions;
 use core::{fmt::Debug, ops::Range};
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::boxed::Box;
 pub use instructions::*;
 
 /// A TinyWasm WebAssembly Module

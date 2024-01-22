@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::fmt::Debug;
 
 use crate::{
@@ -10,10 +12,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use tinywasm_types::{
-    Addr, Export, ExternVal, ExternalKind, FuncAddr, GlobalAddr, GlobalType, Import, MemAddr, MemoryType,
-    ModuleInstanceAddr, TableAddr, TableType, TypeAddr, WasmFunction, WasmValue,
-};
+use tinywasm_types::*;
 
 /// The internal representation of a function
 #[derive(Debug, Clone)]
@@ -39,8 +38,11 @@ impl Function {
 #[derive(Clone)]
 pub struct HostFunction {
     pub(crate) ty: tinywasm_types::FuncType,
-    pub(crate) func: Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>,
+    pub(crate) func: HostFuncInner,
 }
+
+pub(crate) type HostFuncInner =
+    Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>;
 
 impl Debug for HostFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -208,7 +210,7 @@ impl Imports {
 
     pub(crate) fn take(
         &mut self,
-        store: &mut crate::Store,
+        _store: &mut crate::Store,
         import: &Import,
     ) -> Option<ResolvedExtern<ExternVal, Extern>> {
         let name = ExternName::from(import);

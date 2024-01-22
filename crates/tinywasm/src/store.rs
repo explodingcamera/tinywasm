@@ -1,15 +1,10 @@
-#![allow(dead_code)] // TODO: remove this
-
 use core::{
     cell::RefCell,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
-use tinywasm_types::{
-    Addr, Data, DataAddr, ElemAddr, Element, ElementKind, FuncAddr, Global, GlobalType, MemAddr, MemoryArch,
-    MemoryType, ModuleInstanceAddr, TableAddr, TableType, WasmFunction,
-};
+use tinywasm_types::*;
 
 use crate::{
     runtime::{self, DefaultRuntime},
@@ -49,7 +44,7 @@ impl Store {
         Self::default()
     }
 
-    pub(crate) fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+    pub(crate) fn _get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
         self.module_instances.get(addr as usize)
     }
 
@@ -118,7 +113,7 @@ impl Store {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), owner: idx }));
+            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), _owner: idx }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
         Ok(func_addrs)
@@ -155,9 +150,13 @@ impl Store {
     pub(crate) fn init_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
-        // then add the module globals
         for (i, global) in globals.iter().enumerate() {
-            global_addrs.push(self.add_global(global.ty, self.eval_const(&global.init)?, idx)?.into());
+            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
+                global.ty,
+                self.eval_const(&global.init)?,
+                idx,
+            ))));
+            global_addrs.push((i + global_count) as Addr);
         }
 
         Ok(global_addrs)
@@ -287,27 +286,8 @@ impl Store {
         Ok(self.data.mems.len() as MemAddr - 1)
     }
 
-    pub(crate) fn add_elem(&mut self, elem: Element, idx: ModuleInstanceAddr) -> Result<ElemAddr> {
-        let init = elem
-            .items
-            .iter()
-            .map(|item| {
-                item.addr()
-                    .ok_or_else(|| Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item)))
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        self.data.elems.push(ElemInstance::new(elem.kind, idx, Some(init)));
-        Ok(self.data.elems.len() as ElemAddr - 1)
-    }
-
-    pub(crate) fn add_data(&mut self, data: Data, idx: ModuleInstanceAddr) -> Result<DataAddr> {
-        self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
-        Ok(self.data.datas.len() as DataAddr - 1)
-    }
-
     pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
+        self.data.funcs.push(Rc::new(FunctionInstance { func, _owner: idx }));
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
@@ -362,10 +342,6 @@ impl Store {
         self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
     }
 
-    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
-        self.data.elems.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
-    }
-
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
         self.data
@@ -390,7 +366,7 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 
 // TODO: check if this actually helps
@@ -415,14 +391,14 @@ impl FunctionInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
 #[derive(Debug)]
 pub(crate) struct TableInstance {
-    pub(crate) kind: TableType,
     pub(crate) elements: Vec<Addr>,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _kind: TableType,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self { elements: vec![0; kind.size_initial as usize], kind, owner }
+        Self { elements: vec![0; kind.size_initial as usize], _kind: kind, _owner: owner }
     }
 
     pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
@@ -468,7 +444,7 @@ pub(crate) struct MemoryInstance {
     pub(crate) kind: MemoryType,
     pub(crate) data: Vec<u8>,
     pub(crate) page_count: usize,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl MemoryInstance {
@@ -480,7 +456,7 @@ impl MemoryInstance {
             kind,
             data: vec![0; PAGE_SIZE * kind.page_count_initial as usize],
             page_count: kind.page_count_initial as usize,
-            owner,
+            _owner: owner,
         }
     }
 
@@ -556,14 +532,14 @@ impl MemoryInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
 #[derive(Debug)]
 pub(crate) struct GlobalInstance {
-    pub(crate) ty: GlobalType,
     pub(crate) value: RawWasmValue,
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _ty: GlobalType,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl GlobalInstance {
     pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
-        Self { ty, value, owner }
+        Self { _ty: ty, value, _owner: owner }
     }
 }
 
@@ -572,14 +548,14 @@ impl GlobalInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
 #[derive(Debug)]
 pub(crate) struct ElemInstance {
-    kind: ElementKind,
-    items: Option<Vec<u32>>,   // none is the element was dropped
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    _kind: ElementKind,
+    _items: Option<Vec<u32>>,   // none is the element was dropped
+    _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl ElemInstance {
     pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
-        Self { kind, owner, items }
+        Self { _kind: kind, _owner: owner, _items: items }
     }
 }
 
@@ -588,12 +564,12 @@ impl ElemInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#data-instances>
 #[derive(Debug)]
 pub(crate) struct DataInstance {
-    pub(crate) data: Vec<u8>,
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _data: Vec<u8>,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl DataInstance {
     pub(crate) fn new(data: Vec<u8>, owner: ModuleInstanceAddr) -> Self {
-        Self { data, owner }
+        Self { _data: data, _owner: owner }
     }
 }
