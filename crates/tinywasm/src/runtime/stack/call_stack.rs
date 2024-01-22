@@ -75,21 +75,28 @@ impl CallFrame {
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     #[inline]
     pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Option<()> {
+        log::debug!("break_to_relative: {}", break_to_relative);
         let break_to = self.labels.get_relative_to_top(break_to_relative as usize)?;
-        value_stack.break_to(break_to.stack_ptr, break_to.args.results);
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr
         match break_to.ty {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
+                // We also want to push the params to the stack
+                value_stack.break_to(break_to.stack_ptr, break_to.args.params);
+
                 self.instr_ptr = break_to.instr_ptr;
 
                 // we also want to trim the label stack to the loop (but not including the loop)
                 self.labels.truncate(self.labels.len() - break_to_relative as usize);
             }
             BlockType::Block | BlockType::If | BlockType::Else => {
-                // this is a block, so we want to jump to the next instruction after the block ends (the inst_ptr will be incremented by 1 before the next instruction is executed)
+                // this is a block, so we want to jump to the next instruction after the block ends
+                // We also want to push the block's results to the stack
+                value_stack.break_to(break_to.stack_ptr, break_to.args.results);
+
+                // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.end_instr_ptr;
 
                 // we also want to trim the label stack, including the block

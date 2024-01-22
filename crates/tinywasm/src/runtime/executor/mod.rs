@@ -198,25 +198,8 @@ fn exec_one(
         }
 
         If(args, else_offset, end_offset) => {
-            if stack.values.pop_t::<i32>()? == 0 {
-                if let Some(else_offset) = else_offset {
-                    log::debug!("entering else at {}", cf.instr_ptr + *else_offset);
-                    cf.enter_label(
-                        LabelFrame {
-                            instr_ptr: cf.instr_ptr + *else_offset,
-                            end_instr_ptr: cf.instr_ptr + *end_offset,
-                            stack_ptr: stack.values.len(), // - params,
-                            args: crate::LabelArgs::new(*args, module)?,
-                            ty: BlockType::Else,
-                        },
-                        &mut stack.values,
-                    );
-                    cf.instr_ptr += *else_offset;
-                } else {
-                    log::info!("skipping if");
-                    cf.instr_ptr += *end_offset
-                }
-            } else {
+            // truthy value is on the top of the stack, so enter the then block
+            if stack.values.pop_t::<i32>()? != 0 {
                 log::trace!("entering then");
                 cf.enter_label(
                     LabelFrame {
@@ -227,7 +210,26 @@ fn exec_one(
                         ty: BlockType::If,
                     },
                     &mut stack.values,
-                )
+                );
+                return Ok(ExecResult::Ok);
+            }
+
+            // falsy value is on the top of the stack
+            if let Some(else_offset) = else_offset {
+                log::debug!("entering else at {}", cf.instr_ptr + *else_offset);
+                cf.enter_label(
+                    LabelFrame {
+                        instr_ptr: cf.instr_ptr + *else_offset,
+                        end_instr_ptr: cf.instr_ptr + *end_offset,
+                        stack_ptr: stack.values.len(), // - params,
+                        args: crate::LabelArgs::new(*args, module)?,
+                        ty: BlockType::Else,
+                    },
+                    &mut stack.values,
+                );
+                cf.instr_ptr += *else_offset;
+            } else {
+                cf.instr_ptr += *end_offset;
             }
         }
 
@@ -285,7 +287,7 @@ fn exec_one(
 
         Br(v) => break_to!(cf, stack, v),
         BrIf(v) => {
-            if stack.values.pop_t::<i32>()? > 0 {
+            if stack.values.pop_t::<i32>()? != 0 {
                 break_to!(cf, stack, v);
             }
         }

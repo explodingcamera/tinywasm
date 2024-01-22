@@ -92,6 +92,7 @@ impl ValueStack {
     }
 
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
+        assert!(self.top >= result_count);
         self.stack.copy_within((self.top - result_count)..self.top, new_stack_size);
         self.top = new_stack_size + result_count;
         self.stack.truncate(self.top);

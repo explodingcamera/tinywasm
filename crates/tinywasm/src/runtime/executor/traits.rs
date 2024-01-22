@@ -16,7 +16,6 @@ macro_rules! impl_wasm_float_ops {
         impl WasmFloatOps for $t {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
             fn wasm_nearest(self) -> Self {
-                log::info!("wasm_nearest: {}", self);
                 match self {
                     x if x.is_nan() => x,
                     x if x.is_infinite() || x == 0.0 => x,

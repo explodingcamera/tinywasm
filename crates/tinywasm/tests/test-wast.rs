@@ -20,11 +20,7 @@ fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
 
     // if current dir is crates/tinywasm, then we want to go up 2 levels
-    let mut wast_file = if cwd.ends_with("crates/tinywasm") {
-        PathBuf::from("../../")
-    } else {
-        PathBuf::from("./")
-    };
+    let mut wast_file = if cwd.ends_with("crates/tinywasm") { PathBuf::from("../../") } else { PathBuf::from("./") };
 
     wast_file.push(&args[2]);
     let wast_file = cwd.join(wast_file);
@@ -34,7 +30,7 @@ fn main() -> Result<()> {
 }
 
 fn test_wast(wast_file: &str) -> Result<()> {
-    TestSuite::set_log_level(log::LevelFilter::Info);
+    TestSuite::set_log_level(log::LevelFilter::Debug);
 
     let args = std::env::args().collect::<Vec<_>>();
     println!("args: {:?}", args);
@@ -48,11 +44,7 @@ fn test_wast(wast_file: &str) -> Result<()> {
         println!();
         test_suite.print_errors();
         println!();
-        Err(eyre!(format!(
-            "{}:\n{:#?}",
-            "failed one or more tests".red().bold(),
-            test_suite,
-        )))
+        Err(eyre!(format!("{}:\n{:#?}", "failed one or more tests".red().bold(), test_suite,)))
     } else {
         println!("\n\npassed all tests:\n{:#?}", test_suite);
         Ok(())
