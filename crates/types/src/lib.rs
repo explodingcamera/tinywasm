@@ -86,9 +86,8 @@ pub enum WasmValue {
     // Vec types
     // V128(i128),
     // RefHost(FuncAddr),
-    RefExtern(ExternAddr),
-    RefNull(ValType),
-    RefFunc(FuncAddr),
+    RefExtern(Option<ExternAddr>),
+    RefFunc(Option<FuncAddr>),
 }
 
 impl WasmValue {
@@ -98,7 +97,8 @@ impl WasmValue {
             Self::I64(i) => ConstInstruction::I64Const(*i),
             Self::F32(i) => ConstInstruction::F32Const(*i),
             Self::F64(i) => ConstInstruction::F64Const(*i),
-            Self::RefNull(ty) => ConstInstruction::RefNull(*ty),
+            Self::RefExtern(None) => ConstInstruction::RefNull(ValType::ExternRef),
+            Self::RefFunc(None) => ConstInstruction::RefNull(ValType::FuncRef),
             // Self::RefExtern(addr) => ConstInstruction::RefExtern(*addr),
             _ => unimplemented!("no const_instr for {:?}", self),
         }
@@ -111,9 +111,8 @@ impl WasmValue {
             ValType::I64 => Self::I64(0),
             ValType::F32 => Self::F32(0.0),
             ValType::F64 => Self::F64(0.0),
-            ValType::V128 => unimplemented!("V128 is not yet supported"),
-            ValType::FuncRef => Self::RefFunc(0),
-            ValType::ExternRef => Self::RefExtern(0),
+            ValType::FuncRef => Self::RefFunc(None),
+            ValType::ExternRef => Self::RefExtern(None),
         }
     }
 
@@ -121,8 +120,8 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
-            (Self::RefNull(ty), Self::RefNull(ty2)) => ty == ty2,
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
+            (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
                 if a.is_nan() && b.is_nan() {
                     true // Both are NaN, treat them as equal
@@ -217,9 +216,8 @@ impl Debug for WasmValue {
             WasmValue::I64(i) => write!(f, "i64({})", i),
             WasmValue::F32(i) => write!(f, "f32({})", i),
             WasmValue::F64(i) => write!(f, "f64({})", i),
-            WasmValue::RefNull(ty) => write!(f, "ref.null({:?})", ty),
-            WasmValue::RefExtern(addr) => write!(f, "ref.extern({})", addr),
-            WasmValue::RefFunc(addr) => write!(f, "ref.func({})", addr),
+            WasmValue::RefExtern(addr) => write!(f, "ref.extern({:?})", addr),
+            WasmValue::RefFunc(addr) => write!(f, "ref.func({:?})", addr),
             // WasmValue::V128(i) => write!(f, "v128({})", i),
         }
     }
@@ -233,10 +231,8 @@ impl WasmValue {
             Self::I64(_) => ValType::I64,
             Self::F32(_) => ValType::F32,
             Self::F64(_) => ValType::F64,
-            Self::RefNull(ty) => *ty,
             Self::RefExtern(_) => ValType::ExternRef,
             Self::RefFunc(_) => ValType::FuncRef,
-            // Self::V128(_) => ValType::V128,
         }
     }
 }
@@ -252,8 +248,6 @@ pub enum ValType {
     F32,
     /// A 64-bit float.
     F64,
-    /// A 128-bit vector.
-    V128,
     /// A reference to a function.
     FuncRef,
     /// A reference to an external value.

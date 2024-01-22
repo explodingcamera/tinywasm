@@ -16,10 +16,7 @@ pub(crate) struct CallStack {
 
 impl Default for CallStack {
     fn default() -> Self {
-        Self {
-            stack: Vec::with_capacity(CALL_STACK_SIZE),
-            top: 0,
-        }
+        Self { stack: Vec::with_capacity(CALL_STACK_SIZE), top: 0 }
     }
 }
 
@@ -42,7 +39,7 @@ impl CallStack {
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
         assert!(self.top <= self.stack.len(), "stack is too small");
 
-        log::info!("stack size: {}", self.stack.len());
+        log::debug!("stack size: {}", self.stack.len());
         if self.stack.len() >= CALL_STACK_MAX_SIZE {
             return Err(Trap::CallStackOverflow.into());
         }
@@ -96,8 +93,7 @@ impl CallFrame {
                 self.instr_ptr = break_to.end_instr_ptr;
 
                 // we also want to trim the label stack, including the block
-                self.labels
-                    .truncate(self.labels.len() - (break_to_relative as usize + 1));
+                self.labels.truncate(self.labels.len() - (break_to_relative as usize + 1));
             }
         }
 
@@ -119,11 +115,7 @@ impl CallFrame {
     }
 
     pub(crate) fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
-        CallFrame::new_raw(
-            func_ptr,
-            &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(),
-            local_types,
-        )
+        CallFrame::new_raw(func_ptr, &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(), local_types)
     }
 
     #[inline]

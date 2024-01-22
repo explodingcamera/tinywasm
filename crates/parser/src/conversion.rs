@@ -11,19 +11,13 @@ use crate::{module::CodeSection, Result};
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
 ) -> Result<Vec<tinywasm_types::Element>> {
-    let elements = elements
-        .into_iter()
-        .map(|element| convert_module_element(element?))
-        .collect::<Result<Vec<_>>>()?;
+    let elements = elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()?;
     Ok(elements)
 }
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
-        wasmparser::ElementKind::Active {
-            table_index,
-            offset_expr,
-        } => tinywasm_types::ElementKind::Active {
+        wasmparser::ElementKind::Active { table_index, offset_expr } => tinywasm_types::ElementKind::Active {
             table: table_index,
             offset: process_const_operators(offset_expr.get_operators_reader())?,
         },
@@ -32,38 +26,24 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
     };
 
     let items = match element.items {
-        wasmparser::ElementItems::Functions(funcs) => funcs
-            .into_iter()
-            .map(|func| Ok(ElementItem::Func(func?)))
-            .collect::<Result<Vec<_>>>()?
-            .into_boxed_slice(),
+        wasmparser::ElementItems::Functions(funcs) => {
+            funcs.into_iter().map(|func| Ok(ElementItem::Func(func?))).collect::<Result<Vec<_>>>()?.into_boxed_slice()
+        }
 
         wasmparser::ElementItems::Expressions(exprs) => exprs
             .into_iter()
-            .map(|expr| {
-                Ok(ElementItem::Expr(process_const_operators(
-                    expr?.get_operators_reader(),
-                )?))
-            })
+            .map(|expr| Ok(ElementItem::Expr(process_const_operators(expr?.get_operators_reader())?)))
             .collect::<Result<Vec<_>>>()?
             .into_boxed_slice(),
     };
 
-    Ok(tinywasm_types::Element {
-        kind,
-        items,
-        ty: convert_valtype(&element.ty),
-        range: element.range,
-    })
+    Ok(tinywasm_types::Element { kind, items, ty: convert_valtype(&element.ty), range: element.range })
 }
 
 pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
     data_sections: T,
 ) -> Result<Vec<tinywasm_types::Data>> {
-    let data_sections = data_sections
-        .into_iter()
-        .map(|data| convert_module_data(data?))
-        .collect::<Result<Vec<_>>>()?;
+    let data_sections = data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()?;
     Ok(data_sections)
 }
 
@@ -72,15 +52,9 @@ pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm
         data: data.data.to_vec().into_boxed_slice(),
         range: data.range,
         kind: match data.kind {
-            wasmparser::DataKind::Active {
-                memory_index,
-                offset_expr,
-            } => {
+            wasmparser::DataKind::Active { memory_index, offset_expr } => {
                 let offset = process_const_operators(offset_expr.get_operators_reader())?;
-                tinywasm_types::DataKind::Active {
-                    mem: memory_index,
-                    offset,
-                }
+                tinywasm_types::DataKind::Active { mem: memory_index, offset }
             }
             wasmparser::DataKind::Passive => tinywasm_types::DataKind::Passive,
         },
@@ -90,10 +64,7 @@ pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm
 pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
     imports: T,
 ) -> Result<Vec<Import>> {
-    let imports = imports
-        .into_iter()
-        .map(|import| convert_module_import(import?))
-        .collect::<Result<Vec<_>>>()?;
+    let imports = imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()?;
     Ok(imports)
 }
 
@@ -105,15 +76,11 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
             wasmparser::TypeRef::Func(ty) => ImportKind::Func(ty),
             wasmparser::TypeRef::Table(ty) => ImportKind::Table(convert_module_table(ty)?),
             wasmparser::TypeRef::Memory(ty) => ImportKind::Mem(convert_module_memory(ty)?),
-            wasmparser::TypeRef::Global(ty) => ImportKind::Global(GlobalType {
-                mutable: ty.mutable,
-                ty: convert_valtype(&ty.content_type),
-            }),
+            wasmparser::TypeRef::Global(ty) => {
+                ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
+            }
             wasmparser::TypeRef::Tag(ty) => {
-                return Err(crate::ParseError::UnsupportedOperator(format!(
-                    "Unsupported import kind: {:?}",
-                    ty
-                )))
+                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", ty)))
             }
         },
     })
@@ -122,10 +89,8 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
 pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
     memory_types: T,
 ) -> Result<Vec<MemoryType>> {
-    let memory_type = memory_types
-        .into_iter()
-        .map(|memory| convert_module_memory(memory?))
-        .collect::<Result<Vec<_>>>()?;
+    let memory_type =
+        memory_types.into_iter().map(|memory| convert_module_memory(memory?)).collect::<Result<Vec<_>>>()?;
 
     Ok(memory_type)
 }
@@ -144,21 +109,14 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<Me
 pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wasmparser::TableType>>>(
     table_types: T,
 ) -> Result<Vec<TableType>> {
-    let table_type = table_types
-        .into_iter()
-        .map(|table| convert_module_table(table?))
-        .collect::<Result<Vec<_>>>()?;
+    let table_type = table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()?;
 
     Ok(table_type)
 }
 
 pub(crate) fn convert_module_table(table: wasmparser::TableType) -> Result<TableType> {
     let ty = convert_valtype(&table.element_type);
-    Ok(TableType {
-        element_type: ty,
-        size_initial: table.initial,
-        size_max: table.maximum,
-    })
+    Ok(TableType { element_type: ty, size_initial: table.initial, size_max: table.maximum })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
@@ -171,13 +129,7 @@ pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Resu
             let ty = convert_valtype(&global.ty.content_type);
             let ops = global.init_expr.get_operators_reader();
 
-            Ok(Global {
-                init: process_const_operators(ops)?,
-                ty: GlobalType {
-                    mutable: global.ty.mutable,
-                    ty,
-                },
-            })
+            Ok(Global { init: process_const_operators(ops)?, ty: GlobalType { mutable: global.ty.mutable, ty } })
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(globals)
@@ -190,18 +142,11 @@ pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export
         wasmparser::ExternalKind::Memory => ExternalKind::Memory,
         wasmparser::ExternalKind::Global => ExternalKind::Global,
         wasmparser::ExternalKind::Tag => {
-            return Err(crate::ParseError::UnsupportedOperator(format!(
-                "Unsupported export kind: {:?}",
-                export.kind
-            )))
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)))
         }
     };
 
-    Ok(Export {
-        index: export.index,
-        name: Box::from(export.name),
-        kind,
-    })
+    Ok(Export { index: export.index, name: Box::from(export.name), kind })
 }
 
 pub(crate) fn convert_module_code(
@@ -224,27 +169,16 @@ pub(crate) fn convert_module_code(
     let body_reader = func.get_operators_reader()?;
     let body = process_operators(body_reader.original_position(), body_reader.into_iter(), validator)?;
 
-    Ok(CodeSection {
-        locals: locals.into_boxed_slice(),
-        body,
-    })
+    Ok(CodeSection { locals: locals.into_boxed_slice(), body })
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::Type) -> Result<FuncType> {
     let wasmparser::Type::Func(ty) = ty;
-    let params = ty
-        .params()
-        .iter()
-        .map(|p| Ok(convert_valtype(p)))
-        .collect::<Result<Vec<ValType>>>()?
-        .into_boxed_slice();
+    let params =
+        ty.params().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
 
-    let results = ty
-        .results()
-        .iter()
-        .map(|p| Ok(convert_valtype(p)))
-        .collect::<Result<Vec<ValType>>>()?
-        .into_boxed_slice();
+    let results =
+        ty.results().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
 
     Ok(FuncType { params, results })
 }
@@ -270,19 +204,14 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         I64 => ValType::I64,
         F32 => ValType::F32,
         F64 => ValType::F64,
-        V128 => ValType::V128,
+        V128 => unimplemented!("128-bit values are not supported yet"),
         FuncRef => ValType::FuncRef,
         ExternRef => ValType::ExternRef,
     }
 }
 
 pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
-    MemArg {
-        offset: memarg.offset,
-        align: memarg.align,
-        align_max: memarg.max_align,
-        mem_addr: memarg.memory,
-    }
+    MemArg { offset: memarg.offset, align: memarg.align, align_max: memarg.max_align, mem_addr: memarg.memory }
 }
 
 pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstruction> {
@@ -306,10 +235,7 @@ pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstructi
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))), // TODO: check if this is correct
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))), // TODO: check if this is correct
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
-        op => Err(crate::ParseError::UnsupportedOperator(format!(
-            "Unsupported const instruction: {:?}",
-            op
-        ))),
+        op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
     }
 }
 
@@ -332,9 +258,7 @@ pub fn process_operators<'a>(
         let res = match op {
             BrTable { targets } => {
                 let def = targets.default();
-                let targets = targets
-                    .targets()
-                    .collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?;
+                let targets = targets.targets().collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?;
                 instructions.push(Instruction::BrTable(def, targets.len()));
                 instructions.extend(targets.into_iter().map(Instruction::BrLabel));
                 continue;
@@ -406,11 +330,7 @@ pub fn process_operators<'a>(
             BrIf { relative_depth } => Instruction::BrIf(relative_depth),
             Return => Instruction::Return,
             Call { function_index } => Instruction::Call(function_index),
-            CallIndirect {
-                type_index,
-                table_index,
-                ..
-            } => Instruction::CallIndirect(type_index, table_index),
+            CallIndirect { type_index, table_index, .. } => Instruction::CallIndirect(type_index, table_index),
             Drop => Instruction::Drop,
             Select => Instruction::Select(None),
             TypedSelect { ty } => Instruction::Select(Some(convert_valtype(&ty))),
@@ -590,19 +510,13 @@ pub fn process_operators<'a>(
             TableGet { table } => Instruction::TableGet(table),
             TableSet { table } => Instruction::TableSet(table),
             TableInit { table, elem_index } => Instruction::TableInit(table, elem_index),
-            TableCopy { src_table, dst_table } => Instruction::TableCopy {
-                from: src_table,
-                to: dst_table,
-            },
+            TableCopy { src_table, dst_table } => Instruction::TableCopy { from: src_table, to: dst_table },
             TableGrow { table } => Instruction::TableGrow(table),
             TableSize { table } => Instruction::TableSize(table),
             TableFill { table } => Instruction::TableFill(table),
             op => {
                 log::error!("Unsupported instruction: {:?}", op);
-                return Err(crate::ParseError::UnsupportedOperator(format!(
-                    "Unsupported instruction: {:?}",
-                    op
-                )));
+                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported instruction: {:?}", op)));
             }
         };
 
@@ -610,10 +524,7 @@ pub fn process_operators<'a>(
     }
 
     if !labels_ptrs.is_empty() {
-        panic!(
-            "last_label_pointer should be None after processing all instructions: {:?}",
-            labels_ptrs
-        );
+        panic!("last_label_pointer should be None after processing all instructions: {:?}", labels_ptrs);
     }
 
     validator.finish(offset)?;

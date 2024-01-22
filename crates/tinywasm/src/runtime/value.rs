@@ -27,9 +27,14 @@ impl RawWasmValue {
             ValType::I64 => WasmValue::I64(self.0 as i64),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.0 as u32)),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.0)),
-            ValType::ExternRef => WasmValue::RefExtern(self.0 as u32),
-            ValType::FuncRef => WasmValue::RefFunc(self.0 as u32),
-            ValType::V128 => todo!("v128"),
+            ValType::ExternRef => WasmValue::RefExtern(match self.0 {
+                0 => None,
+                _ => Some(self.0 as u32),
+            }),
+            ValType::FuncRef => WasmValue::RefFunc(match self.0 {
+                0 => None,
+                _ => Some(self.0 as u32),
+            }),
         }
     }
 }
@@ -41,9 +46,8 @@ impl From<WasmValue> for RawWasmValue {
             WasmValue::I64(i) => Self(i as u64),
             WasmValue::F32(i) => Self(i.to_bits() as u64),
             WasmValue::F64(i) => Self(i.to_bits()),
-            WasmValue::RefNull(v) => v.default_value().into(),
-            WasmValue::RefExtern(v) => Self(v as u64),
-            WasmValue::RefFunc(v) => Self(v as u64),
+            WasmValue::RefExtern(v) => Self(v.unwrap_or(0) as u64),
+            WasmValue::RefFunc(v) => Self(v.unwrap_or(0) as u64),
         }
     }
 }

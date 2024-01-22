@@ -111,7 +111,7 @@ fn exec_one(
         Nop => { /* do nothing */ }
         Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
-        Select(_) => {
+        Select(t) => {
             // due to validation, we know that the type of the values on the stack
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
@@ -143,8 +143,7 @@ fn exec_one(
 
             debug!("params: {:?}", func_ty.params);
             debug!("stack: {:?}", stack.values);
-            let params = stack.values.pop_n(func_ty.params.len())?;
-
+            let params = stack.values.pop_n_rev(func_ty.params.len())?;
             let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec());
 
             // push the call frame
@@ -163,10 +162,11 @@ fn exec_one(
             let call_ty = module.func_ty(*type_addr);
 
             let func_idx = stack.values.pop_t::<u32>()?;
-            let func_addr = table.borrow().get(func_idx as usize)?;
+            let actual_func_addr = table.borrow().get(func_idx as usize)?;
+            let resolved_func_addr = module.resolve_func_addr(actual_func_addr);
 
             // prepare the call frame
-            let func_inst = store.get_func(func_addr as usize)?;
+            let func_inst = store.get_func(resolved_func_addr as usize)?;
             let func = match &func_inst.func {
                 crate::Function::Wasm(ref f) => f,
                 crate::Function::Host(host_func) => {
@@ -185,9 +185,8 @@ fn exec_one(
                 );
             }
 
-            let params = stack.values.pop_n(func_ty.params.len())?;
-
-            let call_frame = CallFrame::new_raw(func_addr as usize, &params, func.locals.to_vec());
+            let params = stack.values.pop_n_rev(func_ty.params.len())?;
+            let call_frame = CallFrame::new_raw(resolved_func_addr as usize, &params, func.locals.to_vec());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -218,7 +217,7 @@ fn exec_one(
                     cf.instr_ptr += *end_offset
                 }
             } else {
-                log::info!("entering then");
+                log::trace!("entering then");
                 cf.enter_label(
                     LabelFrame {
                         instr_ptr: cf.instr_ptr,
