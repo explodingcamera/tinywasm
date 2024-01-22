@@ -16,7 +16,6 @@ use traits::*;
 
 impl DefaultRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
-        log::debug!("exports: {:?}", module.exports());
         log::debug!("func_addrs: {:?}", module.func_addrs());
         log::debug!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
         log::debug!("store funcs: {:?}", store.data.funcs.len());
@@ -26,7 +25,7 @@ impl DefaultRuntime {
 
         // The function to execute, gets updated from ExecResult::Call
         let mut func_inst = store.get_func(cf.func_ptr)?.clone();
-        let mut wasm_func = func_inst.assert_wasm()?;
+        let mut wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
         let mut instrs = &wasm_func.instructions;
 
         // TODO: we might be able to index into the instructions directly
@@ -37,7 +36,7 @@ impl DefaultRuntime {
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
                     func_inst = store.get_func(cf.func_ptr)?.clone();
-                    wasm_func = func_inst.assert_wasm()?;
+                    wasm_func = func_inst.assert_wasm().expect("call expected wasm function");
                     instrs = &wasm_func.instructions;
                     continue;
                 }
@@ -129,14 +128,24 @@ fn exec_one(
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?;
-            let func = func_inst.assert_wasm()?;
+            let func = match &func_inst.func {
+                crate::Function::Wasm(ref f) => f,
+                crate::Function::Host(host_func) => {
+                    let func = host_func.func.clone();
+                    let params = stack.values.pop_params(&host_func.ty.params)?;
+                    let res = (func)(store, &params)?;
+                    stack.values.extend_from_typed(&res);
+                    return Ok(ExecResult::Ok);
+                }
+            };
+
             let func_ty = module.func_ty(func.ty_addr);
 
             debug!("params: {:?}", func_ty.params);
             debug!("stack: {:?}", stack.values);
             let params = stack.values.pop_n(func_ty.params.len())?;
 
-            let call_frame = CallFrame::new_raw(*v as usize, &params, func.locals.to_vec());
+            let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -158,15 +167,22 @@ fn exec_one(
 
             // prepare the call frame
             let func_inst = store.get_func(func_addr as usize)?;
-            let func = func_inst.assert_wasm()?;
+            let func = match &func_inst.func {
+                crate::Function::Wasm(ref f) => f,
+                crate::Function::Host(host_func) => {
+                    let func = host_func.func.clone();
+                    let params = stack.values.pop_params(&host_func.ty.params)?;
+                    let res = (func)(store, &params)?;
+                    stack.values.extend_from_typed(&res);
+                    return Ok(ExecResult::Ok);
+                }
+            };
             let func_ty = module.func_ty(func.ty_addr);
 
             if func_ty != call_ty {
-                return Err(Trap::IndirectCallTypeMismatch {
-                    actual: func_ty.clone(),
-                    expected: call_ty.clone(),
-                }
-                .into());
+                return Err(
+                    Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
+                );
             }
 
             let params = stack.values.pop_n(func_ty.params.len())?;
@@ -569,10 +585,7 @@ fn exec_one(
 
         i => {
             log::error!("unimplemented instruction: {:?}", i);
-            return Err(Error::UnsupportedFeature(alloc::format!(
-                "unimplemented instruction: {:?}",
-                i
-            )));
+            return Err(Error::UnsupportedFeature(alloc::format!("unimplemented instruction: {:?}", i)));
         }
     };
 

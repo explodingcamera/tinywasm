@@ -1,19 +1,14 @@
-#![allow(dead_code)] // TODO: remove this
-
 use core::{
     cell::RefCell,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
-use tinywasm_types::{
-    Addr, Data, Element, ElementKind, FuncAddr, Global, GlobalType, Import, Instruction, MemAddr, MemoryArch,
-    MemoryType, ModuleInstanceAddr, TableAddr, TableType, TypeAddr, ValType, WasmFunction,
-};
+use tinywasm_types::*;
 
 use crate::{
     runtime::{self, DefaultRuntime},
-    Error, Extern, Function, LinkedImports, ModuleInstance, RawWasmValue, Result, Trap,
+    Error, Function, ModuleInstance, RawWasmValue, Result, Trap,
 };
 
 // global store id counter
@@ -49,7 +44,7 @@ impl Store {
         Self::default()
     }
 
-    pub(crate) fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+    pub(crate) fn _get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
         self.module_instances.get(addr as usize)
     }
 
@@ -106,52 +101,45 @@ impl Store {
         self.module_instance_count as ModuleInstanceAddr
     }
 
-    /// Initialize the store with global state from the given module
     pub(crate) fn add_instance(&mut self, instance: ModuleInstance) -> Result<()> {
+        assert!(instance.id() == self.module_instance_count as ModuleInstanceAddr);
         self.module_instances.push(instance);
         self.module_instance_count += 1;
         Ok(())
     }
 
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn add_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
+    pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance {
-                func: Function::Wasm(func),
-                owner: idx,
-            }));
+            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), _owner: idx }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
-        func_addrs
+        Ok(func_addrs)
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn add_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Vec<TableAddr> {
+    pub(crate) fn init_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            self.data
-                .tables
-                .push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
-
+            self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
             table_addrs.push((i + table_count) as TableAddr);
         }
-        table_addrs
+        Ok(table_addrs)
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn add_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
+    pub(crate) fn init_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.data.mems.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in mems.into_iter().enumerate() {
             if let MemoryArch::I64 = mem.arch {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
-            self.data
-                .mems
-                .push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+            log::info!("adding memory: {:?}", mem);
+            self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
 
             mem_addrs.push((i + mem_count) as MemAddr);
         }
@@ -159,53 +147,9 @@ impl Store {
     }
 
     /// Add globals to the store, returning their addresses in the store
-    pub(crate) fn add_globals(
-        &mut self,
-        globals: Vec<Global>,
-        wasm_imports: &[Import],
-        user_imports: &LinkedImports,
-        idx: ModuleInstanceAddr,
-    ) -> Result<Vec<Addr>> {
-        // TODO: initialize imported globals
-        #![allow(clippy::unnecessary_filter_map)] // this is cleaner
-        let imported_globals = wasm_imports
-            .iter()
-            .filter_map(|import| match &import.kind {
-                tinywasm_types::ImportKind::Global(_) => Some(import),
-                _ => None,
-            })
-            .map(|import| {
-                let Some(global) = user_imports.get(&import.module, &import.name) else {
-                    return Err(Error::Other(format!(
-                        "global import not found for {}::{}",
-                        import.module, import.name
-                    )));
-                };
-                match global {
-                    Extern::Global(global) => Ok(global),
-                    _ => Err(Error::Other(format!(
-                        "expected global import for {}::{}",
-                        import.module, import.name
-                    ))),
-                }
-            })
-            .collect::<Result<Vec<_>>>()?;
-
+    pub(crate) fn init_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
         let mut global_addrs = Vec::with_capacity(global_count);
-        log::debug!("globals: {:?}", globals);
-
-        // first add the imported globals
-        for (i, global) in imported_globals.iter().enumerate() {
-            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
-                global.ty,
-                global.val.into(),
-                idx,
-            ))));
-            global_addrs.push((i + global_count) as Addr);
-        }
-
-        // then add the module globals
         for (i, global) in globals.iter().enumerate() {
             self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
                 global.ty,
@@ -218,43 +162,14 @@ impl Store {
         Ok(global_addrs)
     }
 
-    pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
-        use tinywasm_types::ConstInstruction::*;
-        let val = match const_instr {
-            I32Const(i) => *i,
-            GlobalGet(addr) => {
-                let addr = *addr as usize;
-                let global = self.data.globals[addr].clone();
-                let val = global.borrow().value;
-                i32::from(val)
-            }
-            _ => return Err(Error::Other("expected i32".to_string())),
-        };
-        Ok(val)
-    }
-
-    pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
-        use tinywasm_types::ConstInstruction::*;
-        let val = match const_instr {
-            F32Const(f) => RawWasmValue::from(*f),
-            F64Const(f) => RawWasmValue::from(*f),
-            I32Const(i) => RawWasmValue::from(*i),
-            I64Const(i) => RawWasmValue::from(*i),
-            GlobalGet(addr) => {
-                let addr = *addr as usize;
-                let global = self.data.globals[addr].clone();
-                let val = global.borrow().value;
-                val
-            }
-            RefNull(v) => v.default_value().into(),
-            RefFunc(idx) => RawWasmValue::from(*idx as i64),
-        };
-        Ok(val)
-    }
-
     /// Add elements to the store, returning their addresses in the store
     /// Should be called after the tables have been added
-    pub(crate) fn add_elems(&mut self, elems: Vec<Element>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
+    pub(crate) fn init_elems(
+        &mut self,
+        table_addrs: &[TableAddr],
+        elems: Vec<Element>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<Addr>> {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
@@ -281,13 +196,17 @@ impl Store {
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
                     let offset = self.eval_i32_const(&offset)?;
+                    let table_addr = table_addrs
+                        .get(table as usize)
+                        .copied()
+                        .ok_or_else(|| Error::Other(format!("table {} not found for element {}", table, i)))?;
 
                     // a. Let n be the length of the vector elem[i].init
                     // b. Execute the instruction sequence einstrs
                     // c. Execute the instruction i32.const 0
                     // d. Execute the instruction i32.const n
                     // e. Execute the instruction table.init tableidx i
-                    if let Some(table) = self.data.tables.get_mut(table as usize) {
+                    if let Some(table) = self.data.tables.get_mut(table_addr as usize) {
                         table.borrow_mut().init(offset, &init)?;
                     } else {
                         log::error!("table {} not found", table);
@@ -306,7 +225,12 @@ impl Store {
     }
 
     /// Add data to the store, returning their addresses in the store
-    pub(crate) fn add_datas(&mut self, datas: Vec<Data>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
+    pub(crate) fn init_datas(
+        &mut self,
+        mem_addrs: &[MemAddr],
+        datas: Vec<Data>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<Addr>> {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
@@ -315,10 +239,13 @@ impl Store {
                 Active { mem: mem_addr, offset } => {
                     // a. Assert: memidx == 0
                     if mem_addr != 0 {
-                        return Err(Error::UnsupportedFeature(
-                            "data segments for non-zero memories".to_string(),
-                        ));
+                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
                     }
+
+                    let mem_addr = mem_addrs
+                        .get(mem_addr as usize)
+                        .copied()
+                        .ok_or_else(|| Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)))?;
 
                     let offset = self.eval_i32_const(&offset)?;
 
@@ -329,7 +256,7 @@ impl Store {
 
                     mem.borrow_mut().store(offset as usize, 0, &data.data)?;
 
-                    // drop the date
+                    // drop the data
                     continue;
                 }
                 Passive => {}
@@ -341,35 +268,78 @@ impl Store {
         Ok(data_addrs)
     }
 
+    pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
+        self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(ty, value, idx))));
+        Ok(self.data.globals.len() as Addr - 1)
+    }
+
+    pub(crate) fn add_table(&mut self, table: TableType, idx: ModuleInstanceAddr) -> Result<TableAddr> {
+        self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+        Ok(self.data.tables.len() as TableAddr - 1)
+    }
+
+    pub(crate) fn add_mem(&mut self, mem: MemoryType, idx: ModuleInstanceAddr) -> Result<MemAddr> {
+        if let MemoryArch::I64 = mem.arch {
+            return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
+        }
+        self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+        Ok(self.data.mems.len() as MemAddr - 1)
+    }
+
+    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
+        self.data.funcs.push(Rc::new(FunctionInstance { func, _owner: idx }));
+        Ok(self.data.funcs.len() as FuncAddr - 1)
+    }
+
+    /// Evaluate a constant expression, only supporting i32 globals and i32.const
+    pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
+        use tinywasm_types::ConstInstruction::*;
+        let val = match const_instr {
+            I32Const(i) => *i,
+            GlobalGet(addr) => {
+                let addr = *addr as usize;
+                let global = self.data.globals[addr].clone();
+                let val = global.borrow().value;
+                i32::from(val)
+            }
+            _ => return Err(Error::Other("expected i32".to_string())),
+        };
+        Ok(val)
+    }
+
+    /// Evaluate a constant expression
+    pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
+        use tinywasm_types::ConstInstruction::*;
+        let val = match const_instr {
+            F32Const(f) => RawWasmValue::from(*f),
+            F64Const(f) => RawWasmValue::from(*f),
+            I32Const(i) => RawWasmValue::from(*i),
+            I64Const(i) => RawWasmValue::from(*i),
+            GlobalGet(addr) => {
+                let addr = *addr as usize;
+                let global = self.data.globals[addr].clone();
+                let val = global.borrow().value;
+                val
+            }
+            RefNull(v) => v.default_value().into(),
+            RefFunc(idx) => RawWasmValue::from(*idx as i64),
+        };
+        Ok(val)
+    }
+
     /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: usize) -> Result<&Rc<FunctionInstance>> {
-        self.data
-            .funcs
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("function {} not found", addr)))
+        self.data.funcs.get(addr).ok_or_else(|| Error::Other(format!("function {} not found", addr)))
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
-        self.data
-            .mems
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
+        self.data.mems.get(addr).ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
     }
 
     /// Get the table at the actual index in the store
     pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
-        self.data
-            .tables
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("table {} not found", addr)))
-    }
-
-    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
-        self.data
-            .elems
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+        self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
     }
 
     /// Get the global at the actual index in the store
@@ -396,7 +366,7 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 
 // TODO: check if this actually helps
@@ -421,25 +391,18 @@ impl FunctionInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
 #[derive(Debug)]
 pub(crate) struct TableInstance {
-    pub(crate) kind: TableType,
     pub(crate) elements: Vec<Addr>,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _kind: TableType,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self {
-            elements: vec![0; kind.size_initial as usize],
-            kind,
-            owner,
-        }
+        Self { elements: vec![0; kind.size_initial as usize], _kind: kind, _owner: owner }
     }
 
     pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
-        self.elements
-            .get(addr)
-            .copied()
-            .ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
+        self.elements.get(addr).copied().ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
     }
 
     pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
@@ -457,20 +420,11 @@ impl TableInstance {
     pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
-            Error::Trap(crate::Trap::TableOutOfBounds {
-                offset,
-                len: init.len(),
-                max: self.elements.len(),
-            })
+            Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
         })?;
 
         if end > self.elements.len() || end < offset {
-            return Err(crate::Trap::TableOutOfBounds {
-                offset,
-                len: init.len(),
-                max: self.elements.len(),
-            }
-            .into());
+            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
         }
 
         self.elements[offset..end].copy_from_slice(init);
@@ -490,7 +444,7 @@ pub(crate) struct MemoryInstance {
     pub(crate) kind: MemoryType,
     pub(crate) data: Vec<u8>,
     pub(crate) page_count: usize,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl MemoryInstance {
@@ -502,17 +456,13 @@ impl MemoryInstance {
             kind,
             data: vec![0; PAGE_SIZE * kind.page_count_initial as usize],
             page_count: kind.page_count_initial as usize,
-            owner,
+            _owner: owner,
         }
     }
 
     pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8]) -> Result<()> {
         let end = addr.checked_add(data.len()).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len: data.len(),
-                max: self.data.len(),
-            })
+            Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len: data.len(), max: self.data.len() })
         })?;
 
         if end > self.data.len() || end < addr {
@@ -533,20 +483,12 @@ impl MemoryInstance {
     }
 
     pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
-        let end = addr.checked_add(len).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len,
-                max: self.max_pages(),
-            })
-        })?;
+        let end = addr
+            .checked_add(len)
+            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.max_pages() }))?;
 
         if end > self.data.len() {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len,
-                max: self.data.len(),
-            }));
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }));
         }
 
         // WebAssembly doesn't require alignment for loads
@@ -590,14 +532,14 @@ impl MemoryInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
 #[derive(Debug)]
 pub(crate) struct GlobalInstance {
-    pub(crate) ty: GlobalType,
     pub(crate) value: RawWasmValue,
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _ty: GlobalType,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl GlobalInstance {
     pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
-        Self { ty, value, owner }
+        Self { _ty: ty, value, _owner: owner }
     }
 }
 
@@ -606,14 +548,14 @@ impl GlobalInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
 #[derive(Debug)]
 pub(crate) struct ElemInstance {
-    kind: ElementKind,
-    items: Option<Vec<u32>>,   // none is the element was dropped
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    _kind: ElementKind,
+    _items: Option<Vec<u32>>,   // none is the element was dropped
+    _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl ElemInstance {
     pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
-        Self { kind, owner, items }
+        Self { _kind: kind, _owner: owner, _items: items }
     }
 }
 
@@ -622,12 +564,12 @@ impl ElemInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#data-instances>
 #[derive(Debug)]
 pub(crate) struct DataInstance {
-    pub(crate) data: Vec<u8>,
-    owner: ModuleInstanceAddr, // index into store.module_instances
+    pub(crate) _data: Vec<u8>,
+    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl DataInstance {
     pub(crate) fn new(data: Vec<u8>, owner: ModuleInstanceAddr) -> Self {
-        Self { data, owner }
+        Self { _data: data, _owner: owner }
     }
 }

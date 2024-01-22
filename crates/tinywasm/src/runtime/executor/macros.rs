@@ -63,8 +63,7 @@ macro_rules! mem_store {
         let val = val as $store_type;
         let val = val.to_le_bytes();
 
-        mem.borrow_mut()
-            .store(($arg.offset + addr) as usize, $arg.align as usize, &val)?;
+        mem.borrow_mut().store(($arg.offset + addr) as usize, $arg.align as usize, &val)?;
     }};
 }
 
@@ -225,9 +224,7 @@ macro_rules! checked_int_arithmetic {
             return Err(Error::Trap(crate::Trap::DivisionByZero));
         }
 
-        let result = a_casted
-            .$op(b_casted)
-            .ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
+        let result = a_casted.$op(b_casted).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
 
         // Cast back to original type if different
         $stack.values.push((result as $from).into());

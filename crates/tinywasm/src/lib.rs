@@ -2,10 +2,7 @@
 #![forbid(unsafe_code)]
 #![doc(test(
     no_crate_inject,
-    attr(
-        deny(warnings, rust_2018_idioms),
-        allow(dead_code, unused_assignments, unused_variables)
-    )
+    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(nightly, feature(error_in_core))]
@@ -88,9 +85,6 @@ pub use module::Module;
 
 mod instance;
 pub use instance::ModuleInstance;
-
-mod export;
-pub use export::ExportInstance;
 
 mod func;
 pub use func::{FuncHandle, TypedFuncHandle};

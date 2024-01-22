@@ -57,8 +57,8 @@ impl TestSuite {
             Ok(())
         });
 
-        let print_i64_f64 = Extern::typed_func(|_: &mut tinywasm::Store, args: (i64, f64)| {
-            log::debug!("print_i64_f64: {}, {}", args.0, args.1);
+        let print_f64_f64 = Extern::typed_func(|_: &mut tinywasm::Store, args: (f64, f64)| {
+            log::debug!("print_f64_f64: {}, {}", args.0, args.1);
             Ok(())
         });
 
@@ -75,9 +75,10 @@ impl TestSuite {
             .define("spectest", "print_f32", print_f32)?
             .define("spectest", "print_f64", print_f64)?
             .define("spectest", "print_i32_f32", print_i32_f32)?
-            .define("spectest", "print_i64_f64", print_i64_f64)?;
+            .define("spectest", "print_f64_f64", print_f64_f64)?;
 
         for (name, addr) in registered_modules {
+            log::debug!("registering module: {}", name);
             imports.link_module(&name, addr)?;
         }
 
@@ -137,7 +138,7 @@ impl TestSuite {
 
                 Wat(mut module) => {
                     // TODO: modules are not properly isolated from each other - tests fail because of this otherwise
-                    store = tinywasm::Store::default();
+                    // store = tinywasm::Store::default();
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
                         let m = parse_module_bytes(&module.encode().expect("failed to encode module"))

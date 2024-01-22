@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::fmt::Debug;
 
 use crate::{
@@ -10,32 +12,45 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use tinywasm_types::{
-    ExternVal, ExternalKind, GlobalType, MemoryType, ModuleInstanceAddr, TableType, WasmFunction, WasmValue,
-};
+use tinywasm_types::*;
 
-#[derive(Debug)]
-pub(crate) enum Function {
+/// The internal representation of a function
+#[derive(Debug, Clone)]
+pub enum Function {
+    /// A host function
     Host(HostFunction),
+
+    /// A function defined in WebAssembly
     Wasm(WasmFunction),
 }
 
-/// A host function
-pub struct HostFunction {
-    pub(crate) ty: tinywasm_types::FuncType,
-    pub(crate) func: Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>,
-}
-
-impl Debug for HostFunction {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("HostFunction")
-            .field("ty", &self.ty)
-            .field("func", &"...")
-            .finish()
+impl Function {
+    /// Get the function's type
+    pub fn ty(&self, module: &crate::ModuleInstance) -> tinywasm_types::FuncType {
+        match self {
+            Self::Host(f) => f.ty.clone(),
+            Self::Wasm(f) => module.func_ty(f.ty_addr).clone(),
+        }
     }
 }
 
-#[derive(Debug)]
+/// A host function
+#[derive(Clone)]
+pub struct HostFunction {
+    pub(crate) ty: tinywasm_types::FuncType,
+    pub(crate) func: HostFuncInner,
+}
+
+pub(crate) type HostFuncInner =
+    Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>;
+
+impl Debug for HostFunction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostFunction").field("ty", &self.ty).field("func", &"...").finish()
+    }
+}
+
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 /// An external value
 pub enum Extern {
@@ -49,31 +64,29 @@ pub enum Extern {
     Memory(ExternMemory),
 
     /// A function
-    Func(HostFunction),
+    Func(Function),
 }
 
 /// A function
-#[derive(Debug)]
-pub struct ExternFunc {
-    pub(crate) inner: HostFunction,
-}
+#[derive(Debug, Clone)]
+pub struct ExternFunc(pub(crate) HostFunction);
 
 /// A global value
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternGlobal {
     pub(crate) ty: GlobalType,
     pub(crate) val: WasmValue,
 }
 
 /// A table
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternTable {
     pub(crate) ty: TableType,
     pub(crate) val: WasmValue,
 }
 
 /// A memory
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExternMemory {
     pub(crate) ty: MemoryType,
 }
@@ -81,13 +94,7 @@ pub struct ExternMemory {
 impl Extern {
     /// Create a new global import
     pub fn global(val: WasmValue, mutable: bool) -> Self {
-        Self::Global(ExternGlobal {
-            ty: GlobalType {
-                ty: val.val_type(),
-                mutable,
-            },
-            val,
-        })
+        Self::Global(ExternGlobal { ty: GlobalType { ty: val.val_type(), mutable }, val })
     }
 
     /// Create a new table import
@@ -110,10 +117,7 @@ impl Extern {
             func(store, &args)
         };
 
-        Self::Func(HostFunction {
-            func: Arc::new(inner_func),
-            ty: ty.clone(),
-        })
+        Self::Func(Function::Host(HostFunction { func: Arc::new(inner_func), ty: ty.clone() }))
     }
 
     /// Create a new typed function import
@@ -128,15 +132,9 @@ impl Extern {
             Ok(result.into_wasm_value_tuple())
         };
 
-        let ty = tinywasm_types::FuncType {
-            params: P::val_types(),
-            results: R::val_types(),
-        };
+        let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
 
-        Self::Func(HostFunction {
-            func: Arc::new(inner_func),
-            ty: ty.clone(),
-        })
+        Self::Func(Function::Host(HostFunction { func: Arc::new(inner_func), ty }))
     }
 
     pub(crate) fn kind(&self) -> ExternalKind {
@@ -156,6 +154,12 @@ pub struct ExternName {
     name: String,
 }
 
+impl From<&Import> for ExternName {
+    fn from(import: &Import) -> Self {
+        Self { module: import.module.to_string(), name: import.name.to_string() }
+    }
+}
+
 #[derive(Debug, Default)]
 /// Imports for a module instance
 pub struct Imports {
@@ -163,30 +167,31 @@ pub struct Imports {
     modules: BTreeMap<String, ModuleInstanceAddr>,
 }
 
-pub(crate) struct LinkedImports {
-    // externs that were defined and need to be instantiated
-    pub(crate) externs: BTreeMap<ExternName, Extern>,
+pub(crate) enum ResolvedExtern<S, V> {
+    // already in the store
+    Store(S),
 
-    // externs that were linked to other modules and already exist in the store
-    pub(crate) linked_externs: BTreeMap<ExternName, ExternVal>,
+    // needs to be added to the store, provided value
+    Extern(V),
 }
 
-impl LinkedImports {
-    pub(crate) fn get(&self, module: &str, name: &str) -> Option<&Extern> {
-        self.externs.get(&ExternName {
-            module: module.to_string(),
-            name: name.to_string(),
-        })
+pub(crate) struct ResolvedImports {
+    pub(crate) globals: Vec<GlobalAddr>,
+    pub(crate) tables: Vec<TableAddr>,
+    pub(crate) mems: Vec<MemAddr>,
+    pub(crate) funcs: Vec<FuncAddr>,
+}
+
+impl ResolvedImports {
+    pub(crate) fn new() -> Self {
+        Self { globals: Vec::new(), tables: Vec::new(), mems: Vec::new(), funcs: Vec::new() }
     }
 }
 
 impl Imports {
     /// Create a new empty import set
     pub fn new() -> Self {
-        Imports {
-            values: BTreeMap::new(),
-            modules: BTreeMap::new(),
-        }
+        Imports { values: BTreeMap::new(), modules: BTreeMap::new() }
     }
 
     /// Link a module
@@ -199,87 +204,106 @@ impl Imports {
 
     /// Define an import
     pub fn define(&mut self, module: &str, name: &str, value: Extern) -> Result<&mut Self> {
-        self.values.insert(
-            ExternName {
-                module: module.to_string(),
-                name: name.to_string(),
-            },
-            value,
-        );
+        self.values.insert(ExternName { module: module.to_string(), name: name.to_string() }, value);
         Ok(self)
     }
 
-    pub(crate) fn link(self, store: &mut crate::Store, module: &crate::Module) -> Result<LinkedImports> {
-        let mut links = BTreeMap::new();
+    pub(crate) fn take(
+        &mut self,
+        _store: &mut crate::Store,
+        import: &Import,
+    ) -> Option<ResolvedExtern<ExternVal, Extern>> {
+        let name = ExternName::from(import);
+        log::error!("provided externs: {:?}", self.values.keys());
+        if let Some(v) = self.values.get(&name) {
+            return Some(ResolvedExtern::Extern(v.clone()));
+        }
+        log::error!("failed to resolve import: {:?}", name);
+        // TODO:
+        // if let Some(addr) = self.modules.get(&name.module) {
+        //     let instance = store.get_module_instance(*addr)?;
+        //     let exports = instance.exports();
+
+        //     let export = exports.get_untyped(&import.name)?;
+        //     let addr = match export.kind {
+        //         ExternalKind::Global(g) => ExternVal::Global(),
+        //     };
+
+        //     return Some(ResolvedExtern::Store());
+        // }
+
+        None
+    }
+
+    pub(crate) fn link(
+        mut self,
+        store: &mut crate::Store,
+        module: &crate::Module,
+        idx: ModuleInstanceAddr,
+    ) -> Result<ResolvedImports> {
+        let mut imports = ResolvedImports::new();
 
         for import in module.data.imports.iter() {
-            if let Some(i) = self.values.get(&ExternName {
-                module: import.module.to_string(),
-                name: import.name.to_string(),
-            }) {
-                if i.kind() != (&import.kind).into() {
-                    return Err(crate::Error::InvalidImportType {
-                        module: import.module.to_string(),
-                        name: import.name.to_string(),
-                    });
-                }
-
-                continue;
-            }
-
-            let module_addr =
-                self.modules
-                    .get(&import.module.to_string())
-                    .ok_or_else(|| crate::Error::MissingImport {
-                        module: import.module.to_string(),
-                        name: import.name.to_string(),
-                    })?;
-
-            let module =
-                store
-                    .get_module_instance(*module_addr)
-                    .ok_or_else(|| crate::Error::CouldNotResolveImport {
-                        module: import.module.to_string(),
-                        name: import.name.to_string(),
-                    })?;
-
-            let export =
-                module
-                    .exports()
-                    .get_untyped(&import.name)
-                    .ok_or_else(|| crate::Error::CouldNotResolveImport {
-                        module: import.module.to_string(),
-                        name: import.name.to_string(),
-                    })?;
-
-            // validate import
-            if export.kind != (&import.kind).into() {
-                return Err(crate::Error::InvalidImportType {
+            let Some(val) = self.take(store, import) else {
+                return Err(crate::Error::MissingImport {
                     module: import.module.to_string(),
                     name: import.name.to_string(),
                 });
-            }
-
-            let val = match export.kind {
-                ExternalKind::Func => ExternVal::Func(export.index),
-                ExternalKind::Global => ExternVal::Global(export.index),
-                ExternalKind::Table => ExternVal::Table(export.index),
-                ExternalKind::Memory => ExternVal::Mem(export.index),
             };
 
-            links.insert(
-                ExternName {
-                    module: import.module.to_string(),
-                    name: import.name.to_string(),
-                },
-                val,
-            );
+            match val {
+                // A link to something that needs to be added to the store
+                ResolvedExtern::Extern(ex) => {
+                    // check if the kind matches
+                    let kind = ex.kind();
+                    if kind != (&import.kind).into() {
+                        return Err(crate::Error::InvalidImportType {
+                            module: import.module.to_string(),
+                            name: import.name.to_string(),
+                        });
+                    }
+
+                    // TODO: check if the type matches
+
+                    // add it to the store and get the address
+                    let addr = match ex {
+                        Extern::Global(g) => store.add_global(g.ty, g.val.into(), idx)?,
+                        Extern::Table(t) => store.add_table(t.ty, idx)?,
+                        Extern::Memory(m) => store.add_mem(m.ty, idx)?,
+                        Extern::Func(f) => store.add_func(f, idx)?,
+                    };
+
+                    // store the link
+                    match &kind {
+                        ExternalKind::Global => imports.globals.push(addr),
+                        ExternalKind::Table => imports.tables.push(addr),
+                        ExternalKind::Memory => imports.mems.push(addr),
+                        ExternalKind::Func => imports.funcs.push(addr),
+                    }
+                }
+
+                // A link to something already in the store
+                ResolvedExtern::Store(val) => {
+                    // check if the kind matches
+                    if val.kind() != (&import.kind).into() {
+                        return Err(crate::Error::InvalidImportType {
+                            module: import.module.to_string(),
+                            name: import.name.to_string(),
+                        });
+                    }
+
+                    // TODO: check if the type matches
+
+                    match val {
+                        ExternVal::Global(g) => imports.globals.push(g),
+                        ExternVal::Table(t) => imports.tables.push(t),
+                        ExternVal::Mem(m) => imports.mems.push(m),
+                        ExternVal::Func(f) => imports.funcs.push(f),
+                    }
+                }
+            }
         }
 
-        // TODO: link to other modules (currently only direct imports are supported)
-        Ok(LinkedImports {
-            externs: self.values,
-            linked_externs: links,
-        })
+        Ok(imports)
     }
 }
