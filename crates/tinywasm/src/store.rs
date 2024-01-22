@@ -44,7 +44,7 @@ impl Store {
         Self::default()
     }
 
-    pub(crate) fn _get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+    pub(crate) fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
         self.module_instances.get(addr as usize)
     }
 

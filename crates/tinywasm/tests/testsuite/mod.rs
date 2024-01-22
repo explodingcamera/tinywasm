@@ -46,9 +46,7 @@ impl TestSuite {
                 if let Err(e) = &test.result {
                     eprintln!(
                         "{} {} failed: {:?}",
-                        link(group_name, &group.file, Some(test.linecol.0 + 1))
-                            .bold()
-                            .underline(),
+                        link(group_name, &group.file, Some(test.linecol.0 + 1)).bold().underline(),
                         test_name.bold(),
                         e.to_string().bright_red()
                     );
@@ -98,11 +96,7 @@ impl TestSuite {
             passed += group_passed;
             failed += group_failed;
 
-            groups.push(TestGroupResult {
-                name: name.to_string(),
-                passed: group_passed,
-                failed: group_failed,
-            });
+            groups.push(TestGroupResult { name: name.to_string(), passed: group_passed, failed: group_failed });
         }
 
         let groups = serde_json::to_string(&groups)?;
@@ -134,7 +128,9 @@ impl Debug for TestSuite {
 
             writeln!(f, "{}", link(group_name, &group.file, None).bold().underline())?;
             writeln!(f, "  Tests Passed: {}", group_passed.to_string().green())?;
-            writeln!(f, "  Tests Failed: {}", group_failed.to_string().red())?;
+            if group_failed != 0 {
+                writeln!(f, "  Tests Failed: {}", group_failed.to_string().red())?;
+            }
 
             // for (test_name, test) in &group.tests {
             //     write!(f, "    {}: ", test_name.bold())?;
@@ -166,10 +162,7 @@ struct TestGroup {
 
 impl TestGroup {
     fn new(file: &str) -> Self {
-        Self {
-            tests: IndexMap::new(),
-            file: file.to_string(),
-        }
+        Self { tests: IndexMap::new(), file: file.to_string() }
     }
 
     fn stats(&self) -> (usize, usize) {

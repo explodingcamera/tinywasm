@@ -6,7 +6,7 @@ use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
-use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
+use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
 
 impl TestSuite {
     pub fn run_paths(&mut self, tests: &[&str]) -> Result<()> {
@@ -134,13 +134,30 @@ impl TestSuite {
                     test_group.add_result(&format!("Register({})", i), span.linecol_in(wast), Ok(()));
                 }
 
-                Wat(mut module) => {
+                Wat(module) => {
                     // TODO: modules are not properly isolated from each other - tests fail because of this otherwise
                     // store = tinywasm::Store::default();
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
-                        let m = parse_module_bytes(&module.encode().expect("failed to encode module"))
-                            .expect("failed to parse module bytes");
+                        let bytes = match module {
+                            QuoteWat::QuoteModule(_, quoted_wat) => {
+                                let wat = quoted_wat
+                                    .iter()
+                                    .map(|(_, s)| std::str::from_utf8(&s).expect("failed to convert wast to utf8"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+
+                                let lexer = Lexer::new(&wat);
+                                let buf = ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
+                                let mut wat_data = wast::parser::parse::<wast::Wat>(&buf).expect("failed to parse wat");
+                                wat_data.encode()
+                            }
+                            QuoteWat::Wat(mut wat) => wat.encode(),
+                            _ => unimplemented!("Not supported"),
+                        }
+                        .expect("failed to encode module");
+
+                        let m = parse_module_bytes(&bytes).expect("failed to parse module bytes");
                         tinywasm::Module::from(m)
                             .instantiate(&mut store, Some(Self::imports(registered_modules.clone()).unwrap()))
                             .map_err(|e| {

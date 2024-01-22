@@ -246,7 +246,7 @@ impl Imports {
 
     pub(crate) fn take(
         &mut self,
-        _store: &mut crate::Store,
+        store: &mut crate::Store,
         import: &Import,
     ) -> Option<ResolvedExtern<ExternVal, Extern>> {
         let name = ExternName::from(import);
@@ -254,19 +254,21 @@ impl Imports {
         if let Some(v) = self.values.get(&name) {
             return Some(ResolvedExtern::Extern(v.clone()));
         }
-        log::error!("failed to resolve import: {:?}", name);
-        // TODO:
-        // if let Some(addr) = self.modules.get(&name.module) {
-        //     let instance = store.get_module_instance(*addr)?;
-        //     let exports = instance.exports();
 
-        //     let export = exports.get_untyped(&import.name)?;
-        //     let addr = match export.kind {
-        //         ExternalKind::Global(g) => ExternVal::Global(),
-        //     };
+        if let Some(addr) = self.modules.get(&name.module) {
+            let instance = store.get_module_instance(*addr)?;
+            let export_addr = instance.export(&import.name)?;
 
-        //     return Some(ResolvedExtern::Store());
-        // }
+            // TODO: validate kind and type
+            match &export_addr {
+                ExternVal::Global(_) => {}
+                ExternVal::Table(_) => {}
+                ExternVal::Mem(_) => {}
+                ExternVal::Func(_) => {}
+            }
+
+            return Some(ResolvedExtern::Store(export_addr));
+        }
 
         None
     }
