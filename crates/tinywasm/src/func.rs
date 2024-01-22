@@ -4,7 +4,7 @@ use tinywasm_types::{FuncAddr, FuncType, ValType, WasmValue};
 
 use crate::{
     runtime::{CallFrame, Stack},
-    Error, ModuleInstance, Result, Store,
+    Error, FuncContext, ModuleInstance, Result, Store,
 };
 
 #[derive(Debug)]
@@ -55,7 +55,8 @@ impl FuncHandle {
         let wasm_func = match &func_inst.func {
             crate::Function::Host(h) => {
                 let func = h.func.clone();
-                return (func)(store, params);
+                let ctx = FuncContext { store, module: &self.module };
+                return (func)(ctx, params);
             }
             crate::Function::Wasm(ref f) => f,
         };

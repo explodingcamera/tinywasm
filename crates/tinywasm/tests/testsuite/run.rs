@@ -22,42 +22,40 @@ impl TestSuite {
     fn imports(registered_modules: Vec<(String, ModuleInstanceAddr)>) -> Result<Imports> {
         let mut imports = Imports::new();
 
-        let table = Extern::table(
-            TableType::new(ValType::FuncRef, 10, Some(20)),
-            WasmValue::default_for(ValType::FuncRef),
-        );
+        let table =
+            Extern::table(TableType::new(ValType::FuncRef, 10, Some(20)), WasmValue::default_for(ValType::FuncRef));
 
-        let print = Extern::typed_func(|_: &mut tinywasm::Store, _: ()| {
+        let print = Extern::typed_func(|_ctx: tinywasm::FuncContext, _: ()| {
             log::debug!("print");
             Ok(())
         });
 
-        let print_i32 = Extern::typed_func(|_: &mut tinywasm::Store, arg: i32| {
+        let print_i32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i32| {
             log::debug!("print_i32: {}", arg);
             Ok(())
         });
 
-        let print_i64 = Extern::typed_func(|_: &mut tinywasm::Store, arg: i64| {
+        let print_i64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i64| {
             log::debug!("print_i64: {}", arg);
             Ok(())
         });
 
-        let print_f32 = Extern::typed_func(|_: &mut tinywasm::Store, arg: f32| {
+        let print_f32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f32| {
             log::debug!("print_f32: {}", arg);
             Ok(())
         });
 
-        let print_f64 = Extern::typed_func(|_: &mut tinywasm::Store, arg: f64| {
+        let print_f64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f64| {
             log::debug!("print_f64: {}", arg);
             Ok(())
         });
 
-        let print_i32_f32 = Extern::typed_func(|_: &mut tinywasm::Store, args: (i32, f32)| {
+        let print_i32_f32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, args: (i32, f32)| {
             log::debug!("print_i32_f32: {}, {}", args.0, args.1);
             Ok(())
         });
 
-        let print_f64_f64 = Extern::typed_func(|_: &mut tinywasm::Store, args: (f64, f64)| {
+        let print_f64_f64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, args: (f64, f64)| {
             log::debug!("print_f64_f64: {}, {}", args.0, args.1);
             Ok(())
         });
@@ -165,11 +163,7 @@ impl TestSuite {
                     test_group.add_result(&format!("Wat({})", i), span.linecol_in(wast), result.map(|_| ()));
                 }
 
-                AssertMalformed {
-                    span,
-                    mut module,
-                    message: _,
-                } => {
+                AssertMalformed { span, mut module, message: _ } => {
                     let Ok(module) = module.encode() else {
                         test_group.add_result(&format!("AssertMalformed({})", i), span.linecol_in(wast), Ok(()));
                         continue;
@@ -189,11 +183,7 @@ impl TestSuite {
                     );
                 }
 
-                AssertInvalid {
-                    span,
-                    mut module,
-                    message: _,
-                } => {
+                AssertInvalid { span, mut module, message: _ } => {
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
                         .map_err(|e| eyre!("failed to parse module (invalid): {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);
@@ -303,15 +293,13 @@ impl TestSuite {
                 Invoke(invoke) => {
                     let name = invoke.name;
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        let args = invoke
-                            .args
-                            .into_iter()
-                            .map(wastarg2tinywasmvalue)
-                            .collect::<Result<Vec<_>>>()
-                            .map_err(|e| {
-                                error!("failed to convert args: {:?}", e);
-                                e
-                            })?;
+                        let args =
+                            invoke.args.into_iter().map(wastarg2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
+                                |e| {
+                                    error!("failed to convert args: {:?}", e);
+                                    e
+                                },
+                            )?;
 
                         exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
                             error!("failed to execute function: {:?}", e);
@@ -320,9 +308,7 @@ impl TestSuite {
                         Ok(())
                     });
 
-                    let res = res
-                        .map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e)))
-                        .and_then(|r| r);
+                    let res = res.map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e))).and_then(|r| r);
 
                     test_group.add_result(&format!("Invoke({}-{})", name, i), span.linecol_in(wast), res);
                 }
@@ -348,15 +334,13 @@ impl TestSuite {
 
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                         debug!("invoke: {:?}", invoke);
-                        let args = invoke
-                            .args
-                            .into_iter()
-                            .map(wastarg2tinywasmvalue)
-                            .collect::<Result<Vec<_>>>()
-                            .map_err(|e| {
-                                error!("failed to convert args: {:?}", e);
-                                e
-                            })?;
+                        let args =
+                            invoke.args.into_iter().map(wastarg2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
+                                |e| {
+                                    error!("failed to convert args: {:?}", e);
+                                    e
+                                },
+                            )?;
 
                         let outcomes =
                             exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
@@ -366,14 +350,13 @@ impl TestSuite {
 
                         debug!("outcomes: {:?}", outcomes);
 
-                        let expected = results
-                            .into_iter()
-                            .map(wastret2tinywasmvalue)
-                            .collect::<Result<Vec<_>>>()
-                            .map_err(|e| {
-                                error!("failed to convert expected results: {:?}", e);
-                                e
-                            })?;
+                        let expected =
+                            results.into_iter().map(wastret2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
+                                |e| {
+                                    error!("failed to convert expected results: {:?}", e);
+                                    e
+                                },
+                            )?;
 
                         debug!("expected: {:?}", expected);
 
@@ -386,26 +369,16 @@ impl TestSuite {
                             ));
                         }
 
-                        outcomes
-                            .iter()
-                            .zip(expected)
-                            .enumerate()
-                            .try_for_each(|(i, (outcome, exp))| {
-                                (outcome.eq_loose(&exp))
-                                    .then_some(())
-                                    .ok_or_else(|| eyre!(" result {} did not match: {:?} != {:?}", i, outcome, exp))
-                            })
+                        outcomes.iter().zip(expected).enumerate().try_for_each(|(i, (outcome, exp))| {
+                            (outcome.eq_loose(&exp))
+                                .then_some(())
+                                .ok_or_else(|| eyre!(" result {} did not match: {:?} != {:?}", i, outcome, exp))
+                        })
                     });
 
-                    let res = res
-                        .map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e)))
-                        .and_then(|r| r);
+                    let res = res.map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e))).and_then(|r| r);
 
-                    test_group.add_result(
-                        &format!("AssertReturn({}-{})", invoke_name, i),
-                        span.linecol_in(wast),
-                        res,
-                    );
+                    test_group.add_result(&format!("AssertReturn({}-{})", invoke_name, i), span.linecol_in(wast), res);
                 }
                 _ => test_group.add_result(
                     &format!("Unknown({})", i),

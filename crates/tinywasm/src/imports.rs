@@ -41,8 +41,44 @@ pub struct HostFunction {
     pub(crate) func: HostFuncInner,
 }
 
+impl HostFunction {
+    /// Get the function's type
+    pub fn ty(&self) -> &tinywasm_types::FuncType {
+        &self.ty
+    }
+
+    /// Call the function
+    pub fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        (self.func)(ctx, args)
+    }
+}
+
 pub(crate) type HostFuncInner =
-    Arc<dyn Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>;
+    Arc<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>;
+
+/// The context of a host-function call
+#[derive(Debug)]
+pub struct FuncContext<'a> {
+    pub(crate) store: &'a mut crate::Store,
+    pub(crate) module: &'a crate::ModuleInstance,
+}
+
+impl FuncContext<'_> {
+    /// Get a mutable reference to the store
+    pub fn store_mut(&mut self) -> &mut crate::Store {
+        self.store
+    }
+
+    /// Get a reference to the store
+    pub fn store(&self) -> &crate::Store {
+        self.store
+    }
+
+    /// Get a reference to the module instance
+    pub fn module(&self) -> &crate::ModuleInstance {
+        self.module
+    }
+}
 
 impl Debug for HostFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -110,25 +146,25 @@ impl Extern {
     /// Create a new function import
     pub fn func(
         ty: &tinywasm_types::FuncType,
-        func: impl Fn(&mut crate::Store, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync,
+        func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync,
     ) -> Self {
-        let inner_func = move |store: &mut crate::Store, args: &[WasmValue]| {
+        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| {
             let args = args.to_vec();
-            func(store, &args)
+            func(ctx, &args)
         };
 
         Self::Func(Function::Host(HostFunction { func: Arc::new(inner_func), ty: ty.clone() }))
     }
 
     /// Create a new typed function import
-    pub fn typed_func<P, R>(func: impl Fn(&mut crate::Store, P) -> Result<R> + 'static + Send + Sync) -> Self
+    pub fn typed_func<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static + Send + Sync) -> Self
     where
         P: FromWasmValueTuple + ValTypesFromTuple,
         R: IntoWasmValueTuple + ValTypesFromTuple,
     {
-        let inner_func = move |store: &mut crate::Store, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
+        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
             let args = P::from_wasm_value_tuple(args.to_vec())?;
-            let result = func(store, args)?;
+            let result = func(ctx, args)?;
             Ok(result.into_wasm_value_tuple())
         };
 

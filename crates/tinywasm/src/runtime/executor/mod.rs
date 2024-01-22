@@ -4,7 +4,7 @@ use super::{DefaultRuntime, Stack};
 use crate::{
     log::debug,
     runtime::{BlockType, LabelFrame},
-    CallFrame, Error, LabelArgs, ModuleInstance, Result, Store, Trap,
+    CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
 use tinywasm_types::{ElementKind, Instruction};
@@ -136,7 +136,7 @@ fn exec_one(
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
                     let params = stack.values.pop_params(&host_func.ty.params)?;
-                    let res = (func)(store, &params)?;
+                    let res = (func)(FuncContext { store, module }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
@@ -175,7 +175,7 @@ fn exec_one(
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
                     let params = stack.values.pop_params(&host_func.ty.params)?;
-                    let res = (func)(store, &params)?;
+                    let res = (func)(FuncContext { store, module }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
