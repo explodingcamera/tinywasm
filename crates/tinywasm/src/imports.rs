@@ -25,11 +25,10 @@ pub enum Function {
 }
 
 impl Function {
-    /// Get the function's type
-    pub fn ty(&self, module: &crate::ModuleInstance) -> tinywasm_types::FuncType {
+    pub(crate) fn ty(&self) -> &FuncType {
         match self {
-            Self::Host(f) => f.ty.clone(),
-            Self::Wasm(f) => module.func_ty(f.ty_addr).clone(),
+            Self::Host(f) => &f.ty,
+            Self::Wasm(f) => &f.ty,
         }
     }
 }
@@ -309,7 +308,10 @@ impl Imports {
                         Extern::Global(g) => store.add_global(g.ty, g.val.into(), idx)?,
                         Extern::Table(t) => store.add_table(t.ty, idx)?,
                         Extern::Memory(m) => store.add_mem(m.ty, idx)?,
-                        Extern::Func(f) => store.add_func(f, idx)?,
+                        Extern::Func(f) => {
+                            let ImportKind::Func(import_type) = import.kind else { unreachable!() };
+                            store.add_func(f, import_type, idx)?
+                        }
                     };
 
                     // store the link

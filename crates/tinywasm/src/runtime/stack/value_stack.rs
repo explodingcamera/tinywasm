@@ -91,9 +91,7 @@ impl ValueStack {
 
         let mut res = Vec::with_capacity(types.len());
         for ty in types.iter() {
-            let v = self.pop()?;
-            let v = v.attach_type(*ty);
-            res.push(v.into());
+            res.push(self.pop()?.attach_type(*ty));
         }
 
         Ok(res)

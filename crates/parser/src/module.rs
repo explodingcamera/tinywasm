@@ -17,7 +17,10 @@ pub struct ModuleReader {
     pub start_func: Option<u32>,
 
     pub func_types: Vec<FuncType>,
-    pub func_addrs: Vec<u32>,
+
+    // map from local function index to type index
+    pub code_type_addrs: Vec<u32>,
+
     pub exports: Vec<Export>,
     pub code: Vec<CodeSection>,
     pub globals: Vec<Global>,
@@ -36,7 +39,7 @@ impl Debug for ModuleReader {
         f.debug_struct("ModuleReader")
             .field("version", &self.version)
             .field("func_types", &self.func_types)
-            .field("func_addrs", &self.func_addrs)
+            .field("func_addrs", &self.code_type_addrs)
             .field("code", &self.code)
             .field("exports", &self.exports)
             .field("globals", &self.globals)
@@ -88,13 +91,13 @@ impl ModuleReader {
                     .collect::<Result<Vec<FuncType>>>()?;
             }
             FunctionSection(reader) => {
-                if !self.func_addrs.is_empty() {
+                if !self.code_type_addrs.is_empty() {
                     return Err(ParseError::DuplicateSection("Function section".into()));
                 }
 
                 debug!("Found function section");
                 validator.function_section(&reader)?;
-                self.func_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
+                self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             GlobalSection(reader) => {
                 if !self.globals.is_empty() {
@@ -148,9 +151,7 @@ impl ModuleReader {
                 debug!("Found code section entry");
                 let v = validator.code_section_entry(&function)?;
                 let func_validator = v.into_validator(Default::default());
-
-                self.code
-                    .push(conversion::convert_module_code(function, func_validator)?);
+                self.code.push(conversion::convert_module_code(function, func_validator)?);
             }
             ImportSection(reader) => {
                 if !self.imports.is_empty() {
@@ -168,10 +169,8 @@ impl ModuleReader {
 
                 debug!("Found export section");
                 validator.export_section(&reader)?;
-                self.exports = reader
-                    .into_iter()
-                    .map(|e| conversion::convert_module_export(e?))
-                    .collect::<Result<Vec<_>>>()?;
+                self.exports =
+                    reader.into_iter().map(|e| conversion::convert_module_export(e?)).collect::<Result<Vec<_>>>()?;
             }
             End(offset) => {
                 debug!("Reached end of module");
@@ -191,12 +190,7 @@ impl ModuleReader {
             //     validator.tag_section(&tag)?;
             // }
             UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
-            section => {
-                return Err(ParseError::UnsupportedSection(format!(
-                    "Unsupported section: {:?}",
-                    section
-                )))
-            }
+            section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {:?}", section))),
         };
 
         Ok(())

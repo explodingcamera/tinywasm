@@ -7,7 +7,6 @@ use crate::{
     CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
-use log::info;
 use tinywasm_types::{ElementKind, Instruction};
 
 mod macros;
@@ -132,6 +131,7 @@ fn exec_one(
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?;
+
             let func = match &func_inst.func {
                 crate::Function::Wasm(ref f) => f,
                 crate::Function::Host(host_func) => {
@@ -145,13 +145,7 @@ fn exec_one(
                 }
             };
 
-            log::info!("wasm call, ty: {:?}", func.ty_addr);
-            log::info!("tys: {:?}", module.0.types);
-            let func_ty = func_inst.func.ty(module);
-
-            info!("params: {:?}", func_ty.params);
-            info!("stack: {:?}", stack.values);
-            let params = stack.values.pop_n_rev(func_ty.params.len())?;
+            let params = stack.values.pop_n_rev(func.ty.params.len())?;
             let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec());
 
             // push the call frame
@@ -175,17 +169,18 @@ fn exec_one(
 
             // prepare the call frame
             let func_inst = store.get_func(resolved_func_addr as usize)?;
+            let func_ty = func_inst.func.ty();
+
             let func = match &func_inst.func {
                 crate::Function::Wasm(ref f) => f,
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
-                    let params = stack.values.pop_params(&host_func.ty.params)?;
+                    let params = stack.values.pop_params(&func_ty.params)?;
                     let res = (func)(FuncContext { store, module }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
             };
-            let func_ty = module.func_ty(func.ty_addr);
 
             if func_ty != call_ty {
                 return Err(

@@ -24,6 +24,7 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) idx: ModuleInstanceAddr,
 
     pub(crate) types: Box<[FuncType]>,
+
     pub(crate) func_addrs: Vec<FuncAddr>,
     pub(crate) table_addrs: Vec<TableAddr>,
     pub(crate) mem_addrs: Vec<MemAddr>,
@@ -59,31 +60,22 @@ impl ModuleInstance {
         addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
-
-        log::info!("init_mems: {:?}", addrs.mems);
         addrs.mems.extend(store.init_mems(data.memory_types.into(), idx)?);
-        log::info!("init_mems2: {:?}", addrs.mems);
-        log::info!("init_mems g: {:?}", store.data.mems.len());
 
         let elem_addrs = store.init_elems(&addrs.tables, data.elements.into(), idx)?;
-        log::info!("init_elems: {:?}", addrs.mems);
-
         let data_addrs = store.init_datas(&addrs.mems, data.data.into(), idx)?;
-        log::info!("init_datas: {:?}", addrs.mems);
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
             idx,
 
             types: data.func_types,
-
             func_addrs: addrs.funcs,
             table_addrs: addrs.tables,
             mem_addrs: addrs.mems,
             global_addrs: addrs.globals,
             elem_addrs,
             data_addrs,
-
             func_start: data.start_func,
             imports: data.imports,
             exports: data.exports,
@@ -166,7 +158,7 @@ impl ModuleInstance {
         };
 
         let func_inst = store.get_func(func_addr as usize)?;
-        let ty = func_inst.func.ty(self);
+        let ty = func_inst.func.ty();
 
         Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty: ty.clone() })
     }
@@ -206,11 +198,10 @@ impl ModuleInstance {
         };
 
         let func_addr = self.0.func_addrs.get(func_index as usize).expect("No func addr for start func, this is a bug");
-
         let func_inst = store.get_func(*func_addr as usize)?;
-        let ty = func_inst.func.ty(self);
+        let ty = func_inst.func.ty();
 
-        Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty, name: None }))
+        Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty: ty.clone(), name: None }))
     }
 
     /// Invoke the start function of the module

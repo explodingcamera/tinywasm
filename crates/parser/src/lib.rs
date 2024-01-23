@@ -20,7 +20,7 @@ mod log {
 mod conversion;
 mod error;
 mod module;
-use alloc::vec::Vec;
+use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
 use tinywasm_types::WasmFunction;
@@ -103,15 +103,26 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             return Err(ParseError::EndNotReached);
         }
 
-        let func_types = reader.func_addrs;
+        let code_type_addrs = reader.code_type_addrs;
+        let local_function_count = reader.code.len();
+
+        if code_type_addrs.len() != local_function_count {
+            return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
+        }
+
         let funcs = reader
             .code
             .into_iter()
-            .zip(func_types)
-            .map(|(f, ty)| WasmFunction {
-                instructions: f.body,
-                locals: f.locals,
-                ty_addr: ty,
+            .zip(code_type_addrs)
+            .map(|(f, ty_idx)| {
+                (
+                    ty_idx,
+                    WasmFunction {
+                        instructions: f.body,
+                        locals: f.locals,
+                        ty: reader.func_types.get(ty_idx as usize).unwrap().clone(),
+                    },
+                )
             })
             .collect::<Vec<_>>();
 
@@ -119,17 +130,17 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
         let table_types = reader.table_types;
 
         Ok(TinyWasmModule {
-            version: reader.version,
-            start_func: reader.start_func,
-            func_types: reader.func_types.into_boxed_slice(),
             funcs: funcs.into_boxed_slice(),
-            exports: reader.exports.into_boxed_slice(),
+            func_types: reader.func_types.into_boxed_slice(),
             globals: globals.into_boxed_slice(),
             table_types: table_types.into_boxed_slice(),
-            memory_types: reader.memory_types.into_boxed_slice(),
             imports: reader.imports.into_boxed_slice(),
+            version: reader.version,
+            start_func: reader.start_func,
             data: reader.data.into_boxed_slice(),
+            exports: reader.exports.into_boxed_slice(),
             elements: reader.elements.into_boxed_slice(),
+            memory_types: reader.memory_types.into_boxed_slice(),
         })
     }
 }

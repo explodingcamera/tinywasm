@@ -42,7 +42,7 @@ pub struct TinyWasmModule {
     pub start_func: Option<FuncAddr>,
 
     /// The functions of the WebAssembly module.
-    pub funcs: Box<[WasmFunction]>,
+    pub funcs: Box<[(u32, WasmFunction)]>,
 
     /// The types of the WebAssembly module.
     pub func_types: Box<[FuncType]>,
@@ -355,9 +355,9 @@ impl FuncType {
 
 #[derive(Debug, Clone)]
 pub struct WasmFunction {
-    pub ty_addr: TypeAddr,
     pub instructions: Box<[Instruction]>,
     pub locals: Box<[ValType]>,
+    pub ty: FuncType,
 }
 
 /// A WebAssembly Module Export

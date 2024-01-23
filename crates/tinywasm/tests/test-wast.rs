@@ -30,7 +30,7 @@ fn main() -> Result<()> {
 }
 
 fn test_wast(wast_file: &str) -> Result<()> {
-    TestSuite::set_log_level(log::LevelFilter::Info);
+    TestSuite::set_log_level(log::LevelFilter::Debug);
 
     let args = std::env::args().collect::<Vec<_>>();
     println!("args: {:?}", args);

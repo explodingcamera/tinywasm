@@ -110,13 +110,23 @@ impl Store {
     }
 
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
+    pub(crate) fn init_funcs(
+        &mut self,
+        funcs: Vec<(u32, WasmFunction)>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
-        for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), _owner: idx }));
+
+        for (i, (type_idx, func)) in funcs.into_iter().enumerate() {
+            self.data.funcs.push(Rc::new(FunctionInstance {
+                func: Function::Wasm(func),
+                _type_idx: type_idx,
+                _owner: idx,
+            }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
+
         Ok(func_addrs)
     }
 
@@ -287,8 +297,8 @@ impl Store {
         Ok(self.data.mems.len() as MemAddr - 1)
     }
 
-    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(Rc::new(FunctionInstance { func, _owner: idx }));
+    pub(crate) fn add_func(&mut self, func: Function, type_idx: TypeAddr, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
+        self.data.funcs.push(Rc::new(FunctionInstance { func, _type_idx: type_idx, _owner: idx }));
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
@@ -372,6 +382,9 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
+
+    // TODO: this is important for call_indirect
+    pub(crate) _type_idx: TypeAddr,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 
