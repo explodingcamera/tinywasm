@@ -1,6 +1,6 @@
 use crate::{runtime::RawWasmValue, BlockType, Error, LabelFrame, Result, Trap};
 use alloc::{boxed::Box, vec::Vec};
-use tinywasm_types::{ValType, WasmValue};
+use tinywasm_types::{ModuleInstanceAddr, ValType, WasmValue};
 
 use super::blocks::Labels;
 
@@ -52,6 +52,7 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
+    pub(crate) module: ModuleInstanceAddr,
     pub(crate) instr_ptr: usize,
     pub(crate) func_ptr: usize,
 
@@ -107,7 +108,12 @@ impl CallFrame {
         Some(())
     }
 
-    pub(crate) fn new_raw(func_ptr: usize, params: &[RawWasmValue], local_types: Vec<ValType>) -> Self {
+    pub(crate) fn new_raw(
+        func_ptr: usize,
+        params: &[RawWasmValue],
+        local_types: Vec<ValType>,
+        module: ModuleInstanceAddr,
+    ) -> Self {
         let mut locals = Vec::with_capacity(local_types.len() + params.len());
         locals.extend(params.iter().cloned());
         locals.extend(local_types.iter().map(|_| RawWasmValue::default()));
@@ -118,11 +124,22 @@ impl CallFrame {
             local_count: locals.len(),
             locals: locals.into_boxed_slice(),
             labels: Labels::default(),
+            module,
         }
     }
 
-    pub(crate) fn new(func_ptr: usize, params: &[WasmValue], local_types: Vec<ValType>) -> Self {
-        CallFrame::new_raw(func_ptr, &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(), local_types)
+    pub(crate) fn new(
+        func_ptr: usize,
+        params: &[WasmValue],
+        local_types: Vec<ValType>,
+        module: ModuleInstanceAddr,
+    ) -> Self {
+        CallFrame::new_raw(
+            func_ptr,
+            &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(),
+            local_types,
+            module,
+        )
     }
 
     #[inline]

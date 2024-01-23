@@ -10,8 +10,6 @@ pub(crate) const STACK_SIZE: usize = 1024;
 #[derive(Debug)]
 pub(crate) struct ValueStack {
     stack: Vec<RawWasmValue>,
-
-    // TODO: don't pop the stack, just keep track of the top for better performance
     top: usize,
 }
 

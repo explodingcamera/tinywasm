@@ -63,7 +63,7 @@ impl FuncHandle {
 
         // 6. Let f be the dummy frame
         debug!("locals: {:?}", wasm_func.locals);
-        let call_frame = CallFrame::new(self.addr as usize, params, wasm_func.locals.to_vec());
+        let call_frame = CallFrame::new(self.addr as usize, params, wasm_func.locals.to_vec(), self.module.id());
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)

@@ -28,16 +28,23 @@ impl DefaultRuntime {
         let mut wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
         let mut instrs = &wasm_func.instructions;
 
+        let mut current_module = module;
+
         // TODO: we might be able to index into the instructions directly
         // since the instruction pointer should always be in bounds
         while let Some(instr) = instrs.get(cf.instr_ptr) {
-            match exec_one(&mut cf, instr, instrs, stack, store, &module)? {
+            match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
                     func_inst = store.get_func(cf.func_ptr)?.clone();
                     wasm_func = func_inst.assert_wasm().expect("call expected wasm function");
                     instrs = &wasm_func.instructions;
+
+                    if cf.module != current_module.id() {
+                        current_module = store.get_module_instance(cf.module).unwrap().clone()
+                    }
+
                     continue;
                 }
 
@@ -146,7 +153,7 @@ fn exec_one(
             };
 
             let params = stack.values.pop_n_rev(func.ty.params.len())?;
-            let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec());
+            let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec(), func_inst._owner);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -189,7 +196,8 @@ fn exec_one(
             }
 
             let params = stack.values.pop_n_rev(func_ty.params.len())?;
-            let call_frame = CallFrame::new_raw(resolved_func_addr as usize, &params, func.locals.to_vec());
+            let call_frame =
+                CallFrame::new_raw(resolved_func_addr as usize, &params, func.locals.to_vec(), func_inst._owner);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
