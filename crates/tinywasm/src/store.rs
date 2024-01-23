@@ -335,7 +335,7 @@ impl Store {
                 let val = global.borrow().value;
                 val
             }
-            RefNull(_) => RawWasmValue::from(0),
+            RefNull(t) => RawWasmValue::from(t.default_value()),
             RefFunc(idx) => RawWasmValue::from(*idx as i64),
         };
         Ok(val)

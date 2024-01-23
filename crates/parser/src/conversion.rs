@@ -226,7 +226,6 @@ pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstructi
     match op {
         wasmparser::Operator::RefNull { ty } => Ok(ConstInstruction::RefNull(convert_valtype(&ty))),
         wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
-
         wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))), // TODO: check if this is correct

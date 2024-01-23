@@ -12,7 +12,7 @@ TinyWasm Version
 <line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="344" x2="989" y2="344"/>
 <line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="273" x2="989" y2="273"/>
 <line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="201" x2="989" y2="201"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="129" x2="989" y2="129"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="130" x2="989" y2="130"/>
 <line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="58" x2="989" y2="58"/>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="79,54 79,344 "/>
 <text x="70" y="344" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
@@ -27,10 +27,10 @@ TinyWasm Version
 10000
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,201 79,201 "/>
-<text x="70" y="129" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<text x="70" y="130" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 15000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,129 79,129 "/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,130 79,130 "/>
 <text x="70" y="58" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 20000
 </text>
@@ -53,12 +53,12 @@ v0.2.0 (19344)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="716,345 716,350 "/>
 <text x="898" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.3.0-alpha.0 (20112)
+v0.3.0-alpha.0 (20140)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="898,345 898,350 "/>
-<rect x="630" y="67" width="172" height="277" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="448" y="92" width="172" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="812" y="56" width="172" height="288" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="85" y="212" width="171" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="266" y="185" width="172" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="630" y="68" width="172" height="276" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="448" y="92" width="172" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="85" y="212" width="171" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>
