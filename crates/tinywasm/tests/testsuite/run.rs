@@ -1,5 +1,5 @@
 use crate::testsuite::util::*;
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 use super::TestSuite;
 use eyre::{eyre, Result};
@@ -7,6 +7,61 @@ use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
+
+struct RegisteredModules {
+    modules: HashMap<String, ModuleInstanceAddr>,
+    last_module: Option<(ModuleInstanceAddr, Option<String>)>,
+}
+
+impl RegisteredModules {
+    fn modules(&self) -> &HashMap<String, ModuleInstanceAddr> {
+        &self.modules
+    }
+
+    fn update_last_module(&mut self, addr: ModuleInstanceAddr, name: Option<String>) {
+        self.last_module = Some((addr, name));
+    }
+    fn register(&mut self, name: String, addr: ModuleInstanceAddr) {
+        log::debug!("registering module: {}", name);
+        self.modules.insert(name.clone(), addr);
+        self.last_module = Some((addr, Some(name)));
+    }
+
+    fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<&ModuleInstanceAddr> {
+        match module_id {
+            Some(module) => {
+                log::debug!("getting module: {}", module.name());
+
+                if let Some(addr) = self.modules.get(module.name()) {
+                    return Some(addr);
+                }
+
+                let Some((last, Some(name))) = self.last_module.as_ref() else {
+                    return None;
+                };
+
+                match module.name() == name {
+                    true => Some(&last),
+                    false => None,
+                }
+            }
+            None => self.last_module.as_ref().map(|(addr, _)| addr),
+        }
+    }
+
+    fn get<'a>(
+        &self,
+        module_id: Option<wast::token::Id<'_>>,
+        store: &'a tinywasm::Store,
+    ) -> Option<&'a ModuleInstance> {
+        let addr = self.get_idx(module_id)?;
+        store.get_module_instance(*addr)
+    }
+
+    fn last<'a>(&self, store: &'a tinywasm::Store) -> Option<&'a ModuleInstance> {
+        store.get_module_instance(self.last_module.as_ref()?.0)
+    }
+}
 
 impl TestSuite {
     pub fn run_paths(&mut self, tests: &[&str]) -> Result<()> {
@@ -19,7 +74,7 @@ impl TestSuite {
         Ok(())
     }
 
-    fn imports(registered_modules: Vec<(String, ModuleInstanceAddr)>) -> Result<Imports> {
+    fn imports(modules: &HashMap<std::string::String, u32>) -> Result<Imports> {
         let mut imports = Imports::new();
 
         let table =
@@ -75,9 +130,9 @@ impl TestSuite {
             .define("spectest", "print_i32_f32", print_i32_f32)?
             .define("spectest", "print_f64_f64", print_f64_f64)?;
 
-        for (name, addr) in registered_modules {
+        for (name, addr) in modules {
             log::debug!("registering module: {}", name);
-            imports.link_module(&name, addr)?;
+            imports.link_module(&name, *addr)?;
         }
 
         Ok(imports)
@@ -111,8 +166,7 @@ impl TestSuite {
         let wast_data = wast::parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
         let mut store = tinywasm::Store::default();
-        let mut registered_modules = Vec::new();
-        let mut last_module: Option<ModuleInstance> = None;
+        let mut registered_modules = RegisteredModules { modules: HashMap::new(), last_module: None };
 
         println!("running {} tests for group: {}", wast_data.directives.len(), group_name);
         for (i, directive) in wast_data.directives.into_iter().enumerate() {
@@ -121,7 +175,7 @@ impl TestSuite {
 
             match directive {
                 Register { span, name, .. } => {
-                    let Some(last) = &last_module else {
+                    let Some(last) = registered_modules.last(&store) else {
                         test_group.add_result(
                             &format!("Register({})", i),
                             span.linecol_in(wast),
@@ -129,8 +183,7 @@ impl TestSuite {
                         );
                         continue;
                     };
-
-                    registered_modules.push((name.to_string(), last.id()));
+                    registered_modules.register(name.to_string(), last.id());
                     test_group.add_result(&format!("Register({})", i), span.linecol_in(wast), Ok(()));
                 }
 
@@ -139,7 +192,7 @@ impl TestSuite {
                     // store = tinywasm::Store::default();
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
-                        let bytes = match module {
+                        let (name, bytes) = match module {
                             QuoteWat::QuoteModule(_, quoted_wat) => {
                                 let wat = quoted_wat
                                     .iter()
@@ -150,32 +203,34 @@ impl TestSuite {
                                 let lexer = Lexer::new(&wat);
                                 let buf = ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
                                 let mut wat_data = wast::parser::parse::<wast::Wat>(&buf).expect("failed to parse wat");
-                                wat_data.encode()
+                                (None, wat_data.encode().expect("failed to encode module"))
                             }
-                            QuoteWat::Wat(mut wat) => wat.encode(),
+                            QuoteWat::Wat(mut wat) => {
+                                let wast::Wat::Module(ref module) = wat else {
+                                    unimplemented!("Not supported");
+                                };
+                                (
+                                    module.id.map(|id| id.name().to_string()),
+                                    wat.encode().expect("failed to encode module"),
+                                )
+                            }
                             _ => unimplemented!("Not supported"),
-                        }
-                        .expect("failed to encode module");
+                        };
 
                         let m = parse_module_bytes(&bytes).expect("failed to parse module bytes");
-                        tinywasm::Module::from(m)
-                            .instantiate(&mut store, Some(Self::imports(registered_modules.clone()).unwrap()))
-                            .map_err(|e| {
-                                println!("failed to instantiate module: {:?}", e);
-                                e
-                            })
-                            .expect("failed to instantiate module")
+
+                        let module_instance = tinywasm::Module::from(m)
+                            .instantiate(&mut store, Some(Self::imports(registered_modules.modules()).unwrap()))
+                            .expect("failed to instantiate module");
+
+                        (name, module_instance)
                     })
                     .map_err(|e| eyre!("failed to parse wat module: {:?}", try_downcast_panic(e)));
 
                     match &result {
-                        Err(_) => last_module = None,
-                        Ok(m) => last_module = Some(m.clone()),
-                    }
-
-                    if let Err(err) = &result {
-                        debug!("failed to parse module: {:?}", err)
-                    }
+                        Err(err) => debug!("failed to parse module: {:?}", err),
+                        Ok((name, module)) => registered_modules.update_last_module(module.id(), name.clone()),
+                    };
 
                     test_group.add_result(&format!("Wat({})", i), span.linecol_in(wast), result.map(|_| ()));
                 }
@@ -216,17 +271,10 @@ impl TestSuite {
                 }
 
                 AssertExhaustion { call, message, span } => {
-                    let module = last_module.as_ref();
-                    let name = call.name;
-
-                    let args = call
-                        .args
-                        .into_iter()
-                        .map(wastarg2tinywasmvalue)
-                        .collect::<Result<Vec<_>>>()
-                        .expect("failed to convert args");
-
-                    let res = catch_unwind_silent(|| exec_fn_instance(module, &mut store, name, &args).map(|_| ()));
+                    let module = registered_modules.get_idx(call.module);
+                    let args = convert_wastargs(call.args).expect("failed to convert args");
+                    let res =
+                        catch_unwind_silent(|| exec_fn_instance(module, &mut store, call.name, &args).map(|_| ()));
 
                     let Ok(Err(tinywasm::Error::Trap(trap))) = res else {
                         test_group.add_result(
@@ -251,29 +299,26 @@ impl TestSuite {
 
                 AssertTrap { exec, message, span } => {
                     let res: Result<tinywasm::Result<()>, _> = catch_unwind_silent(|| {
-                        let (module, name, args) = match exec {
+                        let invoke = match exec {
                             wast::WastExecute::Wat(mut wat) => {
                                 let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
                                     .expect("failed to parse module");
                                 let module = tinywasm::Module::from(module);
                                 module.instantiate(
                                     &mut store,
-                                    Some(Self::imports(registered_modules.clone()).unwrap()),
+                                    Some(Self::imports(registered_modules.modules()).unwrap()),
                                 )?;
                                 return Ok(());
                             }
                             wast::WastExecute::Get { module: _, global: _ } => {
                                 panic!("get not supported");
                             }
-                            wast::WastExecute::Invoke(invoke) => (last_module.as_ref(), invoke.name, invoke.args),
+                            wast::WastExecute::Invoke(invoke) => invoke,
                         };
-                        let args = args
-                            .into_iter()
-                            .map(wastarg2tinywasmvalue)
-                            .collect::<Result<Vec<_>>>()
-                            .expect("failed to convert args");
 
-                        exec_fn_instance(module, &mut store, name, &args).map(|_| ())
+                        let module = registered_modules.get_idx(invoke.module);
+                        let args = convert_wastargs(invoke.args).expect("failed to convert args");
+                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
                     });
 
                     match res {
@@ -309,16 +354,11 @@ impl TestSuite {
 
                 Invoke(invoke) => {
                     let name = invoke.name;
-                    let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        let args =
-                            invoke.args.into_iter().map(wastarg2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
-                                |e| {
-                                    error!("failed to convert args: {:?}", e);
-                                    e
-                                },
-                            )?;
 
-                        exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
+                    let res: Result<Result<()>, _> = catch_unwind_silent(|| {
+                        let args = convert_wastargs(invoke.args)?;
+                        let module = registered_modules.get_idx(invoke.module);
+                        exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
                             error!("failed to execute function: {:?}", e);
                             e
                         })?;
@@ -326,30 +366,17 @@ impl TestSuite {
                     });
 
                     let res = res.map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e))).and_then(|r| r);
-
                     test_group.add_result(&format!("Invoke({}-{})", name, i), span.linecol_in(wast), res);
                 }
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
-                    let expected =
-                        results.into_iter().map(wastret2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(|e| {
-                            error!("failed to convert expected results: {:?}", e);
-                            e
-                        })?;
+                    let expected = convert_wastret(results)?;
 
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
                         wast::WastExecute::Get { module: module_id, global } => {
-                            let module = match module_id {
-                                None => last_module.as_ref(),
-                                Some(module_id) => registered_modules
-                                    .iter()
-                                    .find(|(m, _)| m == module_id.name())
-                                    .map(|(_, addr)| store.get_module_instance(*addr))
-                                    .flatten(),
-                            };
-
+                            let module = registered_modules.get(module_id, &store);
                             let Some(module) = module else {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{})", i),
@@ -408,23 +435,16 @@ impl TestSuite {
                             continue;
                         }
                     };
-                    let invoke_name = invoke.name;
 
+                    let invoke_name = invoke.name;
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                         debug!("invoke: {:?}", invoke);
-                        let args =
-                            invoke.args.into_iter().map(wastarg2tinywasmvalue).collect::<Result<Vec<_>>>().map_err(
-                                |e| {
-                                    error!("failed to convert args: {:?}", e);
-                                    e
-                                },
-                            )?;
-
-                        let outcomes =
-                            exec_fn_instance(last_module.as_ref(), &mut store, invoke.name, &args).map_err(|e| {
-                                error!("failed to execute function: {:?}", e);
-                                e
-                            })?;
+                        let args = convert_wastargs(invoke.args)?;
+                        let module = registered_modules.get_idx(invoke.module);
+                        let outcomes = exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
+                            error!("failed to execute function: {:?}", e);
+                            e
+                        })?;
 
                         debug!("outcomes: {:?}", outcomes);
 

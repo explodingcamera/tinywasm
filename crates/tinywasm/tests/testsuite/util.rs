@@ -1,7 +1,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{eyre, Result};
-use tinywasm_types::{TinyWasmModule, WasmValue};
+use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, WasmValue};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicInfo>().or(None).map(|p| p.to_string()).clone();
@@ -12,12 +12,16 @@ pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
 }
 
 pub fn exec_fn_instance(
-    instance: Option<&tinywasm::ModuleInstance>,
+    instance: Option<&ModuleInstanceAddr>,
     store: &mut tinywasm::Store,
     name: &str,
     args: &[tinywasm_types::WasmValue],
 ) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
     let Some(instance) = instance else {
+        return Err(tinywasm::Error::Other("no instance found".to_string()));
+    };
+
+    let Some(instance) = store.get_module_instance(*instance) else {
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
 
@@ -54,7 +58,15 @@ pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {
     Ok(parser.parse_module_bytes(bytes)?)
 }
 
-pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
+pub fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<tinywasm_types::WasmValue>> {
+    args.into_iter().map(|a| wastarg2tinywasmvalue(a)).collect()
+}
+
+pub fn convert_wastret(args: Vec<wast::WastRet>) -> Result<Vec<tinywasm_types::WasmValue>> {
+    args.into_iter().map(|a| wastret2tinywasmvalue(a)).collect()
+}
+
+fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
     let wast::WastArg::Core(arg) = arg else {
         return Err(eyre!("unsupported arg type: Component"));
     };
@@ -75,7 +87,7 @@ pub fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmV
     })
 }
 
-pub fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
+fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
     let wast::WastRet::Core(arg) = arg else {
         return Err(eyre!("unsupported arg type"));
     };
