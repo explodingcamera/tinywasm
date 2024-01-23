@@ -3,7 +3,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{format, rc::Rc, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::*;
 
 use crate::{
@@ -180,7 +180,7 @@ impl Store {
         table_addrs: &[TableAddr],
         elems: Vec<Element>,
         idx: ModuleInstanceAddr,
-    ) -> Result<Vec<Addr>> {
+    ) -> Result<Box<[Addr]>> {
         let elem_count = self.data.elems.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, elem) in elems.into_iter().enumerate() {
@@ -232,7 +232,8 @@ impl Store {
             elem_addrs.push((i + elem_count) as Addr);
         }
 
-        Ok(elem_addrs)
+        // this should be optimized out by the compiler
+        Ok(elem_addrs.into_boxed_slice())
     }
 
     /// Add data to the store, returning their addresses in the store
@@ -241,7 +242,7 @@ impl Store {
         mem_addrs: &[MemAddr],
         datas: Vec<Data>,
         idx: ModuleInstanceAddr,
-    ) -> Result<Vec<Addr>> {
+    ) -> Result<Box<[Addr]>> {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
@@ -276,7 +277,9 @@ impl Store {
             self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
             data_addrs.push((i + data_count) as Addr);
         }
-        Ok(data_addrs)
+
+        // this should be optimized out by the compiler
+        Ok(data_addrs.into_boxed_slice())
     }
 
     pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {

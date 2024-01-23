@@ -30,8 +30,6 @@ impl DefaultRuntime {
 
         let mut current_module = module;
 
-        // TODO: we might be able to index into the instructions directly
-        // since the instruction pointer should always be in bounds
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
                 // Continue execution at the new top of the call stack
@@ -42,7 +40,7 @@ impl DefaultRuntime {
                     instrs = &wasm_func.instructions;
 
                     if cf.module != current_module.id() {
-                        current_module = store.get_module_instance(cf.module).unwrap().clone()
+                        current_module.swap(store.get_module_instance(cf.module).unwrap().clone());
                     }
 
                     continue;
@@ -167,6 +165,8 @@ fn exec_one(
         CallIndirect(type_addr, table_addr) => {
             let table_idx = module.resolve_table_addr(*table_addr);
             let table = store.get_table(table_idx as usize)?;
+
+            // TODO: currently, the type resolution is subtlely broken for imported functions
 
             let call_ty = module.func_ty(*type_addr);
 

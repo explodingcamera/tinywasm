@@ -8,9 +8,12 @@ use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
 
+#[derive(Default)]
 struct RegisteredModules {
     modules: HashMap<String, ModuleInstanceAddr>,
-    last_module: Option<(ModuleInstanceAddr, Option<String>)>,
+
+    named_modules: HashMap<String, ModuleInstanceAddr>,
+    last_module: Option<ModuleInstanceAddr>,
 }
 
 impl RegisteredModules {
@@ -19,12 +22,17 @@ impl RegisteredModules {
     }
 
     fn update_last_module(&mut self, addr: ModuleInstanceAddr, name: Option<String>) {
-        self.last_module = Some((addr, name));
+        self.last_module = Some(addr);
+        if let Some(name) = name {
+            self.named_modules.insert(name, addr);
+        }
     }
     fn register(&mut self, name: String, addr: ModuleInstanceAddr) {
         log::debug!("registering module: {}", name);
         self.modules.insert(name.clone(), addr);
-        self.last_module = Some((addr, Some(name)));
+
+        self.last_module = Some(addr);
+        self.named_modules.insert(name, addr);
     }
 
     fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<&ModuleInstanceAddr> {
@@ -36,16 +44,13 @@ impl RegisteredModules {
                     return Some(addr);
                 }
 
-                let Some((last, Some(name))) = self.last_module.as_ref() else {
-                    return None;
-                };
-
-                match module.name() == name {
-                    true => Some(&last),
-                    false => None,
+                if let Some(addr) = self.named_modules.get(module.name()) {
+                    return Some(addr);
                 }
+
+                None
             }
-            None => self.last_module.as_ref().map(|(addr, _)| addr),
+            None => self.last_module.as_ref(),
         }
     }
 
@@ -59,7 +64,7 @@ impl RegisteredModules {
     }
 
     fn last<'a>(&self, store: &'a tinywasm::Store) -> Option<&'a ModuleInstance> {
-        store.get_module_instance(self.last_module.as_ref()?.0)
+        store.get_module_instance(*self.last_module.as_ref()?)
     }
 }
 
@@ -166,7 +171,7 @@ impl TestSuite {
         let wast_data = wast::parser::parse::<Wast>(&buf).expect("failed to parse wat");
 
         let mut store = tinywasm::Store::default();
-        let mut registered_modules = RegisteredModules { modules: HashMap::new(), last_module: None };
+        let mut registered_modules = RegisteredModules::default();
 
         println!("running {} tests for group: {}", wast_data.directives.len(), group_name);
         for (i, directive) in wast_data.directives.into_iter().enumerate() {

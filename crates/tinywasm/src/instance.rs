@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, sync::Arc};
 use tinywasm_types::{
     DataAddr, ElemAddr, Export, ExternVal, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr,
     ModuleInstanceAddr, TableAddr,
@@ -11,11 +11,11 @@ use crate::{
 
 /// A WebAssembly Module Instance
 ///
-/// Addrs are indices into the store's data structures.
+/// Backed by an Arc, so cloning is cheap
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Debug, Clone)]
-pub struct ModuleInstance(pub(crate) Arc<ModuleInstanceInner>);
+pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -25,12 +25,12 @@ pub(crate) struct ModuleInstanceInner {
 
     pub(crate) types: Box<[FuncType]>,
 
-    pub(crate) func_addrs: Vec<FuncAddr>,
-    pub(crate) table_addrs: Vec<TableAddr>,
-    pub(crate) mem_addrs: Vec<MemAddr>,
-    pub(crate) global_addrs: Vec<GlobalAddr>,
-    pub(crate) elem_addrs: Vec<ElemAddr>,
-    pub(crate) data_addrs: Vec<DataAddr>,
+    pub(crate) func_addrs: Box<[FuncAddr]>,
+    pub(crate) table_addrs: Box<[TableAddr]>,
+    pub(crate) mem_addrs: Box<[MemAddr]>,
+    pub(crate) global_addrs: Box<[GlobalAddr]>,
+    pub(crate) elem_addrs: Box<[ElemAddr]>,
+    pub(crate) data_addrs: Box<[DataAddr]>,
 
     pub(crate) func_start: Option<FuncAddr>,
     pub(crate) imports: Box<[Import]>,
@@ -38,6 +38,11 @@ pub(crate) struct ModuleInstanceInner {
 }
 
 impl ModuleInstance {
+    // drop the module instance reference and swap it with another one
+    pub(crate) fn swap(&mut self, other: Self) {
+        self.0 = other.0;
+    }
+
     /// Get the module instance's address
     pub fn id(&self) -> ModuleInstanceAddr {
         self.0.idx
@@ -57,6 +62,7 @@ impl ModuleInstance {
         let mut addrs = imports.link(store, &module, idx)?;
         let data = module.data;
 
+        // TODO: check if the compiler correctly optimizes this to prevent wasted allocations
         addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
@@ -70,12 +76,12 @@ impl ModuleInstance {
             idx,
 
             types: data.func_types,
-            func_addrs: addrs.funcs,
-            table_addrs: addrs.tables,
-            mem_addrs: addrs.mems,
-            global_addrs: addrs.globals,
+            func_addrs: addrs.funcs.into_boxed_slice(),
+            table_addrs: addrs.tables.into_boxed_slice(),
+            mem_addrs: addrs.mems.into_boxed_slice(),
+            global_addrs: addrs.globals.into_boxed_slice(),
             elem_addrs,
-            data_addrs,
+            data_addrs: data_addrs,
             func_start: data.start_func,
             imports: data.imports,
             exports: data.exports,
