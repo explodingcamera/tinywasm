@@ -66,10 +66,10 @@ impl ModuleInstance {
         addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
-        addrs.mems.extend(store.init_mems(data.memory_types.into(), idx)?);
+        addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
-        let elem_addrs = store.init_elems(&addrs.tables, data.elements.into(), idx)?;
-        let data_addrs = store.init_datas(&addrs.mems, data.data.into(), idx)?;
+        let elem_addrs = store.init_elements(&addrs.tables, data.elements.into(), idx)?;
+        let data_addrs = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
@@ -78,7 +78,7 @@ impl ModuleInstance {
             types: data.func_types,
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
-            mem_addrs: addrs.mems.into_boxed_slice(),
+            mem_addrs: addrs.memories.into_boxed_slice(),
             global_addrs: addrs.globals.into_boxed_slice(),
             elem_addrs,
             data_addrs: data_addrs,

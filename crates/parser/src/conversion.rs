@@ -1,9 +1,6 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use log::debug;
-use tinywasm_types::{
-    BlockArgs, ConstInstruction, ElementItem, Export, ExternalKind, FuncType, Global, GlobalType, Import, ImportKind,
-    Instruction, MemArg, MemoryArch, MemoryType, TableType, ValType,
-};
+use tinywasm_types::*;
 use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 
 use crate::{module::CodeSection, Result};
@@ -210,8 +207,8 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
     }
 }
 
-pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemArg {
-    MemArg { offset: memarg.offset, align: memarg.align, align_max: memarg.max_align, mem_addr: memarg.memory }
+pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemoryArg {
+    MemoryArg { offset: memarg.offset, align: memarg.align, align_max: memarg.max_align, mem_addr: memarg.memory }
 }
 
 pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstruction> {

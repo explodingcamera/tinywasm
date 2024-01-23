@@ -86,9 +86,9 @@ impl Default for Store {
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     pub(crate) tables: Vec<Rc<RefCell<TableInstance>>>,
-    pub(crate) mems: Vec<Rc<RefCell<MemoryInstance>>>,
+    pub(crate) memories: Vec<Rc<RefCell<MemoryInstance>>>,
     pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
-    pub(crate) elems: Vec<ElemInstance>,
+    pub(crate) elements: Vec<ElementInstance>,
     pub(crate) datas: Vec<DataInstance>,
 }
 
@@ -142,15 +142,15 @@ impl Store {
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_mems(&mut self, mems: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
-        let mem_count = self.data.mems.len();
+    pub(crate) fn init_memories(&mut self, memories: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
+        let mem_count = self.data.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
-        for (i, mem) in mems.into_iter().enumerate() {
+        for (i, mem) in memories.into_iter().enumerate() {
             if let MemoryArch::I64 = mem.arch {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
             log::info!("adding memory: {:?}", mem);
-            self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+            self.data.memories.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
 
             mem_addrs.push((i + mem_count) as MemAddr);
         }
@@ -175,16 +175,16 @@ impl Store {
 
     /// Add elements to the store, returning their addresses in the store
     /// Should be called after the tables have been added
-    pub(crate) fn init_elems(
+    pub(crate) fn init_elements(
         &mut self,
         table_addrs: &[TableAddr],
-        elems: Vec<Element>,
+        elements: Vec<Element>,
         idx: ModuleInstanceAddr,
     ) -> Result<Box<[Addr]>> {
-        let elem_count = self.data.elems.len();
+        let elem_count = self.data.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
-        for (i, elem) in elems.into_iter().enumerate() {
-            let init = elem
+        for (i, element) in elements.into_iter().enumerate() {
+            let init = element
                 .items
                 .iter()
                 .map(|item| {
@@ -194,7 +194,7 @@ impl Store {
                 })
                 .collect::<Result<Vec<_>>>()?;
 
-            let items = match elem.kind {
+            let items = match element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
                 ElementKind::Passive => Some(init),
 
@@ -228,7 +228,7 @@ impl Store {
                 }
             };
 
-            self.data.elems.push(ElemInstance::new(elem.kind, idx, items));
+            self.data.elements.push(ElementInstance::new(element.kind, idx, items));
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -262,7 +262,7 @@ impl Store {
                     let offset = self.eval_i32_const(&offset)?;
 
                     let mem =
-                        self.data.mems.get_mut(mem_addr as usize).ok_or_else(|| {
+                        self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
                             Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
                         })?;
 
@@ -296,8 +296,8 @@ impl Store {
         if let MemoryArch::I64 = mem.arch {
             return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
         }
-        self.data.mems.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
-        Ok(self.data.mems.len() as MemAddr - 1)
+        self.data.memories.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+        Ok(self.data.memories.len() as MemAddr - 1)
     }
 
     pub(crate) fn add_func(&mut self, func: Function, type_idx: TypeAddr, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
@@ -348,7 +348,7 @@ impl Store {
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
-        self.data.mems.get(addr).ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
+        self.data.memories.get(addr).ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
     }
 
     /// Get the table at the actual index in the store
@@ -357,8 +357,8 @@ impl Store {
     }
 
     /// Get the element at the actual index in the store
-    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElemInstance> {
-        self.data.elems.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElementInstance> {
+        self.data.elements.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
     }
 
     /// Get the global at the actual index in the store
@@ -413,25 +413,29 @@ impl FunctionInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
 #[derive(Debug)]
 pub(crate) struct TableInstance {
-    pub(crate) elements: Vec<Addr>,
+    pub(crate) elements: Vec<Option<Addr>>,
     pub(crate) _kind: TableType,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self { elements: vec![0; kind.size_initial as usize], _kind: kind, _owner: owner }
+        Self { elements: vec![None; kind.size_initial as usize], _kind: kind, _owner: owner }
     }
 
     pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
-        self.elements.get(addr).copied().ok_or_else(|| Trap::UndefinedElement { index: addr }.into())
+        self.elements
+            .get(addr)
+            .copied()
+            .ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
+            .map(|elem| elem.ok_or_else(|| Trap::UninitializedElement { index: addr }.into()))?
     }
 
     pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
         if addr >= self.elements.len() {
             return Err(Error::Other(format!("table element {} not found", addr)));
         }
-        self.elements[addr] = value;
+        self.elements[addr] = Some(value);
         Ok(())
     }
 
@@ -440,6 +444,8 @@ impl TableInstance {
     }
 
     pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
+        let init = init.iter().map(|item| Some(*item)).collect::<Vec<_>>();
+
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
@@ -449,7 +455,7 @@ impl TableInstance {
             return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
         }
 
-        self.elements[offset..end].copy_from_slice(init);
+        self.elements[offset..end].copy_from_slice(&init);
         Ok(())
     }
 }
@@ -573,13 +579,13 @@ impl GlobalInstance {
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
 #[derive(Debug)]
-pub(crate) struct ElemInstance {
+pub(crate) struct ElementInstance {
     pub(crate) kind: ElementKind,
     pub(crate) items: Option<Vec<u32>>, // none is the element was dropped
     _owner: ModuleInstanceAddr,         // index into store.module_instances
 }
 
-impl ElemInstance {
+impl ElementInstance {
     pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
         Self { kind, _owner: owner, items }
     }

@@ -215,13 +215,13 @@ pub(crate) enum ResolvedExtern<S, V> {
 pub(crate) struct ResolvedImports {
     pub(crate) globals: Vec<GlobalAddr>,
     pub(crate) tables: Vec<TableAddr>,
-    pub(crate) mems: Vec<MemAddr>,
+    pub(crate) memories: Vec<MemAddr>,
     pub(crate) funcs: Vec<FuncAddr>,
 }
 
 impl ResolvedImports {
     pub(crate) fn new() -> Self {
-        Self { globals: Vec::new(), tables: Vec::new(), mems: Vec::new(), funcs: Vec::new() }
+        Self { globals: Vec::new(), tables: Vec::new(), memories: Vec::new(), funcs: Vec::new() }
     }
 }
 
@@ -318,7 +318,7 @@ impl Imports {
                     match &kind {
                         ExternalKind::Global => imports.globals.push(addr),
                         ExternalKind::Table => imports.tables.push(addr),
-                        ExternalKind::Memory => imports.mems.push(addr),
+                        ExternalKind::Memory => imports.memories.push(addr),
                         ExternalKind::Func => imports.funcs.push(addr),
                     }
                 }
@@ -338,7 +338,7 @@ impl Imports {
                     match val {
                         ExternVal::Global(g) => imports.globals.push(g),
                         ExternVal::Table(t) => imports.tables.push(t),
-                        ExternVal::Mem(m) => imports.mems.push(m),
+                        ExternVal::Mem(m) => imports.memories.push(m),
                         ExternVal::Func(f) => imports.funcs.push(f),
                     }
                 }
