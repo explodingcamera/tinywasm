@@ -6,7 +6,7 @@ use crate::{
     runtime::{BlockType, LabelFrame},
     CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
-use alloc::{string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 use tinywasm_types::{ElementKind, Instruction, ValType};
 
 mod macros;
@@ -25,10 +25,7 @@ impl DefaultRuntime {
         // The function to execute, gets updated from ExecResult::Call
         let mut instrs = &wasm_func.instructions;
 
-        let mut current_module = store
-            .get_module_instance(func_inst.owner)
-            .expect("exec expected module instance to exist for function")
-            .clone();
+        let mut current_module = store.get_module_instance(func_inst.owner).unwrap().clone();
 
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
@@ -40,7 +37,15 @@ impl DefaultRuntime {
                     instrs = &wasm_func.instructions;
 
                     if cf.func_instance.owner != current_module.id() {
-                        current_module.swap(store.get_module_instance(cf.func_instance.owner).unwrap().clone());
+                        current_module.swap(
+                            store
+                                .get_module_instance(cf.func_instance.owner)
+                                .expect(&format!(
+                                    "exec expected module instance {} to exist for function",
+                                    cf.func_instance.owner
+                                ))
+                                .clone(),
+                        );
                     }
 
                     continue;

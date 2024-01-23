@@ -46,6 +46,7 @@ impl Store {
 
     /// Get a module instance by the internal id
     pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
+        log::debug!("existing module instances: {:?}", self.module_instances.len());
         self.module_instances.get(addr as usize)
     }
 
@@ -180,7 +181,7 @@ impl Store {
         func_addrs: &[FuncAddr],
         elements: Vec<Element>,
         idx: ModuleInstanceAddr,
-    ) -> Result<Box<[Addr]>> {
+    ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.data.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, element) in elements.into_iter().enumerate() {
@@ -214,15 +215,17 @@ impl Store {
                         .copied()
                         .ok_or_else(|| Error::Other(format!("table {} not found for element {}", table, i)))?;
 
-                    // a. Let n be the length of the vector elem[i].init
-                    // b. Execute the instruction sequence einstrs
-                    // c. Execute the instruction i32.const 0
-                    // d. Execute the instruction i32.const n
-                    // e. Execute the instruction table.init tableidx i
                     if let Some(table) = self.data.tables.get_mut(table_addr as usize) {
-                        table.borrow_mut().init(func_addrs, offset, &init)?;
+                        // In wasm 2.0, it's possible to call a function that hasn't been instantiated yet,
+                        // when using a partially initialized active element segments.
+                        // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
+                        // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
+                        // I have NO IDEA why this is allowed, but it is.
+                        if let Err(Error::Trap(trap)) = table.borrow_mut().init(func_addrs, offset, &init) {
+                            return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
+                        }
                     } else {
-                        log::error!("table {} not found", table);
+                        return Err(Error::Other(format!("table {} not found for element {}", table, i)));
                     }
 
                     // f. Execute the instruction elm.drop i
@@ -235,7 +238,7 @@ impl Store {
         }
 
         // this should be optimized out by the compiler
-        Ok(elem_addrs.into_boxed_slice())
+        Ok((elem_addrs.into_boxed_slice(), None))
     }
 
     /// Add data to the store, returning their addresses in the store
@@ -244,7 +247,7 @@ impl Store {
         mem_addrs: &[MemAddr],
         datas: Vec<Data>,
         idx: ModuleInstanceAddr,
-    ) -> Result<Box<[Addr]>> {
+    ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
@@ -268,7 +271,10 @@ impl Store {
                             Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
                         })?;
 
-                    mem.borrow_mut().store(offset as usize, 0, &data.data)?;
+                    // See comment for active element sections in the function above why we need to do this here
+                    if let Err(Error::Trap(trap)) = mem.borrow_mut().store(offset as usize, 0, &data.data) {
+                        return Ok((data_addrs.into_boxed_slice(), Some(trap)));
+                    }
 
                     // drop the data
                     continue;
@@ -281,7 +287,7 @@ impl Store {
         }
 
         // this should be optimized out by the compiler
-        Ok(data_addrs.into_boxed_slice())
+        Ok((data_addrs.into_boxed_slice(), None))
     }
 
     pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {

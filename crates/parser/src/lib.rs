@@ -120,7 +120,11 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
                     WasmFunction {
                         instructions: f.body,
                         locals: f.locals,
-                        ty: reader.func_types.get(ty_idx as usize).unwrap().clone(),
+                        ty: reader
+                            .func_types
+                            .get(ty_idx as usize)
+                            .expect("No func type for func, this is a bug")
+                            .clone(),
                     },
                 )
             })

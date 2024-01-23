@@ -20,6 +20,8 @@ pub struct ModuleInstance(Arc<ModuleInstanceInner>);
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ModuleInstanceInner {
+    pub(crate) failed_to_instantiate: bool,
+
     pub(crate) store_id: usize,
     pub(crate) idx: ModuleInstanceAddr,
 
@@ -69,10 +71,11 @@ impl ModuleInstance {
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
-        let elem_addrs = store.init_elements(&addrs.tables, &addrs.funcs, data.elements.into(), idx)?;
-        let data_addrs = store.init_datas(&addrs.memories, data.data.into(), idx)?;
+        let (elem_addrs, elem_trapped) = store.init_elements(&addrs.tables, &addrs.funcs, data.elements.into(), idx)?;
+        let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
+            failed_to_instantiate: elem_trapped.is_some() || data_trapped.is_some(),
             store_id: store.id(),
             idx,
             types: data.func_types,
@@ -89,6 +92,14 @@ impl ModuleInstance {
 
         let instance = ModuleInstance::new(instance);
         store.add_instance(instance.clone())?;
+
+        if let Some(trap) = elem_trapped {
+            return Err(trap.into());
+        };
+
+        if let Some(trap) = data_trapped {
+            return Err(trap.into());
+        };
 
         Ok(instance)
     }
