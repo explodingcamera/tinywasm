@@ -81,7 +81,7 @@ impl ModuleInstance {
             mem_addrs: addrs.memories.into_boxed_slice(),
             global_addrs: addrs.globals.into_boxed_slice(),
             elem_addrs,
-            data_addrs: data_addrs,
+            data_addrs,
             func_start: data.start_func,
             imports: data.imports,
             exports: data.exports,
@@ -111,11 +111,7 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
-    pub(crate) fn _global_addrs(&self) -> &[GlobalAddr] {
-        &self.0.global_addrs
-    }
-
-    pub(crate) fn func_ty_addrs(&self) -> &[FuncType] {
+    pub(crate) fn func_tys(&self) -> &[FuncType] {
         &self.0.types
     }
 

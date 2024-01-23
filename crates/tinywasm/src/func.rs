@@ -27,7 +27,7 @@ impl FuncHandle {
 
         // 1. Assert: funcs[func_addr] exists
         // 2. let func_inst be the functiuon instance funcs[func_addr]
-        let func_inst = store.get_func(self.addr as usize)?;
+        let func_inst = store.get_func(self.addr as usize)?.clone();
 
         // 3. Let func_ty be the function type
         let func_ty = &self.ty;
@@ -52,18 +52,18 @@ impl FuncHandle {
             }
         }
 
-        let wasm_func = match &func_inst.func {
+        let locals = match &func_inst.func {
             crate::Function::Host(h) => {
                 let func = h.func.clone();
                 let ctx = FuncContext { store, module: &self.module };
                 return (func)(ctx, params);
             }
-            crate::Function::Wasm(ref f) => f,
+            crate::Function::Wasm(ref f) => f.locals.to_vec(),
         };
 
         // 6. Let f be the dummy frame
-        debug!("locals: {:?}", wasm_func.locals);
-        let call_frame = CallFrame::new(self.addr as usize, params, wasm_func.locals.to_vec(), self.module.id());
+        debug!("locals: {:?}", locals);
+        let call_frame = CallFrame::new(func_inst, params, locals);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
@@ -71,7 +71,7 @@ impl FuncHandle {
 
         // 9. Invoke the function instance
         let runtime = store.runtime();
-        runtime.exec(store, &mut stack, self.module.clone())?;
+        runtime.exec(store, &mut stack)?;
 
         // Once the function returns:
         let result_m = func_ty.results.len();

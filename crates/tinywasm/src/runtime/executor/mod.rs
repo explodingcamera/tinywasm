@@ -15,32 +15,32 @@ use macros::*;
 use traits::*;
 
 impl DefaultRuntime {
-    pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack, module: ModuleInstance) -> Result<()> {
-        log::debug!("func_addrs: {:?}", module.func_addrs());
-        log::debug!("func_ty_addrs: {:?}", module.func_ty_addrs().len());
-        log::debug!("store funcs: {:?}", store.data.funcs.len());
-
+    pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
 
-        // The function to execute, gets updated from ExecResult::Call
-        let mut func_inst = store.get_func(cf.func_ptr)?.clone();
+        let mut func_inst = cf.func_instance.clone();
         let mut wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
+
+        // The function to execute, gets updated from ExecResult::Call
         let mut instrs = &wasm_func.instructions;
 
-        let mut current_module = module;
+        let mut current_module = store
+            .get_module_instance(func_inst.owner)
+            .expect("exec expected module instance to exist for function")
+            .clone();
 
         while let Some(instr) = instrs.get(cf.instr_ptr) {
             match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
-                    func_inst = store.get_func(cf.func_ptr)?.clone();
-                    wasm_func = func_inst.assert_wasm().expect("call expected wasm function");
+                    func_inst = cf.func_instance.clone();
+                    wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
                     instrs = &wasm_func.instructions;
 
-                    if cf.module != current_module.id() {
-                        current_module.swap(store.get_module_instance(cf.module).unwrap().clone());
+                    if cf.func_instance.owner != current_module.id() {
+                        current_module.swap(store.get_module_instance(cf.func_instance.owner).unwrap().clone());
                     }
 
                     continue;
@@ -135,10 +135,10 @@ fn exec_one(
             log::info!("start call");
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
-            let func_inst = store.get_func(func_idx as usize)?;
+            let func_inst = store.get_func(func_idx as usize)?.clone();
 
-            let func = match &func_inst.func {
-                crate::Function::Wasm(ref f) => f,
+            let (locals, ty) = match &func_inst.func {
+                crate::Function::Wasm(ref f) => (f.locals.to_vec(), f.ty.clone()),
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
                     log::info!("Getting params: {:?}", host_func.ty.params);
@@ -150,8 +150,11 @@ fn exec_one(
                 }
             };
 
-            let params = stack.values.pop_n_rev(func.ty.params.len())?;
-            let call_frame = CallFrame::new_raw(func_idx as usize, &params, func.locals.to_vec(), func_inst._owner);
+            let params = stack.values.pop_n_rev(ty.params.len())?;
+            log::info!("call: current fn owner: {:?}", module.id());
+            log::info!("call: func owner: {:?}", func_inst.owner);
+
+            let call_frame = CallFrame::new_raw(func_inst, &params, locals);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -163,29 +166,39 @@ fn exec_one(
         }
 
         CallIndirect(type_addr, table_addr) => {
-            let table_idx = module.resolve_table_addr(*table_addr);
-            let table = store.get_table(table_idx as usize)?;
-
-            // TODO: currently, the type resolution is subtlely broken for imported functions
-
-            let call_ty = module.func_ty(*type_addr);
-
-            let func_idx = stack.values.pop_t::<u32>()?;
+            let table = store.get_table(module.resolve_table_addr(*table_addr) as usize)?;
+            let table_idx = stack.values.pop_t::<u32>()?;
 
             // verify that the table is of the right type, this should be validated by the parser already
             assert!(table.borrow().kind.element_type == ValType::RefFunc, "table is not of type funcref");
 
-            let func_ref = table
-                .borrow()
-                .get(func_idx as usize)?
-                .addr()
-                .ok_or_else(|| Trap::UninitializedElement { index: func_idx as usize })?;
+            let func_ref = {
+                table
+                    .borrow()
+                    .get(table_idx as usize)?
+                    .addr()
+                    .ok_or(Trap::UninitializedElement { index: table_idx as usize })?
+            };
 
-            let func_inst = store.get_func(func_ref as usize)?;
+            let func_inst = store.get_func(func_ref as usize)?.clone();
             let func_ty = func_inst.func.ty();
 
-            let func = match &func_inst.func {
-                crate::Function::Wasm(ref f) => f,
+            log::info!("type_addr: {}", type_addr);
+            log::info!("types: {:?}", module.func_tys());
+            let call_ty = module.func_ty(*type_addr);
+
+            log::info!("call_indirect: current fn owner: {:?}", module.id());
+            log::info!("call_indirect: func owner: {:?}", func_inst.owner);
+
+            if func_ty != call_ty {
+                log::error!("indirect call type mismatch: {:?} != {:?}", func_ty, call_ty);
+                return Err(
+                    Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
+                );
+            }
+
+            let locals = match &func_inst.func {
+                crate::Function::Wasm(ref f) => f.locals.to_vec(),
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
                     let params = stack.values.pop_params(&func_ty.params)?;
@@ -195,14 +208,8 @@ fn exec_one(
                 }
             };
 
-            if func_ty != call_ty {
-                return Err(
-                    Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
-                );
-            }
-
             let params = stack.values.pop_n_rev(func_ty.params.len())?;
-            let call_frame = CallFrame::new_raw(func_ref as usize, &params, func.locals.to_vec(), func_inst._owner);
+            let call_frame = CallFrame::new_raw(func_inst, &params, locals);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction

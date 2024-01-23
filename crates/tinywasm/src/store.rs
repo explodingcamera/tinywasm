@@ -121,7 +121,7 @@ impl Store {
             self.data.funcs.push(Rc::new(FunctionInstance {
                 func: Function::Wasm(func),
                 _type_idx: type_idx,
-                _owner: idx,
+                owner: idx,
             }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
@@ -303,7 +303,7 @@ impl Store {
     }
 
     pub(crate) fn add_func(&mut self, func: Function, type_idx: TypeAddr, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(Rc::new(FunctionInstance { func, _type_idx: type_idx, _owner: idx }));
+        self.data.funcs.push(Rc::new(FunctionInstance { func, _type_idx: type_idx, owner: idx }));
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
@@ -388,7 +388,7 @@ impl Store {
 pub struct FunctionInstance {
     pub(crate) func: Function,
     pub(crate) _type_idx: TypeAddr,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
+    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 
 // TODO: check if this actually helps
@@ -442,10 +442,8 @@ impl TableInstance {
         let val = self.get(addr)?.addr();
 
         Ok(match self.kind.element_type {
-            ValType::RefFunc => val.map(|v| WasmValue::RefFunc(v)).unwrap_or(WasmValue::RefNull(ValType::RefFunc)),
-            ValType::RefExtern => {
-                val.map(|v| WasmValue::RefExtern(v)).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
-            }
+            ValType::RefFunc => val.map(WasmValue::RefFunc).unwrap_or(WasmValue::RefNull(ValType::RefFunc)),
+            ValType::RefExtern => val.map(WasmValue::RefExtern).unwrap_or(WasmValue::RefNull(ValType::RefExtern)),
             _ => unimplemented!("unsupported table type: {:?}", self.kind.element_type),
         })
     }
