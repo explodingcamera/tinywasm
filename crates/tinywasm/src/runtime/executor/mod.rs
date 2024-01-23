@@ -7,7 +7,7 @@ use crate::{
     CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
-use tinywasm_types::{ElementKind, Instruction};
+use tinywasm_types::{ElementKind, Instruction, ValType};
 
 mod macros;
 mod traits;
@@ -171,15 +171,17 @@ fn exec_one(
             let call_ty = module.func_ty(*type_addr);
 
             let func_idx = stack.values.pop_t::<u32>()?;
-            let actual_func_addr = table
+
+            // verify that the table is of the right type, this should be validated by the parser already
+            assert!(table.borrow().kind.element_type == ValType::RefFunc, "table is not of type funcref");
+
+            let func_ref = table
                 .borrow()
                 .get(func_idx as usize)?
+                .addr()
                 .ok_or_else(|| Trap::UninitializedElement { index: func_idx as usize })?;
 
-            let resolved_func_addr = module.resolve_func_addr(actual_func_addr);
-
-            // prepare the call frame
-            let func_inst = store.get_func(resolved_func_addr as usize)?;
+            let func_inst = store.get_func(func_ref as usize)?;
             let func_ty = func_inst.func.ty();
 
             let func = match &func_inst.func {
@@ -200,8 +202,7 @@ fn exec_one(
             }
 
             let params = stack.values.pop_n_rev(func_ty.params.len())?;
-            let call_frame =
-                CallFrame::new_raw(resolved_func_addr as usize, &params, func.locals.to_vec(), func_inst._owner);
+            let call_frame = CallFrame::new_raw(func_ref as usize, &params, func.locals.to_vec(), func_inst._owner);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -606,7 +607,7 @@ fn exec_one(
                 return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
             };
 
-            table.borrow_mut().init(0, items)?;
+            table.borrow_mut().init(module.func_addrs(), 0, items)?;
         }
 
         I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, stack),

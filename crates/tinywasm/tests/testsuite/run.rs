@@ -193,8 +193,6 @@ impl TestSuite {
                 }
 
                 Wat(module) => {
-                    // TODO: modules are not properly isolated from each other - tests fail because of this otherwise
-                    // store = tinywasm::Store::default();
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
                         let (name, bytes) = match module {

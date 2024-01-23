@@ -184,11 +184,6 @@ pub(crate) fn convert_blocktype(blocktype: wasmparser::BlockType) -> BlockArgs {
     use wasmparser::BlockType::*;
     match blocktype {
         Empty => BlockArgs::Empty,
-
-        // We should maybe have all this in a single variant for our custom bytecode
-
-        // TODO: maybe solve this differently so we can support 128-bit values
-        // without having to increase the size of the WasmValue enum
         Type(ty) => BlockArgs::Type(convert_valtype(&ty)),
         FuncType(ty) => BlockArgs::FuncType(ty),
     }
@@ -228,8 +223,8 @@ pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstructi
         wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
         wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
-        wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))), // TODO: check if this is correct
-        wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))), // TODO: check if this is correct
+        wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
+        wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
     }

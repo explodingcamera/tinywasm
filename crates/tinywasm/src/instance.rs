@@ -57,6 +57,7 @@ impl ModuleInstance {
         // don't need to create a auxiliary frame etc.
 
         let idx = store.next_module_instance_idx();
+        log::error!("Instantiating module at index {}", idx);
         let imports = imports.unwrap_or_default();
 
         let mut addrs = imports.link(store, &module, idx)?;
@@ -68,13 +69,12 @@ impl ModuleInstance {
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
-        let elem_addrs = store.init_elements(&addrs.tables, data.elements.into(), idx)?;
+        let elem_addrs = store.init_elements(&addrs.tables, &addrs.funcs, data.elements.into(), idx)?;
         let data_addrs = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
             idx,
-
             types: data.func_types,
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),

@@ -82,7 +82,6 @@ impl Default for Store {
 ///
 /// Data should only be addressable by the module that owns it
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
-// TODO: Arena allocate these?
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<Rc<FunctionInstance>>,
     pub(crate) tables: Vec<Rc<RefCell<TableInstance>>>,
@@ -178,6 +177,7 @@ impl Store {
     pub(crate) fn init_elements(
         &mut self,
         table_addrs: &[TableAddr],
+        func_addrs: &[FuncAddr],
         elements: Vec<Element>,
         idx: ModuleInstanceAddr,
     ) -> Result<Box<[Addr]>> {
@@ -193,6 +193,8 @@ impl Store {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
+
+            log::error!("element kind: {:?}", element.kind);
 
             let items = match element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
@@ -218,7 +220,7 @@ impl Store {
                     // d. Execute the instruction i32.const n
                     // e. Execute the instruction table.init tableidx i
                     if let Some(table) = self.data.tables.get_mut(table_addr as usize) {
-                        table.borrow_mut().init(offset, &init)?;
+                        table.borrow_mut().init(func_addrs, offset, &init)?;
                     } else {
                         log::error!("table {} not found", table);
                     }
@@ -385,8 +387,6 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub struct FunctionInstance {
     pub(crate) func: Function,
-
-    // TODO: this is important for call_indirect
     pub(crate) _type_idx: TypeAddr,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
@@ -408,43 +408,58 @@ impl FunctionInstance {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TableElement {
+    Uninitialized,
+    Initialized(Addr),
+}
+
+impl TableElement {
+    pub(crate) fn addr(&self) -> Option<Addr> {
+        match self {
+            TableElement::Uninitialized => None,
+            TableElement::Initialized(addr) => Some(*addr),
+        }
+    }
+}
+
 /// A WebAssembly Table Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
 #[derive(Debug)]
 pub(crate) struct TableInstance {
-    pub(crate) elements: Vec<Option<Addr>>,
+    pub(crate) elements: Vec<TableElement>,
     pub(crate) kind: TableType,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self { elements: vec![None; kind.size_initial as usize], kind, _owner: owner }
+        Self { elements: vec![TableElement::Uninitialized; kind.size_initial as usize], kind, _owner: owner }
     }
 
     pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue> {
+        let val = self.get(addr)?.addr();
+
         Ok(match self.kind.element_type {
-            ValType::RefFunc => {
-                self.get(addr)?.map(|v| WasmValue::RefFunc(v)).unwrap_or(WasmValue::RefNull(ValType::RefFunc))
-            }
+            ValType::RefFunc => val.map(|v| WasmValue::RefFunc(v)).unwrap_or(WasmValue::RefNull(ValType::RefFunc)),
             ValType::RefExtern => {
-                self.get(addr)?.map(|v| WasmValue::RefExtern(v)).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
+                val.map(|v| WasmValue::RefExtern(v)).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
             }
             _ => unimplemented!("unsupported table type: {:?}", self.kind.element_type),
         })
     }
 
-    pub(crate) fn get(&self, addr: usize) -> Result<Option<Addr>> {
-        self.elements.get(addr).copied().ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
+    pub(crate) fn get(&self, addr: usize) -> Result<&TableElement> {
+        self.elements.get(addr).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
     }
 
-    pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
-        if addr >= self.elements.len() {
-            return Err(Error::Other(format!("table element {} not found", addr)));
-        }
-
-        self.elements[addr] = Some(value);
+    pub(crate) fn set(&mut self, table_idx: usize, value: Addr) -> Result<()> {
+        let el = self
+            .elements
+            .get_mut(table_idx)
+            .ok_or_else(|| Error::Other(format!("table element {} not found", table_idx)))?;
+        *el = TableElement::Initialized(value);
         Ok(())
     }
 
@@ -452,8 +467,18 @@ impl TableInstance {
         self.elements.len() as i32
     }
 
-    pub(crate) fn init(&mut self, offset: i32, init: &[Addr]) -> Result<()> {
-        let init = init.iter().map(|item| Some(*item)).collect::<Vec<_>>();
+    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[Addr]) -> Result<()> {
+        let init = init
+            .iter()
+            .map(|item| {
+                TableElement::Initialized(match self.kind.element_type == ValType::RefFunc {
+                    true => *func_addrs.get(*item as usize).expect(
+                        "error initializing table: function not found. This should have been caught by the validator",
+                    ),
+                    false => *item,
+                })
+            })
+            .collect::<Vec<_>>();
 
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
@@ -465,6 +490,7 @@ impl TableInstance {
         }
 
         self.elements[offset..end].copy_from_slice(&init);
+        log::debug!("table: {:?}", self.elements);
         Ok(())
     }
 }
