@@ -1,7 +1,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{eyre, Result};
-use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, WasmValue};
+use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicInfo>().or(None).map(|p| p.to_string()).clone();
@@ -77,10 +77,10 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        RefExtern(v) => WasmValue::RefExtern(Some(v)),
+        RefExtern(v) => WasmValue::RefExtern(v),
         RefNull(t) => match t {
-            wast::core::HeapType::Func => WasmValue::RefFunc(None),
-            wast::core::HeapType::Extern => WasmValue::RefExtern(None),
+            wast::core::HeapType::Func => WasmValue::RefNull(ValType::RefFunc),
+            wast::core::HeapType::Extern => WasmValue::RefNull(ValType::RefExtern),
             _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
         },
         v => return Err(eyre!("unsupported arg type: {:?}", v)),
@@ -99,16 +99,16 @@ fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmValue
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         RefNull(t) => match t {
-            Some(wast::core::HeapType::Func) => WasmValue::RefFunc(None),
-            Some(wast::core::HeapType::Extern) => WasmValue::RefExtern(None),
+            Some(wast::core::HeapType::Func) => WasmValue::RefNull(ValType::RefFunc),
+            Some(wast::core::HeapType::Extern) => WasmValue::RefNull(ValType::RefExtern),
             _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
         },
         RefExtern(v) => match v {
-            Some(v) => WasmValue::RefExtern(Some(v)),
+            Some(v) => WasmValue::RefExtern(v),
             _ => return Err(eyre!("unsupported arg type: refextern: {:?}", v)),
         },
         RefFunc(v) => match v {
-            Some(wast::token::Index::Num(n, _)) => WasmValue::RefFunc(Some(n)),
+            Some(wast::token::Index::Num(n, _)) => WasmValue::RefFunc(n),
             _ => return Err(eyre!("unsupported arg type: reffunc: {:?}", v)),
         },
         a => return Err(eyre!("unsupported arg type {:?}", a)),

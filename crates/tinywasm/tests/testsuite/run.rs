@@ -83,7 +83,7 @@ impl TestSuite {
         let mut imports = Imports::new();
 
         let table =
-            Extern::table(TableType::new(ValType::FuncRef, 10, Some(20)), WasmValue::default_for(ValType::FuncRef));
+            Extern::table(TableType::new(ValType::RefFunc, 10, Some(20)), WasmValue::default_for(ValType::RefFunc));
 
         let print = Extern::typed_func(|_ctx: tinywasm::FuncContext, _: ()| {
             log::debug!("print");
@@ -463,6 +463,8 @@ impl TestSuite {
                                 outcomes.len()
                             ));
                         }
+
+                        log::debug!("outcomes: {:?}", outcomes);
 
                         outcomes.iter().zip(expected).enumerate().try_for_each(|(i, (outcome, exp))| {
                             (outcome.eq_loose(&exp))

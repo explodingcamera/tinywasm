@@ -202,8 +202,8 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         F32 => ValType::F32,
         F64 => ValType::F64,
         V128 => unimplemented!("128-bit values are not supported yet"),
-        FuncRef => ValType::FuncRef,
-        ExternRef => ValType::ExternRef,
+        FuncRef => ValType::RefFunc,
+        ExternRef => ValType::RefExtern,
     }
 }
 

@@ -335,7 +335,7 @@ impl Store {
                 let val = global.borrow().value;
                 val
             }
-            RefNull(v) => v.default_value().into(),
+            RefNull(_) => RawWasmValue::from(0),
             RefFunc(idx) => RawWasmValue::from(*idx as i64),
         };
         Ok(val)
@@ -414,27 +414,36 @@ impl FunctionInstance {
 #[derive(Debug)]
 pub(crate) struct TableInstance {
     pub(crate) elements: Vec<Option<Addr>>,
-    pub(crate) _kind: TableType,
+    pub(crate) kind: TableType,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self { elements: vec![None; kind.size_initial as usize], _kind: kind, _owner: owner }
+        Self { elements: vec![None; kind.size_initial as usize], kind, _owner: owner }
     }
 
-    pub(crate) fn get(&self, addr: usize) -> Result<Addr> {
-        self.elements
-            .get(addr)
-            .copied()
-            .ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
-            .map(|elem| elem.ok_or_else(|| Trap::UninitializedElement { index: addr }.into()))?
+    pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue> {
+        Ok(match self.kind.element_type {
+            ValType::RefFunc => {
+                self.get(addr)?.map(|v| WasmValue::RefFunc(v)).unwrap_or(WasmValue::RefNull(ValType::RefFunc))
+            }
+            ValType::RefExtern => {
+                self.get(addr)?.map(|v| WasmValue::RefExtern(v)).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
+            }
+            _ => unimplemented!("unsupported table type: {:?}", self.kind.element_type),
+        })
+    }
+
+    pub(crate) fn get(&self, addr: usize) -> Result<Option<Addr>> {
+        self.elements.get(addr).copied().ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
     }
 
     pub(crate) fn set(&mut self, addr: usize, value: Addr) -> Result<()> {
         if addr >= self.elements.len() {
             return Err(Error::Other(format!("table element {} not found", addr)));
         }
+
         self.elements[addr] = Some(value);
         Ok(())
     }

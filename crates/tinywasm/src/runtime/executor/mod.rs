@@ -171,7 +171,11 @@ fn exec_one(
             let call_ty = module.func_ty(*type_addr);
 
             let func_idx = stack.values.pop_t::<u32>()?;
-            let actual_func_addr = table.borrow().get(func_idx as usize)?;
+            let actual_func_addr = table
+                .borrow()
+                .get(func_idx as usize)?
+                .ok_or_else(|| Trap::UninitializedElement { index: func_idx as usize })?;
+
             let resolved_func_addr = module.resolve_func_addr(actual_func_addr);
 
             // prepare the call frame
@@ -565,12 +569,12 @@ fn exec_one(
         I64TruncF32U => checked_conv_float!(f32, u64, i64, stack),
         I64TruncF64U => checked_conv_float!(f64, u64, i64, stack),
 
-        // TODO: uninitialized element traps
         TableGet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
             let idx = stack.values.pop_t::<i32>()? as usize;
-            stack.values.push(table.borrow().get(idx)?.into());
+            let v = table.borrow().get_wasm_val(idx)?;
+            stack.values.push(v.into());
         }
 
         TableSet(table_index) => {
