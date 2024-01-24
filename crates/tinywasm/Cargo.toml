@@ -42,5 +42,9 @@ name="test-mvp"
 harness=false
 
 [[test]]
+name="test-two"
+harness=false
+
+[[test]]
 name="test-wast"
 harness=false
