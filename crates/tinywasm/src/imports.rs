@@ -279,7 +279,7 @@ impl Imports {
     {
         if expected != actual {
             log::error!("failed to link import {}, expected {:?}, got {:?}", import.name, expected, actual);
-            return Err(crate::LinkingError::MismatchedImportType {
+            return Err(crate::LinkingError::IncompatibleImportType {
                 module: import.module.to_string(),
                 name: import.name.to_string(),
             }
@@ -299,10 +299,11 @@ impl Imports {
 
         for import in module.data.imports.iter() {
             let Some(val) = self.take(store, import) else {
-                return Err(crate::Error::MissingImport {
+                return Err(crate::LinkingError::UnknownImport {
                     module: import.module.to_string(),
                     name: import.name.to_string(),
-                });
+                }
+                .into());
             };
 
             match val {
@@ -324,7 +325,7 @@ impl Imports {
                     }
                     (Extern::Function(extern_func), ImportKind::Function(ty)) => {
                         let import_func_type = module.data.func_types.get(*ty as usize).ok_or_else(|| {
-                            crate::Error::CouldNotResolveImport {
+                            crate::LinkingError::IncompatibleImportType {
                                 module: import.module.to_string(),
                                 name: import.name.to_string(),
                             }
@@ -334,7 +335,7 @@ impl Imports {
                         imports.funcs.push(store.add_func(extern_func, *ty, idx)?);
                     }
                     _ => {
-                        return Err(crate::LinkingError::MismatchedImportType {
+                        return Err(crate::LinkingError::IncompatibleImportType {
                             module: import.module.to_string(),
                             name: import.name.to_string(),
                         }
@@ -346,7 +347,7 @@ impl Imports {
                 ResolvedExtern::Store(val) => {
                     // check if the kind matches
                     if val.kind() != (&import.kind).into() {
-                        return Err(crate::LinkingError::MismatchedImportType {
+                        return Err(crate::LinkingError::IncompatibleImportType {
                             module: import.module.to_string(),
                             name: import.name.to_string(),
                         }

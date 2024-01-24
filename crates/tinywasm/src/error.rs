@@ -45,22 +45,6 @@ pub enum Error {
 
     /// The store is not the one that the module instance was instantiated in
     InvalidStore,
-
-    /// Missing import
-    MissingImport {
-        /// The module name
-        module: String,
-        /// The import name
-        name: String,
-    },
-
-    /// Could not resolve an import
-    CouldNotResolveImport {
-        /// The module name
-        module: String,
-        /// The import name
-        name: String,
-    },
 }
 
 #[derive(Debug)]
@@ -74,7 +58,7 @@ pub enum LinkingError {
         name: String,
     },
     /// A mismatched import type was encountered
-    MismatchedImportType {
+    IncompatibleImportType {
         /// The module name
         module: String,
         /// The import name
@@ -166,7 +150,7 @@ impl LinkingError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::UnknownImport { .. } => "unknown import",
-            Self::MismatchedImportType { .. } => "mismatched import type",
+            Self::IncompatibleImportType { .. } => "incompatible import type",
         }
     }
 }
@@ -202,14 +186,6 @@ impl Display for Error {
             Self::LabelStackUnderflow => write!(f, "label stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::InvalidStore => write!(f, "invalid store"),
-
-            Self::MissingImport { module, name } => {
-                write!(f, "missing import: {}.{}", module, name)
-            }
-
-            Self::CouldNotResolveImport { module, name } => {
-                write!(f, "could not resolve import: {}.{}", module, name)
-            }
         }
     }
 }

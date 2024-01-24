@@ -355,6 +355,45 @@ impl TestSuite {
                     }
                 }
 
+                AssertUnlinkable { mut module, span, message } => {
+                    let res = catch_unwind_silent(|| {
+                        let module = parse_module_bytes(&module.encode().expect("failed to encode module"))
+                            .expect("failed to parse module");
+                        let module = tinywasm::Module::from(module);
+                        module.instantiate(&mut store, Some(Self::imports(registered_modules.modules()).unwrap()))
+                    });
+
+                    match res {
+                        Err(err) => test_group.add_result(
+                            &format!("AssertUnlinkable({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("test panicked: {:?}", try_downcast_panic(err))),
+                        ),
+                        Ok(Err(tinywasm::Error::Linker(err))) => {
+                            if err.message() != message {
+                                test_group.add_result(
+                                    &format!("AssertUnlinkable({})", i),
+                                    span.linecol_in(wast),
+                                    Err(eyre!("expected linker error: {}, got: {}", message, err.message())),
+                                );
+                                continue;
+                            }
+
+                            test_group.add_result(&format!("AssertUnlinkable({})", i), span.linecol_in(wast), Ok(()))
+                        }
+                        Ok(Err(err)) => test_group.add_result(
+                            &format!("AssertUnlinkable({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected linker error, {}, got: {:?}", message, err)),
+                        ),
+                        Ok(Ok(_)) => test_group.add_result(
+                            &format!("AssertUnlinkable({})", i),
+                            span.linecol_in(wast),
+                            Err(eyre!("expected linker error {}, got Ok", message)),
+                        ),
+                    }
+                }
+
                 Invoke(invoke) => {
                     let name = invoke.name;
 
