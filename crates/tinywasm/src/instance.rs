@@ -66,12 +66,13 @@ impl ModuleInstance {
         let data = module.data;
 
         // TODO: check if the compiler correctly optimizes this to prevent wasted allocations
-        addrs.globals.extend(store.init_globals(data.globals.into(), idx)?);
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
-        let (elem_addrs, elem_trapped) = store.init_elements(&addrs.tables, &addrs.funcs, data.elements.into(), idx)?;
+        let global_addrs = store.init_globals(addrs.globals, data.globals.into(), idx)?;
+        let (elem_addrs, elem_trapped) =
+            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, data.elements.into(), idx)?;
         let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
@@ -82,7 +83,7 @@ impl ModuleInstance {
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
-            global_addrs: addrs.globals.into_boxed_slice(),
+            global_addrs: global_addrs.into_boxed_slice(),
             elem_addrs,
             data_addrs,
             func_start: data.start_func,

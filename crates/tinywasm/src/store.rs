@@ -158,13 +158,20 @@ impl Store {
     }
 
     /// Add globals to the store, returning their addresses in the store
-    pub(crate) fn init_globals(&mut self, globals: Vec<Global>, idx: ModuleInstanceAddr) -> Result<Vec<Addr>> {
+    pub(crate) fn init_globals(
+        &mut self,
+        mut imported_globals: Vec<GlobalAddr>,
+        new_globals: Vec<Global>,
+        idx: ModuleInstanceAddr,
+    ) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
-        let mut global_addrs = Vec::with_capacity(global_count);
-        for (i, global) in globals.iter().enumerate() {
+        imported_globals.reserve_exact(new_globals.len());
+        let mut global_addrs = imported_globals;
+
+        for (i, global) in new_globals.iter().enumerate() {
             self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
                 global.ty,
-                self.eval_const(&global.init)?,
+                self.eval_const(&global.init, &global_addrs)?,
                 idx,
             ))));
             global_addrs.push((i + global_count) as Addr);
@@ -173,27 +180,41 @@ impl Store {
         Ok(global_addrs)
     }
 
+    fn elem_addr(&self, item: &ElementItem, globals: &[Addr]) -> Result<Option<u32>> {
+        let res = match item {
+            ElementItem::Func(addr) => Some(*addr),
+            ElementItem::Expr(ConstInstruction::RefFunc(addr)) => Some(*addr),
+            ElementItem::Expr(ConstInstruction::RefNull(_ty)) => None,
+            ElementItem::Expr(ConstInstruction::GlobalGet(addr)) => {
+                let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
+                    Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
+                })?;
+
+                let global = self.data.globals[addr as usize].clone();
+                let val = global.borrow().value;
+                Some(val.into())
+            }
+            _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))),
+        };
+
+        Ok(res)
+    }
+
     /// Add elements to the store, returning their addresses in the store
     /// Should be called after the tables have been added
     pub(crate) fn init_elements(
         &mut self,
         table_addrs: &[TableAddr],
         func_addrs: &[FuncAddr],
+        global_addrs: &[Addr],
         elements: Vec<Element>,
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.data.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, element) in elements.into_iter().enumerate() {
-            let init = element
-                .items
-                .iter()
-                .map(|item| {
-                    item.addr().ok_or_else(|| {
-                        Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let init =
+                element.items.iter().map(|item| self.elem_addr(item, global_addrs)).collect::<Result<Vec<_>>>()?;
 
             log::error!("element kind: {:?}", element.kind);
 
@@ -330,7 +351,11 @@ impl Store {
     }
 
     /// Evaluate a constant expression
-    pub(crate) fn eval_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<RawWasmValue> {
+    pub(crate) fn eval_const(
+        &self,
+        const_instr: &tinywasm_types::ConstInstruction,
+        module_global_addrs: &[Addr],
+    ) -> Result<RawWasmValue> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
             F32Const(f) => RawWasmValue::from(*f),
@@ -338,8 +363,11 @@ impl Store {
             I32Const(i) => RawWasmValue::from(*i),
             I64Const(i) => RawWasmValue::from(*i),
             GlobalGet(addr) => {
-                let addr = *addr as usize;
-                let global = self.data.globals[addr].clone();
+                let addr = module_global_addrs.get(*addr as usize).copied().ok_or_else(|| {
+                    Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
+                })?;
+
+                let global = self.data.globals[addr as usize].clone();
                 let val = global.borrow().value;
                 val
             }
@@ -370,7 +398,15 @@ impl Store {
     }
 
     /// Get the global at the actual index in the store
+    pub(crate) fn get_global(&self, addr: usize) -> Result<&Rc<RefCell<GlobalInstance>>> {
+        self.data.globals.get(addr).ok_or_else(|| Error::Other(format!("global {} not found", addr)))
+    }
+
+    /// Get the global at the actual index in the store
     pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
+        log::error!("getting global: {}", addr);
+        log::error!("globals: {:?}", self.data.globals);
+
         self.data
             .globals
             .get(addr)
@@ -461,25 +497,18 @@ impl TableInstance {
     }
 
     pub(crate) fn set(&mut self, table_idx: usize, value: Addr) -> Result<()> {
-        self.grow_to_fit(table_idx + 1)
-            .ok_or_else(|| {
-                Error::Trap(crate::Trap::TableOutOfBounds { offset: table_idx, len: 1, max: self.elements.len() })
-            })
-            .and_then(|_| {
-                self.elements[table_idx] = TableElement::Initialized(value);
-                Ok(())
-            })
+        self.grow_to_fit(table_idx + 1).map(|_| self.elements[table_idx] = TableElement::Initialized(value))
     }
 
-    pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Option<()> {
+    pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Result<()> {
         if new_size > self.elements.len() {
-            if new_size <= self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize {
-                self.elements.resize(new_size, TableElement::Uninitialized);
-            } else {
-                return None;
+            if new_size > self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize {
+                return Err(crate::Trap::TableOutOfBounds { offset: new_size, len: 1, max: self.elements.len() }.into());
             }
+
+            self.elements.resize(new_size, TableElement::Uninitialized);
         }
-        Some(())
+        Ok(())
     }
 
     pub(crate) fn size(&self) -> i32 {
@@ -620,13 +649,13 @@ impl MemoryInstance {
 #[derive(Debug)]
 pub(crate) struct GlobalInstance {
     pub(crate) value: RawWasmValue,
-    pub(crate) _ty: GlobalType,
+    pub(crate) ty: GlobalType,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl GlobalInstance {
     pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
-        Self { _ty: ty, value, _owner: owner }
+        Self { ty, value, _owner: owner }
     }
 }
 

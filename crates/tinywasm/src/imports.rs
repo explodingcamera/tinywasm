@@ -257,17 +257,7 @@ impl Imports {
 
         if let Some(addr) = self.modules.get(&name.module) {
             let instance = store.get_module_instance(*addr)?;
-            let export_addr = instance.export(&import.name)?;
-
-            // TODO: validate kind and type
-            match &export_addr {
-                ExternVal::Global(_) => {}
-                ExternVal::Table(_) => {}
-                ExternVal::Mem(_) => {}
-                ExternVal::Func(_) => {}
-            }
-
-            return Some(ResolvedExtern::Store(export_addr));
+            return Some(ResolvedExtern::Store(instance.export(&import.name)?));
         }
 
         None
@@ -354,13 +344,43 @@ impl Imports {
                         .into());
                     }
 
-                    // TODO: check if the type matches
+                    match (val, &import.kind) {
+                        (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
+                            let global = store.get_global(global_addr as usize)?;
+                            Self::compare_types(import, &global.borrow().ty, ty)?;
+                            imports.globals.push(global_addr);
+                        }
+                        (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
+                            let table = store.get_table(table_addr as usize)?;
+                            // TODO: do we need to check any limits?
+                            Self::compare_types(import, &table.borrow().kind.element_type, &ty.element_type)?;
+                            imports.tables.push(table_addr);
+                        }
+                        (ExternVal::Mem(memory_addr), ImportKind::Memory(ty)) => {
+                            let mem = store.get_mem(memory_addr as usize)?;
+                            // TODO: do we need to check any limits?
+                            Self::compare_types(import, &mem.borrow().kind.arch, &ty.arch)?;
+                            imports.memories.push(memory_addr);
+                        }
+                        (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
+                            let func = store.get_func(func_addr as usize)?;
+                            let import_func_type = module.data.func_types.get(*ty as usize).ok_or_else(|| {
+                                crate::LinkingError::IncompatibleImportType {
+                                    module: import.module.to_string(),
+                                    name: import.name.to_string(),
+                                }
+                            })?;
 
-                    match val {
-                        ExternVal::Global(g) => imports.globals.push(g),
-                        ExternVal::Table(t) => imports.tables.push(t),
-                        ExternVal::Mem(m) => imports.memories.push(m),
-                        ExternVal::Func(f) => imports.funcs.push(f),
+                            Self::compare_types(import, func.func.ty(), import_func_type)?;
+                            imports.funcs.push(func_addr);
+                        }
+                        _ => {
+                            return Err(crate::LinkingError::IncompatibleImportType {
+                                module: import.module.to_string(),
+                                name: import.name.to_string(),
+                            }
+                            .into());
+                        }
                     }
                 }
             }
