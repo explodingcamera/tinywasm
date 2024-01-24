@@ -495,11 +495,11 @@ pub enum ElementItem {
 }
 
 impl ElementItem {
-    pub fn addr(&self) -> Option<FuncAddr> {
+    pub fn addr(&self) -> Option<Option<FuncAddr>> {
         match self {
-            Self::Func(addr) => Some(*addr),
-            Self::Expr(ConstInstruction::RefFunc(addr)) => Some(*addr),
-            Self::Expr(ConstInstruction::RefNull(_ty)) => Some(0),
+            Self::Func(addr) => Some(Some(*addr)),
+            Self::Expr(ConstInstruction::RefFunc(addr)) => Some(Some(*addr)),
+            Self::Expr(ConstInstruction::RefNull(_ty)) => Some(None),
             _ => None,
         }
     }

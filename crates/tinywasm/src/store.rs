@@ -429,6 +429,8 @@ impl TableElement {
     }
 }
 
+const MAX_TABLE_SIZE: u32 = 10000000;
+
 /// A WebAssembly Table Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
@@ -459,28 +461,42 @@ impl TableInstance {
     }
 
     pub(crate) fn set(&mut self, table_idx: usize, value: Addr) -> Result<()> {
-        let el = self
-            .elements
-            .get_mut(table_idx)
-            .ok_or_else(|| Error::Other(format!("table element {} not found", table_idx)))?;
-        *el = TableElement::Initialized(value);
-        Ok(())
+        self.grow_to_fit(table_idx + 1)
+            .ok_or_else(|| {
+                Error::Trap(crate::Trap::TableOutOfBounds { offset: table_idx, len: 1, max: self.elements.len() })
+            })
+            .and_then(|_| {
+                self.elements[table_idx] = TableElement::Initialized(value);
+                Ok(())
+            })
+    }
+
+    pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Option<()> {
+        if new_size > self.elements.len() {
+            if new_size <= self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize {
+                self.elements.resize(new_size, TableElement::Uninitialized);
+            } else {
+                return None;
+            }
+        }
+        Some(())
     }
 
     pub(crate) fn size(&self) -> i32 {
         self.elements.len() as i32
     }
 
-    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[Addr]) -> Result<()> {
+    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[Option<Addr>]) -> Result<()> {
         let init = init
             .iter()
-            .map(|item| {
-                TableElement::Initialized(match self.kind.element_type == ValType::RefFunc {
+            .map(|item| match item {
+                None => TableElement::Uninitialized,
+                Some(item) => TableElement::Initialized(match self.kind.element_type == ValType::RefFunc {
                     true => *func_addrs.get(*item as usize).expect(
                         "error initializing table: function not found. This should have been caught by the validator",
                     ),
                     false => *item,
-                })
+                }),
             })
             .collect::<Vec<_>>();
 
@@ -620,12 +636,12 @@ impl GlobalInstance {
 #[derive(Debug)]
 pub(crate) struct ElementInstance {
     pub(crate) kind: ElementKind,
-    pub(crate) items: Option<Vec<u32>>, // none is the element was dropped
-    _owner: ModuleInstanceAddr,         // index into store.module_instances
+    pub(crate) items: Option<Vec<Option<u32>>>, // none is the element was dropped
+    _owner: ModuleInstanceAddr,                 // index into store.module_instances
 }
 
 impl ElementInstance {
-    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<u32>>) -> Self {
+    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<Option<u32>>>) -> Self {
         Self { kind, _owner: owner, items }
     }
 }

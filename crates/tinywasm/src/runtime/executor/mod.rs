@@ -595,8 +595,8 @@ fn exec_one(
         TableSet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
-            let idx = stack.values.pop_t::<u32>()? as usize;
             let val = stack.values.pop_t::<u32>()?;
+            let idx = stack.values.pop_t::<u32>()? as usize;
             table.borrow_mut().set(idx, val)?;
         }
 
