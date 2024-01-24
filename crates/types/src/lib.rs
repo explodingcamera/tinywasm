@@ -387,7 +387,7 @@ pub struct GlobalType {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableType {
     pub element_type: ValType,
     pub size_initial: u32,
@@ -443,18 +443,18 @@ pub struct Import {
 
 #[derive(Debug, Clone)]
 pub enum ImportKind {
-    Func(TypeAddr),
+    Function(TypeAddr),
     Table(TableType),
-    Mem(MemoryType),
+    Memory(MemoryType),
     Global(GlobalType),
 }
 
 impl From<&ImportKind> for ExternalKind {
     fn from(kind: &ImportKind) -> Self {
         match kind {
-            ImportKind::Func(_) => Self::Func,
+            ImportKind::Function(_) => Self::Func,
             ImportKind::Table(_) => Self::Table,
-            ImportKind::Mem(_) => Self::Memory,
+            ImportKind::Memory(_) => Self::Memory,
             ImportKind::Global(_) => Self::Global,
         }
     }

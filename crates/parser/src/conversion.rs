@@ -70,9 +70,9 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         module: import.module.to_string().into_boxed_str(),
         name: import.name.to_string().into_boxed_str(),
         kind: match import.ty {
-            wasmparser::TypeRef::Func(ty) => ImportKind::Func(ty),
+            wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
             wasmparser::TypeRef::Table(ty) => ImportKind::Table(convert_module_table(ty)?),
-            wasmparser::TypeRef::Memory(ty) => ImportKind::Mem(convert_module_memory(ty)?),
+            wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
             wasmparser::TypeRef::Global(ty) => {
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
             }

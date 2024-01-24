@@ -5,6 +5,83 @@ use tinywasm_types::FuncType;
 #[cfg(feature = "parser")]
 use tinywasm_parser::ParseError;
 
+/// A tinywasm error
+#[derive(Debug)]
+pub enum Error {
+    #[cfg(feature = "parser")]
+    /// A parsing error occurred
+    ParseError(ParseError),
+
+    #[cfg(feature = "std")]
+    /// An I/O error occurred
+    Io(crate::std::io::Error),
+
+    /// A WebAssembly feature is not supported
+    UnsupportedFeature(String),
+
+    /// An unknown error occurred
+    Other(String),
+
+    /// A WebAssembly trap occurred
+    Trap(Trap),
+
+    /// A linking error occurred
+    Linker(LinkingError),
+
+    /// A function did not return a value
+    FuncDidNotReturn,
+
+    /// The stack is empty
+    StackUnderflow,
+
+    /// The label stack is empty
+    LabelStackUnderflow,
+
+    /// An invalid label type was encountered
+    InvalidLabelType,
+
+    /// The call stack is empty
+    CallStackEmpty,
+
+    /// The store is not the one that the module instance was instantiated in
+    InvalidStore,
+
+    /// Missing import
+    MissingImport {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+
+    /// Could not resolve an import
+    CouldNotResolveImport {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+}
+
+#[derive(Debug)]
+/// A linking error
+pub enum LinkingError {
+    /// An unknown import was encountered
+    UnknownImport {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+    /// A mismatched import type was encountered
+    MismatchedImportType {
+        /// The module name
+        module: String,
+        /// The import name
+        name: String,
+    },
+}
+
 #[derive(Debug)]
 /// A WebAssembly trap
 ///
@@ -84,67 +161,20 @@ impl Trap {
     }
 }
 
-#[derive(Debug)]
-/// A tinywasm error
-pub enum Error {
-    #[cfg(feature = "parser")]
-    /// A parsing error occurred
-    ParseError(ParseError),
+impl LinkingError {
+    /// Get the message of the linking error
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::UnknownImport { .. } => "unknown import",
+            Self::MismatchedImportType { .. } => "mismatched import type",
+        }
+    }
+}
 
-    #[cfg(feature = "std")]
-    /// An I/O error occurred
-    Io(crate::std::io::Error),
-
-    /// A WebAssembly feature is not supported
-    UnsupportedFeature(String),
-
-    /// An unknown error occurred
-    Other(String),
-
-    /// A WebAssembly trap occurred
-    Trap(Trap),
-
-    /// A function did not return a value
-    FuncDidNotReturn,
-
-    /// The stack is empty
-    StackUnderflow,
-
-    /// The label stack is empty
-    LabelStackUnderflow,
-
-    /// An invalid label type was encountered
-    InvalidLabelType,
-
-    /// The call stack is empty
-    CallStackEmpty,
-
-    /// The store is not the one that the module instance was instantiated in
-    InvalidStore,
-
-    /// Missing import
-    MissingImport {
-        /// The module name
-        module: String,
-        /// The import name
-        name: String,
-    },
-
-    /// Could not resolve an import
-    CouldNotResolveImport {
-        /// The module name
-        module: String,
-        /// The import name
-        name: String,
-    },
-
-    /// Invalid import type
-    InvalidImportType {
-        /// The module name
-        module: String,
-        /// The import name
-        name: String,
-    },
+impl From<LinkingError> for Error {
+    fn from(value: LinkingError) -> Self {
+        Self::Linker(value)
+    }
 }
 
 impl From<Trap> for Error {
@@ -163,6 +193,7 @@ impl Display for Error {
             Self::Io(err) => write!(f, "I/O error: {}", err),
 
             Self::Trap(trap) => write!(f, "trap: {}", trap.message()),
+            Self::Linker(err) => write!(f, "linking error: {}", err.message()),
             Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
@@ -178,10 +209,6 @@ impl Display for Error {
 
             Self::CouldNotResolveImport { module, name } => {
                 write!(f, "could not resolve import: {}.{}", module, name)
-            }
-
-            Self::InvalidImportType { module, name } => {
-                write!(f, "invalid import type: {}.{}", module, name)
             }
         }
     }

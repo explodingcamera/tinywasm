@@ -70,7 +70,9 @@ macro_rules! mem_store {
 /// Doing the actual conversion from float to int is a bit tricky, because
 /// we need to check for overflow. This macro generates the min/max values
 /// for a specific conversion, which are then used in the actual conversion.
-/// Rust sadly doesn't have wrapping casts for floats (yet)
+/// Rust sadly doesn't have wrapping casts for floats yet, maybe never.
+/// Alternatively, https://crates.io/crates/az could be used for this but
+/// it's not worth the dependency.
 macro_rules! float_min_max {
     (f32, i32) => {
         (-2147483904.0_f32, 2147483648.0_f32)

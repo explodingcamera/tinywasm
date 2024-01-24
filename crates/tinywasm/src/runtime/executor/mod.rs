@@ -6,7 +6,7 @@ use crate::{
     runtime::{BlockType, LabelFrame},
     CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
 };
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{string::ToString, vec::Vec};
 use tinywasm_types::{ElementKind, Instruction, ValType};
 
 mod macros;
@@ -40,10 +40,12 @@ impl DefaultRuntime {
                         current_module.swap(
                             store
                                 .get_module_instance(cf.func_instance.owner)
-                                .expect(&format!(
-                                    "exec expected module instance {} to exist for function",
-                                    cf.func_instance.owner
-                                ))
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "exec expected module instance {} to exist for function",
+                                        cf.func_instance.owner
+                                    )
+                                })
                                 .clone(),
                         );
                     }

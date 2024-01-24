@@ -99,7 +99,7 @@ pub enum Extern {
     Memory(ExternMemory),
 
     /// A function
-    Func(Function),
+    Function(Function),
 }
 
 /// A function
@@ -152,7 +152,7 @@ impl Extern {
             func(ctx, &args)
         };
 
-        Self::Func(Function::Host(HostFunction { func: Arc::new(inner_func), ty: ty.clone() }))
+        Self::Function(Function::Host(HostFunction { func: Arc::new(inner_func), ty: ty.clone() }))
     }
 
     /// Create a new typed function import
@@ -171,7 +171,7 @@ impl Extern {
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
 
-        Self::Func(Function::Host(HostFunction { func: Arc::new(inner_func), ty }))
+        Self::Function(Function::Host(HostFunction { func: Arc::new(inner_func), ty }))
     }
 
     pub(crate) fn kind(&self) -> ExternalKind {
@@ -179,7 +179,7 @@ impl Extern {
             Self::Global(_) => ExternalKind::Global,
             Self::Table(_) => ExternalKind::Table,
             Self::Memory(_) => ExternalKind::Memory,
-            Self::Func(_) => ExternalKind::Func,
+            Self::Function(_) => ExternalKind::Func,
         }
     }
 }
@@ -273,6 +273,22 @@ impl Imports {
         None
     }
 
+    fn compare_types<T>(import: &Import, expected: &T, actual: &T) -> Result<()>
+    where
+        T: Debug + PartialEq,
+    {
+        if expected != actual {
+            log::error!("failed to link import {}, expected {:?}, got {:?}", import.name, expected, actual);
+            return Err(crate::LinkingError::MismatchedImportType {
+                module: import.module.to_string(),
+                name: import.name.to_string(),
+            }
+            .into());
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn link(
         mut self,
         store: &mut crate::Store,
@@ -291,46 +307,50 @@ impl Imports {
 
             match val {
                 // A link to something that needs to be added to the store
-                ResolvedExtern::Extern(ex) => {
-                    // check if the kind matches
-                    let kind = ex.kind();
-                    if kind != (&import.kind).into() {
-                        return Err(crate::Error::InvalidImportType {
+                ResolvedExtern::Extern(ex) => match (ex, &import.kind) {
+                    (Extern::Global(extern_global), ImportKind::Global(ty)) => {
+                        Self::compare_types(import, &extern_global.ty, ty)?;
+                        imports.globals.push(store.add_global(extern_global.ty, extern_global.val.into(), idx)?);
+                    }
+                    (Extern::Table(extern_table), ImportKind::Table(ty)) => {
+                        Self::compare_types(import, &extern_table.ty.element_type, &ty.element_type)?;
+                        // TODO: do we need to check any limits?
+                        imports.tables.push(store.add_table(extern_table.ty, idx)?);
+                    }
+                    (Extern::Memory(extern_memory), ImportKind::Memory(ty)) => {
+                        Self::compare_types(import, &extern_memory.ty.arch, &ty.arch)?;
+                        // TODO: do we need to check any limits?
+                        imports.memories.push(store.add_mem(extern_memory.ty, idx)?);
+                    }
+                    (Extern::Function(extern_func), ImportKind::Function(ty)) => {
+                        let import_func_type = module.data.func_types.get(*ty as usize).ok_or_else(|| {
+                            crate::Error::CouldNotResolveImport {
+                                module: import.module.to_string(),
+                                name: import.name.to_string(),
+                            }
+                        })?;
+
+                        Self::compare_types(import, extern_func.ty(), import_func_type)?;
+                        imports.funcs.push(store.add_func(extern_func, *ty, idx)?);
+                    }
+                    _ => {
+                        return Err(crate::LinkingError::MismatchedImportType {
                             module: import.module.to_string(),
                             name: import.name.to_string(),
-                        });
-                    }
-
-                    // TODO: check if the type matches
-
-                    // add it to the store and get the address
-                    let addr = match ex {
-                        Extern::Global(g) => store.add_global(g.ty, g.val.into(), idx)?,
-                        Extern::Table(t) => store.add_table(t.ty, idx)?,
-                        Extern::Memory(m) => store.add_mem(m.ty, idx)?,
-                        Extern::Func(f) => {
-                            let ImportKind::Func(import_type) = import.kind else { unreachable!() };
-                            store.add_func(f, import_type, idx)?
                         }
-                    };
-
-                    // store the link
-                    match &kind {
-                        ExternalKind::Global => imports.globals.push(addr),
-                        ExternalKind::Table => imports.tables.push(addr),
-                        ExternalKind::Memory => imports.memories.push(addr),
-                        ExternalKind::Func => imports.funcs.push(addr),
+                        .into());
                     }
-                }
+                },
 
                 // A link to something already in the store
                 ResolvedExtern::Store(val) => {
                     // check if the kind matches
                     if val.kind() != (&import.kind).into() {
-                        return Err(crate::Error::InvalidImportType {
+                        return Err(crate::LinkingError::MismatchedImportType {
                             module: import.module.to_string(),
                             name: import.name.to_string(),
-                        });
+                        }
+                        .into());
                     }
 
                     // TODO: check if the type matches
