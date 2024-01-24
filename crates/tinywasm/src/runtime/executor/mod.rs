@@ -385,7 +385,7 @@ fn exec_one(
 
             let mem_idx = module.resolve_mem_addr(*addr);
             let mem = store.get_mem(mem_idx as usize)?;
-            stack.values.push(mem.borrow().size().into());
+            stack.values.push((mem.borrow().page_count() as i32).into());
         }
 
         MemoryGrow(addr, byte) => {
@@ -398,7 +398,7 @@ fn exec_one(
 
             let (res, prev_size) = {
                 let mut mem = mem.borrow_mut();
-                let prev_size = mem.size();
+                let prev_size = mem.page_count() as i32;
                 (mem.grow(stack.values.pop_t::<i32>()?), prev_size)
             };
 

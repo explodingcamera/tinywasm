@@ -607,17 +607,15 @@ impl MemoryInstance {
         Ok(&self.data[addr..end])
     }
 
-    pub(crate) fn size(&self) -> i32 {
-        log::debug!("memory pages: {}", self.page_count);
-        log::debug!("memory size: {}", self.page_count * PAGE_SIZE);
-        self.page_count as i32
+    pub(crate) fn page_count(&self) -> usize {
+        self.page_count
     }
 
     pub(crate) fn grow(&mut self, delta: i32) -> Option<i32> {
-        let current_pages = self.size();
-        let new_pages = current_pages + delta;
+        let current_pages = self.page_count();
+        let new_pages = current_pages as i64 + delta as i64;
 
-        if new_pages < 0 || new_pages > MAX_PAGES as i32 {
+        if new_pages < 0 || new_pages > MAX_PAGES as i64 {
             return None;
         }
 
@@ -639,7 +637,7 @@ impl MemoryInstance {
         log::debug!("memory grown by {} pages", delta);
         log::debug!("memory grown to {} pages", self.page_count);
 
-        Some(current_pages)
+        Some(current_pages.try_into().expect("memory size out of bounds, this should have been caught earlier"))
     }
 }
 

@@ -4,7 +4,7 @@ use core::fmt::Debug;
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple},
-    Result,
+    LinkingError, Result,
 };
 use alloc::{
     collections::BTreeMap,
@@ -263,18 +263,78 @@ impl Imports {
         None
     }
 
-    fn compare_types<T>(import: &Import, expected: &T, actual: &T) -> Result<()>
+    fn compare_types<T>(import: &Import, actual: &T, expected: &T) -> Result<()>
     where
         T: Debug + PartialEq,
     {
         if expected != actual {
             log::error!("failed to link import {}, expected {:?}, got {:?}", import.name, expected, actual);
-            return Err(crate::LinkingError::IncompatibleImportType {
-                module: import.module.to_string(),
-                name: import.name.to_string(),
-            }
-            .into());
+            return Err(LinkingError::incompatible_import_type(import).into());
         }
+
+        Ok(())
+    }
+
+    fn compare_table_types(import: &Import, expected: &TableType, actual: &TableType) -> Result<()> {
+        Self::compare_types(import, &actual.element_type, &expected.element_type)?;
+
+        if actual.size_initial > expected.size_initial {
+            return Err(LinkingError::incompatible_import_type(import).into());
+        }
+
+        match (expected.size_max, actual.size_max) {
+            (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
+            (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
+                return Err(LinkingError::incompatible_import_type(import).into())
+            }
+            _ => {}
+        }
+
+        // if expected.size_max.is_none() && actual.size_max.is_some() {
+        //     return Err(LinkingError::incompatible_import_type(import).into());
+        // }
+
+        // if expected.size_max.unwrap_or(0) < actual.size_max.unwrap_or(0) {
+        //     return Err(LinkingError::incompatible_import_type(import).into());
+        // }
+
+        log::error!("size_initial: expected: {:?} got: {:?}", expected.size_initial, actual.size_initial);
+        log::error!("size_max: expected: {:?} got: {:?}", expected.size_max, actual.size_max);
+        // TODO: check limits
+
+        Ok(())
+    }
+
+    fn compare_memory_types(
+        import: &Import,
+        expected: &MemoryType,
+        actual: &MemoryType,
+        real_size: Option<usize>,
+    ) -> Result<()> {
+        Self::compare_types(import, &expected.arch, &actual.arch)?;
+
+        if actual.page_count_initial > expected.page_count_initial {
+            if let Some(real_size) = real_size {
+                if actual.page_count_initial > real_size as u64 {
+                    return Err(LinkingError::incompatible_import_type(import).into());
+                }
+            } else {
+                return Err(LinkingError::incompatible_import_type(import).into());
+            }
+        }
+
+        match (expected.page_count_max, actual.page_count_max) {
+            (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
+            (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
+                return Err(LinkingError::incompatible_import_type(import).into())
+            }
+            _ => {}
+        }
+
+        log::error!("size_initial: {:?} {:?}", expected.page_count_initial, actual.page_count_initial);
+        log::error!("size_max: {:?} {:?}", expected.page_count_max, actual.page_count_max);
+
+        // TODO: check limits
 
         Ok(())
     }
@@ -304,13 +364,11 @@ impl Imports {
                         imports.globals.push(store.add_global(extern_global.ty, extern_global.val.into(), idx)?);
                     }
                     (Extern::Table(extern_table), ImportKind::Table(ty)) => {
-                        Self::compare_types(import, &extern_table.ty.element_type, &ty.element_type)?;
-                        // TODO: do we need to check any limits?
+                        Self::compare_table_types(import, &extern_table.ty, &ty)?;
                         imports.tables.push(store.add_table(extern_table.ty, idx)?);
                     }
                     (Extern::Memory(extern_memory), ImportKind::Memory(ty)) => {
-                        Self::compare_types(import, &extern_memory.ty.arch, &ty.arch)?;
-                        // TODO: do we need to check any limits?
+                        Self::compare_memory_types(import, &extern_memory.ty, &ty, None)?;
                         imports.memories.push(store.add_mem(extern_memory.ty, idx)?);
                     }
                     (Extern::Function(extern_func), ImportKind::Function(ty)) => {
@@ -352,14 +410,16 @@ impl Imports {
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                             let table = store.get_table(table_addr as usize)?;
-                            // TODO: do we need to check any limits?
-                            Self::compare_types(import, &table.borrow().kind.element_type, &ty.element_type)?;
+                            Self::compare_table_types(import, &table.borrow().kind, &ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Mem(memory_addr), ImportKind::Memory(ty)) => {
                             let mem = store.get_mem(memory_addr as usize)?;
-                            // TODO: do we need to check any limits?
-                            Self::compare_types(import, &mem.borrow().kind.arch, &ty.arch)?;
+                            let (size, kind) = {
+                                let mem = mem.borrow();
+                                (mem.page_count(), mem.kind.clone())
+                            };
+                            Self::compare_memory_types(import, &kind, &ty, Some(size))?;
                             imports.memories.push(memory_addr);
                         }
                         (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
