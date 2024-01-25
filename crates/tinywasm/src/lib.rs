@@ -58,9 +58,9 @@
 //! # Ok::<(), tinywasm::Error>(())
 //! ```
 //!
-//! ## Custom Imports
+//! ## Imports
 //!
-//! To provide custom imports to a module, you can use the [`Imports`] struct.
+//! To provide imports to a module, you can use the [`Imports`] struct.
 //! This struct allows you to register custom functions, globals, memories, tables,
 //! and other modules to be linked into the module when it is instantiated.
 //!
