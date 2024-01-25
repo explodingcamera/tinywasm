@@ -139,7 +139,6 @@ fn exec_one(
         }
 
         Call(v) => {
-            log::info!("start call");
             // prepare the call frame
             let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?.clone();
@@ -148,9 +147,7 @@ fn exec_one(
                 crate::Function::Wasm(ref f) => (f.locals.to_vec(), f.ty.clone()),
                 crate::Function::Host(host_func) => {
                     let func = host_func.func.clone();
-                    log::info!("Getting params: {:?}", host_func.ty.params);
                     let params = stack.values.pop_params(&host_func.ty.params)?;
-                    log::error!("Calling host function, params: {:?}", params);
                     let res = (func)(FuncContext { store, module }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
@@ -158,9 +155,6 @@ fn exec_one(
             };
 
             let params = stack.values.pop_n_rev(ty.params.len())?;
-            log::info!("call: current fn owner: {:?}", module.id());
-            log::info!("call: func owner: {:?}", func_inst.owner);
-
             let call_frame = CallFrame::new_raw(func_inst, &params, locals);
 
             // push the call frame

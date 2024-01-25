@@ -70,7 +70,7 @@ impl ModuleInstance {
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
-        let global_addrs = store.init_globals(addrs.globals, data.globals.into(), idx)?;
+        let global_addrs = store.init_globals(addrs.globals, data.globals.into(), &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, data.elements.into(), idx)?;
         let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;

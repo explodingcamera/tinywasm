@@ -168,8 +168,6 @@ macro_rules! impl_from_wasm_value_tuple {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.into_iter();
 
-                log::error!("from_wasm_value_tuple: {:?}", iter);
-
                 Ok((
                     $(
                         $T::try_from(

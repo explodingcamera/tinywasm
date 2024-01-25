@@ -43,10 +43,7 @@ impl crate::std::error::Error for ParseError {}
 
 impl From<wasmparser::BinaryReaderError> for ParseError {
     fn from(value: wasmparser::BinaryReaderError) -> Self {
-        Self::ParseError {
-            message: value.message().to_string(),
-            offset: value.offset(),
-        }
+        Self::ParseError { message: value.message().to_string(), offset: value.offset() }
     }
 }
 

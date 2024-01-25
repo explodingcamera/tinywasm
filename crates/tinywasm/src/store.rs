@@ -162,6 +162,7 @@ impl Store {
         &mut self,
         mut imported_globals: Vec<GlobalAddr>,
         new_globals: Vec<Global>,
+        func_addrs: &[FuncAddr],
         idx: ModuleInstanceAddr,
     ) -> Result<Vec<Addr>> {
         let global_count = self.data.globals.len();
@@ -171,7 +172,7 @@ impl Store {
         for (i, global) in new_globals.iter().enumerate() {
             self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
                 global.ty,
-                self.eval_const(&global.init, &global_addrs)?,
+                self.eval_const(&global.init, &global_addrs, func_addrs)?,
                 idx,
             ))));
             global_addrs.push((i + global_count) as Addr);
@@ -180,10 +181,13 @@ impl Store {
         Ok(global_addrs)
     }
 
-    fn elem_addr(&self, item: &ElementItem, globals: &[Addr]) -> Result<Option<u32>> {
+    fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
         let res = match item {
-            ElementItem::Func(addr) => Some(*addr),
-            ElementItem::Expr(ConstInstruction::RefFunc(addr)) => Some(*addr),
+            ElementItem::Func(addr) | ElementItem::Expr(ConstInstruction::RefFunc(addr)) => {
+                Some(funcs.get(*addr as usize).copied().ok_or_else(|| {
+                    Error::Other(format!("function {} not found. This should have been caught by the validator", addr))
+                })?)
+            }
             ElementItem::Expr(ConstInstruction::RefNull(_ty)) => None,
             ElementItem::Expr(ConstInstruction::GlobalGet(addr)) => {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
@@ -191,8 +195,14 @@ impl Store {
                 })?;
 
                 let global = self.data.globals[addr as usize].clone();
-                let val = global.borrow().value;
-                Some(val.into())
+                let val = i64::from(global.borrow().value);
+                log::error!("global: {}", val);
+                if val < 0 {
+                    // the global is actually a null reference
+                    None
+                } else {
+                    Some(val as u32)
+                }
             }
             _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))),
         };
@@ -213,8 +223,11 @@ impl Store {
         let elem_count = self.data.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
         for (i, element) in elements.into_iter().enumerate() {
-            let init =
-                element.items.iter().map(|item| self.elem_addr(item, global_addrs)).collect::<Result<Vec<_>>>()?;
+            let init = element
+                .items
+                .iter()
+                .map(|item| Ok(TableElement::from(self.elem_addr(item, global_addrs, func_addrs)?)))
+                .collect::<Result<Vec<_>>>()?;
 
             log::error!("element kind: {:?}", element.kind);
 
@@ -242,7 +255,7 @@ impl Store {
                         // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
                         // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
                         // I have NO IDEA why this is allowed, but it is.
-                        if let Err(Error::Trap(trap)) = table.borrow_mut().init(func_addrs, offset, &init) {
+                        if let Err(Error::Trap(trap)) = table.borrow_mut().init_raw(offset, &init) {
                             return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                         }
                     } else {
@@ -355,6 +368,7 @@ impl Store {
         &self,
         const_instr: &tinywasm_types::ConstInstruction,
         module_global_addrs: &[Addr],
+        module_func_addrs: &[FuncAddr],
     ) -> Result<RawWasmValue> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
@@ -367,12 +381,15 @@ impl Store {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
 
-                let global = self.data.globals[addr as usize].clone();
-                let val = global.borrow().value;
-                val
+                let global =
+                    self.data.globals.get(addr as usize).expect("global not found. This should be unreachable");
+
+                global.borrow().value
             }
             RefNull(t) => RawWasmValue::from(t.default_value()),
-            RefFunc(idx) => RawWasmValue::from(*idx as i64),
+            RefFunc(idx) => RawWasmValue::from(module_func_addrs.get(*idx as usize).copied().ok_or_else(|| {
+                Error::Other(format!("function {} not found. This should have been caught by the validator", idx))
+            })?),
         };
         Ok(val)
     }
@@ -404,9 +421,6 @@ impl Store {
 
     /// Get the global at the actual index in the store
     pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
-        log::error!("getting global: {}", addr);
-        log::error!("globals: {:?}", self.data.globals);
-
         self.data
             .globals
             .get(addr)
@@ -456,11 +470,27 @@ pub(crate) enum TableElement {
     Initialized(Addr),
 }
 
+impl From<Option<Addr>> for TableElement {
+    fn from(addr: Option<Addr>) -> Self {
+        match addr {
+            None => TableElement::Uninitialized,
+            Some(addr) => TableElement::Initialized(addr),
+        }
+    }
+}
+
 impl TableElement {
     pub(crate) fn addr(&self) -> Option<Addr> {
         match self {
             TableElement::Uninitialized => None,
             TableElement::Initialized(addr) => Some(*addr),
+        }
+    }
+
+    pub(crate) fn map<F: FnOnce(Addr) -> Addr>(self, f: F) -> Self {
+        match self {
+            TableElement::Uninitialized => TableElement::Uninitialized,
+            TableElement::Initialized(addr) => TableElement::Initialized(f(addr)),
         }
     }
 }
@@ -515,20 +545,18 @@ impl TableInstance {
         self.elements.len() as i32
     }
 
-    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[Option<Addr>]) -> Result<()> {
-        let init = init
-            .iter()
-            .map(|item| match item {
-                None => TableElement::Uninitialized,
-                Some(item) => TableElement::Initialized(match self.kind.element_type == ValType::RefFunc {
-                    true => *func_addrs.get(*item as usize).expect(
-                        "error initializing table: function not found. This should have been caught by the validator",
-                    ),
-                    false => *item,
-                }),
-            })
-            .collect::<Vec<_>>();
+    fn resolve_func_ref(&self, func_addrs: &[u32], addr: Addr) -> Addr {
+        if self.kind.element_type != ValType::RefFunc {
+            return addr;
+        }
 
+        *func_addrs
+            .get(addr as usize)
+            .expect("error initializing table: function not found. This should have been caught by the validator")
+    }
+
+    // Initialize the table with the given elements
+    pub(crate) fn init_raw(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
@@ -538,9 +566,16 @@ impl TableInstance {
             return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
         }
 
-        self.elements[offset..end].copy_from_slice(&init);
+        self.elements[offset..end].copy_from_slice(init);
         log::debug!("table: {:?}", self.elements);
         Ok(())
+    }
+
+    // Initialize the table with the given elements (resolves function references)
+    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[TableElement]) -> Result<()> {
+        let init = init.iter().map(|item| item.map(|addr| self.resolve_func_ref(func_addrs, addr))).collect::<Vec<_>>();
+
+        self.init_raw(offset, &init)
     }
 }
 
@@ -663,12 +698,12 @@ impl GlobalInstance {
 #[derive(Debug)]
 pub(crate) struct ElementInstance {
     pub(crate) kind: ElementKind,
-    pub(crate) items: Option<Vec<Option<u32>>>, // none is the element was dropped
-    _owner: ModuleInstanceAddr,                 // index into store.module_instances
+    pub(crate) items: Option<Vec<TableElement>>, // none is the element was dropped
+    _owner: ModuleInstanceAddr,                  // index into store.module_instances
 }
 
 impl ElementInstance {
-    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<Option<u32>>>) -> Self {
+    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<TableElement>>) -> Self {
         Self { kind, _owner: owner, items }
     }
 }

@@ -70,6 +70,10 @@ impl LinkingError {
     pub(crate) fn incompatible_import_type(import: &tinywasm_types::Import) -> Self {
         Self::IncompatibleImportType { module: import.module.to_string(), name: import.name.to_string() }
     }
+
+    pub(crate) fn unknown_import(import: &tinywasm_types::Import) -> Self {
+        Self::UnknownImport { module: import.module.to_string(), name: import.name.to_string() }
+    }
 }
 
 #[derive(Debug)]

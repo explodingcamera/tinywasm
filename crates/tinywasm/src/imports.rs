@@ -162,10 +162,8 @@ impl Extern {
         R: IntoWasmValueTuple + ValTypesFromTuple + Debug,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            log::error!("args: {:?}", args);
             let args = P::from_wasm_value_tuple(args.to_vec())?;
             let result = func(ctx, args)?;
-            log::error!("result: {:?}", result);
             Ok(result.into_wasm_value_tuple())
         };
 
@@ -290,18 +288,6 @@ impl Imports {
             _ => {}
         }
 
-        // if expected.size_max.is_none() && actual.size_max.is_some() {
-        //     return Err(LinkingError::incompatible_import_type(import).into());
-        // }
-
-        // if expected.size_max.unwrap_or(0) < actual.size_max.unwrap_or(0) {
-        //     return Err(LinkingError::incompatible_import_type(import).into());
-        // }
-
-        log::error!("size_initial: expected: {:?} got: {:?}", expected.size_initial, actual.size_initial);
-        log::error!("size_max: expected: {:?} got: {:?}", expected.size_max, actual.size_max);
-        // TODO: check limits
-
         Ok(())
     }
 
@@ -331,11 +317,6 @@ impl Imports {
             _ => {}
         }
 
-        log::error!("size_initial: {:?} {:?}", expected.page_count_initial, actual.page_count_initial);
-        log::error!("size_max: {:?} {:?}", expected.page_count_max, actual.page_count_max);
-
-        // TODO: check limits
-
         Ok(())
     }
 
@@ -348,13 +329,7 @@ impl Imports {
         let mut imports = ResolvedImports::new();
 
         for import in module.data.imports.iter() {
-            let Some(val) = self.take(store, import) else {
-                return Err(crate::LinkingError::UnknownImport {
-                    module: import.module.to_string(),
-                    name: import.name.to_string(),
-                }
-                .into());
-            };
+            let val = self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))?;
 
             match val {
                 // A link to something that needs to be added to the store
@@ -364,42 +339,31 @@ impl Imports {
                         imports.globals.push(store.add_global(extern_global.ty, extern_global.val.into(), idx)?);
                     }
                     (Extern::Table(extern_table), ImportKind::Table(ty)) => {
-                        Self::compare_table_types(import, &extern_table.ty, &ty)?;
+                        Self::compare_table_types(import, &extern_table.ty, ty)?;
                         imports.tables.push(store.add_table(extern_table.ty, idx)?);
                     }
                     (Extern::Memory(extern_memory), ImportKind::Memory(ty)) => {
-                        Self::compare_memory_types(import, &extern_memory.ty, &ty, None)?;
+                        Self::compare_memory_types(import, &extern_memory.ty, ty, None)?;
                         imports.memories.push(store.add_mem(extern_memory.ty, idx)?);
                     }
                     (Extern::Function(extern_func), ImportKind::Function(ty)) => {
-                        let import_func_type = module.data.func_types.get(*ty as usize).ok_or_else(|| {
-                            crate::LinkingError::IncompatibleImportType {
-                                module: import.module.to_string(),
-                                name: import.name.to_string(),
-                            }
-                        })?;
+                        let import_func_type = module
+                            .data
+                            .func_types
+                            .get(*ty as usize)
+                            .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
 
                         Self::compare_types(import, extern_func.ty(), import_func_type)?;
                         imports.funcs.push(store.add_func(extern_func, *ty, idx)?);
                     }
-                    _ => {
-                        return Err(crate::LinkingError::IncompatibleImportType {
-                            module: import.module.to_string(),
-                            name: import.name.to_string(),
-                        }
-                        .into());
-                    }
+                    _ => return Err(LinkingError::incompatible_import_type(import).into()),
                 },
 
                 // A link to something already in the store
                 ResolvedExtern::Store(val) => {
                     // check if the kind matches
                     if val.kind() != (&import.kind).into() {
-                        return Err(crate::LinkingError::IncompatibleImportType {
-                            module: import.module.to_string(),
-                            name: import.name.to_string(),
-                        }
-                        .into());
+                        return Err(LinkingError::incompatible_import_type(import).into());
                     }
 
                     match (val, &import.kind) {
@@ -410,37 +374,30 @@ impl Imports {
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                             let table = store.get_table(table_addr as usize)?;
-                            Self::compare_table_types(import, &table.borrow().kind, &ty)?;
+                            Self::compare_table_types(import, &table.borrow().kind, ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Mem(memory_addr), ImportKind::Memory(ty)) => {
                             let mem = store.get_mem(memory_addr as usize)?;
                             let (size, kind) = {
                                 let mem = mem.borrow();
-                                (mem.page_count(), mem.kind.clone())
+                                (mem.page_count(), mem.kind)
                             };
-                            Self::compare_memory_types(import, &kind, &ty, Some(size))?;
+                            Self::compare_memory_types(import, &kind, ty, Some(size))?;
                             imports.memories.push(memory_addr);
                         }
                         (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
                             let func = store.get_func(func_addr as usize)?;
-                            let import_func_type = module.data.func_types.get(*ty as usize).ok_or_else(|| {
-                                crate::LinkingError::IncompatibleImportType {
-                                    module: import.module.to_string(),
-                                    name: import.name.to_string(),
-                                }
-                            })?;
+                            let import_func_type = module
+                                .data
+                                .func_types
+                                .get(*ty as usize)
+                                .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
 
                             Self::compare_types(import, func.func.ty(), import_func_type)?;
                             imports.funcs.push(func_addr);
                         }
-                        _ => {
-                            return Err(crate::LinkingError::IncompatibleImportType {
-                                module: import.module.to_string(),
-                                name: import.name.to_string(),
-                            }
-                            .into());
-                        }
+                        _ => return Err(LinkingError::incompatible_import_type(import).into()),
                     }
                 }
             }

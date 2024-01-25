@@ -84,12 +84,7 @@ fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
 
     match args.nested {
-        TinyWasmSubcommand::Run(Run {
-            wasm_file,
-            engine,
-            args,
-            func,
-        }) => {
+        TinyWasmSubcommand::Run(Run { wasm_file, engine, args, func }) => {
             debug!("args: {:?}", args);
 
             let path = cwd.join(wasm_file.clone());

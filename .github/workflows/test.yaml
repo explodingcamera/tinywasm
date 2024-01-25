@@ -27,6 +27,9 @@ jobs:
       - name: Run tests (stable)
         run: cargo +stable test --workspace --exclude wasm-testsuite
 
+      - name: Run MVP testsuite
+        run: cargo +stable test-mvp
+
   test-no-std:
     name: Test without default features on nightly Rust
     runs-on: ubuntu-latest
@@ -43,3 +46,6 @@ jobs:
 
       - name: Run tests (nightly, no default features)
         run: cargo +nightly test --workspace --exclude wasm-testsuite --no-default-features
+
+      - name: Run MVP testsuite (nightly)
+        run: cargo +nightly test-mvp

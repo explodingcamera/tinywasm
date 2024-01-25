@@ -72,10 +72,9 @@ impl LabelArgs {
         Ok(match args {
             BlockArgs::Empty => LabelArgs { params: 0, results: 0 },
             BlockArgs::Type(_) => LabelArgs { params: 0, results: 1 },
-            BlockArgs::FuncType(t) => LabelArgs {
-                params: module.func_ty(t).params.len(),
-                results: module.func_ty(t).results.len(),
-            },
+            BlockArgs::FuncType(t) => {
+                LabelArgs { params: module.func_ty(t).params.len(), results: module.func_ty(t).results.len() }
+            }
         })
     }
 }

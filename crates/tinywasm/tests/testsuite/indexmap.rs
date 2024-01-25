@@ -8,10 +8,7 @@ where
     K: std::cmp::Eq + std::hash::Hash + Clone,
 {
     pub fn new() -> Self {
-        Self {
-            map: std::collections::HashMap::new(),
-            keys: Vec::new(),
-        }
+        Self { map: std::collections::HashMap::new(), keys: Vec::new() }
     }
 
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
