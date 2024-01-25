@@ -17,9 +17,7 @@ jobs:
           submodules: true
 
       - name: Install stable Rust toolchain
-        run: |
-          rustup toolchain install stable
-          rustup default stable
+        run: rustup update stable
 
       - name: Build (stable)
         run: cargo +stable build --workspace --exclude wasm-testsuite
@@ -36,10 +34,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
       - name: Install nightly Rust toolchain
-        run: |
-          rustup toolchain install nightly
-          rustup default nightly
+        run: rustup update stable nightly
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --exclude wasm-testsuite --no-default-features
