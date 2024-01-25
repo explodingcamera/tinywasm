@@ -4,6 +4,7 @@ use alloc::string::{String, ToString};
 use wasmparser::Encoding;
 
 #[derive(Debug)]
+/// Errors that can occur when parsing a WebAssembly module
 pub enum ParseError {
     InvalidType,
     UnsupportedSection(String),

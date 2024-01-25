@@ -38,7 +38,7 @@ jobs:
           submodules: true
 
       - name: Install nightly Rust toolchain
-        run: rustup update stable nightly
+        run: rustup update nightly
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --exclude wasm-testsuite --no-default-features

@@ -90,56 +90,45 @@ impl Debug for HostFunction {
 /// An external value
 pub enum Extern {
     /// A global value
-    Global(ExternGlobal),
+    Global {
+        /// The type of the global value.
+        ty: GlobalType,
+        /// The actual value of the global, encapsulated in `WasmValue`.
+        val: WasmValue,
+    },
 
     /// A table
-    Table(ExternTable),
+    Table {
+        /// Defines the type of the table, including its element type and limits.
+        ty: TableType,
+        /// The initial value of the table.
+        init: WasmValue,
+    },
 
     /// A memory
-    Memory(ExternMemory),
+    Memory {
+        /// Defines the type of the memory, including its limits and the type of its pages.
+        ty: MemoryType,
+    },
 
     /// A function
     Function(Function),
 }
 
-/// A function
-#[derive(Debug, Clone)]
-pub struct ExternFunc(pub(crate) HostFunction);
-
-/// A global value
-#[derive(Debug, Clone)]
-pub struct ExternGlobal {
-    pub(crate) ty: GlobalType,
-    pub(crate) val: WasmValue,
-}
-
-/// A table
-#[derive(Debug, Clone)]
-pub struct ExternTable {
-    pub(crate) ty: TableType,
-    pub(crate) val: WasmValue,
-}
-
-/// A memory
-#[derive(Debug, Clone)]
-pub struct ExternMemory {
-    pub(crate) ty: MemoryType,
-}
-
 impl Extern {
     /// Create a new global import
     pub fn global(val: WasmValue, mutable: bool) -> Self {
-        Self::Global(ExternGlobal { ty: GlobalType { ty: val.val_type(), mutable }, val })
+        Self::Global { ty: GlobalType { ty: val.val_type(), mutable }, val }
     }
 
     /// Create a new table import
-    pub fn table(ty: TableType, val: WasmValue) -> Self {
-        Self::Table(ExternTable { ty, val })
+    pub fn table(ty: TableType, init: WasmValue) -> Self {
+        Self::Table { ty, init }
     }
 
     /// Create a new memory import
     pub fn memory(ty: MemoryType) -> Self {
-        Self::Memory(ExternMemory { ty })
+        Self::Memory { ty }
     }
 
     /// Create a new function import
@@ -174,10 +163,10 @@ impl Extern {
 
     pub(crate) fn kind(&self) -> ExternalKind {
         match self {
-            Self::Global(_) => ExternalKind::Global,
-            Self::Table(_) => ExternalKind::Table,
-            Self::Memory(_) => ExternalKind::Memory,
-            Self::Function(_) => ExternalKind::Func,
+            Self::Global { .. } => ExternalKind::Global,
+            Self::Table { .. } => ExternalKind::Table,
+            Self::Memory { .. } => ExternalKind::Memory,
+            Self::Function { .. } => ExternalKind::Func,
         }
     }
 }
@@ -197,6 +186,38 @@ impl From<&Import> for ExternName {
 
 #[derive(Debug, Default)]
 /// Imports for a module instance
+///
+/// This is used to link a module instance to its imports
+///
+/// ## Example
+/// ```rust
+/// # fn main() -> tinywasm::Result<()> {
+/// use tinywasm::{Imports, Extern};
+/// use tinywasm::types::{ValType, TableType, MemoryType, WasmValue};
+/// let mut imports = Imports::new();
+///
+/// // function args can be either a single
+/// // value that implements `TryFrom<WasmValue>` or a tuple of them
+/// let print_i32 = Extern::typed_func(|_ctx: tinywasm::FuncContext<'_>, arg: i32| {
+///     log::debug!("print_i32: {}", arg);
+///     Ok(())
+/// });
+///
+/// let table_type = TableType::new(ValType::RefFunc, 10, Some(20));
+/// let table_init = WasmValue::default_for(ValType::RefFunc);
+///
+/// imports
+///     .define("my_module", "print_i32", print_i32)?
+///     .define("my_module", "table", Extern::table(table_type, table_init))?
+///     .define("my_module", "memory", Extern::memory(MemoryType::new_32(1, Some(2))))?
+///     .define("my_module", "global_i32", Extern::global(WasmValue::I32(666), false))?
+///     .link_module("my_other_module", 0)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Note that module instance addresses for [`Imports::link_module`] can be obtained from [`crate::ModuleInstance::id`].
+/// Now, the imports object can be passed to [`crate::ModuleInstance::instantiate`].
 pub struct Imports {
     values: BTreeMap<ExternName, Extern>,
     modules: BTreeMap<String, ModuleInstanceAddr>,
@@ -334,17 +355,17 @@ impl Imports {
             match val {
                 // A link to something that needs to be added to the store
                 ResolvedExtern::Extern(ex) => match (ex, &import.kind) {
-                    (Extern::Global(extern_global), ImportKind::Global(ty)) => {
-                        Self::compare_types(import, &extern_global.ty, ty)?;
-                        imports.globals.push(store.add_global(extern_global.ty, extern_global.val.into(), idx)?);
+                    (Extern::Global { ty, val }, ImportKind::Global(import_ty)) => {
+                        Self::compare_types(import, &ty, import_ty)?;
+                        imports.globals.push(store.add_global(ty, val.into(), idx)?);
                     }
-                    (Extern::Table(extern_table), ImportKind::Table(ty)) => {
-                        Self::compare_table_types(import, &extern_table.ty, ty)?;
-                        imports.tables.push(store.add_table(extern_table.ty, idx)?);
+                    (Extern::Table { ty, .. }, ImportKind::Table(import_ty)) => {
+                        Self::compare_table_types(import, &ty, import_ty)?;
+                        imports.tables.push(store.add_table(ty, idx)?);
                     }
-                    (Extern::Memory(extern_memory), ImportKind::Memory(ty)) => {
-                        Self::compare_memory_types(import, &extern_memory.ty, ty, None)?;
-                        imports.memories.push(store.add_mem(extern_memory.ty, idx)?);
+                    (Extern::Memory { ty }, ImportKind::Memory(import_ty)) => {
+                        Self::compare_memory_types(import, &ty, import_ty, None)?;
+                        imports.memories.push(store.add_mem(ty, idx)?);
                     }
                     (Extern::Function(extern_func), ImportKind::Function(ty)) => {
                         let import_func_type = module

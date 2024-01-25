@@ -14,11 +14,22 @@
 //! to be useful for embedded systems and other environments where a full-featured
 //! runtime is not required.
 //!
-//! ## Getting Started
+//! ## Features
+//! - `std` (default): Enables the use of `std` and `std::io` for parsing from files and streams.
+//! - `logging` (default): Enables logging via the `log` crate.
+//! - `parser` (default): Enables the `tinywasm_parser` crate for parsing WebAssembly modules.
 //!
+//! ## No-std support
+//! TinyWasm supports `no_std` environments by disabling the `std` feature and registering
+//! a custom allocator. This removes support for parsing from files and streams,
+//! but otherwise the API is the same.
+//! Additionally, to have proper error types, you currently need a `nightly` compiler to have the error trait in core.
+//!
+//! ## Getting Started
 //! The easiest way to get started is to use the [`Module::parse_bytes`] function to load a
 //! WebAssembly module from bytes. This will parse the module and validate it, returning
 //! a [`Module`] that can be used to instantiate the module.
+//!
 //!
 //! ```rust
 //! use tinywasm::{Store, Module};
@@ -39,25 +50,21 @@
 //!
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.get_func` to get an untyped handle
-//! // that takes and returns WasmValue types
-//! let func = instance.typed_func::<(i32, i32), (i32,)>(&mut store, "add")?;
+//! // that takes and returns [`WasmValue`]s
+//! let func = instance.typed_func::<(i32, i32), i32>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
-//! assert_eq!(res, (3,));
+//! assert_eq!(res, 3);
 //! # Ok::<(), tinywasm::Error>(())
 //! ```
 //!
-//! ## Features
-//! - `std` (default): Enables the use of `std` and `std::io` for parsing from files and streams.
-//! - `logging` (default): Enables logging via the `log` crate.
-//! - `parser` (default): Enables the `tinywasm_parser` crate for parsing WebAssembly modules.
+//! ## Custom Imports
 //!
-//! ## No-std support
-//! TinyWasm supports `no_std` environments by disabling the `std` feature and registering
-//! a custom allocator. This removes support for parsing from files and streams,
-//! but otherwise the API is the same.
+//! To provide custom imports to a module, you can use the [`Imports`] struct.
+//! This struct allows you to register custom functions, globals, memories, tables,
+//! and other modules to be linked into the module when it is instantiated.
 //!
-//! Additionally, if you want proper error types, you must use a `nightly` compiler to have the error trait in core.
+//! See the [`Imports`] documentation for more information.
 
 mod std;
 extern crate alloc;
@@ -87,13 +94,14 @@ mod instance;
 pub use instance::ModuleInstance;
 
 mod func;
-pub use func::{FuncHandle, TypedFuncHandle};
+pub use func::{FuncHandle, FuncHandleTyped};
 
 mod imports;
 pub use imports::*;
 
-mod runtime;
-pub use runtime::*;
+/// Runtime for executing WebAssembly modules.
+pub mod runtime;
+pub use runtime::InterpreterRuntime;
 
 #[cfg(feature = "parser")]
 /// Re-export of [`tinywasm_parser`]. Requires `parser` feature.

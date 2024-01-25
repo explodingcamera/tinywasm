@@ -1,10 +1,10 @@
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 
-use super::{DefaultRuntime, Stack};
+use super::{InterpreterRuntime, Stack};
 use crate::{
     log::debug,
-    runtime::{BlockType, LabelFrame},
-    CallFrame, Error, FuncContext, LabelArgs, ModuleInstance, Result, Store, Trap,
+    runtime::{BlockType, CallFrame, LabelArgs, LabelFrame},
+    Error, FuncContext, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
 use tinywasm_types::{ElementKind, Instruction, ValType};
@@ -14,7 +14,7 @@ mod traits;
 use macros::*;
 use traits::*;
 
-impl DefaultRuntime {
+impl InterpreterRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
@@ -246,7 +246,7 @@ fn exec_one(
                         instr_ptr: cf.instr_ptr + *else_offset,
                         end_instr_ptr: cf.instr_ptr + *end_offset,
                         stack_ptr: stack.values.len(), // - params,
-                        args: crate::LabelArgs::new(*args, module)?,
+                        args: LabelArgs::new(*args, module)?,
                         ty: BlockType::Else,
                     },
                     &mut stack.values,
@@ -302,11 +302,8 @@ fn exec_one(
             }
 
             let idx = stack.values.pop_t::<i32>()? as usize;
-            if let Some(label) = instr.get(idx) {
-                break_to!(cf, stack, label);
-            } else {
-                break_to!(cf, stack, default);
-            }
+            let to = instr.get(idx).unwrap_or(default);
+            break_to!(cf, stack, to);
         }
 
         Br(v) => break_to!(cf, stack, v),

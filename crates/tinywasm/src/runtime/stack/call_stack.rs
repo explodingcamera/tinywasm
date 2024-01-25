@@ -1,8 +1,11 @@
-use crate::{runtime::RawWasmValue, BlockType, Error, FunctionInstance, LabelFrame, Result, Trap};
+use crate::{
+    runtime::{BlockType, RawWasmValue},
+    Error, FunctionInstance, Result, Trap,
+};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
-use super::blocks::Labels;
+use super::{blocks::Labels, LabelFrame};
 
 // minimum call stack size
 const CALL_STACK_SIZE: usize = 128;

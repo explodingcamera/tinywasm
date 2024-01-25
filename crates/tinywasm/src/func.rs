@@ -89,7 +89,7 @@ impl FuncHandle {
 
 #[derive(Debug)]
 /// A typed function handle
-pub struct TypedFuncHandle<P, R> {
+pub struct FuncHandleTyped<P, R> {
     /// The underlying function handle
     pub func: FuncHandle,
     pub(crate) marker: core::marker::PhantomData<(P, R)>,
@@ -105,7 +105,7 @@ pub trait FromWasmValueTuple {
         Self: Sized;
 }
 
-impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> TypedFuncHandle<P, R> {
+impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
     /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         // Convert params into Vec<WasmValue>

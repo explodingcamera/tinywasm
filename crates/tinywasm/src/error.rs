@@ -3,30 +3,30 @@ use core::fmt::Display;
 use tinywasm_types::FuncType;
 
 #[cfg(feature = "parser")]
-use tinywasm_parser::ParseError;
+pub use tinywasm_parser::ParseError;
 
-/// A tinywasm error
+/// Errors that can occur for TinyWasm operations
 #[derive(Debug)]
 pub enum Error {
-    #[cfg(feature = "parser")]
-    /// A parsing error occurred
-    ParseError(ParseError),
-
     #[cfg(feature = "std")]
     /// An I/O error occurred
     Io(crate::std::io::Error),
 
-    /// A WebAssembly feature is not supported
-    UnsupportedFeature(String),
-
-    /// An unknown error occurred
-    Other(String),
+    #[cfg(feature = "parser")]
+    /// A parsing error occurred
+    ParseError(ParseError),
 
     /// A WebAssembly trap occurred
     Trap(Trap),
 
     /// A linking error occurred
     Linker(LinkingError),
+
+    /// A WebAssembly feature is not supported
+    UnsupportedFeature(String),
+
+    /// An unknown error occurred
+    Other(String),
 
     /// A function did not return a value
     FuncDidNotReturn,
@@ -48,7 +48,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-/// A linking error
+/// Errors that can occur when linking a WebAssembly module
 pub enum LinkingError {
     /// An unknown import was encountered
     UnknownImport {
@@ -210,5 +210,5 @@ impl From<tinywasm_parser::ParseError> for Error {
     }
 }
 
-/// A specialized [`Result`] type for tinywasm operations
+/// A wrapper around [`core::result::Result`] for tinywasm operations
 pub type Result<T, E = Error> = crate::std::result::Result<T, E>;

@@ -6,10 +6,10 @@ use tinywasm_types::{
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    Error, FuncHandle, Imports, Module, Result, Store, TypedFuncHandle,
+    Error, FuncHandle, FuncHandleTyped, Imports, Module, Result, Store,
 };
 
-/// A WebAssembly Module Instance
+/// An instanciated WebAssembly module
 ///
 /// Backed by an Arc, so cloning is cheap
 ///
@@ -178,13 +178,13 @@ impl ModuleInstance {
     }
 
     /// Get a typed exported function by name
-    pub fn typed_func<P, R>(&self, store: &Store, name: &str) -> Result<TypedFuncHandle<P, R>>
+    pub fn typed_func<P, R>(&self, store: &Store, name: &str) -> Result<FuncHandleTyped<P, R>>
     where
         P: IntoWasmValueTuple,
         R: FromWasmValueTuple,
     {
         let func = self.exported_func_by_name(store, name)?;
-        Ok(TypedFuncHandle { func, marker: core::marker::PhantomData })
+        Ok(FuncHandleTyped { func, marker: core::marker::PhantomData })
     }
 
     /// Get the start function of the module

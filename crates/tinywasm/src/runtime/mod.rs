@@ -1,19 +1,23 @@
-mod executor;
+mod interpreter;
 mod stack;
 mod value;
 
 pub use stack::*;
 pub(crate) use value::RawWasmValue;
 
+use crate::Result;
+
 #[allow(rustdoc::private_intra_doc_links)]
-/// A WebAssembly Runtime.
-///
-/// Generic over `CheckTypes` to enable type checking at runtime.
-/// This is useful for debugging, but should be disabled if you know
-/// that the module is valid.
+/// A WebAssembly runtime.
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html>
+pub trait Runtime {
+    /// Execute all call-frames on the stack until the stack is empty.
+    fn exec(&self, store: &mut crate::Store, stack: &mut crate::runtime::Stack) -> Result<()>;
+}
+
+/// The main TinyWasm runtime.
 ///
-/// Execution is implemented in the [`crate::runtime::executor`] module
+/// This is the default runtime used by TinyWasm.
 #[derive(Debug, Default)]
-pub struct DefaultRuntime {}
+pub struct InterpreterRuntime {}

@@ -7,8 +7,8 @@ use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::*;
 
 use crate::{
-    runtime::{self, DefaultRuntime},
-    Error, Function, ModuleInstance, RawWasmValue, Result, Trap,
+    runtime::{self, InterpreterRuntime, RawWasmValue},
+    Error, Function, ModuleInstance, Result, Trap,
 };
 
 // global store id counter
@@ -51,9 +51,9 @@ impl Store {
     }
 
     /// Create a new store with the given runtime
-    pub(crate) fn runtime(&self) -> runtime::DefaultRuntime {
+    pub(crate) fn runtime(&self) -> runtime::InterpreterRuntime {
         match self.runtime {
-            Runtime::Default => DefaultRuntime::default(),
+            Runtime::Default => InterpreterRuntime::default(),
         }
     }
 }
@@ -441,7 +441,7 @@ impl Store {
 /// A WebAssembly Function Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
-pub struct FunctionInstance {
+pub(crate) struct FunctionInstance {
     pub(crate) func: Function,
     pub(crate) _type_idx: TypeAddr,
     pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
