@@ -1,5 +1,5 @@
 [workspace]
-members=["crates/*", "examples/rust"]
+members=["crates/*"]
 resolver="2"
 
 [profile.wasm]
@@ -20,6 +20,10 @@ repository="https://github.com/explodingcamera/tinywasm"
 name="tinywasm-root"
 publish=false
 edition="2021"
+
+[[example]]
+name="wasm-rust"
+test=false
 
 [dev-dependencies]
 color-eyre="0.6"

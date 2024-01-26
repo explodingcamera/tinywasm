@@ -51,7 +51,7 @@
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.get_func` to get an untyped handle
 //! // that takes and returns [`WasmValue`]s
-//! let func = instance.typed_func::<(i32, i32), i32>(&mut store, "add")?;
+//! let func = instance.exported_func::<(i32, i32), i32>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
 //! assert_eq!(res, 3);
@@ -98,6 +98,9 @@ pub use module::Module;
 
 mod instance;
 pub use instance::ModuleInstance;
+
+mod reference;
+pub use reference::*;
 
 mod func;
 pub use func::{FuncHandle, FuncHandleTyped};

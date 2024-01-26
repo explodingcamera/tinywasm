@@ -26,7 +26,7 @@ fn run() -> tinywasm::Result<()> {
     )?;
     let instance = module.instantiate(&mut store, Some(imports))?;
 
-    let add_and_print = instance.typed_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
+    let add_and_print = instance.exported_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
     Ok(())
 }

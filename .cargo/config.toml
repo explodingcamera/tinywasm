@@ -1,7 +1,6 @@
 [alias]
 version-dev="workspaces version --no-git-commit --force tinywasm*"
 dev="run -- -l debug run"
-
 test-mvp="test --package tinywasm --test test-mvp --release -- --enable "
 test-2="test --package tinywasm --test test-two --release -- --enable "
 test-wast="test --package tinywasm --test test-wast -- --enable "

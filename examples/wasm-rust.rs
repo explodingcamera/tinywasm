@@ -13,6 +13,7 @@ fn main() -> Result<()> {
 
     match args[1].as_str() {
         "hello" => hello()?,
+        "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
         _ => {}
     }
@@ -36,7 +37,7 @@ fn tinywasm() -> Result<()> {
     )?;
     let instance = module.instantiate(&mut store, Some(imports))?;
 
-    let hello = instance.typed_func::<(), ()>(&mut store, "hello")?;
+    let hello = instance.exported_func::<(), ()>(&mut store, "hello")?;
     hello.call(&mut store, ())?;
 
     Ok(())
@@ -58,8 +59,22 @@ fn hello() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let add_and_print = instance.typed_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
+    let add_and_print = instance.exported_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
+
+    Ok(())
+}
+
+fn fibonacci() -> Result<()> {
+    const FIBONACCI_WASM: &[u8] = include_bytes!("./rust/out/fibonacci.wasm");
+    let module = Module::parse_bytes(&FIBONACCI_WASM)?;
+    let mut store = Store::default();
+
+    let instance = module.instantiate(&mut store, None)?;
+    let fibonacci = instance.exported_func::<i32, i32>(&mut store, "fibonacci")?;
+    let n = 30;
+    let result = fibonacci.call(&mut store, n)?;
+    println!("fibonacci({}) = {}", n, result);
 
     Ok(())
 }

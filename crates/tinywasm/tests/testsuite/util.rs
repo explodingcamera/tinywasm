@@ -25,7 +25,7 @@ pub fn exec_fn_instance(
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
 
-    let func = instance.exported_func_by_name(store, name)?;
+    let func = instance.exported_func_untyped(store, name)?;
     func.call(store, args)
 }
 
@@ -42,7 +42,7 @@ pub fn exec_fn(
     let mut store = tinywasm::Store::new();
     let module = tinywasm::Module::from(module);
     let instance = module.instantiate(&mut store, imports)?;
-    instance.exported_func_by_name(&store, name)?.call(&mut store, args)
+    instance.exported_func_untyped(&store, name)?.call(&mut store, args)
 }
 
 pub fn catch_unwind_silent<F: FnOnce() -> R, R>(f: F) -> std::thread::Result<R> {

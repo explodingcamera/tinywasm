@@ -1,4 +1,6 @@
 /target
 notes.md
 examples/rust/out/*
+examples/rust/target
+examples/rust/Cargo.lock
 examples/wast/*

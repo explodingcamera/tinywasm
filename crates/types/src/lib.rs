@@ -316,7 +316,7 @@ pub type ModuleInstanceAddr = Addr;
 pub enum ExternVal {
     Func(FuncAddr),
     Table(TableAddr),
-    Mem(MemAddr),
+    Memory(MemAddr),
     Global(GlobalAddr),
 }
 
@@ -325,7 +325,7 @@ impl ExternVal {
         match self {
             Self::Func(_) => ExternalKind::Func,
             Self::Table(_) => ExternalKind::Table,
-            Self::Mem(_) => ExternalKind::Memory,
+            Self::Memory(_) => ExternalKind::Memory,
             Self::Global(_) => ExternalKind::Global,
         }
     }
@@ -334,7 +334,7 @@ impl ExternVal {
         match kind {
             ExternalKind::Func => Self::Func(addr),
             ExternalKind::Table => Self::Table(addr),
-            ExternalKind::Memory => Self::Mem(addr),
+            ExternalKind::Memory => Self::Memory(addr),
             ExternalKind::Global => Self::Global(addr),
         }
     }

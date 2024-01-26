@@ -1,12 +1,9 @@
 use alloc::{boxed::Box, format, string::ToString, sync::Arc};
-use tinywasm_types::{
-    DataAddr, ElemAddr, Export, ExternVal, ExternalKind, FuncAddr, FuncType, GlobalAddr, Import, MemAddr,
-    ModuleInstanceAddr, TableAddr,
-};
+use tinywasm_types::*;
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    log, Error, FuncHandle, FuncHandleTyped, Imports, Module, Result, Store,
+    log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, Module, Result, Store,
 };
 
 /// An instanciated WebAssembly module
@@ -106,7 +103,7 @@ impl ModuleInstance {
     }
 
     /// Get a export by name
-    pub fn export(&self, name: &str) -> Option<ExternVal> {
+    pub fn export_addr(&self, name: &str) -> Option<ExternVal> {
         let exports = self.0.exports.iter().find(|e| e.name == name.into())?;
         let kind = exports.kind.clone();
         let addr = match kind {
@@ -162,12 +159,12 @@ impl ModuleInstance {
     }
 
     /// Get an exported function by name
-    pub fn exported_func_by_name(&self, store: &Store, name: &str) -> Result<FuncHandle> {
+    pub fn exported_func_untyped(&self, store: &Store, name: &str) -> Result<FuncHandle> {
         if self.0.store_id != store.id() {
             return Err(Error::InvalidStore);
         }
 
-        let export = self.export(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
         let ExternVal::Func(func_addr) = export else {
             return Err(Error::Other(format!("Export is not a function: {}", name)));
         };
@@ -179,13 +176,30 @@ impl ModuleInstance {
     }
 
     /// Get a typed exported function by name
-    pub fn typed_func<P, R>(&self, store: &Store, name: &str) -> Result<FuncHandleTyped<P, R>>
+    pub fn exported_func<P, R>(&self, store: &Store, name: &str) -> Result<FuncHandleTyped<P, R>>
     where
         P: IntoWasmValueTuple,
         R: FromWasmValueTuple,
     {
-        let func = self.exported_func_by_name(store, name)?;
+        let func = self.exported_func_untyped(store, name)?;
         Ok(FuncHandleTyped { func, marker: core::marker::PhantomData })
+    }
+
+    /// Get an exported memory by name
+    pub fn exported_memory(&self, store: &mut Store, name: &str) -> Result<MemoryRef> {
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let ExternVal::Memory(mem_addr) = export else {
+            return Err(Error::Other(format!("Export is not a memory: {}", name)));
+        };
+        let mem = self.memory(store, mem_addr)?;
+        Ok(mem)
+    }
+
+    /// Get a memory by address
+    pub fn memory(&self, store: &Store, addr: MemAddr) -> Result<MemoryRef> {
+        let addr = self.resolve_mem_addr(addr);
+        let mem = store.get_mem(addr as usize)?;
+        Ok(MemoryRef { instance: mem.clone() })
     }
 
     /// Get the start function of the module
@@ -204,7 +218,7 @@ impl ModuleInstance {
             Some(func_index) => func_index,
             None => {
                 // alternatively, check for a _start function in the exports
-                let Some(ExternVal::Func(func_addr)) = self.export("_start") else {
+                let Some(ExternVal::Func(func_addr)) = self.export_addr("_start") else {
                     return Ok(None);
                 };
 

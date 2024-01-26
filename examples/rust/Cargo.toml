@@ -1,5 +1,8 @@
 cargo-features=["per-package-target"]
 
+# treat this as an independent package
+[workspace]
+
 [package]
 publish=false
 name="rust-wasm-examples"
@@ -16,3 +19,14 @@ path="src/hello.rs"
 [[bin]]
 name="tinywasm"
 path="src/tinywasm.rs"
+
+[[bin]]
+name="fibonacci"
+path="src/fibonacci.rs"
+
+[profile.wasm]
+opt-level="s"
+lto="thin"
+codegen-units=1
+panic="abort"
+inherits="release"

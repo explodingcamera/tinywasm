@@ -1046,13 +1046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-wasm-examples"
-version = "0.0.0"
-dependencies = [
- "tinywasm",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

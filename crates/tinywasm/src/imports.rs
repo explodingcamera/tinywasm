@@ -77,6 +77,11 @@ impl FuncContext<'_> {
     pub fn module(&self) -> &crate::ModuleInstance {
         self.module
     }
+
+    /// Get a reference to an exported memory
+    pub fn memory(&mut self, name: &str) -> Result<crate::MemoryRef> {
+        self.module.exported_memory(self.store, name)
+    }
 }
 
 impl Debug for HostFunction {
@@ -276,7 +281,7 @@ impl Imports {
 
         if let Some(addr) = self.modules.get(&name.module) {
             let instance = store.get_module_instance(*addr)?;
-            return Some(ResolvedExtern::Store(instance.export(&import.name)?));
+            return Some(ResolvedExtern::Store(instance.export_addr(&import.name)?));
         }
 
         None
@@ -398,7 +403,7 @@ impl Imports {
                             Self::compare_table_types(import, &table.borrow().kind, ty)?;
                             imports.tables.push(table_addr);
                         }
-                        (ExternVal::Mem(memory_addr), ImportKind::Memory(ty)) => {
+                        (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
                             let mem = store.get_mem(memory_addr as usize)?;
                             let (size, kind) = {
                                 let mem = mem.borrow();

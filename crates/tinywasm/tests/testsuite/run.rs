@@ -428,7 +428,7 @@ impl TestSuite {
                                 continue;
                             };
 
-                            let module_global = match match module.export(global) {
+                            let module_global = match match module.export_addr(global) {
                                 Some(ExternVal::Global(addr)) => {
                                     store.get_global_val(addr as usize).map_err(|_| eyre!("failed to get global"))
                                 }
