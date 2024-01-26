@@ -21,7 +21,7 @@ jobs:
           rustup update stable
           rustup update nightly
           rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen
+          sudo apt-get install -y binaryen wabt
 
       - name: Build wasm
         run: ./examples/rust/build.sh
@@ -48,7 +48,7 @@ jobs:
         run: |
           rustup update nightly
           rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen
+          sudo apt-get install -y binaryen wabt
 
       - name: Build wasm
         run: ./examples/rust/build.sh
