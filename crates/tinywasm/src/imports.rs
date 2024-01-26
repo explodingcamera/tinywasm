@@ -4,7 +4,7 @@ use core::fmt::Debug;
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple},
-    LinkingError, Result,
+    log, LinkingError, Result,
 };
 use alloc::{
     collections::BTreeMap,

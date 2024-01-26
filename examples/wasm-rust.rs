@@ -1,0 +1,41 @@
+use color_eyre::eyre::Result;
+use tinywasm::{Extern, FuncContext, Imports, Module, Store};
+
+fn main() -> Result<()> {
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() < 2 {
+        println!("Usage: cargo run --example wasm-rust <rust_example>");
+        println!("Available examples:");
+        println!("  hello");
+        return Ok(());
+    }
+
+    match args[1].as_str() {
+        "hello" => hello()?,
+        _ => {}
+    }
+
+    Ok(())
+}
+
+fn hello() -> Result<()> {
+    // const HELLO_WASM: &[u8] = include_bytes!("./rust/out/hello.wasm");
+    // let module = Module::parse_bytes(&HELLO_WASM)?;
+    // let mut store = Store::default();
+
+    // let mut imports = Imports::new();
+    // imports.define(
+    //     "env",
+    //     "printi32",
+    //     Extern::typed_func(|_: FuncContext<'_>, x: i32| {
+    //         println!("{}", x);
+    //         Ok(())
+    //     }),
+    // )?;
+
+    // let instance = module.instantiate(&mut store, Some(imports))?;
+    // let add_and_print = instance.typed_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
+    // add_and_print.call(&mut store, (1, 2))?;
+
+    Ok(())
+}

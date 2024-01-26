@@ -1,5 +1,5 @@
+use crate::log;
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
-use log::debug;
 use tinywasm_types::*;
 use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 
@@ -239,7 +239,7 @@ pub fn process_operators<'a>(
     let mut labels_ptrs = Vec::new(); // indexes into the instructions array
 
     for op in ops {
-        debug!("op: {:?}", op);
+        log::debug!("op: {:?}", op);
 
         let op = op?;
         validator.op(offset, &op)?;
@@ -274,7 +274,7 @@ pub fn process_operators<'a>(
             }
             End => {
                 if let Some(label_pointer) = labels_ptrs.pop() {
-                    debug!("ending block: {:?}", instructions[label_pointer]);
+                    log::debug!("ending block: {:?}", instructions[label_pointer]);
 
                     let current_instr_ptr = instructions.len();
 

@@ -14,7 +14,9 @@ use log;
 #[cfg(not(feature = "logging"))]
 mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    macro_rules! error    ( ($($tt:tt)*) => {{}} );
     pub(crate) use debug;
+    pub(crate) use error;
 }
 
 mod conversion;

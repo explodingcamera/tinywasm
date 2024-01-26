@@ -1,3 +1,4 @@
+use crate::log;
 use crate::{
     runtime::{BlockType, RawWasmValue},
     Error, FunctionInstance, Result, Trap,

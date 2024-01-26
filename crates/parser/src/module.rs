@@ -181,9 +181,9 @@ impl ModuleReader {
                 validator.end(offset)?;
                 self.end_reached = true;
             }
-            CustomSection(reader) => {
+            CustomSection(_reader) => {
                 debug!("Found custom section");
-                debug!("Skipping custom section: {:?}", reader.name());
+                debug!("Skipping custom section: {:?}", _reader.name());
             }
             // TagSection(tag) => {
             //     debug!("Found tag section");

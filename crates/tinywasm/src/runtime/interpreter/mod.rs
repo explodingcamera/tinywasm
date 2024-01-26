@@ -1,16 +1,24 @@
-use core::ops::{BitAnd, BitOr, BitXor, Neg};
-
 use super::{InterpreterRuntime, Stack};
+use crate::log;
 use crate::{
     log::debug,
     runtime::{BlockType, CallFrame, LabelArgs, LabelFrame},
     Error, FuncContext, ModuleInstance, Result, Store, Trap,
 };
 use alloc::{string::ToString, vec::Vec};
+use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{ElementKind, Instruction, ValType};
+
+#[cfg(not(feature = "std"))]
+mod no_std_floats;
+
+#[cfg(not(feature = "std"))]
+#[allow(unused_imports)]
+use no_std_floats::FExt;
 
 mod macros;
 mod traits;
+
 use macros::*;
 use traits::*;
 

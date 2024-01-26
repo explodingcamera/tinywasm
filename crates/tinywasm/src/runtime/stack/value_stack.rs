@@ -1,5 +1,6 @@
 use core::ops::Range;
 
+use crate::log;
 use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};

@@ -16,6 +16,7 @@ path="src/lib.rs"
 log={version="0.4", optional=true}
 tinywasm-parser={version="0.3.0-alpha.0", path="../parser", default-features=false, optional=true}
 tinywasm-types={version="0.3.0-alpha.0", path="../types", default-features=false}
+libm={version="0.2", default-features=false}
 
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}

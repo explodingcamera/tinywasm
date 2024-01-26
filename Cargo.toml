@@ -1,6 +1,5 @@
 [workspace]
 members=["crates/*"]
-default-members=["crates/cli"]
 resolver="2"
 
 [workspace.package]
@@ -9,3 +8,12 @@ edition="2021"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
 repository="https://github.com/explodingcamera/tinywasm"
+
+[package]
+name="tinywasm-root"
+publish=false
+edition="2021"
+
+[dev-dependencies]
+color-eyre="0.6"
+tinywasm={path="crates/tinywasm"}

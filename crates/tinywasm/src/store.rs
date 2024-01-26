@@ -1,9 +1,9 @@
+use crate::log;
+use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec, vec::Vec};
 use core::{
     cell::RefCell,
     sync::atomic::{AtomicUsize, Ordering},
 };
-
-use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec, vec::Vec};
 use tinywasm_types::*;
 
 use crate::{
@@ -581,7 +581,7 @@ impl TableInstance {
 
 pub(crate) const PAGE_SIZE: usize = 65536;
 pub(crate) const MAX_PAGES: usize = 65536;
-pub(crate) const MAX_SIZE: usize = PAGE_SIZE * MAX_PAGES;
+pub(crate) const MAX_SIZE: u64 = PAGE_SIZE as u64 * MAX_PAGES as u64;
 
 /// A WebAssembly Memory Instance
 ///
@@ -660,7 +660,7 @@ impl MemoryInstance {
         }
 
         let new_size = new_pages as usize * PAGE_SIZE;
-        if new_size > MAX_SIZE {
+        if new_size as u64 > MAX_SIZE {
             return None;
         }
 

@@ -55,7 +55,7 @@ $ cargo add tinywasm
 - **`parser`**\
   Enables the `tinywasm-parser` crate. This is enabled by default.
 
-With all these features disabled, TinyWasm does not depend on any external crates and can be used in `no_std` environments.
+With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm` and can be used in `no_std` environments.
 
 <!-- # 🎯 Goals
 

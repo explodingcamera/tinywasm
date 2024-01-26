@@ -6,7 +6,7 @@ use tinywasm_types::{
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    Error, FuncHandle, FuncHandleTyped, Imports, Module, Result, Store,
+    log, Error, FuncHandle, FuncHandleTyped, Imports, Module, Result, Store,
 };
 
 /// An instanciated WebAssembly module
@@ -123,7 +123,8 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
-    pub(crate) fn func_tys(&self) -> &[FuncType] {
+    /// Get the module's function types
+    pub fn func_tys(&self) -> &[FuncType] {
         &self.0.types
     }
 

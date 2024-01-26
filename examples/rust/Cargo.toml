@@ -1,0 +1,23 @@
+cargo-features=["per-package-target"]
+
+[package]
+publish=false
+name="rust-wasm-examples"
+forced-target="wasm32-unknown-unknown"
+edition="2021"
+
+[dependencies]
+tinywasm={path="../../crates/tinywasm", default-features=false, features=["parser"]}
+embedded-alloc={version="0.5"}
+
+[[bin]]
+name="hello"
+path="src/hello.rs"
+
+[[bin]]
+name="tinywasm"
+path="src/tinywasm.rs"
+
+[profile.release]
+opt-level="z"
+panic="abort"

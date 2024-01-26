@@ -78,7 +78,13 @@ use log;
 #[cfg(not(feature = "logging"))]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    macro_rules! info    ( ($($tt:tt)*) => {{}} );
+    macro_rules! trace    ( ($($tt:tt)*) => {{}} );
+    macro_rules! error    ( ($($tt:tt)*) => {{}} );
     pub(crate) use debug;
+    pub(crate) use error;
+    pub(crate) use info;
+    pub(crate) use trace;
 }
 
 mod error;

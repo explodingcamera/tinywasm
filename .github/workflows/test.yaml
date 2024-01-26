@@ -41,10 +41,10 @@ jobs:
         run: rustup update nightly
 
       - name: Build (nightly, no default features)
-        run: cargo +nightly build --workspace --exclude wasm-testsuite --no-default-features
+        run: cargo +nightly build --workspace --exclude wasm-testsuite --exclude rust-wasm-examples --no-default-features
 
       - name: Run tests (nightly, no default features)
-        run: cargo +nightly test --workspace --exclude wasm-testsuite --no-default-features
+        run: cargo +nightly test --workspace --exclude wasm-testsuite --exclude rust-wasm-examples --no-default-features
 
       - name: Run MVP testsuite (nightly)
         run: cargo +nightly test-mvp
