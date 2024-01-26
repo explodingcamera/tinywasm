@@ -16,8 +16,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Install stable Rust toolchain
-        run: rustup update stable
+      - name: Install stable Rust toolchain & Binaryen
+        run: |
+          rustup update stable
+          rustup update nightly
+          sudo apt-get install -y binaryen
+
+      - name: Build wasm
+        run: ./examples/rust/build.sh
 
       - name: Build (stable)
         run: cargo +stable build --workspace
@@ -37,8 +43,13 @@ jobs:
         with:
           submodules: true
 
-      - name: Install nightly Rust toolchain
-        run: rustup update nightly
+      - name: Install nightly Rust toolchain & Binaryen
+        run: |
+          rustup update nightly
+          sudo apt-get install -y binaryen
+
+      - name: Build wasm
+        run: ./examples/rust/build.sh
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --no-default-features
