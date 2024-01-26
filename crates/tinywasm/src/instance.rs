@@ -199,7 +199,7 @@ impl ModuleInstance {
     pub fn memory(&self, store: &Store, addr: MemAddr) -> Result<MemoryRef> {
         let addr = self.resolve_mem_addr(addr);
         let mem = store.get_mem(addr as usize)?;
-        Ok(MemoryRef { instance: mem.clone() })
+        Ok(MemoryRef { _instance: mem.clone() })
     }
 
     /// Get the start function of the module

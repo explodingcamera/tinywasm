@@ -1,6 +1,7 @@
 use color_eyre::eyre::Result;
 use tinywasm::{Extern, FuncContext, Imports, Module, Store};
 
+#[cfg(not(test))]
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
@@ -21,6 +22,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(test))]
 fn tinywasm() -> Result<()> {
     const TINYWASM: &[u8] = include_bytes!("./rust/out/tinywasm.wasm");
     let module = Module::parse_bytes(&TINYWASM)?;
@@ -43,6 +45,7 @@ fn tinywasm() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(test))]
 fn hello() -> Result<()> {
     const HELLO_WASM: &[u8] = include_bytes!("./rust/out/hello.wasm");
     let module = Module::parse_bytes(&HELLO_WASM)?;
@@ -65,6 +68,7 @@ fn hello() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(test))]
 fn fibonacci() -> Result<()> {
     const FIBONACCI_WASM: &[u8] = include_bytes!("./rust/out/fibonacci.wasm");
     let module = Module::parse_bytes(&FIBONACCI_WASM)?;
