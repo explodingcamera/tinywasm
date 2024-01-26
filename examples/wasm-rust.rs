@@ -55,10 +55,10 @@ fn hello() -> Result<()> {
     imports.define(
         "env",
         "print_utf8",
-        Extern::typed_func(|mut ctx: FuncContext<'_>, args: (i32, i32)| {
+        Extern::typed_func(|mut ctx: FuncContext<'_>, args: (i64, i32)| {
             let mem = ctx.memory("memory")?;
-            let ptr = args.1 as usize;
-            let len = args.0 as usize;
+            let ptr = args.0 as usize;
+            let len = args.1 as usize;
             let string = mem.load_string(ptr, len)?;
             println!("{}", string);
             Ok(())

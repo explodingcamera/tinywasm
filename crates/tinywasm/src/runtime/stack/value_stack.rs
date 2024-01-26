@@ -1,6 +1,5 @@
 use core::ops::Range;
 
-use crate::log;
 use crate::{runtime::RawWasmValue, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
@@ -85,14 +84,7 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        log::info!("pop_params: types={:?}", types);
-        log::info!("stack={:?}", self.stack);
-
-        let mut res = Vec::with_capacity(types.len());
-        for ty in types.iter() {
-            res.push(self.pop()?.attach_type(*ty));
-        }
-
+        let res = self.pop_n_rev(types.len())?.iter().zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
         Ok(res)
     }
 
