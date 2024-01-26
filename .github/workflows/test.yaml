@@ -20,6 +20,7 @@ jobs:
         run: |
           rustup update stable
           rustup update nightly
+          rustup target add wasm32-unknown-unknown
           sudo apt-get install -y binaryen
 
       - name: Build wasm
@@ -46,6 +47,7 @@ jobs:
       - name: Install nightly Rust toolchain & Binaryen
         run: |
           rustup update nightly
+          rustup target add wasm32-unknown-unknown
           sudo apt-get install -y binaryen
 
       - name: Build wasm
