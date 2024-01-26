@@ -3,7 +3,7 @@ members=["crates/*", "examples/rust"]
 resolver="2"
 
 [profile.wasm]
-opt-level="z"
+opt-level="s"
 lto="thin"
 codegen-units=1
 panic="abort"

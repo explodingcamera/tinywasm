@@ -12,7 +12,7 @@ pub extern "C" fn hello() {
 }
 
 fn run() -> tinywasm::Result<()> {
-    let module = tinywasm::Module::parse_bytes(include_bytes!("../../wasm/hello.wasm"))?;
+    let module = tinywasm::Module::parse_bytes(include_bytes!("../out/hello.wasm"))?;
     let mut store = tinywasm::Store::default();
     let mut imports = tinywasm::Imports::new();
 
