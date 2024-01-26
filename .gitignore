@@ -1,4 +1,4 @@
 /target
 notes.md
-examples/tinywasm.wat
+examples/rust/out/*
 examples/wast/*

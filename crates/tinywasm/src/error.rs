@@ -186,8 +186,8 @@ impl Display for Error {
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {}", err),
 
-            Self::Trap(trap) => write!(f, "trap: {}", trap.message()),
-            Self::Linker(err) => write!(f, "linking error: {}", err.message()),
+            Self::Trap(trap) => write!(f, "trap: {}", trap),
+            Self::Linker(err) => write!(f, "linking error: {}", err),
             Self::CallStackEmpty => write!(f, "call stack empty"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
@@ -196,6 +196,42 @@ impl Display for Error {
             Self::LabelStackUnderflow => write!(f, "label stack underflow"),
             Self::StackUnderflow => write!(f, "stack underflow"),
             Self::InvalidStore => write!(f, "invalid store"),
+        }
+    }
+}
+
+impl Display for LinkingError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::UnknownImport { module, name } => write!(f, "unknown import: {}.{}", module, name),
+            Self::IncompatibleImportType { module, name } => {
+                write!(f, "incompatible import type: {}.{}", module, name)
+            }
+        }
+    }
+}
+
+impl Display for Trap {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unreachable => write!(f, "unreachable"),
+            Self::MemoryOutOfBounds { offset, len, max } => {
+                write!(f, "out of bounds memory access: offset={}, len={}, max={}", offset, len, max)
+            }
+            Self::TableOutOfBounds { offset, len, max } => {
+                write!(f, "out of bounds table access: offset={}, len={}, max={}", offset, len, max)
+            }
+            Self::DivisionByZero => write!(f, "integer divide by zero"),
+            Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
+            Self::IntegerOverflow => write!(f, "integer overflow"),
+            Self::CallStackOverflow => write!(f, "call stack exhausted"),
+            Self::UndefinedElement { index } => write!(f, "undefined element: index={}", index),
+            Self::UninitializedElement { index } => {
+                write!(f, "uninitialized element: index={}", index)
+            }
+            Self::IndirectCallTypeMismatch { expected, actual } => {
+                write!(f, "indirect call type mismatch: expected={:?}, actual={:?}", expected, actual)
+            }
         }
     }
 }

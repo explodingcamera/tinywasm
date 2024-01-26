@@ -12,7 +12,7 @@
 
 # Status
 
-TinyWasm, starting from upcoming version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress (notably `simd` and `bulk-memory-operations` are not implemented yet).
+TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress (notably `simd` and `bulk-memory-operations` are not implemented yet). This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)).
 
 Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
 Results of the tests can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
@@ -56,16 +56,7 @@ $ cargo add tinywasm
   Enables the `tinywasm-parser` crate. This is enabled by default.
 
 With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm` and can be used in `no_std` environments.
-
-<!-- # 🎯 Goals
-
-- Self-hosted (can run itself compiled to WebAssembly)
-- No unsafe code
-- Works on `no_std` (with `alloc` the feature and nightly compiler)
-- Fully support WebAssembly MVP (1.0)
-- Low Memory Usage (less than 10kb)
-- Fast Startup Time
-- Preemptive multitasking support -->
+Since `libm` is not as performant as the compiler's built-in math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)).
 
 ## Performance
 
