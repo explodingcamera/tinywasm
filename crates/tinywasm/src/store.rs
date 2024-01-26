@@ -217,7 +217,7 @@ impl Store {
         table_addrs: &[TableAddr],
         func_addrs: &[FuncAddr],
         global_addrs: &[Addr],
-        elements: Vec<Element>,
+        elements: &[Element],
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.data.elements.len();

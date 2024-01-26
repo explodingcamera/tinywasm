@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, string::ToString, sync::Arc};
+use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use tinywasm_types::*;
 
 use crate::{
@@ -8,11 +8,11 @@ use crate::{
 
 /// An instanciated WebAssembly module
 ///
-/// Backed by an Arc, so cloning is cheap
+/// Backed by an Rc, so cloning is cheap
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Debug, Clone)]
-pub struct ModuleInstance(Arc<ModuleInstanceInner>);
+pub struct ModuleInstance(Rc<ModuleInstanceInner>);
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -69,7 +69,7 @@ impl ModuleInstance {
 
         let global_addrs = store.init_globals(addrs.globals, data.globals.into(), &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
-            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, data.elements.into(), idx)?;
+            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
         let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
@@ -126,7 +126,7 @@ impl ModuleInstance {
     }
 
     pub(crate) fn new(inner: ModuleInstanceInner) -> Self {
-        Self(Arc::new(inner))
+        Self(Rc::new(inner))
     }
 
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {

@@ -8,8 +8,8 @@ use crate::{
 };
 use alloc::{
     collections::BTreeMap,
+    rc::Rc,
     string::{String, ToString},
-    sync::Arc,
     vec::Vec,
 };
 use tinywasm_types::*;
@@ -52,8 +52,7 @@ impl HostFunction {
     }
 }
 
-pub(crate) type HostFuncInner =
-    Arc<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync>;
+pub(crate) type HostFuncInner = Rc<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>>>;
 
 /// The context of a host-function call
 #[derive(Debug)]
@@ -139,31 +138,28 @@ impl Extern {
     /// Create a new function import
     pub fn func(
         ty: &tinywasm_types::FuncType,
-        func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static + Send + Sync,
+        func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Self {
-        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| {
-            let args = args.to_vec();
-            func(ctx, &args)
-        };
-
-        Self::Function(Function::Host(HostFunction { func: Arc::new(inner_func), ty: ty.clone() }))
+        Self::Function(Function::Host(HostFunction { func: Rc::new(func), ty: ty.clone() }))
     }
 
     /// Create a new typed function import
-    pub fn typed_func<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static + Send + Sync) -> Self
+    // TODO: currently, this is slower than `Extern::func` because of the type conversions.
+    //       we should be able to optimize this and make it even faster than `Extern::func`.
+    pub fn typed_func<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static) -> Self
     where
         P: FromWasmValueTuple + ValTypesFromTuple,
         R: IntoWasmValueTuple + ValTypesFromTuple + Debug,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let args = P::from_wasm_value_tuple(args.to_vec())?;
+            let args = P::from_wasm_value_tuple(args)?;
             let result = func(ctx, args)?;
             Ok(result.into_wasm_value_tuple())
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
 
-        Self::Function(Function::Host(HostFunction { func: Arc::new(inner_func), ty }))
+        Self::Function(Function::Host(HostFunction { func: Rc::new(inner_func), ty }))
     }
 
     pub(crate) fn kind(&self) -> ExternalKind {

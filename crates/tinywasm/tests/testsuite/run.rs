@@ -413,7 +413,7 @@ impl TestSuite {
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {:?}", exec);
-                    let expected = convert_wastret(results)?;
+                    let expected = convert_wastret(results.into_iter())?;
 
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),

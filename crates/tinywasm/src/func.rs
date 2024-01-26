@@ -100,7 +100,7 @@ pub trait IntoWasmValueTuple {
 }
 
 pub trait FromWasmValueTuple {
-    fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self>
+    fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self>
     where
         Self: Sized;
 }
@@ -115,7 +115,7 @@ impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
         let result = self.func.call(store, &wasm_values)?;
 
         // Convert the Vec<WasmValue> back to R
-        R::from_wasm_value_tuple(result)
+        R::from_wasm_value_tuple(&result)
     }
 }
 macro_rules! impl_into_wasm_value_tuple {
@@ -164,14 +164,14 @@ macro_rules! impl_from_wasm_value_tuple {
         where
             $($T: TryFrom<WasmValue, Error = ()>),*
         {
-            fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
+            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
-                let mut iter = values.into_iter();
+                let mut iter = values.iter();
 
                 Ok((
                     $(
                         $T::try_from(
-                            iter.next()
+                            *iter.next()
                             .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
                         )
                         .map_err(|e| Error::Other(format!("FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}", e,
@@ -186,10 +186,10 @@ macro_rules! impl_from_wasm_value_tuple {
 macro_rules! impl_from_wasm_value_tuple_single {
     ($T:ident) => {
         impl FromWasmValueTuple for $T {
-            fn from_wasm_value_tuple(values: Vec<WasmValue>) -> Result<Self> {
+            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
-                let mut iter = values.into_iter();
-                $T::try_from(iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
+                let mut iter = values.iter();
+                $T::try_from(*iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
                     .map_err(|e| {
                         Error::Other(format!(
                             "FromWasmValueTupleSingle: Could not convert WasmValue to expected type: {:?}",

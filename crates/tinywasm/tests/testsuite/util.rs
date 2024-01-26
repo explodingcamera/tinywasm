@@ -62,8 +62,8 @@ pub fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<tinywasm_types::
     args.into_iter().map(|a| wastarg2tinywasmvalue(a)).collect()
 }
 
-pub fn convert_wastret(args: Vec<wast::WastRet>) -> Result<Vec<tinywasm_types::WasmValue>> {
-    args.into_iter().map(|a| wastret2tinywasmvalue(a)).collect()
+pub fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<Vec<tinywasm_types::WasmValue>> {
+    args.map(|a| wastret2tinywasmvalue(a)).collect()
 }
 
 fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {

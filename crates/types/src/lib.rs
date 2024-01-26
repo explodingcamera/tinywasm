@@ -480,7 +480,7 @@ pub struct Element {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ElementKind {
     Passive,
     Active { table: TableAddr, offset: ConstInstruction },
