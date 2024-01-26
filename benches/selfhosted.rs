@@ -9,7 +9,7 @@ fn run_tinywasm(module: TinyWasmModule) {
     let mut store = Store::default();
     let mut imports = Imports::default();
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
-    let instance = module.instantiate(&mut store, Some(imports)).expect("instantiate");
+    let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
     let hello = instance.exported_func::<(), ()>(&mut store, "hello").expect("exported_func");
     hello.call(&mut store, ()).expect("call");
 }

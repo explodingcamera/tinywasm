@@ -4,6 +4,7 @@ use crate::{
     runtime::{BlockType, CallFrame, LabelArgs, LabelFrame},
     Error, FuncContext, ModuleInstance, Result, Store, Trap,
 };
+use alloc::format;
 use alloc::{string::ToString, vec::Vec};
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{ElementKind, Instruction, ValType};
@@ -32,28 +33,33 @@ impl InterpreterRuntime {
 
         // The function to execute, gets updated from ExecResult::Call
         let mut instrs = &wasm_func.instructions;
+        let mut instr_count = instrs.len();
 
         let mut current_module = store.get_module_instance(func_inst.owner).unwrap().clone();
 
-        while let Some(instr) = instrs.get(cf.instr_ptr) {
+        loop {
+            if unlikely(cf.instr_ptr >= instr_count) {
+                cold();
+                log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instr_count);
+                return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instr_count)));
+            }
+            let instr = &instrs[cf.instr_ptr];
+
             match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
                     func_inst = cf.func_instance.clone();
-                    wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
+                    wasm_func =
+                        func_inst.assert_wasm().map_err(|_| Error::Other("call expected wasm function".to_string()))?;
                     instrs = &wasm_func.instructions;
+                    instr_count = instrs.len();
 
                     if cf.func_instance.owner != current_module.id() {
                         current_module.swap(
                             store
                                 .get_module_instance(cf.func_instance.owner)
-                                .unwrap_or_else(|| {
-                                    panic!(
-                                        "exec expected module instance {} to exist for function",
-                                        cf.func_instance.owner
-                                    )
-                                })
+                                .ok_or_else(|| Error::Other("call expected module instance".to_string()))?
                                 .clone(),
                         );
                     }
@@ -79,12 +85,6 @@ impl InterpreterRuntime {
                 }
             }
         }
-
-        log::debug!("end of exec");
-        log::debug!("stack: {:?}", stack.values);
-        log::debug!("insts: {:?}", instrs);
-        log::debug!("instr_ptr: {}", cf.instr_ptr);
-        Err(Error::FuncDidNotReturn)
     }
 }
 
