@@ -306,7 +306,9 @@ impl Store {
                         })?;
 
                     // See comment for active element sections in the function above why we need to do this here
-                    if let Err(Error::Trap(trap)) = mem.borrow_mut().store(offset as usize, 0, &data.data) {
+                    if let Err(Error::Trap(trap)) =
+                        mem.borrow_mut().store(offset as usize, 0, &data.data, data.data.len())
+                    {
                         return Ok((data_addrs.into_boxed_slice(), Some(trap)));
                     }
 
@@ -607,8 +609,8 @@ impl MemoryInstance {
         }
     }
 
-    pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8]) -> Result<()> {
-        let end = addr.checked_add(data.len()).ok_or_else(|| {
+    pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8], len: usize) -> Result<()> {
+        let end = addr.checked_add(len).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len: data.len(), max: self.data.len() })
         })?;
 
@@ -646,9 +648,37 @@ impl MemoryInstance {
         self.page_count
     }
 
-    pub(crate) fn grow(&mut self, delta: i32) -> Option<i32> {
+    pub(crate) fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<()> {
+        let end = addr
+            .checked_add(len)
+            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }))?;
+        if end > self.data.len() {
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }));
+        }
+        self.data[addr..end].fill(val);
+        Ok(())
+    }
+
+    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<()> {
+        let end = src
+            .checked_add(len)
+            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: src, len, max: self.data.len() }))?;
+        if end > self.data.len() || end < src {
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: src, len, max: self.data.len() }));
+        }
+        let end = dst
+            .checked_add(len)
+            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: dst, len, max: self.data.len() }))?;
+        if end > self.data.len() || end < dst {
+            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: dst, len, max: self.data.len() }));
+        }
+        self.data[dst..end].copy_within(src..end, len);
+        Ok(())
+    }
+
+    pub(crate) fn grow(&mut self, pages_delta: i32) -> Option<i32> {
         let current_pages = self.page_count();
-        let new_pages = current_pages as i64 + delta as i64;
+        let new_pages = current_pages as i64 + pages_delta as i64;
 
         if new_pages < 0 || new_pages > MAX_PAGES as i64 {
             return None;
@@ -669,7 +699,7 @@ impl MemoryInstance {
         self.page_count = new_pages as usize;
 
         log::debug!("memory was {} pages", current_pages);
-        log::debug!("memory grown by {} pages", delta);
+        log::debug!("memory grown by {} pages", pages_delta);
         log::debug!("memory grown to {} pages", self.page_count);
 
         Some(current_pages.try_into().expect("memory size out of bounds, this should have been caught earlier"))
@@ -689,6 +719,25 @@ pub(crate) struct GlobalInstance {
 impl GlobalInstance {
     pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
         Self { ty, value, _owner: owner }
+    }
+
+    pub(crate) fn get(&self) -> WasmValue {
+        self.value.attach_type(self.ty.ty)
+    }
+
+    pub(crate) fn set(&mut self, val: WasmValue) -> Result<()> {
+        if val.val_type() != self.ty.ty {
+            return Err(Error::Other(format!(
+                "global type mismatch: expected {:?}, got {:?}",
+                self.ty.ty,
+                val.val_type()
+            )));
+        }
+        if !self.ty.mutable {
+            return Err(Error::Other("global is immutable".to_string()));
+        }
+        self.value = val.into();
+        Ok(())
     }
 }
 

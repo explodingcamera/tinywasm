@@ -17,6 +17,10 @@ name="hello"
 path="src/hello.rs"
 
 [[bin]]
+name="print"
+path="src/print.rs"
+
+[[bin]]
 name="tinywasm"
 path="src/tinywasm.rs"
 

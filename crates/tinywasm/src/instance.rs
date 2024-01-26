@@ -199,14 +199,14 @@ impl ModuleInstance {
     pub fn memory(&self, store: &Store, addr: MemAddr) -> Result<MemoryRef> {
         let addr = self.resolve_mem_addr(addr);
         let mem = store.get_mem(addr as usize)?;
-        Ok(MemoryRef { _instance: mem.clone() })
+        Ok(MemoryRef { instance: mem.clone() })
     }
 
     /// Get the start function of the module
     ///
     /// Returns None if the module has no start function
     /// If no start function is specified, also checks for a _start function in the exports
-    /// (which is not part of the spec, but used by llvm)
+    /// (which is not part of the spec, but used by some compilers)
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
     pub fn start_func(&self, store: &Store) -> Result<Option<FuncHandle>> {

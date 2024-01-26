@@ -63,7 +63,7 @@ macro_rules! mem_store {
         let val = val as $store_type;
         let val = val.to_le_bytes();
 
-        mem.borrow_mut().store(($arg.offset + addr) as usize, $arg.align as usize, &val)?;
+        mem.borrow_mut().store(($arg.offset + addr) as usize, $arg.align as usize, &val, val.len())?;
     }};
 }
 
