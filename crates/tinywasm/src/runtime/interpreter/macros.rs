@@ -146,13 +146,8 @@ macro_rules! comp {
     }};
 
     ($op:tt, $intermediate:ty, $to:ty, $stack:ident) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $intermediate = a.into();
-        let b: $intermediate = b.into();
-
-        // Cast to unsigned type before comparison
-        let a = a as $to;
-        let b = b as $to;
+        let b = $stack.values.pop_t::<$intermediate>()? as $to;
+        let a = $stack.values.pop_t::<$intermediate>()? as $to;
         $stack.values.push(((a $op b) as i32).into());
     }};
 }
@@ -160,7 +155,7 @@ macro_rules! comp {
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
     ($op:tt, $ty:ty, $stack:ident) => {{
-        let a: $ty = $stack.values.pop()?.into();
+        let a = $stack.values.pop_t::<$ty>()?;
         $stack.values.push(((a $op 0) as i32).into());
     }};
 }
@@ -173,20 +168,14 @@ macro_rules! arithmetic {
 
     // also allow operators such as +, -
     ($op:tt, $ty:ty, $stack:ident) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $ty = a.into();
-        let b: $ty = b.into();
+        let b: $ty = $stack.values.pop_t()?;
+        let a: $ty = $stack.values.pop_t()?;
         $stack.values.push((a $op b).into());
     }};
 
     ($op:ident, $intermediate:ty, $to:ty, $stack:ident) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $to = a.into();
-        let b: $to = b.into();
-
-        let a = a as $intermediate;
-        let b = b as $intermediate;
-
+        let b = $stack.values.pop_t::<$to>()? as $intermediate;
+        let a = $stack.values.pop_t::<$to>()? as $intermediate;
         let result = a.$op(b);
         $stack.values.push((result as $to).into());
     }};
@@ -215,19 +204,14 @@ macro_rules! checked_int_arithmetic {
     }};
 
     ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
-        let [a, b] = $stack.values.pop_n_const::<2>()?;
-        let a: $from = a.into();
-        let b: $from = b.into();
+        let b = $stack.values.pop_t::<$from>()? as $to;
+        let a = $stack.values.pop_t::<$from>()? as $to;
 
-        let a_casted: $to = a as $to;
-        let b_casted: $to = b as $to;
-
-        if b_casted == 0 {
+        if b == 0 {
             return Err(Error::Trap(crate::Trap::DivisionByZero));
         }
 
-        let result = a_casted.$op(b_casted).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
-
+        let result = a.$op(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
         // Cast back to original type if different
         $stack.values.push((result as $from).into());
     }};

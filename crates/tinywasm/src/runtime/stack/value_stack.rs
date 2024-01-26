@@ -1,6 +1,6 @@
 use core::ops::Range;
 
-use crate::{runtime::RawWasmValue, Error, Result};
+use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
@@ -10,19 +10,17 @@ pub(crate) const STACK_SIZE: usize = 1024;
 #[derive(Debug)]
 pub(crate) struct ValueStack {
     stack: Vec<RawWasmValue>,
-    top: usize,
 }
 
 impl Default for ValueStack {
     fn default() -> Self {
-        Self { stack: Vec::with_capacity(STACK_SIZE), top: 0 }
+        Self { stack: Vec::with_capacity(STACK_SIZE) }
     }
 }
 
 impl ValueStack {
     #[inline]
     pub(crate) fn extend_from_within(&mut self, range: Range<usize>) {
-        self.top += range.len();
         self.stack.extend_from_within(range);
     }
 
@@ -32,98 +30,95 @@ impl ValueStack {
             return;
         }
 
-        self.top += values.len();
         self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
     }
 
     #[inline]
     pub(crate) fn len(&self) -> usize {
-        assert!(self.top <= self.stack.len());
-        self.top
+        self.stack.len()
     }
 
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         let total_to_keep = n + end_keep;
-        assert!(self.top >= total_to_keep, "Total to keep should be less than or equal to self.top");
+        let len = self.stack.len();
+        assert!(len >= total_to_keep, "Total to keep should be less than or equal to self.top");
 
-        let current_size = self.stack.len();
-        if current_size <= total_to_keep {
+        if len <= total_to_keep {
             return; // No need to truncate if the current size is already less than or equal to total_to_keep
         }
 
-        let items_to_remove = current_size - total_to_keep;
-        let remove_start_index = self.top - items_to_remove - end_keep;
-        let remove_end_index = self.top - end_keep;
-
+        let items_to_remove = len - total_to_keep;
+        let remove_start_index = len - items_to_remove - end_keep;
+        let remove_end_index = len - end_keep;
         self.stack.drain(remove_start_index..remove_end_index);
-        self.top = total_to_keep; // Update top to reflect the new size
     }
 
     #[inline]
     pub(crate) fn push(&mut self, value: RawWasmValue) {
-        self.top += 1;
         self.stack.push(value);
     }
 
     #[inline]
     pub(crate) fn last(&self) -> Result<&RawWasmValue> {
-        self.stack.last().ok_or(Error::StackUnderflow)
+        match self.stack.last() {
+            Some(v) => Ok(v),
+            None => {
+                cold();
+                Err(Error::StackUnderflow)
+            }
+        }
     }
 
     #[inline]
     pub(crate) fn pop_t<T: From<RawWasmValue>>(&mut self) -> Result<T> {
-        self.top -= 1;
-        Ok(self.stack.pop().ok_or(Error::StackUnderflow)?.into())
+        match self.stack.pop() {
+            Some(v) => Ok(v.into()),
+            None => {
+                cold();
+                Err(Error::StackUnderflow)
+            }
+        }
     }
 
     #[inline]
     pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
-        self.top -= 1;
-        self.stack.pop().ok_or(Error::StackUnderflow)
+        match self.stack.pop() {
+            Some(v) => Ok(v),
+            None => {
+                cold();
+                Err(Error::StackUnderflow)
+            }
+        }
     }
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        let res = self.pop_n_rev(types.len())?.iter().zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
+        let res = self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
         Ok(res)
     }
 
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
-        assert!(self.top >= result_count);
-        self.stack.copy_within((self.top - result_count)..self.top, new_stack_size);
-        self.top = new_stack_size + result_count;
-        self.stack.truncate(self.top);
+        let len = self.stack.len();
+        self.stack.copy_within((len - result_count)..len, new_stack_size);
+        self.stack.truncate(new_stack_size + result_count);
     }
 
     #[inline]
     pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
-        if self.top < n {
+        let len = self.stack.len();
+        if unlikely(len < n) {
             return Err(Error::StackUnderflow);
         }
-        Ok(&self.stack[self.top - n..self.top])
+        Ok(&self.stack[len - n..len])
     }
 
     #[inline]
-    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<Vec<RawWasmValue>> {
-        if self.top < n {
+    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
+        let len = self.stack.len();
+        if unlikely(len < n) {
             return Err(Error::StackUnderflow);
         }
-        self.top -= n;
-        let res = self.stack.drain(self.top..).collect::<Vec<_>>();
-        Ok(res)
-    }
-
-    #[inline]
-    pub(crate) fn pop_n_const<const N: usize>(&mut self) -> Result<[RawWasmValue; N]> {
-        if self.top < N {
-            return Err(Error::StackUnderflow);
-        }
-        self.top -= N;
-        let mut res = [RawWasmValue::default(); N];
-        for i in res.iter_mut().rev() {
-            *i = self.stack.pop().ok_or(Error::InvalidStore)?;
-        }
-
+        let res = self.stack.drain((len - n)..);
         Ok(res)
     }
 }

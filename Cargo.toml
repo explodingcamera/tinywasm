@@ -25,6 +25,21 @@ edition="2021"
 name="wasm-rust"
 test=false
 
+[[bench]]
+name="selfhosted"
+harness=false
+
+[profile.bench]
+opt-level=3
+lto="thin"
+codegen-units=1
+debug=true
+
 [dev-dependencies]
 color-eyre="0.6"
+criterion={version="0.5", features=["html_reports"]}
+
 tinywasm={path="crates/tinywasm"}
+wasmi={version="0.31", features=["std"]}
+wasmer={version="4.2", features=["cranelift", "singlepass"]}
+wasmtime={version="17.0", features=["cranelift"]}

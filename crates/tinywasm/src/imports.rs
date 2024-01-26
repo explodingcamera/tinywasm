@@ -255,6 +255,13 @@ impl Imports {
         Imports { values: BTreeMap::new(), modules: BTreeMap::new() }
     }
 
+    /// Merge two import sets
+    pub fn merge(mut self, other: Self) -> Self {
+        self.values.extend(other.values);
+        self.modules.extend(other.modules);
+        self
+    }
+
     /// Link a module
     ///
     /// This will automatically link all imported values on instantiation

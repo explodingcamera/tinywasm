@@ -1,7 +1,6 @@
 use super::{InterpreterRuntime, Stack};
-use crate::log;
+use crate::{cold, log, unlikely};
 use crate::{
-    log::debug,
     runtime::{BlockType, CallFrame, LabelArgs, LabelFrame},
     Error, FuncContext, ModuleInstance, Result, Store, Trap,
 };
@@ -23,6 +22,7 @@ use macros::*;
 use traits::*;
 
 impl InterpreterRuntime {
+    #[inline(always)] // a small 2-3% performance improvement in some cases
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
@@ -80,10 +80,10 @@ impl InterpreterRuntime {
             }
         }
 
-        debug!("end of exec");
-        debug!("stack: {:?}", stack.values);
-        debug!("insts: {:?}", instrs);
-        debug!("instr_ptr: {}", cf.instr_ptr);
+        log::debug!("end of exec");
+        log::debug!("stack: {:?}", stack.values);
+        log::debug!("insts: {:?}", instrs);
+        log::debug!("instr_ptr: {}", cf.instr_ptr);
         Err(Error::FuncDidNotReturn)
     }
 }
@@ -115,7 +115,7 @@ macro_rules! break_to {
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
-#[inline]
+#[inline(always)] // this improves performance by more than 20% in some cases
 fn exec_one(
     cf: &mut CallFrame,
     instr: &Instruction,
@@ -124,12 +124,13 @@ fn exec_one(
     store: &mut Store,
     module: &ModuleInstance,
 ) -> Result<ExecResult> {
-    debug!("ptr: {} instr: {:?}", cf.instr_ptr, instr);
-
     use tinywasm_types::Instruction::*;
     match instr {
         Nop => { /* do nothing */ }
-        Unreachable => return Ok(ExecResult::Trap(crate::Trap::Unreachable)), // we don't need to include the call frame here because it's already on the stack
+        Unreachable => {
+            cold();
+            return Ok(ExecResult::Trap(crate::Trap::Unreachable));
+        } // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
 
         Select(
@@ -162,7 +163,7 @@ fn exec_one(
                 }
             };
 
-            let params = stack.values.pop_n_rev(ty.params.len())?;
+            let params = stack.values.pop_n_rev(ty.params.len())?.collect::<Vec<_>>();
             let call_frame = CallFrame::new_raw(func_inst, &params, locals);
 
             // push the call frame
@@ -191,15 +192,9 @@ fn exec_one(
 
             let func_inst = store.get_func(func_ref as usize)?.clone();
             let func_ty = func_inst.func.ty();
-
-            log::info!("type_addr: {}", type_addr);
-            log::info!("types: {:?}", module.func_tys());
             let call_ty = module.func_ty(*type_addr);
 
-            log::info!("call_indirect: current fn owner: {:?}", module.id());
-            log::info!("call_indirect: func owner: {:?}", func_inst.owner);
-
-            if func_ty != call_ty {
+            if unlikely(func_ty != call_ty) {
                 log::error!("indirect call type mismatch: {:?} != {:?}", func_ty, call_ty);
                 return Err(
                     Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
@@ -217,7 +212,7 @@ fn exec_one(
                 }
             };
 
-            let params = stack.values.pop_n_rev(func_ty.params.len())?;
+            let params = stack.values.pop_n_rev(func_ty.params.len())?.collect::<Vec<_>>();
             let call_frame = CallFrame::new_raw(func_inst, &params, locals);
 
             // push the call frame
@@ -232,7 +227,6 @@ fn exec_one(
         If(args, else_offset, end_offset) => {
             // truthy value is on the top of the stack, so enter the then block
             if stack.values.pop_t::<i32>()? != 0 {
-                log::trace!("entering then");
                 cf.enter_label(
                     LabelFrame {
                         instr_ptr: cf.instr_ptr,
@@ -248,7 +242,6 @@ fn exec_one(
 
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
-                log::debug!("entering else at {}", cf.instr_ptr + *else_offset);
                 cf.enter_label(
                     LabelFrame {
                         instr_ptr: cf.instr_ptr + *else_offset,
@@ -266,7 +259,6 @@ fn exec_one(
         }
 
         Loop(args, end_offset) => {
-            // let params = stack.values.pop_block_params(*args, &module)?;
             cf.enter_label(
                 LabelFrame {
                     instr_ptr: cf.instr_ptr,
@@ -297,11 +289,14 @@ fn exec_one(
                 .iter()
                 .map(|i| match i {
                     BrLabel(l) => Ok(*l),
-                    _ => panic!("Expected BrLabel, this should have been validated by the parser"),
+                    _ => {
+                        cold();
+                        panic!("Expected BrLabel, this should have been validated by the parser")
+                    }
                 })
                 .collect::<Result<Vec<_>>>()?;
 
-            if instr.len() != *len {
+            if unlikely(instr.len() != *len) {
                 panic!(
                     "Expected {} BrLabel instructions, got {}, this should have been validated by the parser",
                     len,
@@ -341,6 +336,7 @@ fn exec_one(
         // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
             let Some(block) = cf.labels.pop() else {
+                cold();
                 panic!("else: no label to end, this should have been validated by the parser");
             };
 
@@ -352,6 +348,7 @@ fn exec_one(
         EndBlockFrame => {
             // remove the label from the label stack
             let Some(block) = cf.labels.pop() else {
+                cold();
                 panic!("end: no label to end, this should have been validated by the parser");
             };
             stack.values.truncate_keep(block.stack_ptr, block.args.results)
@@ -379,7 +376,8 @@ fn exec_one(
 
         MemorySize(addr, byte) => {
             if *byte != 0 {
-                unimplemented!("memory.size with byte != 0");
+                cold();
+                return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
             }
 
             let mem_idx = module.resolve_mem_addr(*addr);
@@ -389,6 +387,7 @@ fn exec_one(
 
         MemoryGrow(addr, byte) => {
             if *byte != 0 {
+                cold();
                 return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
             }
 
@@ -633,6 +632,7 @@ fn exec_one(
         I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, stack),
 
         i => {
+            cold();
             log::error!("unimplemented instruction: {:?}", i);
             return Err(Error::UnsupportedFeature(alloc::format!("unimplemented instruction: {:?}", i)));
         }

@@ -122,3 +122,13 @@ pub mod parser {
 pub mod types {
     pub use tinywasm_types::*;
 }
+
+#[cold]
+pub(crate) fn cold() {}
+
+pub(crate) fn unlikely(b: bool) -> bool {
+    if b {
+        cold();
+    }
+    b
+}
