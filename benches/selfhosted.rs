@@ -30,9 +30,15 @@ const TINYWASM: &[u8] = include_bytes!("../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     let module = tinywasm_module(TINYWASM);
 
-    c.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
-    c.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
+    let mut group = c.benchmark_group("selfhosted");
+    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().sample_size(500).measurement_time(std::time::Duration::from_secs(5)).significance_level(0.1);
+    targets = criterion_benchmark
+);
+
 criterion_main!(benches);

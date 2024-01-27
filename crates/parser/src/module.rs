@@ -5,7 +5,7 @@ use core::fmt::Debug;
 use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct CodeSection {
     pub locals: Box<[ValType]>,
     pub body: Box<[Instruction]>,

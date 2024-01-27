@@ -71,7 +71,7 @@ pub struct TinyWasmModule {
 /// A WebAssembly value.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#value-types>
-#[derive(Clone, PartialEq, Copy)]
+#[derive(Clone, Copy)]
 pub enum WasmValue {
     // Num types
     /// A 32-bit integer.
@@ -253,7 +253,7 @@ impl WasmValue {
 }
 
 /// Type of a WebAssembly value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValType {
     /// A 32-bit integer.
     I32,
@@ -380,13 +380,13 @@ pub struct Global {
     pub init: ConstInstruction,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct TableType {
     pub element_type: ValType,
     pub size_initial: u32,
@@ -406,7 +406,7 @@ impl TableType {
 #[derive(Debug, Clone)]
 
 /// Represents a memory's type.
-#[derive(Copy, PartialEq, Eq, Hash)]
+#[derive(Copy)]
 pub struct MemoryType {
     pub arch: MemoryArch,
     pub page_count_initial: u64,
@@ -480,7 +480,7 @@ pub struct Element {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum ElementKind {
     Passive,
     Active { table: TableAddr, offset: ConstInstruction },

@@ -10,7 +10,7 @@ pub enum BlockArgs {
 }
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone)]
 pub struct MemoryArg {
     pub mem_addr: MemAddr,
     pub align: u8,
@@ -23,7 +23,7 @@ type BrTableLen = usize;
 type EndOffset = usize;
 type ElseOffset = usize;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum ConstInstruction {
     I32Const(i32),
     I64Const(i64),
@@ -46,7 +46,7 @@ pub enum ConstInstruction {
 ///   This makes it easier to implement the label stack (we call it BlockFrameStack) iteratively.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),

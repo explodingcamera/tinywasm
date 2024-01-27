@@ -115,6 +115,7 @@ macro_rules! break_to {
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
+// TODO: perf: don't push then pop the call frame, just pass it via ExecResult::Call instead
 #[inline(always)] // this improves performance by more than 20% in some cases
 fn exec_one(
     cf: &mut CallFrame,
@@ -611,7 +612,7 @@ fn exec_one(
             let elem_idx = module.resolve_elem_addr(*elem_index);
             let elem = store.get_elem(elem_idx as usize)?;
 
-            if elem.kind != ElementKind::Passive {
+            if let ElementKind::Passive = elem.kind {
                 return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
             }
 

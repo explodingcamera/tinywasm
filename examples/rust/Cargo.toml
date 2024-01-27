@@ -29,7 +29,7 @@ name="fibonacci"
 path="src/fibonacci.rs"
 
 [profile.wasm]
-opt-level="s"
+opt-level=3
 lto="thin"
 codegen-units=1
 panic="abort"

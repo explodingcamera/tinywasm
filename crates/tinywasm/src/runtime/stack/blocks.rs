@@ -19,11 +19,6 @@ impl Labels {
     #[inline]
     /// get the label at the given index, where 0 is the top of the stack
     pub(crate) fn get_relative_to_top(&self, index: usize) -> Option<&LabelFrame> {
-        let len = self.0.len();
-        if index >= len {
-            return None;
-        }
-
         self.0.get(self.0.len() - index - 1)
     }
 

@@ -3,52 +3,45 @@ use crate::{
     runtime::{BlockType, RawWasmValue},
     Error, FunctionInstance, Result, Trap,
 };
+use alloc::vec;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
 use super::{blocks::Labels, LabelFrame};
 
 // minimum call stack size
-const CALL_STACK_SIZE: usize = 128;
+const CALL_STACK_SIZE: usize = 256;
 const CALL_STACK_MAX_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
-    top: usize,
 }
 
 impl Default for CallStack {
     fn default() -> Self {
-        Self { stack: Vec::with_capacity(CALL_STACK_SIZE), top: 0 }
+        Self { stack: Vec::with_capacity(CALL_STACK_SIZE) }
     }
 }
 
 impl CallStack {
+    #[inline]
     pub(crate) fn is_empty(&self) -> bool {
-        self.top == 0
+        self.stack.is_empty()
     }
 
+    #[inline]
     pub(crate) fn pop(&mut self) -> Result<CallFrame> {
-        assert!(self.top <= self.stack.len());
-        if self.top == 0 {
-            return Err(Error::CallStackEmpty);
-        }
-
-        self.top -= 1;
-        Ok(self.stack.pop().unwrap())
+        self.stack.pop().ok_or_else(|| Error::CallStackEmpty)
     }
 
     #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        assert!(self.top <= self.stack.len(), "stack is too small");
-
         log::debug!("stack size: {}", self.stack.len());
         if self.stack.len() >= CALL_STACK_MAX_SIZE {
             return Err(Trap::CallStackOverflow.into());
         }
 
-        self.top += 1;
         self.stack.push(call_frame);
         Ok(())
     }
@@ -79,7 +72,6 @@ impl CallFrame {
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Option<()> {
-        log::debug!("break_to_relative: {}", break_to_relative);
         let break_to = self.labels.get_relative_to_top(break_to_relative as usize)?;
 
         // instr_ptr points to the label instruction, but the next step
@@ -111,14 +103,15 @@ impl CallFrame {
         Some(())
     }
 
+    // TOOD: perf: this function is pretty hot
+    // Especially the two `extend` calls
     pub(crate) fn new_raw(
         func_instance_ptr: Rc<FunctionInstance>,
         params: &[RawWasmValue],
         local_types: Vec<ValType>,
     ) -> Self {
-        let mut locals = Vec::with_capacity(local_types.len() + params.len());
-        locals.extend(params.iter().cloned());
-        locals.extend(local_types.iter().map(|_| RawWasmValue::default()));
+        let mut locals = vec![RawWasmValue::default(); local_types.len() + params.len()];
+        locals[..params.len()].copy_from_slice(params);
 
         Self {
             instr_ptr: 0,

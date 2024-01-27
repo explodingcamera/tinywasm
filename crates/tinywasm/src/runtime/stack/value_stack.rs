@@ -98,9 +98,7 @@ impl ValueStack {
     }
 
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
-        let len = self.stack.len();
-        self.stack.copy_within((len - result_count)..len, new_stack_size);
-        self.stack.truncate(new_stack_size + result_count);
+        self.stack.drain(new_stack_size..(self.stack.len() - result_count));
     }
 
     #[inline]
