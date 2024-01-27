@@ -4,7 +4,7 @@ use tinywasm_types::BlockArgs;
 use crate::{unlikely, ModuleInstance};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Labels(Vec<LabelFrame>);
+pub(crate) struct Labels(Vec<LabelFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the lable count when parsing the module?
 
 impl Labels {
     pub(crate) fn new() -> Self {

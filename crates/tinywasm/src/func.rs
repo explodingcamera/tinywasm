@@ -1,17 +1,17 @@
-use crate::{log, runtime::RawWasmValue};
+use crate::{log, runtime::RawWasmValue, unlikely, Function};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
-use tinywasm_types::{FuncAddr, FuncType, ValType, WasmValue};
+use tinywasm_types::{FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
 use crate::{
     runtime::{CallFrame, Stack},
-    Error, FuncContext, ModuleInstance, Result, Store,
+    Error, FuncContext, Result, Store,
 };
 
 #[derive(Debug)]
 /// A function handle
 pub struct FuncHandle {
-    pub(crate) module: ModuleInstance,
-    pub(crate) addr: FuncAddr,
+    pub(crate) module_addr: ModuleInstanceAddr,
+    pub(crate) addr: u32,
     pub(crate) ty: FuncType,
 
     /// The name of the function, if it has one
@@ -22,18 +22,13 @@ impl FuncHandle {
     /// Call a function (Invocation)
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
+    #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
-        let mut stack = Stack::default();
-
-        // 1. Assert: funcs[func_addr] exists
-        // 2. let func_inst be the functiuon instance funcs[func_addr]
-        let func_inst = store.get_func(self.addr as usize)?.clone();
-
         // 3. Let func_ty be the function type
         let func_ty = &self.ty;
 
         // 4. If the length of the provided argument values is different from the number of expected arguments, then fail
-        if func_ty.params.len() != params.len() {
+        if unlikely(func_ty.params.len() != params.len()) {
             log::info!("func_ty.params: {:?}", func_ty.params);
             return Err(Error::Other(format!(
                 "param count mismatch: expected {}, got {}",
@@ -43,31 +38,34 @@ impl FuncHandle {
         }
 
         // 5. For each value type and the corresponding value, check if types match
-        for (i, (ty, param)) in func_ty.params.iter().zip(params).enumerate() {
+        if !unlikely(func_ty.params.iter().zip(params).enumerate().all(|(i, (ty, param))| {
             if ty != &param.val_type() {
-                return Err(Error::Other(format!(
-                    "param type mismatch at index {}: expected {:?}, got {:?}",
-                    i, ty, param
-                )));
+                log::error!("param type mismatch at index {}: expected {:?}, got {:?}", i, ty, param);
+                false
+            } else {
+                true
             }
+        })) {
+            return Err(Error::Other("Type mismatch".into()));
         }
 
-        let locals = match &func_inst.func {
-            crate::Function::Host(h) => {
-                let func = h.func.clone();
-                let ctx = FuncContext { store, module: &self.module };
+        let func_inst = store.get_func(self.addr as usize)?;
+        let wasm_func = match &func_inst.func {
+            Function::Host(host_func) => {
+                let func = &host_func.clone().func;
+                let ctx = FuncContext { store, module_addr: self.module_addr };
                 return (func)(ctx, params);
             }
-            crate::Function::Wasm(ref f) => f.locals.to_vec(),
+            Function::Wasm(wasm_func) => wasm_func,
         };
 
         // 6. Let f be the dummy frame
-        log::debug!("locals: {:?}", locals);
-        let call_frame = CallFrame::new(func_inst, params.iter().map(|v| RawWasmValue::from(*v)), locals);
+        let call_frame =
+            CallFrame::new(wasm_func.clone(), func_inst.owner, params.iter().map(|v| RawWasmValue::from(*v)));
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
-        stack.call_stack.push(call_frame)?;
+        let mut stack = Stack::new(call_frame);
 
         // 9. Invoke the function instance
         let runtime = store.runtime();
@@ -125,6 +123,7 @@ macro_rules! impl_into_wasm_value_tuple {
             $($T: Into<WasmValue>),*
         {
             #[allow(non_snake_case)]
+            #[inline]
             fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
                 let ($($T,)*) = self;
                 vec![$($T.into(),)*]
@@ -136,6 +135,7 @@ macro_rules! impl_into_wasm_value_tuple {
 macro_rules! impl_into_wasm_value_tuple_single {
     ($T:ident) => {
         impl IntoWasmValueTuple for $T {
+            #[inline]
             fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
                 vec![self.into()]
             }
@@ -164,6 +164,7 @@ macro_rules! impl_from_wasm_value_tuple {
         where
             $($T: TryFrom<WasmValue, Error = ()>),*
         {
+            #[inline]
             fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.iter();
@@ -186,6 +187,7 @@ macro_rules! impl_from_wasm_value_tuple {
 macro_rules! impl_from_wasm_value_tuple_single {
     ($T:ident) => {
         impl FromWasmValueTuple for $T {
+            #[inline]
             fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.iter();
@@ -254,6 +256,7 @@ macro_rules! impl_val_types_from_tuple {
         where
             $($t: ToValType,)+
         {
+            #[inline]
             fn val_types() -> Box<[ValType]> {
                 Box::new([$($t::to_val_type(),)+])
             }
@@ -262,6 +265,7 @@ macro_rules! impl_val_types_from_tuple {
 }
 
 impl ValTypesFromTuple for () {
+    #[inline]
     fn val_types() -> Box<[ValType]> {
         Box::new([])
     }
@@ -271,6 +275,7 @@ impl<T1> ValTypesFromTuple for T1
 where
     T1: ToValType,
 {
+    #[inline]
     fn val_types() -> Box<[ValType]> {
         Box::new([T1::to_val_type()])
     }

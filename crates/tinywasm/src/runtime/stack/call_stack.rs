@@ -1,10 +1,10 @@
 use crate::unlikely;
 use crate::{
     runtime::{BlockType, RawWasmValue},
-    Error, FunctionInstance, Result, Trap,
+    Error, Result, Trap,
 };
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use tinywasm_types::ValType;
+use tinywasm_types::{ModuleInstanceAddr, WasmFunction};
 
 use super::{blocks::Labels, LabelFrame};
 
@@ -17,13 +17,14 @@ pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
 }
 
-impl Default for CallStack {
-    fn default() -> Self {
-        Self { stack: Vec::with_capacity(CALL_STACK_SIZE) }
-    }
-}
-
 impl CallStack {
+    #[inline]
+    pub(crate) fn new(initial_frame: CallFrame) -> Self {
+        let mut stack = Self { stack: Vec::with_capacity(CALL_STACK_SIZE) };
+        stack.push(initial_frame).unwrap();
+        stack
+    }
+
     #[inline]
     pub(crate) fn is_empty(&self) -> bool {
         self.stack.is_empty()
@@ -51,14 +52,13 @@ impl CallStack {
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
     // pub(crate) module: ModuleInstanceAddr,
-    pub(crate) func_instance: Rc<FunctionInstance>,
-
+    pub(crate) func_instance: (Rc<WasmFunction>, ModuleInstanceAddr),
     pub(crate) labels: Labels,
     pub(crate) locals: Box<[RawWasmValue]>,
 }
 
 impl CallFrame {
-    #[inline]
+    // TOOD: perf: this is called a lot, and it's a bit slow
     /// Push a new label to the label stack and ensure the stack has the correct values
     pub(crate) fn enter_label(&mut self, label_frame: LabelFrame, stack: &mut super::ValueStack) {
         if label_frame.params > 0 {
@@ -102,13 +102,15 @@ impl CallFrame {
         Some(())
     }
 
-    #[inline]
+    // TODO: perf: a lot of time is spent here
+    #[inline(always)] // about 10% faster with this
     pub(crate) fn new(
-        func_instance_ptr: Rc<FunctionInstance>,
+        wasm_func_inst: Rc<WasmFunction>,
+        owner: ModuleInstanceAddr,
         params: impl Iterator<Item = RawWasmValue> + ExactSizeIterator,
-        local_types: Vec<ValType>,
     ) -> Self {
         let locals = {
+            let local_types = &wasm_func_inst.locals;
             let total_size = local_types.len() + params.len();
             let mut locals = Vec::with_capacity(total_size);
             locals.extend(params);
@@ -116,7 +118,7 @@ impl CallFrame {
             locals.into_boxed_slice()
         };
 
-        Self { instr_ptr: 0, func_instance: func_instance_ptr, locals, labels: Labels::new() }
+        Self { instr_ptr: 0, func_instance: (wasm_func_inst, owner), locals, labels: Labels::new() }
     }
 
     #[inline]

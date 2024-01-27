@@ -87,7 +87,7 @@ impl Default for Store {
 /// Data should only be addressable by the module that owns it
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub(crate) struct StoreData {
-    pub(crate) funcs: Vec<Rc<FunctionInstance>>,
+    pub(crate) funcs: Vec<FunctionInstance>,
     pub(crate) tables: Vec<Rc<RefCell<TableInstance>>>,
     pub(crate) memories: Vec<Rc<RefCell<MemoryInstance>>>,
     pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
@@ -122,7 +122,7 @@ impl Store {
         let mut func_addrs = Vec::with_capacity(func_count);
 
         for (i, (_, func)) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), owner: idx }));
+            self.data.funcs.push(FunctionInstance { func: Function::Wasm(Rc::new(func)), owner: idx });
             func_addrs.push((i + func_count) as FuncAddr);
         }
 
@@ -344,7 +344,7 @@ impl Store {
     }
 
     pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
+        self.data.funcs.push(FunctionInstance { func, owner: idx });
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
@@ -396,7 +396,7 @@ impl Store {
     }
 
     /// Get the function at the actual index in the store
-    pub(crate) fn get_func(&self, addr: usize) -> Result<&Rc<FunctionInstance>> {
+    pub(crate) fn get_func(&self, addr: usize) -> Result<&FunctionInstance> {
         self.data.funcs.get(addr).ok_or_else(|| Error::Other(format!("function {} not found", addr)))
     }
 
@@ -438,30 +438,13 @@ impl Store {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A WebAssembly Function Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub(crate) struct FunctionInstance {
     pub(crate) func: Function,
     pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
-}
-
-// TODO: check if this actually helps
-#[inline(always)]
-#[cold]
-const fn cold() {}
-
-impl FunctionInstance {
-    pub(crate) fn assert_wasm(&self) -> Result<&WasmFunction> {
-        match &self.func {
-            Function::Wasm(w) => Ok(w),
-            Function::Host(_) => {
-                cold();
-                Err(Error::Other("expected wasm function".to_string()))
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

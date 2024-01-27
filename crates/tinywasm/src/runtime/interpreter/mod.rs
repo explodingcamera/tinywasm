@@ -7,7 +7,7 @@ use crate::{
 use alloc::format;
 use alloc::{string::ToString, vec::Vec};
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
-use tinywasm_types::{ElementKind, Instruction, ValType};
+use tinywasm_types::{ElementKind, ValType};
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
@@ -28,51 +28,24 @@ impl InterpreterRuntime {
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
 
-        let mut func_inst = cf.func_instance.clone();
-        let mut wasm_func = func_inst.assert_wasm()?;
-
         // The function to execute, gets updated from ExecResult::Call
-        let mut instrs = &wasm_func.instructions;
-        let mut instr_count = instrs.len();
-        let mut current_module = store.get_module_instance_raw(func_inst.owner);
+        let mut current_module = store.get_module_instance_raw(cf.func_instance.1);
 
         loop {
-            if unlikely(cf.instr_ptr >= instr_count) {
-                cold();
-                log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instr_count);
-                return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instr_count)));
-            }
-            let instr = &instrs[cf.instr_ptr];
-
-            match exec_one(&mut cf, instr, instrs, stack, store, &current_module)? {
+            match exec_one(&mut cf, stack, store, &current_module)? {
                 // Continue execution at the new top of the call stack
                 ExecResult::Call => {
                     cf = stack.call_stack.pop()?;
-                    func_inst = cf.func_instance.clone();
-                    wasm_func =
-                        func_inst.assert_wasm().map_err(|_| Error::Other("call expected wasm function".to_string()))?;
-                    instrs = &wasm_func.instructions;
-                    instr_count = instrs.len();
-
-                    if cf.func_instance.owner != current_module.id() {
-                        current_module.swap(
-                            store
-                                .get_module_instance(cf.func_instance.owner)
-                                .ok_or_else(|| Error::Other("call expected module instance".to_string()))?
-                                .clone(),
-                        );
+                    if cf.func_instance.1 != current_module.id() {
+                        current_module.swap_with(cf.func_instance.1, store);
                     }
-
-                    continue;
                 }
 
                 // return from the function
                 ExecResult::Return => return Ok(()),
 
                 // continue to the next instruction and increment the instruction pointer
-                ExecResult::Ok => {
-                    cf.instr_ptr += 1;
-                }
+                ExecResult::Ok => cf.instr_ptr += 1,
 
                 // trap the program
                 ExecResult::Trap(trap) => {
@@ -114,18 +87,17 @@ macro_rules! break_to {
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
-// TODO: perf: don't push then pop the call frame, just pass it via ExecResult::Call instead
 #[inline(always)] // this improves performance by more than 20% in some cases
-fn exec_one(
-    cf: &mut CallFrame,
-    instr: &Instruction,
-    instrs: &[Instruction],
-    stack: &mut Stack,
-    store: &mut Store,
-    module: &ModuleInstance,
-) -> Result<ExecResult> {
+fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &ModuleInstance) -> Result<ExecResult> {
+    let instrs = &cf.func_instance.0.instructions;
+    if unlikely(cf.instr_ptr >= instrs.len() || instrs.is_empty()) {
+        cold();
+        log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len());
+        return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
+    }
+
     use tinywasm_types::Instruction::*;
-    match instr {
+    match &instrs[cf.instr_ptr] {
         Nop => { /* do nothing */ }
         Unreachable => {
             cold();
@@ -152,19 +124,19 @@ fn exec_one(
             let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?.clone();
 
-            let (locals, ty) = match &func_inst.func {
-                crate::Function::Wasm(ref f) => (f.locals.to_vec(), f.ty.clone()),
+            let wasm_func = match &func_inst.func {
+                crate::Function::Wasm(wasm_func) => wasm_func.clone(),
                 crate::Function::Host(host_func) => {
-                    let func = host_func.func.clone();
+                    let func = &host_func.func;
                     let params = stack.values.pop_params(&host_func.ty.params)?;
-                    let res = (func)(FuncContext { store, module }, &params)?;
+                    let res = (func)(FuncContext { store, module_addr: module.id() }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
             };
 
-            let params = stack.values.pop_n_rev(ty.params.len())?;
-            let call_frame = CallFrame::new(func_inst, params, locals);
+            let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
+            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -191,29 +163,37 @@ fn exec_one(
             };
 
             let func_inst = store.get_func(func_ref as usize)?.clone();
-            let func_ty = func_inst.func.ty();
             let call_ty = module.func_ty(*type_addr);
 
-            if unlikely(func_ty != call_ty) {
-                log::error!("indirect call type mismatch: {:?} != {:?}", func_ty, call_ty);
-                return Err(
-                    Trap::IndirectCallTypeMismatch { actual: func_ty.clone(), expected: call_ty.clone() }.into()
-                );
-            }
-
-            let locals = match &func_inst.func {
-                crate::Function::Wasm(ref f) => f.locals.to_vec(),
+            let wasm_func = match func_inst.func {
+                crate::Function::Wasm(ref f) => f.clone(),
                 crate::Function::Host(host_func) => {
-                    let func = host_func.func.clone();
-                    let params = stack.values.pop_params(&func_ty.params)?;
-                    let res = (func)(FuncContext { store, module }, &params)?;
+                    if unlikely(host_func.ty != *call_ty) {
+                        log::error!("indirect call type mismatch: {:?} != {:?}", host_func.ty, call_ty);
+                        return Err(Trap::IndirectCallTypeMismatch {
+                            actual: host_func.ty.clone(),
+                            expected: call_ty.clone(),
+                        }
+                        .into());
+                    }
+
+                    let host_func = host_func.clone();
+                    let params = stack.values.pop_params(&host_func.ty.params)?;
+                    let res = (host_func.func)(FuncContext { store, module_addr: module.id() }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
             };
 
-            let params = stack.values.pop_n_rev(func_ty.params.len())?;
-            let call_frame = CallFrame::new(func_inst, params, locals);
+            if unlikely(wasm_func.ty != *call_ty) {
+                log::error!("indirect call type mismatch: {:?} != {:?}", wasm_func.ty, call_ty);
+                return Err(
+                    Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into()
+                );
+            }
+
+            let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
+            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -243,18 +223,16 @@ fn exec_one(
 
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
-                cf.enter_label(
-                    LabelFrame::new(
-                        cf.instr_ptr + *else_offset,
-                        cf.instr_ptr + *end_offset,
-                        stack.values.len(), // - params,
-                        BlockType::Else,
-                        args,
-                        module,
-                    ),
-                    &mut stack.values,
+                let label = LabelFrame::new(
+                    cf.instr_ptr + *else_offset,
+                    cf.instr_ptr + *end_offset,
+                    stack.values.len(), // - params,
+                    BlockType::Else,
+                    args,
+                    module,
                 );
                 cf.instr_ptr += *else_offset;
+                cf.enter_label(label, &mut stack.values);
             } else {
                 cf.instr_ptr += *end_offset;
             }

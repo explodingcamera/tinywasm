@@ -30,7 +30,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("fibonacci");
     group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
-    // group.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
 }
 
 criterion_group!(

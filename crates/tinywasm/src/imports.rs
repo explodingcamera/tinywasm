@@ -7,6 +7,7 @@ use crate::{
     log, LinkingError, Result,
 };
 use alloc::{
+    boxed::Box,
     collections::BTreeMap,
     rc::Rc,
     string::{String, ToString},
@@ -18,10 +19,10 @@ use tinywasm_types::*;
 #[derive(Debug, Clone)]
 pub enum Function {
     /// A host function
-    Host(HostFunction),
+    Host(Rc<HostFunction>),
 
     /// A function defined in WebAssembly
-    Wasm(WasmFunction),
+    Wasm(Rc<WasmFunction>),
 }
 
 impl Function {
@@ -34,7 +35,6 @@ impl Function {
 }
 
 /// A host function
-#[derive(Clone)]
 pub struct HostFunction {
     pub(crate) ty: tinywasm_types::FuncType,
     pub(crate) func: HostFuncInner,
@@ -52,13 +52,13 @@ impl HostFunction {
     }
 }
 
-pub(crate) type HostFuncInner = Rc<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>>>;
+pub(crate) type HostFuncInner = Box<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>>>;
 
 /// The context of a host-function call
 #[derive(Debug)]
 pub struct FuncContext<'a> {
     pub(crate) store: &'a mut crate::Store,
-    pub(crate) module: &'a crate::ModuleInstance,
+    pub(crate) module_addr: ModuleInstanceAddr,
 }
 
 impl FuncContext<'_> {
@@ -73,13 +73,13 @@ impl FuncContext<'_> {
     }
 
     /// Get a reference to the module instance
-    pub fn module(&self) -> &crate::ModuleInstance {
-        self.module
+    pub fn module(&self) -> crate::ModuleInstance {
+        self.store.get_module_instance_raw(self.module_addr)
     }
 
     /// Get a reference to an exported memory
     pub fn memory(&mut self, name: &str) -> Result<crate::MemoryRef> {
-        self.module.exported_memory(self.store, name)
+        self.module().exported_memory(self.store, name)
     }
 }
 
@@ -140,7 +140,7 @@ impl Extern {
         ty: &tinywasm_types::FuncType,
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Self {
-        Self::Function(Function::Host(HostFunction { func: Rc::new(func), ty: ty.clone() }))
+        Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(func), ty: ty.clone() })))
     }
 
     /// Create a new typed function import
@@ -159,7 +159,7 @@ impl Extern {
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
 
-        Self::Function(Function::Host(HostFunction { func: Rc::new(inner_func), ty }))
+        Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(inner_func), ty })))
     }
 
     pub(crate) fn kind(&self) -> ExternalKind {

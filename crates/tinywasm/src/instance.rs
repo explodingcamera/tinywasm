@@ -42,6 +42,10 @@ impl ModuleInstance {
         self.0 = other.0;
     }
 
+    pub(crate) fn swap_with(&mut self, other_addr: ModuleInstanceAddr, store: &mut Store) {
+        self.swap(store.get_module_instance_raw(other_addr))
+    }
+
     /// Get the module instance's address
     pub fn id(&self) -> ModuleInstanceAddr {
         self.0.idx
@@ -172,7 +176,7 @@ impl ModuleInstance {
         let func_inst = store.get_func(func_addr as usize)?;
         let ty = func_inst.func.ty();
 
-        Ok(FuncHandle { addr: func_addr, module: self.clone(), name: Some(name.to_string()), ty: ty.clone() })
+        Ok(FuncHandle { addr: func_addr, module_addr: self.id(), name: Some(name.to_string()), ty: ty.clone() })
     }
 
     /// Get a typed exported function by name
@@ -230,7 +234,7 @@ impl ModuleInstance {
         let func_inst = store.get_func(*func_addr as usize)?;
         let ty = func_inst.func.ty();
 
-        Ok(Some(FuncHandle { module: self.clone(), addr: *func_addr, ty: ty.clone(), name: None }))
+        Ok(Some(FuncHandle { module_addr: self.id(), addr: *func_addr, ty: ty.clone(), name: None }))
     }
 
     /// Invoke the start function of the module
