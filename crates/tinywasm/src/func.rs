@@ -1,4 +1,4 @@
-use crate::log;
+use crate::{log, runtime::RawWasmValue};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use tinywasm_types::{FuncAddr, FuncType, ValType, WasmValue};
 
@@ -63,7 +63,7 @@ impl FuncHandle {
 
         // 6. Let f be the dummy frame
         log::debug!("locals: {:?}", locals);
-        let call_frame = CallFrame::new(func_inst, params, locals);
+        let call_frame = CallFrame::new(func_inst, params.iter().map(|v| RawWasmValue::from(*v)), locals);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)

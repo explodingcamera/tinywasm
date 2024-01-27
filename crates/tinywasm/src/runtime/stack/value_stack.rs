@@ -1,11 +1,12 @@
 use core::ops::Range;
 
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
+use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
-// minimum stack size
-pub(crate) const STACK_SIZE: usize = 1024;
+pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024;
+// pub(crate) const MAX_VALUE_STACK_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
@@ -14,7 +15,7 @@ pub(crate) struct ValueStack {
 
 impl Default for ValueStack {
     fn default() -> Self {
-        Self { stack: Vec::with_capacity(STACK_SIZE) }
+        Self { stack: vec![RawWasmValue::default(); MIN_VALUE_STACK_SIZE] }
     }
 }
 
@@ -97,6 +98,7 @@ impl ValueStack {
         Ok(res)
     }
 
+    #[inline]
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
         self.stack.drain(new_stack_size..(self.stack.len() - result_count));
     }

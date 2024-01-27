@@ -1,16 +1,15 @@
-use crate::log;
+use crate::unlikely;
 use crate::{
     runtime::{BlockType, RawWasmValue},
     Error, FunctionInstance, Result, Trap,
 };
-use alloc::vec;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use tinywasm_types::{ValType, WasmValue};
+use tinywasm_types::ValType;
 
 use super::{blocks::Labels, LabelFrame};
 
 // minimum call stack size
-const CALL_STACK_SIZE: usize = 256;
+const CALL_STACK_SIZE: usize = 128;
 const CALL_STACK_MAX_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -32,16 +31,17 @@ impl CallStack {
 
     #[inline]
     pub(crate) fn pop(&mut self) -> Result<CallFrame> {
-        self.stack.pop().ok_or_else(|| Error::CallStackEmpty)
+        match self.stack.pop() {
+            Some(frame) => Ok(frame),
+            None => Err(Error::CallStackEmpty),
+        }
     }
 
     #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        log::debug!("stack size: {}", self.stack.len());
-        if self.stack.len() >= CALL_STACK_MAX_SIZE {
+        if unlikely(self.stack.len() >= CALL_STACK_MAX_SIZE) {
             return Err(Trap::CallStackOverflow.into());
         }
-
         self.stack.push(call_frame);
         Ok(())
     }
@@ -55,15 +55,14 @@ pub(crate) struct CallFrame {
 
     pub(crate) labels: Labels,
     pub(crate) locals: Box<[RawWasmValue]>,
-    pub(crate) local_count: usize,
 }
 
 impl CallFrame {
     #[inline]
     /// Push a new label to the label stack and ensure the stack has the correct values
     pub(crate) fn enter_label(&mut self, label_frame: LabelFrame, stack: &mut super::ValueStack) {
-        if label_frame.args.params > 0 {
-            stack.extend_from_within((label_frame.stack_ptr - label_frame.args.params)..label_frame.stack_ptr);
+        if label_frame.params > 0 {
+            stack.extend_from_within((label_frame.stack_ptr - label_frame.params)..label_frame.stack_ptr);
         }
 
         self.labels.push(label_frame);
@@ -80,7 +79,7 @@ impl CallFrame {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
                 // We also want to push the params to the stack
-                value_stack.break_to(break_to.stack_ptr, break_to.args.params);
+                value_stack.break_to(break_to.stack_ptr, break_to.params);
 
                 self.instr_ptr = break_to.instr_ptr;
 
@@ -90,7 +89,7 @@ impl CallFrame {
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack
-                value_stack.break_to(break_to.stack_ptr, break_to.args.results);
+                value_stack.break_to(break_to.stack_ptr, break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.end_instr_ptr;
@@ -103,46 +102,30 @@ impl CallFrame {
         Some(())
     }
 
-    // TOOD: perf: this function is pretty hot
-    // Especially the two `extend` calls
-    pub(crate) fn new_raw(
-        func_instance_ptr: Rc<FunctionInstance>,
-        params: &[RawWasmValue],
-        local_types: Vec<ValType>,
-    ) -> Self {
-        let mut locals = vec![RawWasmValue::default(); local_types.len() + params.len()];
-        locals[..params.len()].copy_from_slice(params);
-
-        Self {
-            instr_ptr: 0,
-            func_instance: func_instance_ptr,
-            local_count: locals.len(),
-            locals: locals.into_boxed_slice(),
-            labels: Labels::default(),
-        }
-    }
-
+    #[inline]
     pub(crate) fn new(
         func_instance_ptr: Rc<FunctionInstance>,
-        params: &[WasmValue],
+        params: impl Iterator<Item = RawWasmValue> + ExactSizeIterator,
         local_types: Vec<ValType>,
     ) -> Self {
-        CallFrame::new_raw(
-            func_instance_ptr,
-            &params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>(),
-            local_types,
-        )
+        let locals = {
+            let total_size = local_types.len() + params.len();
+            let mut locals = Vec::with_capacity(total_size);
+            locals.extend(params);
+            locals.resize_with(total_size, RawWasmValue::default);
+            locals.into_boxed_slice()
+        };
+
+        Self { instr_ptr: 0, func_instance: func_instance_ptr, locals, labels: Labels::new() }
     }
 
     #[inline]
     pub(crate) fn set_local(&mut self, local_index: usize, value: RawWasmValue) {
-        assert!(local_index < self.local_count, "Invalid local index");
         self.locals[local_index] = value;
     }
 
     #[inline]
     pub(crate) fn get_local(&self, local_index: usize) -> RawWasmValue {
-        assert!(local_index < self.local_count, "Invalid local index");
         self.locals[local_index]
     }
 }

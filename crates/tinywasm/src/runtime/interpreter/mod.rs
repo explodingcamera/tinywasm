@@ -1,7 +1,7 @@
 use super::{InterpreterRuntime, Stack};
 use crate::{cold, log, unlikely};
 use crate::{
-    runtime::{BlockType, CallFrame, LabelArgs, LabelFrame},
+    runtime::{BlockType, CallFrame, LabelFrame},
     Error, FuncContext, ModuleInstance, Result, Store, Trap,
 };
 use alloc::format;
@@ -29,13 +29,12 @@ impl InterpreterRuntime {
         let mut cf = stack.call_stack.pop()?;
 
         let mut func_inst = cf.func_instance.clone();
-        let mut wasm_func = func_inst.assert_wasm().expect("exec expected wasm function");
+        let mut wasm_func = func_inst.assert_wasm()?;
 
         // The function to execute, gets updated from ExecResult::Call
         let mut instrs = &wasm_func.instructions;
         let mut instr_count = instrs.len();
-
-        let mut current_module = store.get_module_instance(func_inst.owner).unwrap().clone();
+        let mut current_module = store.get_module_instance_raw(func_inst.owner);
 
         loop {
             if unlikely(cf.instr_ptr >= instr_count) {
@@ -164,8 +163,8 @@ fn exec_one(
                 }
             };
 
-            let params = stack.values.pop_n_rev(ty.params.len())?.collect::<Vec<_>>();
-            let call_frame = CallFrame::new_raw(func_inst, &params, locals);
+            let params = stack.values.pop_n_rev(ty.params.len())?;
+            let call_frame = CallFrame::new(func_inst, params, locals);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -213,8 +212,8 @@ fn exec_one(
                 }
             };
 
-            let params = stack.values.pop_n_rev(func_ty.params.len())?.collect::<Vec<_>>();
-            let call_frame = CallFrame::new_raw(func_inst, &params, locals);
+            let params = stack.values.pop_n_rev(func_ty.params.len())?;
+            let call_frame = CallFrame::new(func_inst, params, locals);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -229,13 +228,14 @@ fn exec_one(
             // truthy value is on the top of the stack, so enter the then block
             if stack.values.pop_t::<i32>()? != 0 {
                 cf.enter_label(
-                    LabelFrame {
-                        instr_ptr: cf.instr_ptr,
-                        end_instr_ptr: cf.instr_ptr + *end_offset,
-                        stack_ptr: stack.values.len(), // - params,
-                        args: LabelArgs::new(*args, module)?,
-                        ty: BlockType::If,
-                    },
+                    LabelFrame::new(
+                        cf.instr_ptr,
+                        cf.instr_ptr + *end_offset,
+                        stack.values.len(), // - params,
+                        BlockType::If,
+                        args,
+                        module,
+                    ),
                     &mut stack.values,
                 );
                 return Ok(ExecResult::Ok);
@@ -244,13 +244,14 @@ fn exec_one(
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
                 cf.enter_label(
-                    LabelFrame {
-                        instr_ptr: cf.instr_ptr + *else_offset,
-                        end_instr_ptr: cf.instr_ptr + *end_offset,
-                        stack_ptr: stack.values.len(), // - params,
-                        args: LabelArgs::new(*args, module)?,
-                        ty: BlockType::Else,
-                    },
+                    LabelFrame::new(
+                        cf.instr_ptr + *else_offset,
+                        cf.instr_ptr + *end_offset,
+                        stack.values.len(), // - params,
+                        BlockType::Else,
+                        args,
+                        module,
+                    ),
                     &mut stack.values,
                 );
                 cf.instr_ptr += *else_offset;
@@ -261,26 +262,28 @@ fn exec_one(
 
         Loop(args, end_offset) => {
             cf.enter_label(
-                LabelFrame {
-                    instr_ptr: cf.instr_ptr,
-                    end_instr_ptr: cf.instr_ptr + *end_offset,
-                    stack_ptr: stack.values.len(), // - params,
-                    args: LabelArgs::new(*args, module)?,
-                    ty: BlockType::Loop,
-                },
+                LabelFrame::new(
+                    cf.instr_ptr,
+                    cf.instr_ptr + *end_offset,
+                    stack.values.len(), // - params,
+                    BlockType::Loop,
+                    args,
+                    module,
+                ),
                 &mut stack.values,
             );
         }
 
         Block(args, end_offset) => {
             cf.enter_label(
-                LabelFrame {
-                    instr_ptr: cf.instr_ptr,
-                    end_instr_ptr: cf.instr_ptr + *end_offset,
-                    stack_ptr: stack.values.len(), //- params,
-                    args: LabelArgs::new(*args, module)?,
-                    ty: BlockType::Block,
-                },
+                LabelFrame::new(
+                    cf.instr_ptr,
+                    cf.instr_ptr + *end_offset,
+                    stack.values.len(), // - params,
+                    BlockType::Block,
+                    args,
+                    module,
+                ),
                 &mut stack.values,
             );
         }
@@ -341,7 +344,7 @@ fn exec_one(
                 panic!("else: no label to end, this should have been validated by the parser");
             };
 
-            let res_count = block.args.results;
+            let res_count = block.results;
             stack.values.truncate_keep(block.stack_ptr, res_count);
             cf.instr_ptr += *end_offset;
         }
@@ -352,7 +355,7 @@ fn exec_one(
                 cold();
                 panic!("end: no label to end, this should have been validated by the parser");
             };
-            stack.values.truncate_keep(block.stack_ptr, block.args.results)
+            stack.values.truncate_keep(block.stack_ptr, block.results)
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),

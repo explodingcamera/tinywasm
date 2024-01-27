@@ -154,7 +154,7 @@ impl Extern {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
             let args = P::from_wasm_value_tuple(args)?;
             let result = func(ctx, args)?;
-            Ok(result.into_wasm_value_tuple())
+            Ok(result.into_wasm_value_tuple().to_vec())
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
@@ -383,7 +383,7 @@ impl Imports {
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
 
                         Self::compare_types(import, extern_func.ty(), import_func_type)?;
-                        imports.funcs.push(store.add_func(extern_func, *ty, idx)?);
+                        imports.funcs.push(store.add_func(extern_func, idx)?);
                     }
                     _ => return Err(LinkingError::incompatible_import_type(import).into()),
                 },

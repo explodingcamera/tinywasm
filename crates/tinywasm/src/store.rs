@@ -46,8 +46,11 @@ impl Store {
 
     /// Get a module instance by the internal id
     pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
-        log::debug!("existing module instances: {:?}", self.module_instances.len());
         self.module_instances.get(addr as usize)
+    }
+
+    pub(crate) fn get_module_instance_raw(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
+        self.module_instances[addr as usize].clone()
     }
 
     /// Create a new store with the given runtime
@@ -118,12 +121,8 @@ impl Store {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
 
-        for (i, (type_idx, func)) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(Rc::new(FunctionInstance {
-                func: Function::Wasm(func),
-                _type_idx: type_idx,
-                owner: idx,
-            }));
+        for (i, (_, func)) in funcs.into_iter().enumerate() {
+            self.data.funcs.push(Rc::new(FunctionInstance { func: Function::Wasm(func), owner: idx }));
             func_addrs.push((i + func_count) as FuncAddr);
         }
 
@@ -222,7 +221,7 @@ impl Store {
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.data.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
-        for (i, element) in elements.into_iter().enumerate() {
+        for (i, element) in elements.iter().enumerate() {
             let init = element
                 .items
                 .iter()
@@ -344,8 +343,8 @@ impl Store {
         Ok(self.data.memories.len() as MemAddr - 1)
     }
 
-    pub(crate) fn add_func(&mut self, func: Function, type_idx: TypeAddr, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(Rc::new(FunctionInstance { func, _type_idx: type_idx, owner: idx }));
+    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
+        self.data.funcs.push(Rc::new(FunctionInstance { func, owner: idx }));
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
@@ -445,7 +444,6 @@ impl Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 pub(crate) struct FunctionInstance {
     pub(crate) func: Function,
-    pub(crate) _type_idx: TypeAddr,
     pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
 }
 

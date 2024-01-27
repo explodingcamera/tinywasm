@@ -83,7 +83,7 @@ impl MemoryRef {
     /// Load a UTF-8 string from memory
     pub fn load_string(&self, offset: usize, len: usize) -> Result<String> {
         let bytes = self.load_vec(offset, len)?;
-        Ok(String::from_utf8(bytes).map_err(|_| crate::Error::Other("Invalid UTF-8 string".to_string()))?)
+        String::from_utf8(bytes).map_err(|_| crate::Error::Other("Invalid UTF-8 string".to_string()))
     }
 
     /// Load a C-style string from memory

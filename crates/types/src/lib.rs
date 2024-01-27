@@ -12,6 +12,7 @@ extern crate alloc;
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
+#[allow(clippy::single_component_path_imports)]
 use log;
 
 #[cfg(not(feature = "logging"))]
@@ -173,7 +174,7 @@ impl TryFrom<WasmValue> for i32 {
         match value {
             WasmValue::I32(i) => Ok(i),
             _ => {
-                log::error!("i32: try_from failed: {:?}", value);
+                crate::log::error!("i32: try_from failed: {:?}", value);
                 Err(())
             }
         }
@@ -187,7 +188,7 @@ impl TryFrom<WasmValue> for i64 {
         match value {
             WasmValue::I64(i) => Ok(i),
             _ => {
-                log::error!("i64: try_from failed: {:?}", value);
+                crate::log::error!("i64: try_from failed: {:?}", value);
                 Err(())
             }
         }
@@ -201,7 +202,7 @@ impl TryFrom<WasmValue> for f32 {
         match value {
             WasmValue::F32(i) => Ok(i),
             _ => {
-                log::error!("f32: try_from failed: {:?}", value);
+                crate::log::error!("f32: try_from failed: {:?}", value);
                 Err(())
             }
         }
@@ -215,7 +216,7 @@ impl TryFrom<WasmValue> for f64 {
         match value {
             WasmValue::F64(i) => Ok(i),
             _ => {
-                log::error!("f64: try_from failed: {:?}", value);
+                crate::log::error!("f64: try_from failed: {:?}", value);
                 Err(())
             }
         }
