@@ -77,15 +77,20 @@ impl CallFrame {
         // will increment it by 1 since we're changing the "current" instr_ptr
         match break_to.ty {
             BlockType::Loop => {
-                // this is a loop, so we want to jump back to the start of the loop
-                // We also want to push the params to the stack
-                value_stack.break_to(break_to.stack_ptr, break_to.params);
-
                 self.instr_ptr = break_to.instr_ptr;
 
-                // we also want to trim the label stack to the loop (but not including the loop)
-                self.labels.truncate(self.labels.len() - break_to_relative as usize);
+                // check if we're breaking to the loop
+                if break_to_relative != 0 {
+                    // this is a loop, so we want to jump back to the start of the loop
+                    // We also want to push the params to the stack
+                    value_stack.break_to(break_to.stack_ptr, break_to.params);
+
+                    // we also want to trim the label stack to the loop (but not including the loop)
+                    self.labels.truncate(self.labels.len() - break_to_relative as usize);
+                    return Some(());
+                }
             }
+
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack

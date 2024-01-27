@@ -1,19 +1,19 @@
 mod util;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tinywasm::types::TinyWasmModule;
 use util::tinywasm_module;
 
-fn run_tinywasm(module: TinyWasmModule) {
+fn run_tinywasm(module: TinyWasmModule, iterations: i32) {
     use tinywasm::*;
     let module = Module::from(module);
     let mut store = Store::default();
     let imports = Imports::default();
     let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
     let hello = instance.exported_func::<i32, i32>(&mut store, "fibonacci").expect("exported_func");
-    hello.call(&mut store, 28).expect("call");
+    hello.call(&mut store, iterations).expect("call");
 }
 
-fn run_wasmi() {
+fn run_wasmi(iterations: i32) {
     use wasmi::*;
     let engine = Engine::default();
     let module = wasmi::Module::new(&engine, FIBONACCI).expect("wasmi::Module::new");
@@ -21,7 +21,7 @@ fn run_wasmi() {
     let linker = <Linker<()>>::new(&engine);
     let instance = linker.instantiate(&mut store, &module).expect("instantiate").start(&mut store).expect("start");
     let hello = instance.get_typed_func::<i32, i32>(&mut store, "fibonacci").expect("get_typed_func");
-    hello.call(&mut store, 28).expect("call");
+    hello.call(&mut store, iterations).expect("call");
 }
 
 const FIBONACCI: &[u8] = include_bytes!("../examples/rust/out/fibonacci.wasm");
@@ -29,8 +29,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     let module = tinywasm_module(FIBONACCI);
 
     let mut group = c.benchmark_group("fibonacci");
-    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
-    group.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
+    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone(), black_box(50))));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(black_box(50))));
 }
 
 criterion_group!(

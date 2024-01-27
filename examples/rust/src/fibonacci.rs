@@ -8,10 +8,14 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 #[no_mangle]
-// The rust compiler will convert this to an iterative algorithm.
 pub extern "C" fn fibonacci(n: i32) -> i32 {
-    if n <= 1 {
-        return n;
+    let mut sum = 0;
+    let mut last = 0;
+    let mut curr = 1;
+    for _i in 1..n {
+        sum = last + curr;
+        last = curr;
+        curr = sum;
     }
-    fibonacci(n - 1) + fibonacci(n - 2)
+    sum
 }
