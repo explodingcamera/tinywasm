@@ -12,6 +12,7 @@ fn generate_charts() -> Result<()> {
     }
 
     charts::create_progress_chart(
+        "WebAssembly 1.0 Test Suite",
         std::path::Path::new("./tests/generated/mvp.csv"),
         std::path::Path::new("./tests/generated/progress-mvp.svg"),
     )?;
@@ -19,6 +20,7 @@ fn generate_charts() -> Result<()> {
     println!("created progress chart: ./tests/generated/progress-mvp.svg");
 
     charts::create_progress_chart(
+        "WebAssembly 2.0 Test Suite",
         std::path::Path::new("./tests/generated/2.0.csv"),
         std::path::Path::new("./tests/generated/progress-2.0.svg"),
     )?;

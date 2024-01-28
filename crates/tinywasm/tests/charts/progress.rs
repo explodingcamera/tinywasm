@@ -6,7 +6,7 @@ use std::path::Path;
 
 const FONT: &str = "Victor Mono";
 
-pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> {
+pub fn create_progress_chart(name: &str, csv_path: &Path, output_path: &Path) -> Result<()> {
     let file = File::open(csv_path)?;
     let reader = io::BufReader::new(file);
 
@@ -41,7 +41,7 @@ pub fn create_progress_chart(csv_path: &Path, output_path: &Path) -> Result<()> 
         .y_label_area_size(70)
         .margin(10)
         .margin_top(20)
-        .caption("MVP TESTSUITE", (FONT, 30.0, FontStyle::Bold))
+        .caption(name, (FONT, 30.0, FontStyle::Bold))
         .build_cartesian_2d((0..(versions.len() - 1) as u32).into_segmented(), 0..max_tests)?;
 
     chart

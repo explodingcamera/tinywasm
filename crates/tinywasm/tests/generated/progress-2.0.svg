@@ -1,7 +1,7 @@
 <svg width="1000" height="400" viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg">
 <rect x="0" y="0" width="1000" height="400" opacity="1" fill="#FFFFFF" stroke="none"/>
 <text x="500" y="25" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="24.193548387096776" opacity="1" fill="#000000" font-weight="bold">
-MVP TESTSUITE
+WebAssembly 2.0 Test Suite
 </text>
 <text x="10" y="199" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000" font-weight="bold" transform="rotate(270, 10, 199)">
 Tests Passed
