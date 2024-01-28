@@ -11,13 +11,19 @@ fn generate_charts() -> Result<()> {
         return Ok(());
     }
 
-    // Create a line chart
     charts::create_progress_chart(
         std::path::Path::new("./tests/generated/mvp.csv"),
         std::path::Path::new("./tests/generated/progress-mvp.svg"),
     )?;
 
     println!("created progress chart: ./tests/generated/progress-mvp.svg");
+
+    charts::create_progress_chart(
+        std::path::Path::new("./tests/generated/2.0.csv"),
+        std::path::Path::new("./tests/generated/progress-2.0.svg"),
+    )?;
+
+    println!("created progress chart: ./tests/generated/progress-2.0.svg");
 
     Ok(())
 }
