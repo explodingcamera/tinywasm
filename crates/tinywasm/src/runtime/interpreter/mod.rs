@@ -23,7 +23,7 @@ use macros::*;
 use traits::*;
 
 impl InterpreterRuntime {
-    #[inline(always)] // a small 2-3% performance improvement in some cases
+    // #[inline(always)] // a small 2-3% performance improvement in some cases
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         // The current call frame, gets updated inside of exec_one
         let mut cf = stack.call_stack.pop()?;
@@ -388,6 +388,42 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
         }
 
+        // Bulk memory operations
+        MemoryCopy(from, to) => {
+            let size = stack.values.pop_t::<i32>()?;
+            let src = stack.values.pop_t::<i32>()?;
+            let dst = stack.values.pop_t::<i32>()?;
+
+            let mem = store.get_mem(module.resolve_mem_addr(*from) as usize)?;
+            let mut mem = mem.borrow_mut();
+
+            if from == to {
+                // copy within the same memory
+                mem.copy_within(dst as usize, src as usize, size as usize)?;
+            } else {
+                // copy between two memories
+                let mem2 = store.get_mem(module.resolve_mem_addr(*to) as usize)?;
+                let mut mem2 = mem2.borrow_mut();
+                mem2.copy_from_slice(dst as usize, mem.load(src as usize, 0, size as usize)?)?;
+            }
+        }
+
+        MemoryFill(addr) => {
+            let size = stack.values.pop_t::<i32>()?;
+            let val = stack.values.pop_t::<i32>()?;
+            let dst = stack.values.pop_t::<i32>()?;
+
+            let mem = store.get_mem(module.resolve_mem_addr(*addr) as usize)?;
+            let mut mem = mem.borrow_mut();
+            mem.fill(dst as usize, size as usize, val as u8)?;
+        }
+
+        // MemoryInit(data_index, mem_index) => {}
+        // DataDrop(data_index) => {
+        //     // let data_idx = module.resolve_data_addr(*data_index);
+        //     // let data = store.get_data(data_idx as usize)?;
+        //     // data.borrow_mut().drop()?;
+        // }
         I32Store(arg) => mem_store!(i32, arg, stack, store, module),
         I64Store(arg) => mem_store!(i64, arg, stack, store, module),
         F32Store(arg) => mem_store!(f32, arg, stack, store, module),

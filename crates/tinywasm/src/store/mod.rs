@@ -11,6 +11,9 @@ use crate::{
     Error, Function, ModuleInstance, Result, Trap,
 };
 
+mod memory;
+pub(crate) use memory::*;
+
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -559,131 +562,6 @@ impl TableInstance {
         let init = init.iter().map(|item| item.map(|addr| self.resolve_func_ref(func_addrs, addr))).collect::<Vec<_>>();
 
         self.init_raw(offset, &init)
-    }
-}
-
-pub(crate) const PAGE_SIZE: usize = 65536;
-pub(crate) const MAX_PAGES: usize = 65536;
-pub(crate) const MAX_SIZE: u64 = PAGE_SIZE as u64 * MAX_PAGES as u64;
-
-/// A WebAssembly Memory Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
-#[derive(Debug)]
-pub(crate) struct MemoryInstance {
-    pub(crate) kind: MemoryType,
-    pub(crate) data: Vec<u8>,
-    pub(crate) page_count: usize,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
-}
-
-impl MemoryInstance {
-    pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
-        assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
-        log::debug!("initializing memory with {} pages", kind.page_count_initial);
-
-        Self {
-            kind,
-            data: vec![0; PAGE_SIZE * kind.page_count_initial as usize],
-            page_count: kind.page_count_initial as usize,
-            _owner: owner,
-        }
-    }
-
-    pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8], len: usize) -> Result<()> {
-        let end = addr.checked_add(len).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len: data.len(), max: self.data.len() })
-        })?;
-
-        if end > self.data.len() || end < addr {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: addr,
-                len: data.len(),
-                max: self.data.len(),
-            }));
-        }
-
-        // WebAssembly doesn't require alignment for stores
-        self.data[addr..end].copy_from_slice(data);
-        Ok(())
-    }
-
-    pub(crate) fn max_pages(&self) -> usize {
-        self.kind.page_count_max.unwrap_or(MAX_PAGES as u64) as usize
-    }
-
-    pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
-        let end = addr
-            .checked_add(len)
-            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.max_pages() }))?;
-
-        if end > self.data.len() {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }));
-        }
-
-        // WebAssembly doesn't require alignment for loads
-        Ok(&self.data[addr..end])
-    }
-
-    pub(crate) fn page_count(&self) -> usize {
-        self.page_count
-    }
-
-    pub(crate) fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<()> {
-        let end = addr
-            .checked_add(len)
-            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }))?;
-        if end > self.data.len() {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() }));
-        }
-        self.data[addr..end].fill(val);
-        Ok(())
-    }
-
-    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<()> {
-        let end = src
-            .checked_add(len)
-            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: src, len, max: self.data.len() }))?;
-        if end > self.data.len() || end < src {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: src, len, max: self.data.len() }));
-        }
-        let end = dst
-            .checked_add(len)
-            .ok_or_else(|| Error::Trap(crate::Trap::MemoryOutOfBounds { offset: dst, len, max: self.data.len() }))?;
-        if end > self.data.len() || end < dst {
-            return Err(Error::Trap(crate::Trap::MemoryOutOfBounds { offset: dst, len, max: self.data.len() }));
-        }
-        self.data[dst..end].copy_within(src..end, len);
-        Ok(())
-    }
-
-    pub(crate) fn grow(&mut self, pages_delta: i32) -> Option<i32> {
-        let current_pages = self.page_count();
-        let new_pages = current_pages as i64 + pages_delta as i64;
-
-        if new_pages < 0 || new_pages > MAX_PAGES as i64 {
-            return None;
-        }
-
-        if new_pages as usize > self.max_pages() {
-            log::info!("memory size out of bounds: {}", new_pages);
-            return None;
-        }
-
-        let new_size = new_pages as usize * PAGE_SIZE;
-        if new_size as u64 > MAX_SIZE {
-            return None;
-        }
-
-        // Zero initialize the new pages
-        self.data.resize(new_size, 0);
-        self.page_count = new_pages as usize;
-
-        log::debug!("memory was {} pages", current_pages);
-        log::debug!("memory grown by {} pages", pages_delta);
-        log::debug!("memory grown to {} pages", self.page_count);
-
-        Some(current_pages.try_into().expect("memory size out of bounds, this should have been caught earlier"))
     }
 }
 

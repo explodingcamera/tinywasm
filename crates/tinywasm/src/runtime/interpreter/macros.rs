@@ -14,14 +14,14 @@ macro_rules! mem_load {
         // TODO: there could be a lot of performance improvements here
         let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
+        let mem_ref = mem.borrow_mut();
 
         let addr = $stack.values.pop()?.raw_value();
-
         let addr = $arg.offset.checked_add(addr).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: $arg.offset as usize,
                 len: core::mem::size_of::<$load_type>(),
-                max: mem.borrow().max_pages(),
+                max: mem_ref.max_pages(),
             })
         })?;
 
@@ -29,18 +29,14 @@ macro_rules! mem_load {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: $arg.offset as usize,
                 len: core::mem::size_of::<$load_type>(),
-                max: mem.borrow().max_pages(),
+                max: mem_ref.max_pages(),
             })
         })?;
 
-        let val: [u8; core::mem::size_of::<$load_type>()] = {
-            let mem = mem.borrow_mut();
-            let val = mem.load(addr, $arg.align as usize, core::mem::size_of::<$load_type>())?;
-            val.try_into().expect("slice with incorrect length")
-        };
-
-        let loaded_value = <$load_type>::from_le_bytes(val);
-        $stack.values.push((loaded_value as $target_type).into());
+        const LEN: usize = core::mem::size_of::<$load_type>();
+        let val = mem_ref.load_as::<LEN, $load_type>(addr, $arg.align as usize)?;
+        // let loaded_value = mem_ref.load_as::<$load_type>(addr, $arg.align as usize)?;
+        $stack.values.push((val as $target_type).into());
     }};
 }
 

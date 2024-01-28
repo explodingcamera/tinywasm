@@ -1,4 +1,4 @@
-use crate::{ElemAddr, MemAddr};
+use crate::{DataAddr, ElemAddr, MemAddr};
 
 use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
 
@@ -266,4 +266,10 @@ pub enum Instruction {
     TableGrow(TableAddr),
     TableSize(TableAddr),
     TableFill(TableAddr),
+
+    // Bulk Memory Instructions
+    MemoryInit(MemAddr, DataAddr),
+    MemoryCopy(MemAddr, MemAddr),
+    MemoryFill(MemAddr),
+    DataDrop(DataAddr),
 }

@@ -332,6 +332,12 @@ pub fn process_operators<'a>(
             GlobalSet { global_index } => Instruction::GlobalSet(global_index),
             MemorySize { mem, mem_byte } => Instruction::MemorySize(mem, mem_byte),
             MemoryGrow { mem, mem_byte } => Instruction::MemoryGrow(mem, mem_byte),
+
+            MemoryCopy { dst_mem, src_mem } => Instruction::MemoryCopy(src_mem, dst_mem),
+            MemoryFill { mem } => Instruction::MemoryFill(mem),
+            MemoryInit { data_index, mem } => Instruction::MemoryInit(data_index, mem),
+            DataDrop { data_index } => Instruction::DataDrop(data_index),
+
             I32Const { value } => Instruction::I32Const(value),
             I64Const { value } => Instruction::I64Const(value),
             F32Const { value } => Instruction::F32Const(f32::from_bits(value.bits())),

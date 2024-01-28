@@ -58,7 +58,6 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
-    // TOOD: perf: this is called a lot, and it's a bit slow
     /// Push a new label to the label stack and ensure the stack has the correct values
     pub(crate) fn enter_label(&mut self, label_frame: LabelFrame, stack: &mut super::ValueStack) {
         if label_frame.params > 0 {
@@ -77,14 +76,14 @@ impl CallFrame {
         // will increment it by 1 since we're changing the "current" instr_ptr
         match break_to.ty {
             BlockType::Loop => {
+                // this is a loop, so we want to jump back to the start of the loop
                 self.instr_ptr = break_to.instr_ptr;
+
+                // We also want to push the params to the stack
+                value_stack.break_to(break_to.stack_ptr, break_to.params);
 
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
-                    // this is a loop, so we want to jump back to the start of the loop
-                    // We also want to push the params to the stack
-                    value_stack.break_to(break_to.stack_ptr, break_to.params);
-
                     // we also want to trim the label stack to the loop (but not including the loop)
                     self.labels.truncate(self.labels.len() - break_to_relative as usize);
                     return Some(());

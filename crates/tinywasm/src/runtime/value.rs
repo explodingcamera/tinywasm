@@ -18,6 +18,7 @@ impl Debug for RawWasmValue {
 }
 
 impl RawWasmValue {
+    #[inline(always)]
     pub fn raw_value(&self) -> u64 {
         self.0
     }

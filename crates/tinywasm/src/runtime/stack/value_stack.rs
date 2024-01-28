@@ -1,7 +1,6 @@
 use core::ops::Range;
 
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
-use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
@@ -15,7 +14,7 @@ pub(crate) struct ValueStack {
 
 impl Default for ValueStack {
     fn default() -> Self {
-        Self { stack: vec![RawWasmValue::default(); MIN_VALUE_STACK_SIZE] }
+        Self { stack: Vec::with_capacity(MIN_VALUE_STACK_SIZE) }
     }
 }
 

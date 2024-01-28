@@ -1,11 +1,11 @@
 #![no_std]
-#![forbid(unsafe_code)]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(nightly, feature(error_in_core))]
+#![cfg_attr(not(feature = "unsafe"), deny(unsafe_code))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
