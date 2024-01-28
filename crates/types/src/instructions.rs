@@ -43,7 +43,7 @@ pub enum ConstInstruction {
 /// * `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
 /// * Lables/Blocks: we store the label end offset in the instruction itself and
 ///   have seperate EndBlockFrame and EndFunc instructions to mark the end of a block or function.
-///   This makes it easier to implement the label stack (we call it BlockFrameStack) iteratively.
+///   This makes it easier to implement the label stack iteratively.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy)]

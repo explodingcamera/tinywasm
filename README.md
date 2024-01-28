@@ -5,7 +5,7 @@
     <h1>TinyWasm</h1>
     A tiny WebAssembly Runtime written in Rust
 </div>
-
+ 
 <br>
 
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE)
@@ -18,7 +18,6 @@ Some APIs to interact with the runtime are not yet exposed, and the existing one
 Results of the tests can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
 TinyWasm is not designed for performance, but rather for size and portability. However, it is still reasonably fast.
-There are a couple of low-hanging fruits on the performance side, but they are not a priority at the moment.
 
 ## Supported Proposals
 
@@ -55,9 +54,11 @@ $ cargo add tinywasm
   Enables logging using the `log` crate. This is enabled by default.
 - **`parser`**\
   Enables the `tinywasm-parser` crate. This is enabled by default.
+- **`unsafe`**\
+  Uses `unsafe` code to improve performance, particularly in Memory access
 
 With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm` and can be used in `no_std` environments.
-Since `libm` is not as performant as the compiler's built-in math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)).
+Since `libm` is not as performant as the compiler's math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)), especially on wasm32 targets.
 
 ## Performance
 
