@@ -5,10 +5,16 @@
     <h1>TinyWasm</h1>
     A tiny WebAssembly Runtime written in Rust
 </div>
- 
+
 <br>
 
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE)
+
+# Why TinyWasm?
+
+- **Tiny** - Designed to be as small as possible without sacrificing too much performance or functionality.
+- **Fast enough** - TinyWasm is reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
+- **Portable** - Runs on any platform llvm supports, including WebAssembly. Minimal external dependencies.
 
 # Status
 
@@ -17,7 +23,7 @@ TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in
 Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
 Results of the tests can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
-TinyWasm is not designed for performance, but rather for size and portability. However, it is still reasonably fast.
+TinyWasm is not designed for performance, but rather for simplicity, size and portability. However, it is still reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
 
 ## Supported Proposals
 
