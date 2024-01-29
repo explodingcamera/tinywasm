@@ -1,6 +1,6 @@
 # `tinywasm-parser`
 
-This crate provides a parser that can parse WebAssembly modules into a TinyWasm module. It is based on 
+This crate provides a parser that can parse WebAssembly modules into a TinyWasm module. It is based on
 [`wasmparser_nostd`](https://crates.io/crates/wasmparser_nostd) and used by [`tinywasm`](https://crates.io/crates/tinywasm).
 
 ## Features
@@ -11,11 +11,11 @@ This crate provides a parser that can parse WebAssembly modules into a TinyWasm 
 ## Usage
 
 ```rust
-use tinywasm_parser::{Parser, TinyWasmModule};
+use tinywasm_parser::Parser;
 let bytes = include_bytes!("./file.wasm");
 
 let parser = Parser::new();
-let module: TinyWasmModule = parser.parse_module_bytes(bytes).unwrap();
-let mudule: TinyWasmModule = parser.parse_module_file("path/to/file.wasm").unwrap(); 
-let module: TinyWasmModule = parser.parse_module_stream(&mut stream).unwrap();
+let module = parser.parse_module_bytes(bytes).unwrap();
+let mudule = parser.parse_module_file("path/to/file.wasm").unwrap();
+let module = parser.parse_module_stream(&mut stream).unwrap();
 ```

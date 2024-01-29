@@ -1,6 +1,22 @@
 use color_eyre::eyre::Result;
 use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
+/// Examples of using WebAssembly compiled from Rust with tinywasm.
+///
+/// These examples are meant to be run with `cargo run --example wasm-rust <example>`.
+/// For example, `cargo run --example wasm-rust hello`.
+///
+/// To run these, you first need to compile the Rust examples to WebAssembly:
+///
+/// ```sh
+/// ./examples/rust/build.sh
+/// ```
+///
+/// This requires the `wasm32-unknown-unknown` target, `binaryen` and `wabt` to be installed.
+/// `rustup target add wasm32-unknown-unknown`.
+/// https://github.com/WebAssembly/wabt
+/// https://github.com/WebAssembly/binaryen
+///
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {

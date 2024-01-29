@@ -1,11 +1,7 @@
 use crate::log;
+use crate::{Error, Result, Trap};
 use alloc::{vec, vec::Vec};
-
 use tinywasm_types::*;
-
-use crate::{
-    Error, Result, Trap,
-};
 
 const MAX_TABLE_SIZE: u32 = 10000000;
 
@@ -30,7 +26,7 @@ impl TableInstance {
         Ok(match self.kind.element_type {
             ValType::RefFunc => val.map(WasmValue::RefFunc).unwrap_or(WasmValue::RefNull(ValType::RefFunc)),
             ValType::RefExtern => val.map(WasmValue::RefExtern).unwrap_or(WasmValue::RefNull(ValType::RefExtern)),
-            _ => unimplemented!("unsupported table type: {:?}", self.kind.element_type),
+            _ => Err(Error::UnsupportedFeature("non-ref table".into()))?,
         })
     }
 

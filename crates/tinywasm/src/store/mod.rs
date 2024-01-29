@@ -17,12 +17,7 @@ mod function;
 mod global;
 mod memory;
 mod table;
-pub(crate) use data::*;
-pub(crate) use element::*;
-pub(crate) use function::*;
-pub(crate) use global::*;
-pub(crate) use memory::*;
-pub(crate) use table::*;
+pub(crate) use {data::*, element::*, function::*, global::*, memory::*, table::*};
 
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -205,12 +200,11 @@ impl Store {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
-
                 let global = self.data.globals[addr as usize].clone();
                 let val = i64::from(global.borrow().value);
-                log::error!("global: {}", val);
+
+                // check if the global is actually a null reference
                 if val < 0 {
-                    // the global is actually a null reference
                     None
                 } else {
                     Some(val as u32)

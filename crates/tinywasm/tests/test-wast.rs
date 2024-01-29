@@ -13,8 +13,8 @@ fn main() -> Result<()> {
     }
 
     if args.len() < 3 {
-        bail!("usage: cargo test-wast <wast-file>");
-    }
+        bail!("usage: cargo test-wast <wast-file>")
+    };
 
     // cwd for relative paths, absolute paths are kept as-is
     let cwd = std::env::current_dir()?;

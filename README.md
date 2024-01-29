@@ -10,18 +10,17 @@
 
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg)](./LICENSE-APACHE)
 
-# Why TinyWasm?
+## Why TinyWasm?
 
 - **Tiny** - Designed to be as small as possible without sacrificing too much performance or functionality.
 - **Fast enough** - TinyWasm is reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
 - **Portable** - Runs on any platform llvm supports, including WebAssembly. Minimal external dependencies.
 
-# Status
+## Status
 
-TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress. This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)).
+TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress. This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). Results of the testsuite can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
 Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
-Results of the tests can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
 TinyWasm is not designed for performance, but rather for simplicity, size and portability. However, it is still reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
 
@@ -32,24 +31,26 @@ TinyWasm is not designed for performance, but rather for simplicity, size and po
 - [**Sign-extension operators**](https://github.com/WebAssembly/spec/blob/master/proposals/sign-extension-ops/Overview.md) - **Fully implemented**
 - [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) - **Fully implemented** (as of version `0.4.0`)
 - [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md) - **_Partially implemented_**
-- [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md) - **_Partially implemented_** (not tested yet)
-- [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md) - **_Partially implemented_** (only 32-bit addressing is supported at the moment, but larger memories can be created)
+- [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md) - **_Partially implemented_**
+- [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md) - **_Partially implemented_**
 
 ## Usage
 
 TinyWasm can be used through the `tinywasm-cli` CLI tool or as a library in your Rust project. Documentation can be found [here](https://docs.rs/tinywasm).
 
-### CLI
-
-```sh
-$ cargo install tinywasm-cli
-$ tinywasm-cli --help
-```
-
 ### Library
 
 ```sh
 $ cargo add tinywasm
+```
+
+### CLI
+
+The CLI is mainly available for testing purposes, but can also be used to run WebAssembly programs.
+
+```sh
+$ cargo install tinywasm-cli
+$ tinywasm-cli --help
 ```
 
 ## Feature Flags
@@ -60,6 +61,8 @@ $ cargo add tinywasm
   Enables logging using the `log` crate. This is enabled by default.
 - **`parser`**\
   Enables the `tinywasm-parser` crate. This is enabled by default.
+- **`archive`**\
+  Enables pre-parsing of archives. This is enabled by default.
 - **`unsafe`**\
   Uses `unsafe` code to improve performance, particularly in Memory access
 
@@ -70,7 +73,7 @@ Since `libm` is not as performant as the compiler's math intrinsics, it is recom
 
 > Benchmarks are coming soon.
 
-# 📄 License
+## License
 
 Licensed under either of [Apache License, Version 2.0](./LICENSE-APACHE) or [MIT license](./LICENSE-MIT) at your option.
 

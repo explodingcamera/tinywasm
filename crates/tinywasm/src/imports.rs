@@ -286,7 +286,6 @@ impl Imports {
         if let Some(v) = self.values.get(&name) {
             return Some(ResolvedExtern::Extern(v.clone()));
         }
-
         if let Some(addr) = self.modules.get(&name.module) {
             let instance = store.get_module_instance(*addr)?;
             return Some(ResolvedExtern::Store(instance.export_addr(&import.name)?));
@@ -295,15 +294,11 @@ impl Imports {
         None
     }
 
-    fn compare_types<T>(import: &Import, actual: &T, expected: &T) -> Result<()>
-    where
-        T: Debug + PartialEq,
-    {
+    fn compare_types<T: Debug + PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
             log::error!("failed to link import {}, expected {:?}, got {:?}", import.name, expected, actual);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
-
         Ok(())
     }
 
@@ -333,22 +328,20 @@ impl Imports {
     ) -> Result<()> {
         Self::compare_types(import, &expected.arch, &actual.arch)?;
 
-        if actual.page_count_initial > expected.page_count_initial {
-            if let Some(real_size) = real_size {
-                if actual.page_count_initial > real_size as u64 {
-                    return Err(LinkingError::incompatible_import_type(import).into());
-                }
-            } else {
-                return Err(LinkingError::incompatible_import_type(import).into());
-            }
+        if actual.page_count_initial > expected.page_count_initial
+            && real_size.map_or(true, |size| actual.page_count_initial > size as u64)
+        {
+            return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        match (expected.page_count_max, actual.page_count_max) {
-            (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
-            (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
-                return Err(LinkingError::incompatible_import_type(import).into())
+        if expected.page_count_max.is_none() && actual.page_count_max.is_some() {
+            return Err(LinkingError::incompatible_import_type(import).into());
+        }
+
+        if let (Some(expected_max), Some(actual_max)) = (expected.page_count_max, actual.page_count_max) {
+            if actual_max < expected_max {
+                return Err(LinkingError::incompatible_import_type(import).into());
             }
-            _ => {}
         }
 
         Ok(())

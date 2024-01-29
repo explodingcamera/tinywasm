@@ -30,9 +30,11 @@ impl GlobalInstance {
                 val.val_type()
             )));
         }
+
         if !self.ty.mutable {
             return Err(Error::Other("global is immutable".to_string()));
         }
+
         self.value = val.into();
         Ok(())
     }

@@ -1,3 +1,5 @@
+use core::fmt::{Display, Formatter};
+
 use crate::TinyWasmModule;
 use rkyv::{
     check_archived_root,
@@ -14,30 +16,49 @@ const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TW
 
 pub use rkyv::AlignedVec;
 
-fn validate_magic(wasm: &[u8]) -> Result<usize, &str> {
-    if wasm.len() < TWASM_MAGIC.len() {
-        return Err("Invalid twasm: too short");
-    }
-    if &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
-        return Err("Invalid twasm: invalid magic number");
+fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
+    if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
+        return Err(TwasmError::InvalidMagic);
     }
     if &wasm[TWASM_MAGIC_PREFIX.len()..TWASM_MAGIC_PREFIX.len() + TWASM_VERSION.len()] != TWASM_VERSION {
-        return Err("Invalid twasm: invalid version");
+        return Err(TwasmError::InvalidVersion);
     }
     if wasm[TWASM_MAGIC_PREFIX.len() + TWASM_VERSION.len()..TWASM_MAGIC.len()] != [0; 10] {
-        return Err("Invalid twasm: invalid padding");
+        return Err(TwasmError::InvalidPadding);
     }
 
     Ok(TWASM_MAGIC.len())
 }
 
+#[derive(Debug)]
+pub enum TwasmError {
+    InvalidMagic,
+    InvalidVersion,
+    InvalidPadding,
+    InvalidArchive,
+}
+
+impl Display for TwasmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TwasmError::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
+            TwasmError::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
+            TwasmError::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
+            TwasmError::InvalidArchive => write!(f, "Invalid twasm: invalid archive"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for TwasmError {}
+
 impl TinyWasmModule {
     /// Creates a TinyWasmModule from a slice of bytes.
-    pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, &str> {
+    pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
         let len = validate_magic(wasm)?;
-        let root = check_archived_root::<Self>(&wasm[len..]).map_err(|e| {
-            log::error!("Error checking archived root: {}", e);
-            "Error checking archived root"
+        let root = check_archived_root::<Self>(&wasm[len..]).map_err(|_e| {
+            crate::log::error!("Invalid archive: {}", _e);
+            TwasmError::InvalidArchive
         })?;
 
         Ok(root.deserialize(&mut rkyv::Infallible).unwrap())

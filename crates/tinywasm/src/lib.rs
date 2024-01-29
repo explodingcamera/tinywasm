@@ -58,6 +58,8 @@
 //! # Ok::<(), tinywasm::Error>(())
 //! ```
 //!
+//! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
+//!
 //! ## Imports
 //!
 //! To provide imports to a module, you can use the [`Imports`] struct.

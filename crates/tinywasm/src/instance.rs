@@ -124,11 +124,6 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
-    /// Get the module's function types
-    pub fn func_tys(&self) -> &[FuncType] {
-        &self.0.types
-    }
-
     pub(crate) fn new(inner: ModuleInstanceInner) -> Self {
         Self(Rc::new(inner))
     }
@@ -232,7 +227,6 @@ impl ModuleInstance {
     ///
     /// Returns None if the module has no start function
     /// If no start function is specified, also checks for a _start function in the exports
-    /// (which is not part of the spec, but used by some compilers)
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
     pub fn start_func(&self, store: &Store) -> Result<Option<FuncHandle>> {
