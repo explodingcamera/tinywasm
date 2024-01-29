@@ -12,7 +12,7 @@
 
 # Status
 
-TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress (notably `simd` and `bulk-memory-operations` are not implemented yet). This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)).
+TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress. This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)).
 
 Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
 Results of the tests can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
@@ -24,7 +24,7 @@ TinyWasm is not designed for performance, but rather for size and portability. H
 - [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md) - **Fully implemented**
 - [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md) - **Fully implemented**
 - [**Sign-extension operators**](https://github.com/WebAssembly/spec/blob/master/proposals/sign-extension-ops/Overview.md) - **Fully implemented**
-- [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) - **_Partially implemented_**
+- [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) - **Fully implemented** (as of version `0.4.0`)
 - [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md) - **_Partially implemented_**
 - [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md) - **_Partially implemented_** (not tested yet)
 - [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md) - **_Partially implemented_** (only 32-bit addressing is supported at the moment, but larger memories can be created)

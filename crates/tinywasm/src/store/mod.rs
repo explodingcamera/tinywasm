@@ -287,40 +287,38 @@ impl Store {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
-            use tinywasm_types::DataKind::*;
-            match data.kind {
-                Active { mem: mem_addr, offset } => {
-                    // a. Assert: memidx == 0
-                    if mem_addr != 0 {
-                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
-                    }
+            let data_val =
+                match data.kind {
+                    tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
+                        // a. Assert: memidx == 0
+                        if mem_addr != 0 {
+                            return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
+                        }
 
-                    let mem_addr = mem_addrs
-                        .get(mem_addr as usize)
-                        .copied()
-                        .ok_or_else(|| Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)))?;
-
-                    let offset = self.eval_i32_const(&offset)?;
-
-                    let mem =
-                        self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
+                        let mem_addr = mem_addrs.get(mem_addr as usize).copied().ok_or_else(|| {
                             Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
                         })?;
 
-                    // See comment for active element sections in the function above why we need to do this here
-                    if let Err(Error::Trap(trap)) =
-                        mem.borrow_mut().store(offset as usize, 0, &data.data, data.data.len())
-                    {
-                        return Ok((data_addrs.into_boxed_slice(), Some(trap)));
+                        let offset = self.eval_i32_const(&offset)?;
+
+                        let mem = self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
+                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
+                        })?;
+
+                        // See comment for active element sections in the function above why we need to do this here
+                        if let Err(Error::Trap(trap)) =
+                            mem.borrow_mut().store(offset as usize, 0, &data.data, data.data.len())
+                        {
+                            return Ok((data_addrs.into_boxed_slice(), Some(trap)));
+                        }
+
+                        // drop the data
+                        None
                     }
+                    tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
+                };
 
-                    // drop the data
-                    continue;
-                }
-                Passive => {}
-            }
-
-            self.data.datas.push(DataInstance::new(data.data.to_vec(), idx));
+            self.data.datas.push(DataInstance::new(data_val, idx));
             data_addrs.push((i + data_count) as Addr);
         }
 
@@ -411,6 +409,16 @@ impl Store {
     /// Get the table at the actual index in the store
     pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
         self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+    }
+
+    /// Get the data at the actual index in the store
+    pub(crate) fn get_data(&self, addr: usize) -> Result<&DataInstance> {
+        self.data.datas.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+    }
+
+    /// Get the data at the actual index in the store
+    pub(crate) fn get_data_mut(&mut self, addr: usize) -> Result<&mut DataInstance> {
+        self.data.datas.get_mut(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
     }
 
     /// Get the element at the actual index in the store
@@ -621,12 +629,22 @@ impl ElementInstance {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#data-instances>
 #[derive(Debug)]
 pub(crate) struct DataInstance {
-    pub(crate) _data: Vec<u8>,
+    pub(crate) data: Option<Vec<u8>>,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl DataInstance {
-    pub(crate) fn new(data: Vec<u8>, owner: ModuleInstanceAddr) -> Self {
-        Self { _data: data, _owner: owner }
+    pub(crate) fn new(data: Option<Vec<u8>>, owner: ModuleInstanceAddr) -> Self {
+        Self { data, _owner: owner }
+    }
+
+    pub(crate) fn drop(&mut self) -> Option<()> {
+        match self.data {
+            None => None,
+            Some(_) => {
+                let _ = self.data.take();
+                Some(())
+            }
+        }
     }
 }

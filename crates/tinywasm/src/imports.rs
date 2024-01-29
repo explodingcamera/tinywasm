@@ -62,13 +62,13 @@ pub struct FuncContext<'a> {
 }
 
 impl FuncContext<'_> {
-    /// Get a mutable reference to the store
-    pub fn store_mut(&mut self) -> &mut crate::Store {
+    /// Get a reference to the store
+    pub fn store(&self) -> &crate::Store {
         self.store
     }
 
-    /// Get a reference to the store
-    pub fn store(&self) -> &crate::Store {
+    /// Get a mutable reference to the store
+    pub fn store_mut(&mut self) -> &mut crate::Store {
         self.store
     }
 
@@ -78,8 +78,13 @@ impl FuncContext<'_> {
     }
 
     /// Get a reference to an exported memory
-    pub fn memory(&mut self, name: &str) -> Result<crate::MemoryRef> {
+    pub fn exported_memory(&mut self, name: &str) -> Result<crate::MemoryRef<'_>> {
         self.module().exported_memory(self.store, name)
+    }
+
+    /// Get a reference to an exported memory
+    pub fn exported_memory_mut(&mut self, name: &str) -> Result<crate::MemoryRefMut<'_>> {
+        self.module().exported_memory_mut(self.store, name)
     }
 }
 

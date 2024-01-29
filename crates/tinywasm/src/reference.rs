@@ -1,5 +1,5 @@
 use core::{
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     ffi::CStr,
 };
 
@@ -15,91 +15,121 @@ use tinywasm_types::WasmValue;
 // This module essentially contains the public APIs to interact with the data stored in the store
 
 /// A reference to a memory instance
-#[derive(Debug, Clone)]
-pub struct MemoryRef {
-    pub(crate) instance: Rc<RefCell<MemoryInstance>>,
+#[derive(Debug)]
+pub struct MemoryRef<'a> {
+    pub(crate) instance: Ref<'a, MemoryInstance>,
 }
 
 /// A borrowed reference to a memory instance
 #[derive(Debug)]
-pub struct BorrowedMemory<'a> {
-    pub(crate) instance: Ref<'a, MemoryInstance>,
+pub struct MemoryRefMut<'a> {
+    pub(crate) instance: RefMut<'a, MemoryInstance>,
 }
 
-impl<'a> BorrowedMemory<'a> {
+impl<'a> MemoryRefLoad for MemoryRef<'a> {
+    /// Load a slice of memory
+    fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
+        self.instance.load(offset, 0, len)
+    }
+}
+
+impl<'a> MemoryRefLoad for MemoryRefMut<'a> {
+    /// Load a slice of memory
+    fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
+        self.instance.load(offset, 0, len)
+    }
+}
+
+impl MemoryRef<'_> {
     /// Load a slice of memory
     pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
         self.instance.load(offset, 0, len)
     }
 
+    /// Load a slice of memory as a vector
+    pub fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
+        self.load(offset, len).map(|x| x.to_vec())
+    }
+}
+
+impl MemoryRefMut<'_> {
+    /// Load a slice of memory
+    pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
+        self.instance.load(offset, 0, len)
+    }
+
+    /// Load a slice of memory as a vector
+    pub fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
+        self.load(offset, len).map(|x| x.to_vec())
+    }
+
+    /// Grow the memory by the given number of pages
+    pub fn grow(&mut self, delta_pages: i32) -> Option<i32> {
+        self.instance.grow(delta_pages)
+    }
+
+    /// Get the current size of the memory in pages
+    pub fn page_count(&mut self) -> usize {
+        self.instance.page_count()
+    }
+
+    /// Copy a slice of memory to another place in memory
+    pub fn copy_within(&mut self, src: usize, dst: usize, len: usize) -> Result<()> {
+        self.instance.copy_within(src, dst, len)
+    }
+
+    /// Fill a slice of memory with a value
+    pub fn fill(&mut self, offset: usize, len: usize, val: u8) -> Result<()> {
+        self.instance.fill(offset, len, val)
+    }
+
+    /// Store a slice of memory
+    pub fn store(&mut self, offset: usize, len: usize, data: &[u8]) -> Result<()> {
+        self.instance.store(offset, 0, data, len)
+    }
+}
+
+#[doc(hidden)]
+pub trait MemoryRefLoad {
+    fn load(&self, offset: usize, len: usize) -> Result<&[u8]>;
+    fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
+        self.load(offset, len).map(|x| x.to_vec())
+    }
+}
+
+/// Convenience methods for loading strings from memory
+pub trait MemoryStringExt: MemoryRefLoad {
     /// Load a C-style string from memory
-    pub fn load_cstr(&self, offset: usize, len: usize) -> Result<&CStr> {
+    fn load_cstr(&self, offset: usize, len: usize) -> Result<&CStr> {
         let bytes = self.load(offset, len)?;
         CStr::from_bytes_with_nul(bytes).map_err(|_| crate::Error::Other("Invalid C-style string".to_string()))
     }
 
     /// Load a C-style string from memory, stopping at the first nul byte
-    pub fn load_cstr_until_nul(&self, offset: usize, max_len: usize) -> Result<&CStr> {
+    fn load_cstr_until_nul(&self, offset: usize, max_len: usize) -> Result<&CStr> {
         let bytes = self.load(offset, max_len)?;
         CStr::from_bytes_until_nul(bytes).map_err(|_| crate::Error::Other("Invalid C-style string".to_string()))
     }
-}
-
-impl MemoryRef {
-    /// Borrow the memory instance
-    ///
-    /// This is useful for when you want to load only a reference to a slice of memory
-    /// without copying the data. The borrow should be dropped before any other memory
-    /// operations are performed.
-    pub fn borrow(&self) -> BorrowedMemory<'_> {
-        BorrowedMemory { instance: self.instance.borrow() }
-    }
-
-    /// Load a slice of memory
-    pub fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
-        self.instance.borrow().load(offset, 0, len).map(|x| x.to_vec())
-    }
-
-    /// Grow the memory by the given number of pages
-    pub fn grow(&self, delta_pages: i32) -> Option<i32> {
-        self.instance.borrow_mut().grow(delta_pages)
-    }
-
-    /// Get the current size of the memory in pages
-    pub fn page_count(&self) -> usize {
-        self.instance.borrow().page_count()
-    }
-
-    /// Copy a slice of memory to another place in memory
-    pub fn copy_within(&self, src: usize, dst: usize, len: usize) -> Result<()> {
-        self.instance.borrow_mut().copy_within(src, dst, len)
-    }
-
-    /// Fill a slice of memory with a value
-    pub fn fill(&self, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance.borrow_mut().fill(offset, len, val)
-    }
 
     /// Load a UTF-8 string from memory
-    pub fn load_string(&self, offset: usize, len: usize) -> Result<String> {
-        let bytes = self.load_vec(offset, len)?;
-        String::from_utf8(bytes).map_err(|_| crate::Error::Other("Invalid UTF-8 string".to_string()))
+    fn load_string(&self, offset: usize, len: usize) -> Result<String> {
+        let bytes = self.load(offset, len)?;
+        String::from_utf8(bytes.to_vec()).map_err(|_| crate::Error::Other("Invalid UTF-8 string".to_string()))
     }
 
     /// Load a C-style string from memory
-    pub fn load_cstring(&self, offset: usize, len: usize) -> Result<CString> {
-        Ok(CString::from(self.borrow().load_cstr(offset, len)?))
+    fn load_cstring(&self, offset: usize, len: usize) -> Result<CString> {
+        Ok(CString::from(self.load_cstr(offset, len)?))
     }
 
     /// Load a C-style string from memory, stopping at the first nul byte
-    pub fn load_cstring_until_nul(&self, offset: usize, max_len: usize) -> Result<CString> {
-        Ok(CString::from(self.borrow().load_cstr_until_nul(offset, max_len)?))
+    fn load_cstring_until_nul(&self, offset: usize, max_len: usize) -> Result<CString> {
+        Ok(CString::from(self.load_cstr_until_nul(offset, max_len)?))
     }
 
     /// Load a JavaScript-style utf-16 string from memory
-    pub fn load_js_string(&self, offset: usize, len: usize) -> Result<String> {
-        let memref = self.borrow();
-        let bytes = memref.load(offset, len)?;
+    fn load_js_string(&self, offset: usize, len: usize) -> Result<String> {
+        let bytes = self.load(offset, len)?;
         let mut string = String::new();
         for i in 0..(len / 2) {
             let c = u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
@@ -109,12 +139,10 @@ impl MemoryRef {
         }
         Ok(string)
     }
-
-    /// Store a slice of memory
-    pub fn store(&self, offset: usize, len: usize, data: &[u8]) -> Result<()> {
-        self.instance.borrow_mut().store(offset, 0, data, len)
-    }
 }
+
+impl MemoryStringExt for MemoryRef<'_> {}
+impl MemoryStringExt for MemoryRefMut<'_> {}
 
 /// A reference to a global instance
 #[derive(Debug, Clone)]

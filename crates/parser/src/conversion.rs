@@ -107,7 +107,6 @@ pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wa
     table_types: T,
 ) -> Result<Vec<TableType>> {
     let table_type = table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()?;
-
     Ok(table_type)
 }
 

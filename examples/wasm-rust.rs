@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use tinywasm::{Extern, FuncContext, Imports, Module, Store};
+use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -56,7 +56,7 @@ fn hello() -> Result<()> {
         "env",
         "print_utf8",
         Extern::typed_func(|mut ctx: FuncContext<'_>, args: (i64, i32)| {
-            let mem = ctx.memory("memory")?;
+            let mem = ctx.exported_memory("memory")?;
             let ptr = args.0 as usize;
             let len = args.1 as usize;
             let string = mem.load_string(ptr, len)?;
@@ -69,7 +69,7 @@ fn hello() -> Result<()> {
     let arg_ptr = instance.exported_func::<(), i32>(&mut store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
-    instance.exported_memory(&mut store, "memory")?.store(arg_ptr as usize, arg.len(), arg)?;
+    instance.exported_memory_mut(&mut store, "memory")?.store(arg_ptr as usize, arg.len(), arg)?;
     let hello = instance.exported_func::<i32, ()>(&mut store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 

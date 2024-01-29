@@ -112,7 +112,6 @@ impl ModuleReader {
                 if !self.table_types.is_empty() {
                     return Err(ParseError::DuplicateSection("Table section".into()));
                 }
-
                 debug!("Found table section");
                 validator.table_section(&reader)?;
                 self.table_types = conversion::convert_module_tables(reader)?;
@@ -139,6 +138,13 @@ impl ModuleReader {
                 debug!("Found data section");
                 validator.data_section(&reader)?;
                 self.data = conversion::convert_module_data_sections(reader)?;
+            }
+            DataCountSection { count, range } => {
+                debug!("Found data count section");
+                if !self.data.is_empty() {
+                    return Err(ParseError::DuplicateSection("Data count section".into()));
+                }
+                validator.data_count_section(count, &range)?;
             }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);

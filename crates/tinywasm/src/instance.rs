@@ -3,7 +3,7 @@ use tinywasm_types::*;
 
 use crate::{
     func::{FromWasmValueTuple, IntoWasmValueTuple},
-    log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, Module, Result, Store,
+    log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store,
 };
 
 /// An instanciated WebAssembly module
@@ -152,6 +152,11 @@ impl ModuleInstance {
         *self.0.mem_addrs.get(addr as usize).expect("No mem addr for mem, this is a bug")
     }
 
+    // resolve a data address to the global store address
+    pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> MemAddr {
+        *self.0.data_addrs.get(addr as usize).expect("No data addr for data, this is a bug")
+    }
+
     // resolve a memory address to the global store address
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
         *self.0.elem_addrs.get(addr as usize).expect("No elem addr for elem, this is a bug")
@@ -190,7 +195,7 @@ impl ModuleInstance {
     }
 
     /// Get an exported memory by name
-    pub fn exported_memory(&self, store: &mut Store, name: &str) -> Result<MemoryRef> {
+    pub fn exported_memory<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRef<'a>> {
         let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {}", name)));
@@ -199,11 +204,28 @@ impl ModuleInstance {
         Ok(mem)
     }
 
+    /// Get an exported memory by name
+    pub fn exported_memory_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRefMut<'a>> {
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let ExternVal::Memory(mem_addr) = export else {
+            return Err(Error::Other(format!("Export is not a memory: {}", name)));
+        };
+        let mem = self.memory_mut(store, mem_addr)?;
+        Ok(mem)
+    }
+
     /// Get a memory by address
-    pub fn memory(&self, store: &Store, addr: MemAddr) -> Result<MemoryRef> {
+    pub fn memory<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
         let addr = self.resolve_mem_addr(addr);
         let mem = store.get_mem(addr as usize)?;
-        Ok(MemoryRef { instance: mem.clone() })
+        Ok(MemoryRef { instance: mem.borrow() })
+    }
+
+    /// Get a memory by address (mutable)
+    pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
+        let addr = self.resolve_mem_addr(addr);
+        let mem = store.get_mem(addr as usize)?;
+        Ok(MemoryRefMut { instance: mem.borrow_mut() })
     }
 
     /// Get the start function of the module

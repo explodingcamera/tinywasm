@@ -418,12 +418,39 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             mem.fill(dst as usize, size as usize, val as u8)?;
         }
 
-        // MemoryInit(data_index, mem_index) => {}
-        // DataDrop(data_index) => {
-        //     // let data_idx = module.resolve_data_addr(*data_index);
-        //     // let data = store.get_data(data_idx as usize)?;
-        //     // data.borrow_mut().drop()?;
-        // }
+        MemoryInit(data_index, mem_index) => {
+            let size = stack.values.pop_t::<i32>()? as usize;
+            let offset = stack.values.pop_t::<i32>()? as usize;
+            let dst = stack.values.pop_t::<i32>()? as usize;
+
+            let data_idx = module.resolve_data_addr(*data_index);
+            let Some(ref data) = store.get_data(data_idx as usize)?.data else {
+                cold();
+                return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into());
+            };
+
+            let mem_idx = module.resolve_mem_addr(*mem_index);
+            let mem = store.get_mem(mem_idx as usize)?;
+
+            let data_len = data.len();
+            if offset + size > data_len {
+                cold();
+                return Err(Trap::MemoryOutOfBounds { offset, len: size, max: data_len }.into());
+            }
+
+            let mut mem = mem.borrow_mut();
+            let data = &data[offset..(offset + size)];
+
+            // mem.store checks bounds
+            mem.store(dst, 0, data, size)?;
+        }
+
+        DataDrop(data_index) => {
+            let data_idx = module.resolve_data_addr(*data_index);
+            let data = store.get_data_mut(data_idx as usize)?;
+            data.drop();
+        }
+
         I32Store(arg) => mem_store!(i32, arg, stack, store, module),
         I64Store(arg) => mem_store!(i64, arg, stack, store, module),
         F32Store(arg) => mem_store!(f32, arg, stack, store, module),
