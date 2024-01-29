@@ -25,7 +25,7 @@ mod module;
 use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::WasmFunction;
+use tinywasm_types::{TypedWasmFunction, WasmFunction};
 use wasmparser::Validator;
 
 pub use tinywasm_types::TinyWasmModule;
@@ -116,19 +116,13 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             .code
             .into_iter()
             .zip(code_type_addrs)
-            .map(|(f, ty_idx)| {
-                (
-                    ty_idx,
-                    WasmFunction {
-                        instructions: f.body,
-                        locals: f.locals,
-                        ty: reader
-                            .func_types
-                            .get(ty_idx as usize)
-                            .expect("No func type for func, this is a bug")
-                            .clone(),
-                    },
-                )
+            .map(|(f, ty_idx)| TypedWasmFunction {
+                type_addr: ty_idx,
+                wasm_function: WasmFunction {
+                    instructions: f.body,
+                    locals: f.locals,
+                    ty: reader.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
+                },
             })
             .collect::<Vec<_>>();
 

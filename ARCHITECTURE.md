@@ -17,7 +17,8 @@ Some key differences are:
 ## Bytecode Format
 
 To improve performance and reduce code size, instructions are encoded as enum variants instead of opcodes.
-This allows preprocessing the bytecode into a more compact format, which can be loaded directly into memory and executed without decoding later. This can skip the decoding step entirely on resource-constrained devices where memory is limited.
+This allows preprocessing the bytecode into a more compact format, which can be loaded directly into memory and executed without decoding later. This can skip the decoding step entirely on resource-constrained devices where memory is limited. See this [blog post](https://wasmer.io/posts/improving-with-zero-copy-deserialization) by Wasmer
+for more details which inspired this design.
 
 Some instructions are split into multiple variants to reduce the size of the enum (e.g. `br_table` and `br_label`).
 Additionally, label instructions contain offsets relative to the current instruction to make branching faster and easier to implement.

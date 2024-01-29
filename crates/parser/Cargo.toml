@@ -11,9 +11,9 @@ repository.workspace=true
 # fork of wasmparser with no_std support, see https://github.com/bytecodealliance/wasmtime/issues/3495
 wasmparser={version="0.100", package="wasmparser-nostd", default-features=false}
 log={version="0.4", optional=true}
-tinywasm-types={version="0.3.0-alpha.0", path="../types"}
+tinywasm-types={version="0.3.0-alpha.0", path="../types", default-features=false}
 
 [features]
 default=["std", "logging"]
 logging=["log"]
-std=[]
+std=["tinywasm-types/std"]

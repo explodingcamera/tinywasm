@@ -1,5 +1,5 @@
 use crate::log;
-use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec::Vec};
 use core::{
     cell::RefCell,
     sync::atomic::{AtomicUsize, Ordering},
@@ -11,8 +11,18 @@ use crate::{
     Error, Function, ModuleInstance, Result, Trap,
 };
 
+mod data;
+mod element;
+mod function;
+mod global;
 mod memory;
+mod table;
+pub(crate) use data::*;
+pub(crate) use element::*;
+pub(crate) use function::*;
+pub(crate) use global::*;
 pub(crate) use memory::*;
+pub(crate) use table::*;
 
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -118,14 +128,14 @@ impl Store {
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
-        funcs: Vec<(u32, WasmFunction)>,
+        funcs: Vec<TypedWasmFunction>,
         idx: ModuleInstanceAddr,
     ) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
 
-        for (i, (_, func)) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(FunctionInstance { func: Function::Wasm(Rc::new(func)), owner: idx });
+        for (i, func) in funcs.into_iter().enumerate() {
+            self.data.funcs.push(FunctionInstance { func: Function::Wasm(Rc::new(func.wasm_function)), owner: idx });
             func_addrs.push((i + func_count) as FuncAddr);
         }
 
@@ -446,205 +456,5 @@ impl Store {
             .get(addr)
             .ok_or_else(|| Error::Other(format!("global {} not found", addr)))
             .map(|global| global.borrow_mut().value = value)
-    }
-}
-
-#[derive(Debug, Clone)]
-/// A WebAssembly Function Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
-pub(crate) struct FunctionInstance {
-    pub(crate) func: Function,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TableElement {
-    Uninitialized,
-    Initialized(Addr),
-}
-
-impl From<Option<Addr>> for TableElement {
-    fn from(addr: Option<Addr>) -> Self {
-        match addr {
-            None => TableElement::Uninitialized,
-            Some(addr) => TableElement::Initialized(addr),
-        }
-    }
-}
-
-impl TableElement {
-    pub(crate) fn addr(&self) -> Option<Addr> {
-        match self {
-            TableElement::Uninitialized => None,
-            TableElement::Initialized(addr) => Some(*addr),
-        }
-    }
-
-    pub(crate) fn map<F: FnOnce(Addr) -> Addr>(self, f: F) -> Self {
-        match self {
-            TableElement::Uninitialized => TableElement::Uninitialized,
-            TableElement::Initialized(addr) => TableElement::Initialized(f(addr)),
-        }
-    }
-}
-
-const MAX_TABLE_SIZE: u32 = 10000000;
-
-/// A WebAssembly Table Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
-#[derive(Debug)]
-pub(crate) struct TableInstance {
-    pub(crate) elements: Vec<TableElement>,
-    pub(crate) kind: TableType,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
-}
-
-impl TableInstance {
-    pub(crate) fn new(kind: TableType, owner: ModuleInstanceAddr) -> Self {
-        Self { elements: vec![TableElement::Uninitialized; kind.size_initial as usize], kind, _owner: owner }
-    }
-
-    pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue> {
-        let val = self.get(addr)?.addr();
-
-        Ok(match self.kind.element_type {
-            ValType::RefFunc => val.map(WasmValue::RefFunc).unwrap_or(WasmValue::RefNull(ValType::RefFunc)),
-            ValType::RefExtern => val.map(WasmValue::RefExtern).unwrap_or(WasmValue::RefNull(ValType::RefExtern)),
-            _ => unimplemented!("unsupported table type: {:?}", self.kind.element_type),
-        })
-    }
-
-    pub(crate) fn get(&self, addr: usize) -> Result<&TableElement> {
-        self.elements.get(addr).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
-    }
-
-    pub(crate) fn set(&mut self, table_idx: usize, value: Addr) -> Result<()> {
-        self.grow_to_fit(table_idx + 1).map(|_| self.elements[table_idx] = TableElement::Initialized(value))
-    }
-
-    pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Result<()> {
-        if new_size > self.elements.len() {
-            if new_size > self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize {
-                return Err(crate::Trap::TableOutOfBounds { offset: new_size, len: 1, max: self.elements.len() }.into());
-            }
-
-            self.elements.resize(new_size, TableElement::Uninitialized);
-        }
-        Ok(())
-    }
-
-    pub(crate) fn size(&self) -> i32 {
-        self.elements.len() as i32
-    }
-
-    fn resolve_func_ref(&self, func_addrs: &[u32], addr: Addr) -> Addr {
-        if self.kind.element_type != ValType::RefFunc {
-            return addr;
-        }
-
-        *func_addrs
-            .get(addr as usize)
-            .expect("error initializing table: function not found. This should have been caught by the validator")
-    }
-
-    // Initialize the table with the given elements
-    pub(crate) fn init_raw(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
-        let offset = offset as usize;
-        let end = offset.checked_add(init.len()).ok_or_else(|| {
-            Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
-        })?;
-
-        if end > self.elements.len() || end < offset {
-            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
-        }
-
-        self.elements[offset..end].copy_from_slice(init);
-        log::debug!("table: {:?}", self.elements);
-        Ok(())
-    }
-
-    // Initialize the table with the given elements (resolves function references)
-    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[TableElement]) -> Result<()> {
-        let init = init.iter().map(|item| item.map(|addr| self.resolve_func_ref(func_addrs, addr))).collect::<Vec<_>>();
-
-        self.init_raw(offset, &init)
-    }
-}
-
-/// A WebAssembly Global Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
-#[derive(Debug)]
-pub(crate) struct GlobalInstance {
-    pub(crate) value: RawWasmValue,
-    pub(crate) ty: GlobalType,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
-}
-
-impl GlobalInstance {
-    pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
-        Self { ty, value, _owner: owner }
-    }
-
-    pub(crate) fn get(&self) -> WasmValue {
-        self.value.attach_type(self.ty.ty)
-    }
-
-    pub(crate) fn set(&mut self, val: WasmValue) -> Result<()> {
-        if val.val_type() != self.ty.ty {
-            return Err(Error::Other(format!(
-                "global type mismatch: expected {:?}, got {:?}",
-                self.ty.ty,
-                val.val_type()
-            )));
-        }
-        if !self.ty.mutable {
-            return Err(Error::Other("global is immutable".to_string()));
-        }
-        self.value = val.into();
-        Ok(())
-    }
-}
-
-/// A WebAssembly Element Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#element-instances>
-#[derive(Debug)]
-pub(crate) struct ElementInstance {
-    pub(crate) kind: ElementKind,
-    pub(crate) items: Option<Vec<TableElement>>, // none is the element was dropped
-    _owner: ModuleInstanceAddr,                  // index into store.module_instances
-}
-
-impl ElementInstance {
-    pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<TableElement>>) -> Self {
-        Self { kind, _owner: owner, items }
-    }
-}
-
-/// A WebAssembly Data Instance
-///
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#data-instances>
-#[derive(Debug)]
-pub(crate) struct DataInstance {
-    pub(crate) data: Option<Vec<u8>>,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
-}
-
-impl DataInstance {
-    pub(crate) fn new(data: Option<Vec<u8>>, owner: ModuleInstanceAddr) -> Self {
-        Self { data, _owner: owner }
-    }
-
-    pub(crate) fn drop(&mut self) -> Option<()> {
-        match self.data {
-            None => None,
-            Some(_) => {
-                let _ = self.data.take();
-                Some(())
-            }
-        }
     }
 }

@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 
 fn tinywasm() -> Result<()> {
     const TINYWASM: &[u8] = include_bytes!("./rust/out/tinywasm.wasm");
-    let module = Module::parse_bytes(&TINYWASM)?;
+    let module = Module::parse_bytes(TINYWASM)?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -40,7 +40,7 @@ fn tinywasm() -> Result<()> {
     )?;
     let instance = module.instantiate(&mut store, Some(imports))?;
 
-    let hello = instance.exported_func::<(), ()>(&mut store, "hello")?;
+    let hello = instance.exported_func::<(), ()>(&store, "hello")?;
     hello.call(&mut store, ())?;
 
     Ok(())
@@ -48,7 +48,7 @@ fn tinywasm() -> Result<()> {
 
 fn hello() -> Result<()> {
     const HELLO_WASM: &[u8] = include_bytes!("./rust/out/hello.wasm");
-    let module = Module::parse_bytes(&HELLO_WASM)?;
+    let module = Module::parse_bytes(HELLO_WASM)?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -66,11 +66,11 @@ fn hello() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let arg_ptr = instance.exported_func::<(), i32>(&mut store, "arg_ptr")?.call(&mut store, ())?;
+    let arg_ptr = instance.exported_func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
     instance.exported_memory_mut(&mut store, "memory")?.store(arg_ptr as usize, arg.len(), arg)?;
-    let hello = instance.exported_func::<i32, ()>(&mut store, "hello")?;
+    let hello = instance.exported_func::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 
     Ok(())
@@ -78,7 +78,7 @@ fn hello() -> Result<()> {
 
 fn printi32() -> Result<()> {
     const HELLO_WASM: &[u8] = include_bytes!("./rust/out/print.wasm");
-    let module = Module::parse_bytes(&HELLO_WASM)?;
+    let module = Module::parse_bytes(HELLO_WASM)?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -92,7 +92,7 @@ fn printi32() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let add_and_print = instance.exported_func::<(i32, i32), ()>(&mut store, "add_and_print")?;
+    let add_and_print = instance.exported_func::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
 
     Ok(())
@@ -100,11 +100,11 @@ fn printi32() -> Result<()> {
 
 fn fibonacci() -> Result<()> {
     const FIBONACCI_WASM: &[u8] = include_bytes!("./rust/out/fibonacci.wasm");
-    let module = Module::parse_bytes(&FIBONACCI_WASM)?;
+    let module = Module::parse_bytes(FIBONACCI_WASM)?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
-    let fibonacci = instance.exported_func::<i32, i32>(&mut store, "fibonacci")?;
+    let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci")?;
     let n = 30;
     let result = fibonacci.call(&mut store, n)?;
     println!("fibonacci({}) = {}", n, result);

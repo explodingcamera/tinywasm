@@ -9,10 +9,12 @@ repository.workspace=true
 
 [dependencies]
 log={version="0.4", optional=true}
-rkyv={version="0.7", optional=true, default-features=false, features=["size_32"]}
+rkyv={version="0.7", optional=true, default-features=false, features=["size_32", "validation"]}
+bytecheck={version="0.7", optional=true}
 
 [features]
-default=["std", "logging"]
-std=["rkyv/std"]
-serialize=["dep:rkyv", "dep:log"]
+default=["std", "logging", "archive", "unsafe"]
+std=["rkyv?/std"]
+archive=["dep:rkyv", "dep:bytecheck"]
 logging=["dep:log"]
+unsafe=[]

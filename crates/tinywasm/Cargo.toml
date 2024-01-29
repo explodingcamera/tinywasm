@@ -29,11 +29,12 @@ plotters={version="0.3"}
 pretty_env_logger="0.5"
 
 [features]
-default=["std", "parser", "logging"]
+default=["std", "parser", "logging", "archive"]
 logging=["log", "tinywasm-types/logging", "tinywasm-parser?/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["tinywasm-parser"]
-unsafe=[]
+unsafe=["tinywasm-types/unsafe"]
+archive=["tinywasm-types/archive"]
 
 [[test]]
 name="generate-charts"

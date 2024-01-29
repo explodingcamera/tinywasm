@@ -9,7 +9,7 @@ fn run_tinywasm(module: TinyWasmModule, iterations: i32) {
     let mut store = Store::default();
     let imports = Imports::default();
     let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
-    let hello = instance.exported_func::<i32, i32>(&mut store, "fibonacci").expect("exported_func");
+    let hello = instance.exported_func::<i32, i32>(&store, "fibonacci").expect("exported_func");
     hello.call(&mut store, iterations).expect("call");
 }
 
@@ -29,8 +29,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     let module = tinywasm_module(FIBONACCI);
 
     let mut group = c.benchmark_group("fibonacci");
-    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone(), black_box(50))));
-    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(black_box(50))));
+    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone(), black_box(60))));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(black_box(60))));
 }
 
 criterion_group!(

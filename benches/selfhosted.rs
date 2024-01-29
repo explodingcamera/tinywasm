@@ -10,7 +10,7 @@ fn run_tinywasm(module: TinyWasmModule) {
     let mut imports = Imports::default();
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
     let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
-    let hello = instance.exported_func::<(), ()>(&mut store, "hello").expect("exported_func");
+    let hello = instance.exported_func::<(), ()>(&store, "hello").expect("exported_func");
     hello.call(&mut store, ()).expect("call");
 }
 
@@ -32,7 +32,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("selfhosted");
     group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
-    group.bench_function("wasmi", |b| b.iter(|| run_wasmi()));
+    group.bench_function("wasmi", |b| b.iter(run_wasmi));
 }
 
 criterion_group!(

@@ -1,10 +1,11 @@
-#![no_std]
-#![forbid(unsafe_code)]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "unsafe"), forbid(unsafe_code))]
+#![cfg_attr(feature = "unsafe", deny(unused_unsafe))]
 
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
@@ -28,22 +29,25 @@ use core::{fmt::Debug, ops::Range};
 use alloc::boxed::Box;
 pub use instructions::*;
 
+#[cfg(feature = "archive")]
+pub mod archive;
+
 /// A TinyWasm WebAssembly Module
 ///
 /// This is the internal representation of a WebAssembly module in TinyWasm.
 /// TinyWasmModules are validated before being created, so they are guaranteed to be valid (as long as they were created by TinyWasm).
 /// This means you should not trust a TinyWasmModule created by a third party to be valid.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct TinyWasmModule {
     /// The version of the WebAssembly module.
     pub version: Option<u16>,
-
     /// The start function of the WebAssembly module.
     pub start_func: Option<FuncAddr>,
 
     /// The functions of the WebAssembly module.
-    pub funcs: Box<[(u32, WasmFunction)]>,
-
+    pub funcs: Box<[TypedWasmFunction]>,
     /// The types of the WebAssembly module.
     pub func_types: Box<[FuncType]>,
 
@@ -90,6 +94,7 @@ pub enum WasmValue {
 }
 
 impl WasmValue {
+    #[inline]
     pub fn const_instr(&self) -> ConstInstruction {
         match self {
             Self::I32(i) => ConstInstruction::I32Const(*i),
@@ -106,6 +111,7 @@ impl WasmValue {
     }
 
     /// Get the default value for a given type.
+    #[inline]
     pub fn default_for(ty: ValType) -> Self {
         match ty {
             ValType::I32 => Self::I32(0),
@@ -117,6 +123,7 @@ impl WasmValue {
         }
     }
 
+    #[inline]
     pub fn eq_loose(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
@@ -144,36 +151,45 @@ impl WasmValue {
 }
 
 impl From<i32> for WasmValue {
+    #[inline]
     fn from(i: i32) -> Self {
         Self::I32(i)
     }
 }
 
 impl From<i64> for WasmValue {
+    #[inline]
     fn from(i: i64) -> Self {
         Self::I64(i)
     }
 }
 
 impl From<f32> for WasmValue {
+    #[inline]
     fn from(i: f32) -> Self {
         Self::F32(i)
     }
 }
 
 impl From<f64> for WasmValue {
+    #[inline]
     fn from(i: f64) -> Self {
         Self::F64(i)
     }
 }
 
+#[cold]
+fn cold() {}
+
 impl TryFrom<WasmValue> for i32 {
     type Error = ();
 
+    #[inline]
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::I32(i) => Ok(i),
             _ => {
+                cold();
                 crate::log::error!("i32: try_from failed: {:?}", value);
                 Err(())
             }
@@ -184,10 +200,12 @@ impl TryFrom<WasmValue> for i32 {
 impl TryFrom<WasmValue> for i64 {
     type Error = ();
 
+    #[inline]
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::I64(i) => Ok(i),
             _ => {
+                cold();
                 crate::log::error!("i64: try_from failed: {:?}", value);
                 Err(())
             }
@@ -198,10 +216,12 @@ impl TryFrom<WasmValue> for i64 {
 impl TryFrom<WasmValue> for f32 {
     type Error = ();
 
+    #[inline]
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::F32(i) => Ok(i),
             _ => {
+                cold();
                 crate::log::error!("f32: try_from failed: {:?}", value);
                 Err(())
             }
@@ -212,10 +232,12 @@ impl TryFrom<WasmValue> for f32 {
 impl TryFrom<WasmValue> for f64 {
     type Error = ();
 
+    #[inline]
     fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
         match value {
             WasmValue::F64(i) => Ok(i),
             _ => {
+                cold();
                 crate::log::error!("f64: try_from failed: {:?}", value);
                 Err(())
             }
@@ -240,6 +262,7 @@ impl Debug for WasmValue {
 
 impl WasmValue {
     /// Get the type of a [`WasmValue`]
+    #[inline]
     pub fn val_type(&self) -> ValType {
         match self {
             Self::I32(_) => ValType::I32,
@@ -255,6 +278,8 @@ impl WasmValue {
 
 /// Type of a WebAssembly value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum ValType {
     /// A 32-bit integer.
     I32,
@@ -271,6 +296,7 @@ pub enum ValType {
 }
 
 impl ValType {
+    #[inline]
     pub fn default_value(&self) -> WasmValue {
         WasmValue::default_for(*self)
     }
@@ -280,6 +306,8 @@ impl ValType {
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum ExternalKind {
     /// A WebAssembly Function.
     Func,
@@ -322,6 +350,7 @@ pub enum ExternVal {
 }
 
 impl ExternVal {
+    #[inline]
     pub fn kind(&self) -> ExternalKind {
         match self {
             Self::Func(_) => ExternalKind::Func,
@@ -331,6 +360,7 @@ impl ExternVal {
         }
     }
 
+    #[inline]
     pub fn new(kind: ExternalKind, addr: Addr) -> Self {
         match kind {
             ExternalKind::Func => Self::Func(addr),
@@ -345,6 +375,8 @@ impl ExternVal {
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct FuncType {
     pub params: Box<[ValType]>,
     pub results: Box<[ValType]>,
@@ -352,20 +384,33 @@ pub struct FuncType {
 
 impl FuncType {
     /// Get the number of parameters of a function type.
+    #[inline]
     pub fn empty() -> Self {
         Self { params: Box::new([]), results: Box::new([]) }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
     pub locals: Box<[ValType]>,
     pub ty: FuncType,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
+pub struct TypedWasmFunction {
+    pub type_addr: u32,
+    pub wasm_function: WasmFunction,
+}
+
 /// A WebAssembly Module Export
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct Export {
     /// The name of the export.
     pub name: Box<str>,
@@ -375,19 +420,25 @@ pub struct Export {
     pub index: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct Global {
     pub ty: GlobalType,
     pub init: ConstInstruction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct TableType {
     pub element_type: ValType,
     pub size_initial: u32,
@@ -404,10 +455,12 @@ impl TableType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 
 /// Represents a memory's type.
 #[derive(Copy)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct MemoryType {
     pub arch: MemoryArch,
     pub page_count_initial: u64,
@@ -418,30 +471,28 @@ impl MemoryType {
     pub fn new_32(page_count_initial: u64, page_count_max: Option<u64>) -> Self {
         Self { arch: MemoryArch::I32, page_count_initial, page_count_max }
     }
-
-    // pub fn new_64(page_count_initial: u64, page_count_max: Option<u64>) -> Self {
-    //     Self {
-    //         arch: MemoryArch::I64,
-    //         page_count_initial,
-    //         page_count_max,
-    //     }
-    // }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum MemoryArch {
     I32,
     I64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct Import {
     pub module: Box<str>,
     pub name: Box<str>,
     pub kind: ImportKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum ImportKind {
     Function(TypeAddr),
     Table(TableType),
@@ -450,6 +501,7 @@ pub enum ImportKind {
 }
 
 impl From<&ImportKind> for ExternalKind {
+    #[inline]
     fn from(kind: &ImportKind) -> Self {
         match kind {
             ImportKind::Function(_) => Self::Func,
@@ -460,20 +512,26 @@ impl From<&ImportKind> for ExternalKind {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct Data {
     pub data: Box<[u8]>,
     pub range: Range<usize>,
     pub kind: DataKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum DataKind {
     Active { mem: MemAddr, offset: ConstInstruction },
     Passive,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
@@ -481,14 +539,18 @@ pub struct Element {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum ElementKind {
     Passive,
     Active { table: TableAddr, offset: ConstInstruction },
     Declared,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", archive(check_bytes))]
 pub enum ElementItem {
     Func(FuncAddr),
     Expr(ConstInstruction),

@@ -227,7 +227,18 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b6372023ac861f6e6dc89c8344a8f398fb42aaba2b5dbc649ca0c0e9dbcb627"
 dependencies = [
- "bytecheck_derive",
+ "bytecheck_derive 0.6.11",
+ "ptr_meta",
+ "simdutf8",
+]
+
+[[package]]
+name = "bytecheck"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41502630fe304ce54cbb2f8389e017784dee2b0328147779fcbe43b9db06d35d"
+dependencies = [
+ "bytecheck_derive 0.7.0",
  "ptr_meta",
  "simdutf8",
 ]
@@ -237,6 +248,17 @@ name = "bytecheck_derive"
 version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7ec4c6f261935ad534c0c22dbef2201b45918860eb1c574b972bd213a76af61"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "bytecheck_derive"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eda88c587085bc07dc201ab9df871bd9baa5e07f7754b745e4d7194b43ac1eda"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1931,7 +1953,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2571463863a6bd50c32f94402933f03457a3fbaf697a707c5be741e459f08fd"
 dependencies = [
- "bytecheck",
+ "bytecheck 0.6.11",
 ]
 
 [[package]]
@@ -1941,7 +1963,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "527a97cdfef66f65998b5f3b637c26f5a5ec09cc52a3f9932313ac645f4190f5"
 dependencies = [
  "bitvec",
- "bytecheck",
+ "bytecheck 0.6.11",
  "bytes",
  "hashbrown 0.12.3",
  "indexmap 1.9.3",
@@ -2339,6 +2361,7 @@ dependencies = [
 name = "tinywasm-types"
 version = "0.3.0"
 dependencies = [
+ "bytecheck 0.7.0",
  "log",
  "rkyv",
 ]
@@ -2710,7 +2733,7 @@ version = "4.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae2c892882f0b416783fb4310e5697f5c30587f6f9555f9d4f2be85ab39d5d3d"
 dependencies = [
- "bytecheck",
+ "bytecheck 0.6.11",
  "enum-iterator",
  "enumset",
  "indexmap 1.9.3",

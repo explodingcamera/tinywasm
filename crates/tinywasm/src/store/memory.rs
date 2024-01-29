@@ -205,122 +205,92 @@ pub(crate) unsafe trait MemLoadable<const T: usize>: Sized + Copy {
     fn from_be_bytes(bytes: [u8; T]) -> Self;
 }
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<1> for u8 {
-    fn from_le_bytes(bytes: [u8; 1]) -> Self {
-        bytes[0]
-    }
-    fn from_be_bytes(bytes: [u8; 1]) -> Self {
-        bytes[0]
+macro_rules! impl_mem_loadable_for_primitive {
+    ($($type:ty, $size:expr),*) => {
+        $(
+            #[allow(unsafe_code)]
+            unsafe impl MemLoadable<$size> for $type {
+                fn from_le_bytes(bytes: [u8; $size]) -> Self {
+                    <$type>::from_le_bytes(bytes)
+                }
+
+                fn from_be_bytes(bytes: [u8; $size]) -> Self {
+                    <$type>::from_be_bytes(bytes)
+                }
+            }
+        )*
     }
 }
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<2> for u16 {
-    fn from_le_bytes(bytes: [u8; 2]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-    fn from_be_bytes(bytes: [u8; 2]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
+impl_mem_loadable_for_primitive!(
+    u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8, u128, 16, i128, 16
+);
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<4> for u32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-    fn from_be_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
+#[cfg(test)]
+mod memory_instance_tests {
+    use super::*;
+    use tinywasm_types::{MemoryArch, MemoryType, ModuleInstanceAddr};
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<8> for u64 {
-    fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_le_bytes(bytes)
+    fn create_test_memory() -> MemoryInstance {
+        let kind = MemoryType { arch: MemoryArch::I32, page_count_initial: 1, page_count_max: Some(2) };
+        let owner = ModuleInstanceAddr::default();
+        MemoryInstance::new(kind, owner)
     }
-    fn from_be_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<16> for u128 {
-    fn from_le_bytes(bytes: [u8; 16]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_store_and_load() {
+        let mut memory = create_test_memory();
+        let data_to_store = [1, 2, 3, 4];
+        assert!(memory.store(0, 0, &data_to_store, data_to_store.len()).is_ok());
+        let loaded_data = memory.load(0, 0, data_to_store.len()).unwrap();
+        assert_eq!(loaded_data, &data_to_store);
     }
-    fn from_be_bytes(bytes: [u8; 16]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<1> for i8 {
-    fn from_le_bytes(bytes: [u8; 1]) -> Self {
-        bytes[0] as i8
+    #[test]
+    fn test_memory_store_out_of_bounds() {
+        let mut memory = create_test_memory();
+        let data_to_store = [1, 2, 3, 4];
+        assert!(memory.store(memory.data.len(), 0, &data_to_store, data_to_store.len()).is_err());
     }
-    fn from_be_bytes(bytes: [u8; 1]) -> Self {
-        bytes[0] as i8
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<2> for i16 {
-    fn from_le_bytes(bytes: [u8; 2]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_fill() {
+        let mut memory = create_test_memory();
+        assert!(memory.fill(0, 10, 42).is_ok());
+        assert_eq!(&memory.data[0..10], &[42; 10]);
     }
-    fn from_be_bytes(bytes: [u8; 2]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<4> for i32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_fill_out_of_bounds() {
+        let mut memory = create_test_memory();
+        assert!(memory.fill(memory.data.len(), 10, 42).is_err());
     }
-    fn from_be_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<8> for i64 {
-    fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_copy_within() {
+        let mut memory = create_test_memory();
+        memory.fill(0, 10, 1).unwrap();
+        assert!(memory.copy_within(10, 0, 10).is_ok());
+        assert_eq!(&memory.data[10..20], &[1; 10]);
     }
-    fn from_be_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<16> for i128 {
-    fn from_le_bytes(bytes: [u8; 16]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_copy_within_out_of_bounds() {
+        let mut memory = create_test_memory();
+        assert!(memory.copy_within(memory.data.len(), 0, 10).is_err());
     }
-    fn from_be_bytes(bytes: [u8; 16]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<4> for f32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_le_bytes(bytes)
+    #[test]
+    fn test_memory_grow() {
+        let mut memory = create_test_memory();
+        let original_pages = memory.page_count();
+        assert_eq!(memory.grow(1), Some(original_pages as i32));
+        assert_eq!(memory.page_count(), original_pages + 1);
     }
-    fn from_be_bytes(bytes: [u8; 4]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-}
 
-#[allow(unsafe_code)]
-unsafe impl MemLoadable<8> for f64 {
-    fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-    fn from_be_bytes(bytes: [u8; 8]) -> Self {
-        Self::from_be_bytes(bytes)
+    #[test]
+    fn test_memory_grow_out_of_bounds() {
+        let mut memory = create_test_memory();
+        assert!(memory.grow(MAX_PAGES as i32 + 1).is_none());
     }
 }

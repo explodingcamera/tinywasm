@@ -137,7 +137,7 @@ impl TestSuite {
 
         for (name, addr) in modules {
             log::debug!("registering module: {}", name);
-            imports.link_module(&name, *addr)?;
+            imports.link_module(name, *addr)?;
         }
 
         Ok(imports)
@@ -199,7 +199,7 @@ impl TestSuite {
                             QuoteWat::QuoteModule(_, quoted_wat) => {
                                 let wat = quoted_wat
                                     .iter()
-                                    .map(|(_, s)| std::str::from_utf8(&s).expect("failed to convert wast to utf8"))
+                                    .map(|(_, s)| std::str::from_utf8(s).expect("failed to convert wast to utf8"))
                                     .collect::<Vec<_>>()
                                     .join("\n");
 
@@ -444,7 +444,7 @@ impl TestSuite {
                                     continue;
                                 }
                             };
-                            let expected = expected.get(0).expect("expected global value");
+                            let expected = expected.first().expect("expected global value");
                             let module_global = module_global.attach_type(expected.val_type());
 
                             if !module_global.eq_loose(expected) {
