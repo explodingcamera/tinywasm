@@ -13,7 +13,7 @@
 ## Why TinyWasm?
 
 - **Tiny** - Designed to be as small as possible without sacrificing too much performance or functionality.
-- **Fast enough** - TinyWasm is reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
+- **Fast enough** - TinyWasm is reasonably fast, especially when compared to other interpreters. See [Benchmarks](./BENCHMARKS.md) for more details.
 - **Portable** - Runs on any platform llvm supports, including WebAssembly. Minimal external dependencies.
 
 ## Status
@@ -68,10 +68,6 @@ $ tinywasm-cli --help
 
 With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm` and can be used in `no_std` environments.
 Since `libm` is not as performant as the compiler's math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)), especially on wasm32 targets.
-
-## Performance
-
-> Benchmarks are coming soon.
 
 ## License
 

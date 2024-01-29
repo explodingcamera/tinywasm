@@ -1,11 +1,11 @@
 mod util;
 use criterion::{criterion_group, criterion_main, Criterion};
-use tinywasm::types::TinyWasmModule;
-use util::tinywasm_module;
 
-fn run_tinywasm(module: TinyWasmModule) {
+use crate::util::twasm_to_module;
+
+fn run_tinywasm(twasm: &[u8]) {
     use tinywasm::*;
-    let module = Module::from(module);
+    let module = twasm_to_module(twasm);
     let mut store = Store::default();
     let mut imports = Imports::default();
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
@@ -14,10 +14,10 @@ fn run_tinywasm(module: TinyWasmModule) {
     hello.call(&mut store, ()).expect("call");
 }
 
-fn run_wasmi() {
+fn run_wasmi(wasm: &[u8]) {
     use wasmi::*;
     let engine = Engine::default();
-    let module = wasmi::Module::new(&engine, TINYWASM).expect("wasmi::Module::new");
+    let module = wasmi::Module::new(&engine, wasm).expect("wasmi::Module::new");
     let mut store = Store::new(&engine, ());
     let mut linker = <Linker<()>>::new(&engine);
     linker.define("env", "printi32", Func::wrap(&mut store, |_: Caller<'_, ()>, _: i32| {})).expect("define");
@@ -28,11 +28,11 @@ fn run_wasmi() {
 
 const TINYWASM: &[u8] = include_bytes!("../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
-    let module = tinywasm_module(TINYWASM);
+    let twasm = util::wasm_to_twasm(TINYWASM);
 
     let mut group = c.benchmark_group("selfhosted");
-    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(module.clone())));
-    group.bench_function("wasmi", |b| b.iter(run_wasmi));
+    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm)));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
 }
 
 criterion_group!(

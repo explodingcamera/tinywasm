@@ -20,12 +20,23 @@ All runtimes are compiled with the following settings:
 - `unsafe` features are enabled
 - `opt-level` is set to 3, `lto` is set to `thin`, `codegen-units` is set to 1.
 
-## Benchmarking
+# Running benchmarks
 
-Benchmarks are run using [Criterion.rs](https://github.com/bheisler/criterion.rs) and can be found in the `benches` directory.
-
-## Running benchmarks
+Benchmarks are run using [Criterion.rs](https://github.com/bheisler/criterion.rs). To run a benchmark, use the following command:
 
 ```sh
 $ cargo bench --bench <name>
 ```
+
+## Profiling
+
+To profile a benchmark, use the following command:
+
+```sh
+$ cargo flamegraph --bench <name> -- --bench
+```
+
+This will generate a flamegraph in `flamegraph.svg` and a `perf.data` file.
+You can use [hotspot](https://github.com/KDAB/hotspot) to analyze the `perf.data` file.
+Since a lot of functions are inlined, you probably want to remove the `#[inline]` attribute from the functions you care about.
+Note that this will make the benchmark considerably slower, 2-10x slower in some cases.
