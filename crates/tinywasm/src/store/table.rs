@@ -82,7 +82,6 @@ impl TableInstance {
     // Initialize the table with the given elements (resolves function references)
     pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[TableElement]) -> Result<()> {
         let init = init.iter().map(|item| item.map(|addr| self.resolve_func_ref(func_addrs, addr))).collect::<Vec<_>>();
-
         self.init_raw(offset, &init)
     }
 }

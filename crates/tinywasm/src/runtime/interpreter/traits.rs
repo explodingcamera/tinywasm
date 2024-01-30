@@ -5,20 +5,20 @@ where
     fn checked_wrapping_rem(self, rhs: Self) -> Option<Self>;
 }
 
-pub(crate) trait WasmFloatOps {
-    fn wasm_min(self, other: Self) -> Self;
-    fn wasm_max(self, other: Self) -> Self;
-    fn wasm_nearest(self) -> Self;
+pub(crate) trait TinywasmFloatExt {
+    fn tw_minimum(self, other: Self) -> Self;
+    fn tw_maximum(self, other: Self) -> Self;
+    fn tw_nearest(self) -> Self;
 }
 
 #[cfg(not(feature = "std"))]
-use super::no_std_floats::FExt;
+use super::no_std_floats::NoStdFloatExt;
 
 macro_rules! impl_wasm_float_ops {
     ($($t:ty)*) => ($(
-        impl WasmFloatOps for $t {
+        impl TinywasmFloatExt for $t {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
-            fn wasm_nearest(self) -> Self {
+            fn tw_nearest(self) -> Self {
                 match self {
                     x if x.is_nan() => x, // preserve NaN
                     x if x.is_infinite() || x == 0.0 => x, // preserve infinities and zeros
@@ -48,7 +48,7 @@ macro_rules! impl_wasm_float_ops {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fmin
             // Based on f32::minimum (which is not yet stable)
             #[inline]
-            fn wasm_min(self, other: Self) -> Self {
+            fn tw_minimum(self, other: Self) -> Self {
                 if self < other {
                     self
                 } else if other < self {
@@ -64,7 +64,7 @@ macro_rules! impl_wasm_float_ops {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fmax
             // Based on f32::maximum (which is not yet stable)
             #[inline]
-            fn wasm_max(self, other: Self) -> Self {
+            fn tw_maximum(self, other: Self) -> Self {
                 if self > other {
                     self
                 } else if other > self {

@@ -36,7 +36,7 @@ fn run_native(params: (i32, i32, i32)) {
     run_native(params.0, params.1, params.2)
 }
 
-const ARGON2ID: &[u8] = include_bytes!("../examples/rust/out/argon2id.wasm");
+const ARGON2ID: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     let twasm = wasm_to_twasm(ARGON2ID);
     let params = (1000, 2, 1);
@@ -47,8 +47,8 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("native", |b| b.iter(|| run_native(black_box(params))));
     group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm, black_box(params), "argon2id")));
-    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(&ARGON2ID, black_box(params), "argon2id")));
-    group.bench_function("wasmer", |b| b.iter(|| run_wasmer(&ARGON2ID, black_box(params), "argon2id")));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(ARGON2ID, black_box(params), "argon2id")));
+    group.bench_function("wasmer", |b| b.iter(|| run_wasmer(ARGON2ID, black_box(params), "argon2id")));
 }
 
 criterion_group!(

@@ -141,6 +141,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "benchmarks"
+version = "0.0.0"
+dependencies = [
+ "argon2",
+ "criterion",
+ "tinywasm",
+ "wasmer",
+ "wasmi",
+ "wat",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2063,12 +2075,8 @@ dependencies = [
 name = "tinywasm-root"
 version = "0.0.0"
 dependencies = [
- "argon2",
  "color-eyre",
- "criterion",
  "tinywasm",
- "wasmer",
- "wasmi",
  "wat",
 ]
 

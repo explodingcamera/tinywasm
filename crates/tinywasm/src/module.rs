@@ -1,6 +1,5 @@
-use tinywasm_types::TinyWasmModule;
-
 use crate::{Imports, ModuleInstance, Result, Store};
+use tinywasm_types::TinyWasmModule;
 
 #[derive(Debug)]
 /// A WebAssembly Module

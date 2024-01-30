@@ -7,11 +7,13 @@ use crate::{unlikely, ModuleInstance};
 pub(crate) struct Labels(Vec<LabelFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the lable count when parsing the module?
 
 impl Labels {
+    #[inline]
     pub(crate) fn new() -> Self {
         // this is somehow a lot faster than Vec::with_capacity(128) or even using Default::default() in the benchmarks
         Self(Vec::new())
     }
 
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }

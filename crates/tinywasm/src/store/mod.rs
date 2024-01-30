@@ -1,15 +1,10 @@
-use crate::log;
 use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec::Vec};
-use core::{
-    cell::RefCell,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
-use crate::{
-    runtime::{self, InterpreterRuntime, RawWasmValue},
-    Error, Function, ModuleInstance, Result, Trap,
-};
+use crate::runtime::{self, InterpreterRuntime, RawWasmValue};
+use crate::{Error, Function, ModuleInstance, Result, Trap};
 
 mod data;
 mod element;
@@ -17,6 +12,7 @@ mod function;
 mod global;
 mod memory;
 mod table;
+
 pub(crate) use {data::*, element::*, function::*, global::*, memory::*, table::*};
 
 // global store id counter
@@ -130,7 +126,7 @@ impl Store {
         let mut func_addrs = Vec::with_capacity(func_count);
 
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(FunctionInstance { func: Function::Wasm(Rc::new(func.wasm_function)), owner: idx });
+            self.data.funcs.push(FunctionInstance::new_wasm(func.wasm_function, idx));
             func_addrs.push((i + func_count) as FuncAddr);
         }
 
@@ -156,9 +152,7 @@ impl Store {
             if let MemoryArch::I64 = mem.arch {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
-            log::info!("adding memory: {:?}", mem);
             self.data.memories.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
-
             mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)
@@ -234,8 +228,6 @@ impl Store {
                 .iter()
                 .map(|item| Ok(TableElement::from(self.elem_addr(item, global_addrs, func_addrs)?)))
                 .collect::<Result<Vec<_>>>()?;
-
-            log::error!("element kind: {:?}", element.kind);
 
             let items = match element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
@@ -400,55 +392,57 @@ impl Store {
         Ok(val)
     }
 
+    #[cold]
+    fn not_found_error(name: &str) -> Error {
+        Error::Other(format!("{} not found", name))
+    }
+
     /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: usize) -> Result<&FunctionInstance> {
-        self.data.funcs.get(addr).ok_or_else(|| Error::Other(format!("function {} not found", addr)))
+        self.data.funcs.get(addr).ok_or_else(|| Self::not_found_error("function"))
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
-        self.data.memories.get(addr).ok_or_else(|| Error::Other(format!("memory {} not found", addr)))
+        self.data.memories.get(addr).ok_or_else(|| Self::not_found_error("memory"))
     }
 
     /// Get the table at the actual index in the store
     pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
-        self.data.tables.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+        self.data.tables.get(addr).ok_or_else(|| Self::not_found_error("table"))
     }
 
     /// Get the data at the actual index in the store
     pub(crate) fn get_data(&self, addr: usize) -> Result<&DataInstance> {
-        self.data.datas.get(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+        self.data.datas.get(addr).ok_or_else(|| Self::not_found_error("data"))
     }
 
     /// Get the data at the actual index in the store
     pub(crate) fn get_data_mut(&mut self, addr: usize) -> Result<&mut DataInstance> {
-        self.data.datas.get_mut(addr).ok_or_else(|| Error::Other(format!("table {} not found", addr)))
+        self.data.datas.get_mut(addr).ok_or_else(|| Self::not_found_error("data"))
     }
 
     /// Get the element at the actual index in the store
     pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElementInstance> {
-        self.data.elements.get(addr).ok_or_else(|| Error::Other(format!("element {} not found", addr)))
+        self.data.elements.get(addr).ok_or_else(|| Self::not_found_error("element"))
     }
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global(&self, addr: usize) -> Result<&Rc<RefCell<GlobalInstance>>> {
-        self.data.globals.get(addr).ok_or_else(|| Error::Other(format!("global {} not found", addr)))
+        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global"))
     }
 
     /// Get the global at the actual index in the store
     pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
-        self.data
-            .globals
-            .get(addr)
-            .ok_or_else(|| Error::Other(format!("global {} not found", addr)))
-            .map(|global| global.borrow().value)
+        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global")).map(|global| global.borrow().value)
     }
 
+    /// Set the global at the actual index in the store
     pub(crate) fn set_global_val(&mut self, addr: usize, value: RawWasmValue) -> Result<()> {
         self.data
             .globals
             .get(addr)
-            .ok_or_else(|| Error::Other(format!("global {} not found", addr)))
+            .ok_or_else(|| Self::not_found_error("global"))
             .map(|global| global.borrow_mut().value = value)
     }
 }

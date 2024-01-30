@@ -10,7 +10,7 @@ pub fn wasm_to_twasm(wasm: &[u8]) -> Vec<u8> {
 
 #[inline]
 pub fn twasm_to_module(twasm: &[u8]) -> tinywasm::Module {
-    unsafe { TinyWasmModule::from_twasm_unchecked(&twasm) }.into()
+    unsafe { TinyWasmModule::from_twasm_unchecked(twasm) }.into()
 }
 
 pub fn tinywasm(twasm: &[u8]) -> (tinywasm::Store, tinywasm::ModuleInstance) {

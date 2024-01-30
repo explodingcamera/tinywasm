@@ -2,6 +2,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{eyre, Result};
 use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
+use wast::QuoteWat;
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicInfo>().or(None).map(|p| p.to_string()).clone();
@@ -51,6 +52,30 @@ pub fn catch_unwind_silent<F: FnOnce() -> R, R>(f: F) -> std::thread::Result<R> 
     let result = panic::catch_unwind(AssertUnwindSafe(f));
     panic::set_hook(prev_hook);
     result
+}
+
+pub fn encode_quote_wat(module: QuoteWat) -> (Option<String>, Vec<u8>) {
+    match module {
+        QuoteWat::QuoteModule(_, quoted_wat) => {
+            let wat = quoted_wat
+                .iter()
+                .map(|(_, s)| std::str::from_utf8(s).expect("failed to convert wast to utf8"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let lexer = wast::lexer::Lexer::new(&wat);
+            let buf = wast::parser::ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
+            let mut wat_data = wast::parser::parse::<wast::Wat>(&buf).expect("failed to parse wat");
+            (None, wat_data.encode().expect("failed to encode module"))
+        }
+        QuoteWat::Wat(mut wat) => {
+            let wast::Wat::Module(ref module) = wat else {
+                unimplemented!("Not supported");
+            };
+            (module.id.map(|id| id.name().to_string()), wat.encode().expect("failed to encode module"))
+        }
+        _ => unimplemented!("Not supported"),
+    }
 }
 
 pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {

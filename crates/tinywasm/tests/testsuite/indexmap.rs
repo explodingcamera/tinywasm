@@ -1,3 +1,4 @@
+/// A naive implementation of an index map for use in the test suite
 pub struct IndexMap<K, V> {
     map: std::collections::HashMap<K, V>,
     keys: Vec<K>,

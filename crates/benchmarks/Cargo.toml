@@ -1,0 +1,24 @@
+[package]
+name="benchmarks"
+publish=false
+edition.workspace=true
+
+[dependencies]
+criterion={version="0.5", features=["html_reports"]}
+tinywasm={path="../../crates/tinywasm", features=["unsafe"]}
+wat={version="1.0"}
+wasmi={version="0.31", features=["std"]}
+wasmer={version="4.2", features=["cranelift", "singlepass"]}
+argon2={version="0.5"}
+
+[[bench]]
+name="selfhosted"
+harness=false
+
+[[bench]]
+name="fibonacci"
+harness=false
+
+[[bench]]
+name="argon2id"
+harness=false

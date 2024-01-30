@@ -1,3 +1,4 @@
+/// Here be dragons (this file is in need of a big refactor)
 use crate::testsuite::util::*;
 use std::{borrow::Cow, collections::HashMap};
 
@@ -6,7 +7,7 @@ use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
-use wast::{lexer::Lexer, parser::ParseBuffer, QuoteWat, Wast};
+use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 #[derive(Default)]
 struct RegisteredModules {
@@ -195,31 +196,7 @@ impl TestSuite {
                 Wat(module) => {
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
-                        let (name, bytes) = match module {
-                            QuoteWat::QuoteModule(_, quoted_wat) => {
-                                let wat = quoted_wat
-                                    .iter()
-                                    .map(|(_, s)| std::str::from_utf8(s).expect("failed to convert wast to utf8"))
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-
-                                let lexer = Lexer::new(&wat);
-                                let buf = ParseBuffer::new_with_lexer(lexer).expect("failed to create parse buffer");
-                                let mut wat_data = wast::parser::parse::<wast::Wat>(&buf).expect("failed to parse wat");
-                                (None, wat_data.encode().expect("failed to encode module"))
-                            }
-                            QuoteWat::Wat(mut wat) => {
-                                let wast::Wat::Module(ref module) = wat else {
-                                    unimplemented!("Not supported");
-                                };
-                                (
-                                    module.id.map(|id| id.name().to_string()),
-                                    wat.encode().expect("failed to encode module"),
-                                )
-                            }
-                            _ => unimplemented!("Not supported"),
-                        };
-
+                        let (name, bytes) = encode_quote_wat(module);
                         let m = parse_module_bytes(&bytes).expect("failed to parse module bytes");
 
                         let module_instance = tinywasm::Module::from(m)
@@ -488,10 +465,6 @@ impl TestSuite {
                             e
                         })?;
 
-                        debug!("outcomes: {:?}", outcomes);
-
-                        debug!("expected: {:?}", expected);
-
                         if outcomes.len() != expected.len() {
                             return Err(eyre!(
                                 "span: {:?} expected {} results, got {}",
@@ -501,8 +474,6 @@ impl TestSuite {
                             ));
                         }
 
-                        log::debug!("outcomes: {:?}", outcomes);
-
                         outcomes.iter().zip(expected).enumerate().try_for_each(|(i, (outcome, exp))| {
                             (outcome.eq_loose(&exp))
                                 .then_some(())
@@ -511,7 +482,6 @@ impl TestSuite {
                     });
 
                     let res = res.map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e))).and_then(|r| r);
-
                     test_group.add_result(&format!("AssertReturn({}-{})", invoke_name, i), span.linecol_in(wast), res);
                 }
                 _ => test_group.add_result(

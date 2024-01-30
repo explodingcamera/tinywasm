@@ -2,10 +2,8 @@ use crate::{log, runtime::RawWasmValue, unlikely, Function};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use tinywasm_types::{FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
-use crate::{
-    runtime::{CallFrame, Stack},
-    Error, FuncContext, Result, Store,
-};
+use crate::runtime::{CallFrame, Stack};
+use crate::{Error, FuncContext, Result, Store};
 
 #[derive(Debug)]
 /// A function handle

@@ -5,7 +5,6 @@ use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
 pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024;
-// pub(crate) const MAX_VALUE_STACK_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {

@@ -1,4 +1,4 @@
-pub(super) trait FExt {
+pub(super) trait NoStdFloatExt {
     fn round(self) -> Self;
     fn abs(self) -> Self;
     fn signum(self) -> Self;
@@ -9,7 +9,7 @@ pub(super) trait FExt {
     fn copysign(self, other: Self) -> Self;
 }
 
-impl FExt for f64 {
+impl NoStdFloatExt for f64 {
     #[inline]
     fn round(self) -> Self {
         libm::round(self)
@@ -50,7 +50,7 @@ impl FExt for f64 {
         libm::copysign(self, other)
     }
 }
-impl FExt for f32 {
+impl NoStdFloatExt for f32 {
     #[inline]
     fn round(self) -> Self {
         libm::roundf(self)

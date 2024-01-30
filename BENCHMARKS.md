@@ -2,7 +2,7 @@
 
 All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM, running Linux 6.6.
 WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen),
-and the benchmark code is available in the `benches` folder.
+and the benchmark code is available in the `crates/benchmarks` folder.
 
 These are mainly preliminary benchmarks, and I will be adding more in the future that are also looking into memory usage and other metrics.
 
@@ -67,7 +67,7 @@ After profiling and fixing some low-hanging fruits, I found the biggest bottlene
 Benchmarks are run using [Criterion.rs](https://github.com/bheisler/criterion.rs). To run a benchmark, use the following command:
 
 ```sh
-$ cargo bench --bench <name>
+$ cargo benchmark <name>
 ```
 
 # Profiling
@@ -75,7 +75,7 @@ $ cargo bench --bench <name>
 To profile a benchmark, use the following command:
 
 ```sh
-$ cargo flamegraph --bench <name> -- --bench
+$ cargo flamegraph -p benchmarks --bench <name> -- --bench
 ```
 
 This will generate a flamegraph in `flamegraph.svg` and a `perf.data` file.

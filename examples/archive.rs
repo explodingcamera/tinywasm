@@ -12,7 +12,7 @@ const WASM: &str = r#"
 
 fn main() -> Result<()> {
     let wasm = wat::parse_str(WASM).expect("failed to parse wat");
-    let module = Parser::default().parse_module_bytes(&wasm)?;
+    let module = Parser::default().parse_module_bytes(wasm)?;
     let twasm = module.serialize_twasm();
 
     // now, you could e.g. write twasm to a file called `add.twasm`

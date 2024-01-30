@@ -6,58 +6,34 @@ use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instructio
 use wasmparser::{Payload, Validator};
 
 #[derive(Debug, Clone)]
-pub struct CodeSection {
-    pub locals: Box<[ValType]>,
-    pub body: Box<[Instruction]>,
+pub(crate) struct CodeSection {
+    pub(crate) locals: Box<[ValType]>,
+    pub(crate) body: Box<[Instruction]>,
 }
 
 #[derive(Default)]
-pub struct ModuleReader {
-    pub version: Option<u16>,
-    pub start_func: Option<u32>,
-
-    pub func_types: Vec<FuncType>,
-
-    // map from local function index to type index
-    pub code_type_addrs: Vec<u32>,
-
-    pub exports: Vec<Export>,
-    pub code: Vec<CodeSection>,
-    pub globals: Vec<Global>,
-    pub table_types: Vec<TableType>,
-    pub memory_types: Vec<MemoryType>,
-    pub imports: Vec<Import>,
-    pub data: Vec<Data>,
-    pub elements: Vec<Element>,
-
-    // pub element_section: Option<ElementSectionReader<'a>>,
-    pub end_reached: bool,
-}
-
-impl Debug for ModuleReader {
-    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-        f.debug_struct("ModuleReader")
-            .field("version", &self.version)
-            .field("func_types", &self.func_types)
-            .field("func_addrs", &self.code_type_addrs)
-            .field("code", &self.code)
-            .field("exports", &self.exports)
-            .field("globals", &self.globals)
-            .field("table_types", &self.table_types)
-            .field("memory_types", &self.memory_types)
-            .field("import_section", &self.imports)
-            // .field("element_section", &self.element_section)
-            // .field("data_section", &self.data_section)
-            .finish()
-    }
+pub(crate) struct ModuleReader {
+    pub(crate) version: Option<u16>,
+    pub(crate) start_func: Option<u32>,
+    pub(crate) func_types: Vec<FuncType>,
+    pub(crate) code_type_addrs: Vec<u32>,
+    pub(crate) exports: Vec<Export>,
+    pub(crate) code: Vec<CodeSection>,
+    pub(crate) globals: Vec<Global>,
+    pub(crate) table_types: Vec<TableType>,
+    pub(crate) memory_types: Vec<MemoryType>,
+    pub(crate) imports: Vec<Import>,
+    pub(crate) data: Vec<Data>,
+    pub(crate) elements: Vec<Element>,
+    pub(crate) end_reached: bool,
 }
 
 impl ModuleReader {
-    pub fn new() -> ModuleReader {
+    pub(crate) fn new() -> ModuleReader {
         Self::default()
     }
 
-    pub fn process_payload(&mut self, payload: Payload, validator: &mut Validator) -> Result<()> {
+    pub(crate) fn process_payload(&mut self, payload: Payload<'_>, validator: &mut Validator) -> Result<()> {
         use wasmparser::Payload::*;
 
         match payload {
@@ -191,10 +167,6 @@ impl ModuleReader {
                 debug!("Found custom section");
                 debug!("Skipping custom section: {:?}", _reader.name());
             }
-            // TagSection(tag) => {
-            //     debug!("Found tag section");
-            //     validator.tag_section(&tag)?;
-            // }
             UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {:?}", section))),
         };

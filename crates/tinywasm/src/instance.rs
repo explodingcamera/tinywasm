@@ -1,10 +1,8 @@
 use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use tinywasm_types::*;
 
-use crate::{
-    func::{FromWasmValueTuple, IntoWasmValueTuple},
-    log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store,
-};
+use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
+use crate::{log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store};
 
 /// An instanciated WebAssembly module
 ///

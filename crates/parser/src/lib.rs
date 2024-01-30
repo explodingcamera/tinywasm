@@ -1,6 +1,12 @@
 #![no_std]
+#![doc(test(
+    no_crate_inject,
+    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
+))]
+#![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
+//! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
 
 mod std;
 extern crate alloc;
@@ -30,14 +36,17 @@ use wasmparser::Validator;
 
 pub use tinywasm_types::TinyWasmModule;
 
-#[derive(Default)]
+/// A WebAssembly parser
+#[derive(Default, Debug)]
 pub struct Parser {}
 
 impl Parser {
+    /// Create a new parser instance
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Parse a [`TinyWasmModule`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
         let wasm = wasm.as_ref();
         let mut validator = Validator::new();
@@ -55,6 +64,7 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
+    /// Parse a [`TinyWasmModule`] from a file. Requires `std` feature.
     pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<TinyWasmModule> {
         use alloc::format;
         let f = crate::std::fs::File::open(path.clone())
@@ -65,6 +75,7 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
+    /// Parse a [`TinyWasmModule`] from a stream. Requires `std` feature.
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
         use alloc::format;
 

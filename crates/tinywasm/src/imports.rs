@@ -1,18 +1,12 @@
-#![allow(dead_code)]
-
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt::Debug;
 
-use crate::{
-    func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple},
-    log, LinkingError, Result,
-};
-use alloc::{
-    boxed::Box,
-    collections::BTreeMap,
-    rc::Rc,
-    string::{String, ToString},
-    vec::Vec,
-};
+use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
+use crate::{log, LinkingError, Result};
 use tinywasm_types::*;
 
 /// The internal representation of a function
@@ -167,7 +161,8 @@ impl Extern {
         Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(inner_func), ty })))
     }
 
-    pub(crate) fn kind(&self) -> ExternalKind {
+    /// Get the kind of the external value
+    pub fn kind(&self) -> ExternalKind {
         match self {
             Self::Global { .. } => ExternalKind::Global,
             Self::Table { .. } => ExternalKind::Table,

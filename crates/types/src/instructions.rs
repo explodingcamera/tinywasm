@@ -1,10 +1,8 @@
+use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
 use crate::{DataAddr, ElemAddr, MemAddr};
 
-use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum BlockArgs {
     Empty,
     Type(ValType),
@@ -13,8 +11,7 @@ pub enum BlockArgs {
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct MemoryArg {
     pub mem_addr: MemAddr,
     pub align: u8,
@@ -28,8 +25,7 @@ type EndOffset = usize;
 type ElseOffset = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ConstInstruction {
     I32Const(i32),
     I64Const(i64),
@@ -53,8 +49,7 @@ pub enum ConstInstruction {
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),

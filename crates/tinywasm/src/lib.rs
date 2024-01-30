@@ -81,34 +81,29 @@ use log;
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
     macro_rules! info    ( ($($tt:tt)*) => {{}} );
-    macro_rules! trace    ( ($($tt:tt)*) => {{}} );
     macro_rules! error    ( ($($tt:tt)*) => {{}} );
     pub(crate) use debug;
     pub(crate) use error;
     pub(crate) use info;
-    pub(crate) use trace;
 }
 
 mod error;
-pub use error::*;
-
-mod store;
-pub use store::*;
-
-mod module;
-pub use module::Module;
-
-mod instance;
-pub use instance::ModuleInstance;
-
-mod reference;
-pub use reference::*;
+pub use {
+    error::*,
+    func::{FuncHandle, FuncHandleTyped},
+    imports::*,
+    instance::ModuleInstance,
+    module::Module,
+    reference::*,
+    store::*,
+};
 
 mod func;
-pub use func::{FuncHandle, FuncHandleTyped};
-
 mod imports;
-pub use imports::*;
+mod instance;
+mod module;
+mod reference;
+mod store;
 
 /// Runtime for executing WebAssembly modules.
 pub mod runtime;
@@ -130,7 +125,7 @@ pub(crate) fn cold() {}
 
 pub(crate) fn unlikely(b: bool) -> bool {
     if b {
-        cold();
-    }
+        cold()
+    };
     b
 }

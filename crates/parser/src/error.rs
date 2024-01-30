@@ -6,15 +6,35 @@ use wasmparser::Encoding;
 #[derive(Debug)]
 /// Errors that can occur when parsing a WebAssembly module
 pub enum ParseError {
+    /// An invalid type was encountered
     InvalidType,
+    /// An unsupported section was encountered
     UnsupportedSection(String),
+    /// A duplicate section was encountered
     DuplicateSection(String),
+    /// An empty section was encountered
     EmptySection(String),
+    /// An unsupported operator was encountered
     UnsupportedOperator(String),
-    ParseError { message: String, offset: usize },
+    /// An error occurred while parsing the module
+    ParseError {
+        /// The error message
+        message: String,
+        /// The offset in the module where the error occurred
+        offset: usize,
+    },
+    /// An invalid encoding was encountered
     InvalidEncoding(Encoding),
-    InvalidLocalCount { expected: u32, actual: u32 },
+    /// An invalid local count was encountered
+    InvalidLocalCount {
+        /// The expected local count
+        expected: u32,
+        /// The actual local count
+        actual: u32,
+    },
+    /// The end of the module was not reached
     EndNotReached,
+    /// An unknown error occurred
     Other(String),
 }
 
@@ -48,4 +68,4 @@ impl From<wasmparser::BinaryReaderError> for ParseError {
     }
 }
 
-pub type Result<T, E = ParseError> = core::result::Result<T, E>;
+pub(crate) type Result<T, E = ParseError> = core::result::Result<T, E>;

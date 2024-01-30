@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-
 use tinywasm_types::{ValType, WasmValue};
 
 /// A raw wasm value.
@@ -23,6 +22,7 @@ impl RawWasmValue {
         self.0
     }
 
+    #[inline]
     pub fn attach_type(self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.0 as i32),
@@ -48,6 +48,7 @@ impl RawWasmValue {
 }
 
 impl From<WasmValue> for RawWasmValue {
+    #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
             WasmValue::I32(i) => Self(i as u64),
@@ -65,6 +66,7 @@ macro_rules! impl_from_raw_wasm_value {
     ($type:ty, $to_raw:expr, $from_raw:expr) => {
         // Implement From<$type> for RawWasmValue
         impl From<$type> for RawWasmValue {
+            #[inline]
             fn from(value: $type) -> Self {
                 #[allow(clippy::redundant_closure_call)] // the comiler will figure it out :)
                 Self($to_raw(value))
@@ -73,6 +75,7 @@ macro_rules! impl_from_raw_wasm_value {
 
         // Implement From<RawWasmValue> for $type
         impl From<RawWasmValue> for $type {
+            #[inline]
             fn from(value: RawWasmValue) -> Self {
                 #[allow(clippy::redundant_closure_call)] // the comiler will figure it out :)
                 $from_raw(value.0)
@@ -86,7 +89,7 @@ impl_from_raw_wasm_value!(i64, |x| x as u64, |x| x as i64);
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x| f32::from_bits(x as u32));
 impl_from_raw_wasm_value!(f64, f64::to_bits, f64::from_bits);
 
-// convenience impls (not actually part of the spec)
+// used for memory load/store
 impl_from_raw_wasm_value!(i8, |x| x as u64, |x| x as i8);
 impl_from_raw_wasm_value!(i16, |x| x as u64, |x| x as i16);
 impl_from_raw_wasm_value!(u32, |x| x as u64, |x| x as u32);

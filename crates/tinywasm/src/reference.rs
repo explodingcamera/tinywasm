@@ -1,15 +1,12 @@
-use core::{
-    cell::{Ref, RefCell, RefMut},
-    ffi::CStr,
-};
+use core::cell::{Ref, RefCell, RefMut};
+use core::ffi::CStr;
+
+use alloc::ffi::CString;
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 use crate::{GlobalInstance, MemoryInstance, Result};
-use alloc::{
-    ffi::CString,
-    rc::Rc,
-    string::{String, ToString},
-    vec::Vec,
-};
 use tinywasm_types::WasmValue;
 
 // This module essentially contains the public APIs to interact with the data stored in the store

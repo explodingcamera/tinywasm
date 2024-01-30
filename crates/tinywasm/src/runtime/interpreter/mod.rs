@@ -1,26 +1,23 @@
-use super::{InterpreterRuntime, Stack};
-use crate::{cold, log, unlikely};
-use crate::{
-    runtime::{BlockType, CallFrame, LabelFrame},
-    Error, FuncContext, ModuleInstance, Result, Store, Trap,
-};
 use alloc::format;
 use alloc::{string::ToString, vec::Vec};
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{ElementKind, ValType};
+
+use super::{InterpreterRuntime, Stack};
+use crate::runtime::{BlockType, CallFrame, LabelFrame};
+use crate::{cold, log, unlikely};
+use crate::{Error, FuncContext, ModuleInstance, Result, Store, Trap};
+
+mod macros;
+mod traits;
+use {macros::*, traits::*};
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
-use no_std_floats::FExt;
-
-mod macros;
-mod traits;
-
-use macros::*;
-use traits::*;
+use no_std_floats::NoStdFloatExt;
 
 impl InterpreterRuntime {
     // #[inline(always)] // a small 2-3% performance improvement in some cases
@@ -67,23 +64,6 @@ enum ExecResult {
     Trap(crate::Trap),
 }
 
-// Break to a block at the given index (relative to the current frame)
-// If there is no block at the given index, return or call the parent function
-//
-// This is a bit hard to see from the spec, but it's vaild to use breaks to return
-// from a function, so we need to check if the label stack is empty
-macro_rules! break_to {
-    ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
-        if $cf.break_to(*$break_to_relative, &mut $stack.values).is_none() {
-            if $stack.call_stack.is_empty() {
-                return Ok(ExecResult::Return);
-            } else {
-                return Ok(ExecResult::Call);
-            }
-        }
-    }};
-}
-
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
@@ -96,6 +76,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
     }
 
+    // A match statement is probably the fastest way to do this without
+    // unreasonable complexity
+    // See https://pliniker.github.io/post/dispatchers/
     use tinywasm_types::Instruction::*;
     match &instrs[cf.instr_ptr] {
         Nop => { /* do nothing */ }
@@ -600,22 +583,19 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         F64Floor => arithmetic_single!(floor, f64, stack),
         F32Trunc => arithmetic_single!(trunc, f32, stack),
         F64Trunc => arithmetic_single!(trunc, f64, stack),
-        F32Nearest => arithmetic_single!(wasm_nearest, f32, stack),
-        F64Nearest => arithmetic_single!(wasm_nearest, f64, stack),
+        F32Nearest => arithmetic_single!(tw_nearest, f32, stack),
+        F64Nearest => arithmetic_single!(tw_nearest, f64, stack),
         F32Sqrt => arithmetic_single!(sqrt, f32, stack),
         F64Sqrt => arithmetic_single!(sqrt, f64, stack),
-        F32Min => arithmetic!(wasm_min, f32, stack),
-        F64Min => arithmetic!(wasm_min, f64, stack),
-        F32Max => arithmetic!(wasm_max, f32, stack),
-        F64Max => arithmetic!(wasm_max, f64, stack),
+        F32Min => arithmetic!(tw_minimum, f32, stack),
+        F64Min => arithmetic!(tw_minimum, f64, stack),
+        F32Max => arithmetic!(tw_maximum, f32, stack),
+        F64Max => arithmetic!(tw_maximum, f64, stack),
         F32Copysign => arithmetic!(copysign, f32, stack),
         F64Copysign => arithmetic!(copysign, f64, stack),
 
         // no-op instructions since types are erased at runtime
-        I32ReinterpretF32 => {}
-        I64ReinterpretF64 => {}
-        F32ReinterpretI32 => {}
-        F64ReinterpretI64 => {}
+        I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
 
         // unsigned versions of these are a bit broken atm
         I32TruncF32S => checked_conv_float!(f32, i32, stack),

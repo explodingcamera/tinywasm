@@ -1,14 +1,11 @@
-use crate::unlikely;
-use crate::{
-    runtime::{BlockType, RawWasmValue},
-    Error, Result, Trap,
-};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{ModuleInstanceAddr, WasmFunction};
 
 use super::{blocks::Labels, LabelFrame};
+use crate::runtime::{BlockType, RawWasmValue};
+use crate::unlikely;
+use crate::{Error, Result, Trap};
 
-// minimum call stack size
 const CALL_STACK_SIZE: usize = 128;
 const CALL_STACK_MAX_SIZE: usize = 1024;
 
@@ -51,7 +48,6 @@ impl CallStack {
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
-    // pub(crate) module: ModuleInstanceAddr,
     pub(crate) func_instance: (Rc<WasmFunction>, ModuleInstanceAddr),
     pub(crate) labels: Labels,
     pub(crate) locals: Box<[RawWasmValue]>,

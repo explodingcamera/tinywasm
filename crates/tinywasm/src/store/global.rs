@@ -1,7 +1,7 @@
 use alloc::{format, string::ToString};
 use tinywasm_types::*;
 
-use crate::{runtime::RawWasmValue, Error, Result};
+use crate::{runtime::RawWasmValue, unlikely, Error, Result};
 
 /// A WebAssembly Global Instance
 ///
@@ -18,12 +18,13 @@ impl GlobalInstance {
         Self { ty, value, _owner: owner }
     }
 
+    #[inline]
     pub(crate) fn get(&self) -> WasmValue {
         self.value.attach_type(self.ty.ty)
     }
 
     pub(crate) fn set(&mut self, val: WasmValue) -> Result<()> {
-        if val.val_type() != self.ty.ty {
+        if unlikely(val.val_type() != self.ty.ty) {
             return Err(Error::Other(format!(
                 "global type mismatch: expected {:?}, got {:?}",
                 self.ty.ty,
@@ -31,7 +32,7 @@ impl GlobalInstance {
             )));
         }
 
-        if !self.ty.mutable {
+        if unlikely(!self.ty.mutable) {
             return Err(Error::Other("global is immutable".to_string()));
         }
 

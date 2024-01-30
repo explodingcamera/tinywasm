@@ -131,7 +131,7 @@ pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Resu
     Ok(globals)
 }
 
-pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export> {
+pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Export> {
     let kind = match export.kind {
         wasmparser::ExternalKind::Func => ExternalKind::Func,
         wasmparser::ExternalKind::Table => ExternalKind::Table,
@@ -146,7 +146,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export) -> Result<Export
 }
 
 pub(crate) fn convert_module_code(
-    func: wasmparser::FunctionBody,
+    func: wasmparser::FunctionBody<'_>,
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<CodeSection> {
     let locals_reader = func.get_locals_reader()?;
@@ -205,18 +205,17 @@ pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemoryArg {
     MemoryArg { offset: memarg.offset, align: memarg.align, align_max: memarg.max_align, mem_addr: memarg.memory }
 }
 
-pub(crate) fn process_const_operators(ops: OperatorsReader) -> Result<ConstInstruction> {
+pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstInstruction> {
     let ops = ops.into_iter().collect::<wasmparser::Result<Vec<_>>>()?;
     // In practice, the len can never be something other than 2,
     // but we'll keep this here since it's part of the spec
     // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
     assert!(ops.len() >= 2);
     assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
-
     process_const_operator(ops[ops.len() - 2].clone())
 }
 
-pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstruction> {
+pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<ConstInstruction> {
     match op {
         wasmparser::Operator::RefNull { ty } => Ok(ConstInstruction::RefNull(convert_valtype(&ty))),
         wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
@@ -229,7 +228,7 @@ pub fn process_const_operator(op: wasmparser::Operator) -> Result<ConstInstructi
     }
 }
 
-pub fn process_operators<'a>(
+pub(crate) fn process_operators<'a>(
     mut offset: usize,
     ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
     mut validator: FuncValidator<ValidatorResources>,
@@ -515,7 +514,6 @@ pub fn process_operators<'a>(
                 return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported instruction: {:?}", op)));
             }
         };
-
         instructions.push(res);
     }
 
@@ -524,6 +522,5 @@ pub fn process_operators<'a>(
     }
 
     validator.finish(offset)?;
-
     Ok(instructions.into_boxed_slice())
 }

@@ -8,14 +8,6 @@ pub use tinywasm_parser::ParseError;
 /// Errors that can occur for TinyWasm operations
 #[derive(Debug)]
 pub enum Error {
-    #[cfg(feature = "std")]
-    /// An I/O error occurred
-    Io(crate::std::io::Error),
-
-    #[cfg(feature = "parser")]
-    /// A parsing error occurred
-    ParseError(ParseError),
-
     /// A WebAssembly trap occurred
     Trap(Trap),
 
@@ -45,6 +37,14 @@ pub enum Error {
 
     /// The store is not the one that the module instance was instantiated in
     InvalidStore,
+
+    #[cfg(feature = "std")]
+    /// An I/O error occurred
+    Io(crate::std::io::Error),
+
+    #[cfg(feature = "parser")]
+    /// A parsing error occurred
+    ParseError(ParseError),
 }
 
 #[derive(Debug)]
@@ -57,6 +57,7 @@ pub enum LinkingError {
         /// The import name
         name: String,
     },
+
     /// A mismatched import type was encountered
     IncompatibleImportType {
         /// The module name

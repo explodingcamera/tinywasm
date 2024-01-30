@@ -39,16 +39,17 @@ pub mod archive;
 /// TinyWasmModules are validated before being created, so they are guaranteed to be valid (as long as they were created by TinyWasm).
 /// This means you should not trust a TinyWasmModule created by a third party to be valid.
 #[derive(Debug, Clone, Default, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct TinyWasmModule {
     /// The version of the WebAssembly module.
     pub version: Option<u16>,
+
     /// The start function of the WebAssembly module.
     pub start_func: Option<FuncAddr>,
 
     /// The functions of the WebAssembly module.
     pub funcs: Box<[TypedWasmFunction]>,
+
     /// The types of the WebAssembly module.
     pub func_types: Box<[FuncType]>,
 
@@ -78,8 +79,7 @@ pub struct TinyWasmModule {
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ExternalKind {
     /// A WebAssembly Function.
     Func,
@@ -97,6 +97,8 @@ pub enum ExternalKind {
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#addresses>
 pub type Addr = u32;
+
+// aliases for clarity
 pub type FuncAddr = Addr;
 pub type TableAddr = Addr;
 pub type MemAddr = Addr;
@@ -104,6 +106,7 @@ pub type GlobalAddr = Addr;
 pub type ElemAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
+
 // additional internal addresses
 pub type TypeAddr = Addr;
 pub type LocalAddr = Addr;
@@ -146,25 +149,15 @@ impl ExternVal {
 /// The type of a WebAssembly Function.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct FuncType {
     pub params: Box<[ValType]>,
     pub results: Box<[ValType]>,
 }
 
-impl FuncType {
-    /// Get the number of parameters of a function type.
-    #[inline]
-    pub fn empty() -> Self {
-        Self { params: Box::new([]), results: Box::new([]) }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
     pub locals: Box<[ValType]>,
@@ -172,8 +165,7 @@ pub struct WasmFunction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct TypedWasmFunction {
     pub type_addr: u32,
     pub wasm_function: WasmFunction,
@@ -181,8 +173,7 @@ pub struct TypedWasmFunction {
 
 /// A WebAssembly Module Export
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct Export {
     /// The name of the export.
     pub name: Box<str>,
@@ -193,24 +184,21 @@ pub struct Export {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct Global {
     pub ty: GlobalType,
     pub init: ConstInstruction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct TableType {
     pub element_type: ValType,
     pub size_initial: u32,
@@ -227,12 +215,9 @@ impl TableType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-
 /// Represents a memory's type.
-#[derive(Copy)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct MemoryType {
     pub arch: MemoryArch,
     pub page_count_initial: u64,
@@ -246,16 +231,14 @@ impl MemoryType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum MemoryArch {
     I32,
     I64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct Import {
     pub module: Box<str>,
     pub name: Box<str>,
@@ -263,8 +246,7 @@ pub struct Import {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ImportKind {
     Function(TypeAddr),
     Table(TableType),
@@ -285,8 +267,7 @@ impl From<&ImportKind> for ExternalKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct Data {
     pub data: Box<[u8]>,
     pub range: Range<usize>,
@@ -294,16 +275,14 @@ pub struct Data {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum DataKind {
     Active { mem: MemAddr, offset: ConstInstruction },
     Passive,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
@@ -312,8 +291,7 @@ pub struct Element {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ElementKind {
     Passive,
     Active { table: TableAddr, offset: ConstInstruction },
@@ -321,8 +299,7 @@ pub enum ElementKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[cfg_attr(feature = "archive", archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ElementItem {
     Func(FuncAddr),
     Expr(ConstInstruction),

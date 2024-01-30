@@ -128,23 +128,10 @@ impl Debug for TestSuite {
 
             writeln!(f, "{}", link(group_name, &group.file, None).bold().underline())?;
             writeln!(f, "  Tests Passed: {}", group_passed.to_string().green())?;
+
             if group_failed != 0 {
                 writeln!(f, "  Tests Failed: {}", group_failed.to_string().red())?;
             }
-
-            // for (test_name, test) in &group.tests {
-            //     write!(f, "    {}: ", test_name.bold())?;
-            //     match &test.result {
-            //         Ok(()) => {
-            //             writeln!(f, "{}", "Passed".green())?;
-            //         }
-            //         Err(e) => {
-            //             writeln!(f, "{}", "Failed".red())?;
-            //             // writeln!(f, "Error: {:?}", e)?;
-            //         }
-            //     }
-            //     writeln!(f, "      Span: {:?}", test.span)?;
-            // }
         }
 
         writeln!(f, "\n{}", "Total Test Summary:".bold().underline())?;

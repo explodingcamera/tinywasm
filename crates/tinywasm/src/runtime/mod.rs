@@ -2,10 +2,9 @@ mod interpreter;
 mod stack;
 mod value;
 
+use crate::Result;
 pub use stack::*;
 pub(crate) use value::RawWasmValue;
-
-use crate::Result;
 
 #[allow(rustdoc::private_intra_doc_links)]
 /// A WebAssembly runtime.
