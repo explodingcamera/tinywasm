@@ -1,11 +1,5 @@
-#![no_std]
 #![no_main]
-
-#[cfg(not(test))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    core::arch::wasm32::unreachable()
-}
+#![allow(non_snake_case)]
 
 #[no_mangle]
 pub extern "C" fn fibonacci(n: i32) -> i32 {

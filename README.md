@@ -22,7 +22,7 @@ TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in
 
 Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
 
-TinyWasm is not designed for performance, but rather for simplicity, size and portability. However, it is still reasonably fast, especially when compared to other interpreters. See [Performance](#performance) for more details.
+TinyWasm is not (yet) designed for performance, but rather for simplicity, size and portability. See [Performance](#performance) for more details.
 
 ## Supported Proposals
 

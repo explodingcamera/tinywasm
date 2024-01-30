@@ -11,6 +11,7 @@ edition="2021"
 
 [dependencies]
 tinywasm={path="../../crates/tinywasm", features=["parser", "std", "unsafe"]}
+argon2={version="0.5"}
 
 [[bin]]
 name="hello"
@@ -27,6 +28,10 @@ path="src/tinywasm.rs"
 [[bin]]
 name="fibonacci"
 path="src/fibonacci.rs"
+
+[[bin]]
+name="argon2id"
+path="src/argon2id.rs"
 
 [profile.wasm]
 opt-level=3

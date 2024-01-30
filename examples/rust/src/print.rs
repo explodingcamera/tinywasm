@@ -1,11 +1,4 @@
-#![no_std]
 #![no_main]
-
-#[cfg(not(test))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    core::arch::wasm32::unreachable()
-}
 
 #[link(wasm_import_module = "env")]
 extern "C" {

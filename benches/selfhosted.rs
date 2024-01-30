@@ -3,6 +3,17 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 use crate::util::twasm_to_module;
 
+fn run_native() {
+    use tinywasm::*;
+    let module = tinywasm::Module::parse_bytes(include_bytes!("../examples/rust/out/print.wasm")).expect("parse");
+    let mut store = Store::default();
+    let mut imports = Imports::default();
+    imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
+    let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
+    let hello = instance.exported_func::<(i32, i32), ()>(&store, "add_and_print").expect("exported_func");
+    hello.call(&mut store, (2, 3)).expect("call");
+}
+
 fn run_tinywasm(twasm: &[u8]) {
     use tinywasm::*;
     let module = twasm_to_module(twasm);
@@ -26,18 +37,35 @@ fn run_wasmi(wasm: &[u8]) {
     hello.call(&mut store, ()).expect("call");
 }
 
+fn run_wasmer(wasm: &[u8]) {
+    use wasmer::*;
+    let engine = wasmer::Engine::default();
+    let mut store = Store::default();
+    let import_object = imports! {
+        "env" => {
+            "printi32" => Function::new_typed(&mut store, |_: i32| {}),
+        },
+    };
+    let module = wasmer::Module::from_binary(&engine, &wasm).expect("wasmer::Module::from_binary");
+    let instance = Instance::new(&mut store, &module, &import_object).expect("Instance::new");
+    let hello = instance.exports.get_function("hello").expect("get_function");
+    hello.call(&mut store, &[]).expect("call");
+}
+
 const TINYWASM: &[u8] = include_bytes!("../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     let twasm = util::wasm_to_twasm(TINYWASM);
 
     let mut group = c.benchmark_group("selfhosted");
+    group.bench_function("native", |b| b.iter(|| run_native()));
     group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm)));
     group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
+    group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
 }
 
 criterion_group!(
     name = benches;
-    config = Criterion::default().sample_size(500).measurement_time(std::time::Duration::from_secs(5)).significance_level(0.1);
+    config = Criterion::default().sample_size(100).measurement_time(std::time::Duration::from_secs(5)).significance_level(0.1);
     targets = criterion_benchmark
 );
 
