@@ -12,27 +12,27 @@
 
 ## Why TinyWasm?
 
-- **Tiny** - Designed to be as small as possible without sacrificing too much performance or functionality.
-- **Fast enough** - TinyWasm is reasonably fast, especially when compared to other interpreters. See [Benchmarks](./BENCHMARKS.md) for more details.
-- **Portable** - Runs on any platform llvm supports, including WebAssembly. Minimal external dependencies.
+- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality.
+- **Portable**: TinyWasm runs on any platform that LLVM supports, including WebAssembly itself, with minimal external dependencies.
+- **Lightweight**: TinyWasm is easy to integrate and has a low call overhead, making it suitable for scripting and embedding.
 
 ## Status
 
-TinyWasm, starting from version `0.3.0`, passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). The 2.0 tests are in progress. This is enough to run most WebAssembly programs, including TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). Results of the testsuite can be found [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
+As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This achievement ensures that TinyWasm can run most WebAssembly programs, including versions of TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuite are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
-Some APIs to interact with the runtime are not yet exposed, and the existing ones are subject to change, but the core functionality is mostly complete.
-
-TinyWasm is not (yet) designed for performance, but rather for simplicity, size and portability. See [Performance](#performance) for more details.
+The API is still unstable and may change at any time, so don't use it in production _yet_. Note that TinyWasm isn't primarily designed for high performance; its focus lies more on simplicity, size, and portability. More details on its performance aspects can be found in [BENCHMARKS.md](./BENCHMARKS.md).
 
 ## Supported Proposals
 
-- [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md) - **Fully implemented**
-- [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md) - **Fully implemented**
-- [**Sign-extension operators**](https://github.com/WebAssembly/spec/blob/master/proposals/sign-extension-ops/Overview.md) - **Fully implemented**
-- [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) - **Fully implemented** (as of version `0.4.0`)
-- [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md) - **_Partially implemented_**
-- [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md) - **_Partially implemented_**
-- [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md) - **_Partially implemented_**
+| Proposal                                                                                                                   | Implementation Status | Version |
+| -------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------- |
+| [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md)      | Fully implemented     | 0.2.0   |
+| [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md)                       | Fully implemented     | 0.2.0   |
+| [**Sign-extension operators**](https://github.com/WebAssembly/spec/blob/master/proposals/sign-extension-ops/Overview.md)   | Fully implemented     | 0.2.0   |
+| [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) | Fully implemented     | 0.4.0   |
+| [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md)    | Partially implemented | N/A     |
+| [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)        | Partially implemented | N/A     |
+| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                         | Partially implemented | N/A     |
 
 ## Usage
 
