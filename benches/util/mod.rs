@@ -33,10 +33,10 @@ pub fn wasmi(wasm: &[u8]) -> (wasmi::Module, wasmi::Store<()>, wasmi::Linker<()>
 
 pub fn wasmer(wasm: &[u8]) -> (wasmer::Store, wasmer::Instance) {
     use wasmer::*;
-    let engine: Engine = wasmer::Singlepass::default().into();
-    let mut store = Store::default();
+    let compiler = Singlepass::default();
+    let mut store = Store::new(compiler);
     let import_object = imports! {};
-    let module = wasmer::Module::from_binary(&engine, &wasm).expect("wasmer::Module::from_binary");
+    let module = Module::new(&store, wasm).expect("wasmer::Module::new");
     let instance = Instance::new(&mut store, &module, &import_object).expect("Instance::new");
     (store, instance)
 }

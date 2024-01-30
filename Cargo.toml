@@ -52,5 +52,4 @@ tinywasm={path="crates/tinywasm", features=["unsafe"]}
 wat={version="1.0"}
 wasmi={version="0.31", features=["std"]}
 wasmer={version="4.2", features=["cranelift", "singlepass"]}
-wasmtime={version="17.0", features=["cranelift"]}
 argon2={version="0.5"}
