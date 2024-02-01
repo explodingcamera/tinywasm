@@ -28,13 +28,13 @@ macro_rules! mem_load {
     }};
 
     ($load_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
-        // TODO: there could be a lot of performance improvements here
         let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
         let mem_ref = mem.borrow_mut();
 
         let addr = $stack.values.pop()?.raw_value();
         let addr = $arg.offset.checked_add(addr).ok_or_else(|| {
+            cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: $arg.offset as usize,
                 len: core::mem::size_of::<$load_type>(),
@@ -43,6 +43,7 @@ macro_rules! mem_load {
         })?;
 
         let addr: usize = addr.try_into().ok().ok_or_else(|| {
+            cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: $arg.offset as usize,
                 len: core::mem::size_of::<$load_type>(),

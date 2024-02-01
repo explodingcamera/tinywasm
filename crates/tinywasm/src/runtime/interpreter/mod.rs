@@ -29,28 +29,31 @@ impl InterpreterRuntime {
         let mut current_module = store.get_module_instance_raw(cf.func_instance.1);
 
         loop {
-            match exec_one(&mut cf, stack, store, &current_module)? {
+            match exec_one(&mut cf, stack, store, &current_module) {
                 // Continue execution at the new top of the call stack
-                ExecResult::Call => {
+                Ok(ExecResult::Call) => {
                     cf = stack.call_stack.pop()?;
+
+                    // keeping the pointer seperate from the call frame is about 2% faster
+                    // than storing it in the call frame
                     if cf.func_instance.1 != current_module.id() {
                         current_module.swap_with(cf.func_instance.1, store);
                     }
                 }
 
                 // return from the function
-                ExecResult::Return => return Ok(()),
+                Ok(ExecResult::Return) => return Ok(()),
 
                 // continue to the next instruction and increment the instruction pointer
-                ExecResult::Ok => cf.instr_ptr += 1,
+                Ok(ExecResult::Ok) => cf.instr_ptr += 1,
 
                 // trap the program
-                ExecResult::Trap(trap) => {
+                Err(error) => {
                     cf.instr_ptr += 1;
                     // push the call frame back onto the stack so that it can be resumed
                     // if the trap can be handled
                     stack.call_stack.push(cf)?;
-                    return Err(Error::Trap(trap));
+                    return Err(error);
                 }
             }
         }
@@ -61,13 +64,14 @@ enum ExecResult {
     Ok,
     Return,
     Call,
-    Trap(crate::Trap),
 }
 
 /// Run a single step of the interpreter
 /// A seperate function is used so later, we can more easily implement
 /// a step-by-step debugger (using generators once they're stable?)
-#[inline(always)] // this improves performance by more than 20% in some cases
+// we want this be always part of the loop, rust just doesn't inline it as its too big
+// this can be a 30%+ performance difference in some cases
+#[inline(always)]
 fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &ModuleInstance) -> Result<ExecResult> {
     let instrs = &cf.func_instance.0.instructions;
     if unlikely(cf.instr_ptr >= instrs.len() || instrs.is_empty()) {
@@ -84,7 +88,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         Nop => { /* do nothing */ }
         Unreachable => {
             cold();
-            return Ok(ExecResult::Trap(crate::Trap::Unreachable));
+            return Err(crate::Trap::Unreachable.into());
         } // we don't need to include the call frame here because it's already on the stack
         Drop => stack.values.pop().map(|_| ())?,
 

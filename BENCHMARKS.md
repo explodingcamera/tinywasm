@@ -33,7 +33,7 @@ All runtimes are compiled with the following settings:
 | `fib`        | 6ns    | 44.76µs  | 48.96µs  | 52µs                 |
 | `fib-rec`    | 284ns  | 25.565ms | 5.11ms   | 0.50ms               |
 | `argon2id`   | 0.52ms | 110.08ms | 44.408ms | 4.76ms               |
-| `selfhosted` | 45µs   | 2.18ms   | 4.25ms   | 258.87ms             |
+| `selfhosted` | 45µs   | 2.08ms   | 4.25ms   | 258.87ms             |
 
 ### Fib
 
@@ -49,7 +49,7 @@ TinyWasm is a lot slower here, but that's because there's currently no way to re
 
 This benchmark runs the Argon2id hashing algorithm, with 2 iterations, 1KB of memory, and 1 parallel lane.
 I had to decrease the memory usage from the default to 1KB, because especially the interpreters were struggling to finish in a reasonable amount of time.
-This is where `simd` instructions would be really useful, and it also highlights some of the issues with the current implementation of TinyWasm's Value Stack and Memory Instances.
+This is where `simd` instructions would be really useful, and it also highlights some of the issues with the current implementation of TinyWasm's Value Stack and Memory Instances. These spend a lot of time on `Vec` operations, so they might be a good place to start experimenting with Arena Allocation.
 
 ### Selfhosted
 
@@ -61,6 +61,8 @@ Wasmer also offers a pre-parsed module format, so keep in mind that this number 
 ### Conclusion
 
 After profiling and fixing some low-hanging fruits, I found the biggest bottleneck to be Vector operations, especially for the Value Stack, and having shared access to Memory Instances using RefCell. These are the two areas I will be focusing on improving in the future, trying out Arena Allocation and other data structures to improve performance. Additionally, typed FuncHandles have a significant overhead over the untyped ones, so I will be looking into improving that as well. Still, I'm quite happy with the results, especially considering the use of standard Rust data structures.
+
+Something that made a much bigger difference than I expected was to give compiler hints about cold paths, and to force inlining of some functions. This made the benchmarks 30%+ faster in some cases. A lot of places in the codebase have comments about what optimizations have been done.
 
 # Running benchmarks
 

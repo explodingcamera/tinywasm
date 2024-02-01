@@ -100,6 +100,7 @@ impl MemoryInstance {
         Ok(val)
     }
 
+    #[inline]
     pub(crate) fn page_count(&self) -> usize {
         self.page_count
     }
@@ -186,10 +187,12 @@ macro_rules! impl_mem_loadable_for_primitive {
         $(
             #[allow(unsafe_code)]
             unsafe impl MemLoadable<$size> for $type {
+                #[inline]
                 fn from_le_bytes(bytes: [u8; $size]) -> Self {
                     <$type>::from_le_bytes(bytes)
                 }
 
+                #[inline]
                 fn from_be_bytes(bytes: [u8; $size]) -> Self {
                     <$type>::from_be_bytes(bytes)
                 }

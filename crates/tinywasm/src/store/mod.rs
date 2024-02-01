@@ -116,6 +116,72 @@ impl Store {
         Ok(())
     }
 
+    #[cold]
+    fn not_found_error(name: &str) -> Error {
+        Error::Other(format!("{} not found", name))
+    }
+
+    /// Get the function at the actual index in the store
+    #[inline]
+    pub(crate) fn get_func(&self, addr: usize) -> Result<&FunctionInstance> {
+        self.data.funcs.get(addr).ok_or_else(|| Self::not_found_error("function"))
+    }
+
+    /// Get the memory at the actual index in the store
+    #[inline]
+    pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
+        self.data.memories.get(addr).ok_or_else(|| Self::not_found_error("memory"))
+    }
+
+    /// Get the table at the actual index in the store
+    #[inline]
+    pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
+        self.data.tables.get(addr).ok_or_else(|| Self::not_found_error("table"))
+    }
+
+    /// Get the data at the actual index in the store
+    #[inline]
+    pub(crate) fn get_data(&self, addr: usize) -> Result<&DataInstance> {
+        self.data.datas.get(addr).ok_or_else(|| Self::not_found_error("data"))
+    }
+
+    /// Get the data at the actual index in the store
+    #[inline]
+    pub(crate) fn get_data_mut(&mut self, addr: usize) -> Result<&mut DataInstance> {
+        self.data.datas.get_mut(addr).ok_or_else(|| Self::not_found_error("data"))
+    }
+
+    /// Get the element at the actual index in the store
+    #[inline]
+    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElementInstance> {
+        self.data.elements.get(addr).ok_or_else(|| Self::not_found_error("element"))
+    }
+
+    /// Get the global at the actual index in the store
+    #[inline]
+    pub(crate) fn get_global(&self, addr: usize) -> Result<&Rc<RefCell<GlobalInstance>>> {
+        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global"))
+    }
+
+    /// Get the global at the actual index in the store
+    #[inline]
+    pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
+        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global")).map(|global| global.borrow().value)
+    }
+
+    /// Set the global at the actual index in the store
+    #[inline]
+    pub(crate) fn set_global_val(&mut self, addr: usize, value: RawWasmValue) -> Result<()> {
+        self.data
+            .globals
+            .get(addr)
+            .ok_or_else(|| Self::not_found_error("global"))
+            .map(|global| global.borrow_mut().value = value)
+    }
+}
+
+// Linking related functions
+impl Store {
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
@@ -390,59 +456,5 @@ impl Store {
             })?),
         };
         Ok(val)
-    }
-
-    #[cold]
-    fn not_found_error(name: &str) -> Error {
-        Error::Other(format!("{} not found", name))
-    }
-
-    /// Get the function at the actual index in the store
-    pub(crate) fn get_func(&self, addr: usize) -> Result<&FunctionInstance> {
-        self.data.funcs.get(addr).ok_or_else(|| Self::not_found_error("function"))
-    }
-
-    /// Get the memory at the actual index in the store
-    pub(crate) fn get_mem(&self, addr: usize) -> Result<&Rc<RefCell<MemoryInstance>>> {
-        self.data.memories.get(addr).ok_or_else(|| Self::not_found_error("memory"))
-    }
-
-    /// Get the table at the actual index in the store
-    pub(crate) fn get_table(&self, addr: usize) -> Result<&Rc<RefCell<TableInstance>>> {
-        self.data.tables.get(addr).ok_or_else(|| Self::not_found_error("table"))
-    }
-
-    /// Get the data at the actual index in the store
-    pub(crate) fn get_data(&self, addr: usize) -> Result<&DataInstance> {
-        self.data.datas.get(addr).ok_or_else(|| Self::not_found_error("data"))
-    }
-
-    /// Get the data at the actual index in the store
-    pub(crate) fn get_data_mut(&mut self, addr: usize) -> Result<&mut DataInstance> {
-        self.data.datas.get_mut(addr).ok_or_else(|| Self::not_found_error("data"))
-    }
-
-    /// Get the element at the actual index in the store
-    pub(crate) fn get_elem(&self, addr: usize) -> Result<&ElementInstance> {
-        self.data.elements.get(addr).ok_or_else(|| Self::not_found_error("element"))
-    }
-
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global(&self, addr: usize) -> Result<&Rc<RefCell<GlobalInstance>>> {
-        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global"))
-    }
-
-    /// Get the global at the actual index in the store
-    pub fn get_global_val(&self, addr: usize) -> Result<RawWasmValue> {
-        self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global")).map(|global| global.borrow().value)
-    }
-
-    /// Set the global at the actual index in the store
-    pub(crate) fn set_global_val(&mut self, addr: usize, value: RawWasmValue) -> Result<()> {
-        self.data
-            .globals
-            .get(addr)
-            .ok_or_else(|| Self::not_found_error("global"))
-            .map(|global| global.borrow_mut().value = value)
     }
 }
