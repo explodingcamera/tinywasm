@@ -13,14 +13,14 @@
 ## Why TinyWasm?
 
 - **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality.
-- **Portable**: TinyWasm runs on any platform that LLVM supports, including WebAssembly itself, with minimal external dependencies.
+- **Portable**: TinyWasm runs on any platform that Rust can target, including WebAssembly itself, with minimal external dependencies.
 - **Lightweight**: TinyWasm is easy to integrate and has a low call overhead, making it suitable for scripting and embedding.
 
 ## Status
 
-As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This achievement ensures that TinyWasm can run most WebAssembly programs, including versions of TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuite are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
+As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This enables TinyWasm to run most WebAssembly programs, including versions of TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuites are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
-The API is still unstable and may change at any time, so don't use it in production _yet_. Note that TinyWasm isn't primarily designed for high performance; its focus lies more on simplicity, size, and portability. More details on its performance aspects can be found in [BENCHMARKS.md](./BENCHMARKS.md).
+The API is still unstable and may change at any time, so you probably don't want to use it in production _yet_. Note that TinyWasm isn't primarily designed for high performance; its focus lies more on simplicity, size, and portability. More details on its performance aspects can be found in [BENCHMARKS.md](./BENCHMARKS.md).
 
 ## Supported Proposals
 

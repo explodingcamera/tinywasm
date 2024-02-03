@@ -13,6 +13,12 @@
 - **`cargo test-mvp`**\
   Run the WebAssembly MVP (1.0) test suite. Be sure to cloned this repo with `--recursive` or initialize the submodules with `git submodule update --init --recursive`
 
+- **`cargo test-2`**\
+  Run the full WebAssembly test suite (2.0)
+
+- **`cargo benchmark <benchmark>`**\
+  Run a single benchmark. e.g. `cargo benchmark argon2id`
+
 - **`cargo test-wast <path>`**\
   Run a single WAST test file. e.g. `cargo test-wast ./examples/wast/i32.wast`
 

@@ -10,20 +10,25 @@
 //! A tiny WebAssembly Runtime written in Rust
 //!
 //! TinyWasm provides a minimal WebAssembly runtime for executing WebAssembly modules.
-//! It currently supports a subset of the WebAssembly MVP specification and is intended
-//! to be useful for embedded systems and other environments where a full-featured
-//! runtime is not required.
+//! It currently supports all features of the WebAssembly MVP specification and is
+//! designed to be easy to use and integrate in other projects.
 //!
 //! ## Features
-//! - `std` (default): Enables the use of `std` and `std::io` for parsing from files and streams.
-//! - `logging` (default): Enables logging via the `log` crate.
-//! - `parser` (default): Enables the `tinywasm_parser` crate for parsing WebAssembly modules.
+//!- **`std`**\
+//!  Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
+//!- **`logging`**\
+//!  Enables logging using the `log` crate. This is enabled by default.
+//!- **`parser`**\
+//!  Enables the `tinywasm-parser` crate. This is enabled by default.
+//!- **`archive`**\
+//!  Enables pre-parsing of archives. This is enabled by default.
+//!- **`unsafe`**\
+//!  Uses `unsafe` code to improve performance, particularly in Memory access
 //!
-//! ## No-std support
-//! TinyWasm supports `no_std` environments by disabling the `std` feature and registering
-//! a custom allocator. This removes support for parsing from files and streams,
-//! but otherwise the API is the same.
-//! Additionally, to have proper error types, you currently need a `nightly` compiler to have the error trait in core.
+//! With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm`.
+//! By disabling `std`, you can use TinyWasm in `no_std` environments. This requires
+//! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
+//! Additionally, to have proper error types in `no_std`, you currently need a `nightly` compiler to use the unstable error trait in `core`.
 //!
 //! ## Getting Started
 //! The easiest way to get started is to use the [`Module::parse_bytes`] function to load a
