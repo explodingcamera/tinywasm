@@ -177,14 +177,17 @@ impl MemoryInstance {
 /// UB for loading things things like packed structs
 pub(crate) unsafe trait MemLoadable<const T: usize>: Sized + Copy {
     /// Load a value from memory
+    #[allow(unused)]
     fn from_le_bytes(bytes: [u8; T]) -> Self;
     /// Load a value from memory
+    #[allow(unused)]
     fn from_be_bytes(bytes: [u8; T]) -> Self;
 }
 
 macro_rules! impl_mem_loadable_for_primitive {
     ($($type:ty, $size:expr),*) => {
         $(
+            #[allow(unused)]
             #[allow(unsafe_code)]
             unsafe impl MemLoadable<$size> for $type {
                 #[inline]
