@@ -126,8 +126,8 @@ impl TestSuite {
             .define("spectest", "table", table)?
             .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
             .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
-            .define("spectest", "global_f32", Extern::global(WasmValue::F32(666.0), false))?
-            .define("spectest", "global_f64", Extern::global(WasmValue::F64(666.0), false))?
+            .define("spectest", "global_f32", Extern::global(WasmValue::F32(666.6), false))?
+            .define("spectest", "global_f64", Extern::global(WasmValue::F64(666.6), false))?
             .define("spectest", "print", print)?
             .define("spectest", "print_i32", print_i32)?
             .define("spectest", "print_i64", print_i64)?

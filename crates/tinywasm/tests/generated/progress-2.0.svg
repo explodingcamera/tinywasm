@@ -10,45 +10,50 @@ Tests Passed
 TinyWasm Version
 </text>
 <line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="344" x2="989" y2="344"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="292" x2="989" y2="292"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="240" x2="989" y2="240"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="188" x2="989" y2="188"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="136" x2="989" y2="136"/>
-<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="84" x2="989" y2="84"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="293" x2="989" y2="293"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="241" x2="989" y2="241"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="189" x2="989" y2="189"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="137" x2="989" y2="137"/>
+<line opacity="0.3" stroke="#000000" stroke-width="1" x1="80" y1="85" x2="989" y2="85"/>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="79,54 79,344 "/>
 <text x="70" y="344" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 0
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,344 79,344 "/>
-<text x="70" y="292" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<text x="70" y="293" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 5000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,292 79,292 "/>
-<text x="70" y="240" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,293 79,293 "/>
+<text x="70" y="241" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 10000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,240 79,240 "/>
-<text x="70" y="188" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,241 79,241 "/>
+<text x="70" y="189" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 15000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,188 79,188 "/>
-<text x="70" y="136" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,189 79,189 "/>
+<text x="70" y="137" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 20000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,136 79,136 "/>
-<text x="70" y="84" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,137 79,137 "/>
+<text x="70" y="85" dy="0.5ex" text-anchor="end" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 25000
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,84 79,84 "/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,85 79,85 "/>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="80,345 989,345 "/>
-<text x="307" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<text x="231" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 v0.3.0 (26722)
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="307,345 307,350 "/>
-<text x="761" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.4.0-alpha.0 (27464)
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="231,345 231,350 "/>
+<text x="534" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+v0.4.0 (27549)
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="761,345 761,350 "/>
-<rect x="85" y="67" width="444" height="277" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="539" y="59" width="445" height="285" opacity="0.5" fill="#0000FF" stroke="none"/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="534,345 534,350 "/>
+<text x="837" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+v0.4.1 (27552)
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="837,345 837,350 "/>
+<rect x="388" y="58" width="293" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="691" y="58" width="293" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="85" y="67" width="293" height="277" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>

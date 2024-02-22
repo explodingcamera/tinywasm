@@ -36,29 +36,27 @@ TinyWasm Version
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="74,58 79,58 "/>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="80,345 989,345 "/>
-<text x="170" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<text x="144" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 v0.0.4 (9258)
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="170,345 170,350 "/>
-<text x="352" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.0.5 (11135)
-</text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="352,345 352,350 "/>
-<text x="534" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="144,345 144,350 "/>
+<text x="404" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 v0.1.0 (17630)
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="534,345 534,350 "/>
-<text x="716" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
-v0.2.0 (19344)
-</text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="716,345 716,350 "/>
-<text x="898" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="404,345 404,350 "/>
+<text x="664" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
 v0.3.0 (20254)
 </text>
-<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="898,345 898,350 "/>
-<rect x="812" y="54" width="172" height="290" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="85" y="212" width="171" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="266" y="185" width="172" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="630" y="68" width="172" height="276" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="448" y="92" width="172" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="664,345 664,350 "/>
+<text x="924" y="355" dy="0.76em" text-anchor="middle" font-family="Victor Mono" font-size="12.096774193548388" opacity="1" fill="#000000">
+v0.4.1 (20257)
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="924,345 924,350 "/>
+<rect x="214" y="185" width="120" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="604" y="55" width="120" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="85" y="212" width="119" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="474" y="68" width="120" height="276" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="344" y="92" width="120" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="734" y="55" width="120" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="864" y="54" width="120" height="290" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>
