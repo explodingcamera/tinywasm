@@ -53,13 +53,19 @@ fn run_wasmer(wasm: &[u8]) {
 
 const TINYWASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
-    let twasm = util::wasm_to_twasm(TINYWASM);
+    {
+        let mut group = c.benchmark_group("selfhosted-parse");
+        group.bench_function("tinywasm", |b| b.iter(|| util::wasm_to_twasm(TINYWASM)));
+    }
 
-    let mut group = c.benchmark_group("selfhosted");
-    group.bench_function("native", |b| b.iter(run_native));
-    group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm)));
-    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
-    group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
+    {
+        let twasm = util::wasm_to_twasm(TINYWASM);
+        let mut group = c.benchmark_group("selfhosted");
+        // group.bench_function("native", |b| b.iter(run_native));
+        group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm)));
+        // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
+        // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
+    }
 }
 
 criterion_group!(

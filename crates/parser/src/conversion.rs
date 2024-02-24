@@ -163,7 +163,7 @@ pub(crate) fn convert_module_code(
     }
 
     let body_reader = func.get_operators_reader()?;
-    let body = process_operators(body_reader.original_position(), body_reader.into_iter(), validator)?;
+    let body = process_operators(body_reader, validator)?;
 
     Ok(CodeSection { locals: locals.into_boxed_slice(), body })
 }
@@ -228,28 +228,47 @@ pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<Con
     }
 }
 
-pub(crate) fn process_operators<'a>(
-    mut offset: usize,
-    ops: impl Iterator<Item = Result<wasmparser::Operator<'a>, wasmparser::BinaryReaderError>>,
+pub(crate) fn process_operators(
+    ops: OperatorsReader<'_>,
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<Box<[Instruction]>> {
-    let mut instructions = Vec::new();
-    let mut labels_ptrs = Vec::new(); // indexes into the instructions array
+    let mut instructions = Vec::with_capacity(1024);
+    let mut labels_ptrs = Vec::with_capacity(32);
+    // indexes into the instructions array
+    let mut offset = ops.original_position();
 
     for op in ops {
-        log::debug!("op: {:?}", op);
+        let op = match op {
+            Ok(op) => op,
+            Err(e) => {
+                cold();
+                log::error!("Error while processing operators: {:?}", e);
+                return Err(crate::ParseError::UnsupportedOperator("Error while processing operators".to_string()));
+            }
+        };
 
-        let op = op?;
-        validator.op(offset, &op)?;
+        match validator.op(offset, &op) {
+            Ok(_) => (),
+            Err(e) => {
+                cold();
+                log::error!("Error while processing operators: {:?}", e);
+                return Err(crate::ParseError::UnsupportedOperator("Error while processing operators".to_string()));
+            }
+        }
         offset += 1;
 
         use wasmparser::Operator::*;
         let res = match op {
             BrTable { targets } => {
                 let def = targets.default();
-                let targets = targets.targets().collect::<Result<Vec<u32>, wasmparser::BinaryReaderError>>()?;
-                instructions.push(Instruction::BrTable(def, targets.len()));
-                instructions.extend(targets.into_iter().map(Instruction::BrLabel));
+
+                let instrs = targets
+                    .targets()
+                    .map(|t| t.map(Instruction::BrLabel))
+                    .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()?;
+
+                instructions.push(Instruction::BrTable(def, instrs.len()));
+                instructions.extend(instrs);
                 continue;
             }
             Unreachable => Instruction::Unreachable,
@@ -510,6 +529,7 @@ pub(crate) fn process_operators<'a>(
             TableSize { table } => Instruction::TableSize(table),
             TableFill { table } => Instruction::TableFill(table),
             op => {
+                cold();
                 log::error!("Unsupported instruction: {:?}", op);
                 return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported instruction: {:?}", op)));
             }
@@ -524,3 +544,6 @@ pub(crate) fn process_operators<'a>(
     validator.finish(offset)?;
     Ok(instructions.into_boxed_slice())
 }
+
+#[cold]
+fn cold() {}
