@@ -1,33 +1,28 @@
+use crate::{unlikely, ModuleInstance};
 use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
-use crate::{unlikely, ModuleInstance};
+#[derive(Debug, Clone, Default)]
+pub(crate) struct BlockStack(Vec<BlockFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the lable count when parsing the module?
 
-#[derive(Debug, Clone)]
-pub(crate) struct Labels(Vec<LabelFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the lable count when parsing the module?
-
-impl Labels {
-    #[inline]
-    pub(crate) fn new() -> Self {
-        // this is somehow a lot faster than Vec::with_capacity(128) or even using Default::default() in the benchmarks
-        Self(Vec::new())
-    }
-
+impl BlockStack {
     #[inline]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, label: LabelFrame) {
-        self.0.push(label);
+    pub(crate) fn push(&mut self, block: BlockFrame) {
+        self.0.push(block);
     }
 
     #[inline]
     /// get the label at the given index, where 0 is the top of the stack
-    pub(crate) fn get_relative_to_top(&self, index: usize) -> Option<&LabelFrame> {
+    pub(crate) fn get_relative_to(&self, index: usize, offset: usize) -> Option<&BlockFrame> {
+        let len = self.0.len() - offset;
+
         // the vast majority of wasm functions don't use break to return
-        if unlikely(index >= self.0.len()) {
+        if unlikely(index >= len) {
             return None;
         }
 
@@ -35,7 +30,7 @@ impl Labels {
     }
 
     #[inline]
-    pub(crate) fn pop(&mut self) -> Option<LabelFrame> {
+    pub(crate) fn pop(&mut self) -> Option<BlockFrame> {
         self.0.pop()
     }
 
@@ -47,7 +42,7 @@ impl Labels {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LabelFrame {
+pub(crate) struct BlockFrame {
     // position of the instruction pointer when the block was entered
     pub(crate) instr_ptr: usize,
     // position of the end instruction of the block
@@ -60,7 +55,7 @@ pub(crate) struct LabelFrame {
     pub(crate) ty: BlockType,
 }
 
-impl LabelFrame {
+impl BlockFrame {
     #[inline]
     pub(crate) fn new(
         instr_ptr: usize,

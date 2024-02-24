@@ -291,8 +291,6 @@ pub(crate) fn process_operators(
             }
             End => {
                 if let Some(label_pointer) = labels_ptrs.pop() {
-                    log::debug!("ending block: {:?}", instructions[label_pointer]);
-
                     let current_instr_ptr = instructions.len();
 
                     // last_label_pointer is Some if we're ending a block

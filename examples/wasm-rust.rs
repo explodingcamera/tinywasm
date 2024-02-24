@@ -18,6 +18,8 @@ use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 /// https://github.com/WebAssembly/binaryen
 ///
 fn main() -> Result<()> {
+    pretty_env_logger::init();
+
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
         println!("Usage: cargo run --example wasm-rust <rust_example>");

@@ -24,16 +24,16 @@ pub enum Error {
     FuncDidNotReturn,
 
     /// The stack is empty
-    StackUnderflow,
+    ValueStackUnderflow,
 
     /// The label stack is empty
-    LabelStackUnderflow,
+    BlockStackUnderflow,
+
+    /// The call stack is empty
+    CallStackUnderflow,
 
     /// An invalid label type was encountered
     InvalidLabelType,
-
-    /// The call stack is empty
-    CallStackEmpty,
 
     /// The store is not the one that the module instance was instantiated in
     InvalidStore,
@@ -189,13 +189,13 @@ impl Display for Error {
 
             Self::Trap(trap) => write!(f, "trap: {}", trap),
             Self::Linker(err) => write!(f, "linking error: {}", err),
-            Self::CallStackEmpty => write!(f, "call stack empty"),
+            Self::CallStackUnderflow => write!(f, "call stack empty"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
-            Self::LabelStackUnderflow => write!(f, "label stack underflow"),
-            Self::StackUnderflow => write!(f, "stack underflow"),
+            Self::BlockStackUnderflow => write!(f, "label stack underflow"),
+            Self::ValueStackUnderflow => write!(f, "value stack underflow"),
             Self::InvalidStore => write!(f, "invalid store"),
         }
     }

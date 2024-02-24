@@ -63,7 +63,7 @@ impl ValueStack {
             Some(v) => Ok(v),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
@@ -74,7 +74,7 @@ impl ValueStack {
             Some(v) => Ok(v.into()),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
@@ -85,7 +85,7 @@ impl ValueStack {
             Some(v) => Ok(v),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
@@ -105,7 +105,7 @@ impl ValueStack {
     pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
         let len = self.stack.len();
         if unlikely(len < n) {
-            return Err(Error::StackUnderflow);
+            return Err(Error::ValueStackUnderflow);
         }
         Ok(&self.stack[len - n..len])
     }
@@ -114,7 +114,7 @@ impl ValueStack {
     pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
         let len = self.stack.len();
         if unlikely(len < n) {
-            return Err(Error::StackUnderflow);
+            return Err(Error::ValueStackUnderflow);
         }
         let res = self.stack.drain((len - n)..);
         Ok(res)

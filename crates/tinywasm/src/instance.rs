@@ -61,7 +61,7 @@ impl ModuleInstance {
         // don't need to create a auxiliary frame etc.
 
         let idx = store.next_module_instance_idx();
-        log::error!("Instantiating module at index {}", idx);
+        log::info!("Instantiating module at index {}", idx);
         let imports = imports.unwrap_or_default();
 
         let mut addrs = imports.link(store, &module, idx)?;

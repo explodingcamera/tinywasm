@@ -11,7 +11,7 @@
 // from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
     ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
-        if $cf.break_to(*$break_to_relative, &mut $stack.values).is_none() {
+        if $cf.break_to(*$break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
             if $stack.call_stack.is_empty() {
                 return Ok(ExecResult::Return);
             } else {
@@ -53,7 +53,6 @@ macro_rules! mem_load {
 
         const LEN: usize = core::mem::size_of::<$load_type>();
         let val = mem_ref.load_as::<LEN, $load_type>(addr, $arg.align as usize)?;
-        // let loaded_value = mem_ref.load_as::<$load_type>(addr, $arg.align as usize)?;
         $stack.values.push((val as $target_type).into());
     }};
 }

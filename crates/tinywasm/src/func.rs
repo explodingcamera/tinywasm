@@ -58,7 +58,7 @@ impl FuncHandle {
 
         // 6. Let f be the dummy frame
         let call_frame =
-            CallFrame::new(wasm_func.clone(), func_inst.owner, params.iter().map(|v| RawWasmValue::from(*v)));
+            CallFrame::new(wasm_func.clone(), func_inst.owner, params.iter().map(|v| RawWasmValue::from(*v)), 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
