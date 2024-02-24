@@ -32,7 +32,15 @@ impl InterpreterRuntime {
             match exec_one(&mut cf, stack, store, &current_module) {
                 // Continue execution at the new top of the call stack
                 Ok(ExecResult::Call) => {
+                    let old = cf.block_ptr;
                     cf = stack.call_stack.pop()?;
+
+                    if old > cf.block_ptr {
+                        stack.blocks.truncate(old);
+                    }
+
+                    log::info!("call, block_ptr: {} -> {}", old, cf.block_ptr);
+                    log::info!("blocks: {:?}", stack.blocks);
 
                     // keeping the pointer seperate from the call frame is about 2% faster
                     // than storing it in the call frame
@@ -79,9 +87,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len());
         return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
     }
-
-    log::debug!("instr: {:?}", instrs[cf.instr_ptr]);
-    log::debug!("blocks: {:?}", stack.blocks);
 
     // A match statement is probably the fastest way to do this without
     // unreasonable complexity
@@ -329,9 +334,10 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             // remove the label from the label stack
             let Some(block) = stack.blocks.pop() else {
                 cold();
-                panic!("end: no label to end, this should have been validated by the parser");
+                panic!("end blockframe: no label to end, this should have been validated by the parser");
             };
-            stack.values.truncate_keep(block.stack_ptr, block.results)
+
+            stack.values.truncate_keep(block.stack_ptr, block.results);
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),

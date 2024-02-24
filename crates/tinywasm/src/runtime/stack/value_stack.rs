@@ -1,4 +1,4 @@
-use core::{ops::Range, panic};
+use core::ops::Range;
 
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
@@ -92,14 +92,12 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        log::error!("pop_params: types: {:?}", types);
         let res = self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
         Ok(res)
     }
 
     #[inline]
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
-        log::error!("break_to: new_stack_size: {}, result_count: {}", new_stack_size, result_count);
         self.stack.drain(new_stack_size..(self.stack.len() - result_count));
     }
 
