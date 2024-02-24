@@ -39,9 +39,6 @@ impl InterpreterRuntime {
                         stack.blocks.truncate(old);
                     }
 
-                    log::info!("call, block_ptr: {} -> {}", old, cf.block_ptr);
-                    log::info!("blocks: {:?}", stack.blocks);
-
                     // keeping the pointer seperate from the call frame is about 2% faster
                     // than storing it in the call frame
                     if cf.func_instance.1 != current_module.id() {
@@ -202,7 +199,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         If(args, else_offset, end_offset) => {
             // truthy value is on the top of the stack, so enter the then block
             if stack.values.pop_t::<i32>()? != 0 {
-                log::debug!("entering if block");
                 cf.enter_block(
                     BlockFrame::new(
                         cf.instr_ptr,
@@ -220,8 +216,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
-                log::debug!("entering ifelse block");
-
                 let label = BlockFrame::new(
                     cf.instr_ptr + *else_offset,
                     cf.instr_ptr + *end_offset,
@@ -306,8 +300,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         EndFunc => {
             if stack.blocks.len() != cf.block_ptr {
-                log::error!("call stack: {:?}", stack.call_stack);
-                log::error!("block frames: {:?}, ptr: {}", stack.blocks, cf.block_ptr);
                 cold();
                 panic!("endfunc: block frames not empty, this should have been validated by the parser");
             }

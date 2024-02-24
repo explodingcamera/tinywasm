@@ -31,7 +31,7 @@ All runtimes are compiled with the following settings:
 | Benchmark    | Native   | TinyWasm\* | Wasmi     | Wasmer (Single Pass) |
 | ------------ | -------- | ---------- | --------- | -------------------- |
 | `fib`        | \*\*     | ` 44.11µs` | `49.46µs` | ` 50.65µs`           |
-| `fib-rec`    | `0.26ms` | ` 21.25ms` | ` 4.62ms` | `  0.49ms`           |
+| `fib-rec`    | `0.26ms` | ` 20.99ms` | ` 4.64ms` | `  0.50ms`           |
 | `argon2id`   | `0.53ms` | `109.38ms` | `45.85ms` | `  4.82ms`           |
 | `selfhosted` | `0.05ms` | `  1.97ms` | ` 4.26ms` | `260.32ms`           |
 
