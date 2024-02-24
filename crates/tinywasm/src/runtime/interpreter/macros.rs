@@ -53,7 +53,6 @@ macro_rules! mem_load {
 
         const LEN: usize = core::mem::size_of::<$load_type>();
         let val = mem_ref.load_as::<LEN, $load_type>(addr, $arg.align as usize)?;
-        // let loaded_value = mem_ref.load_as::<$load_type>(addr, $arg.align as usize)?;
         $stack.values.push((val as $target_type).into());
     }};
 }
