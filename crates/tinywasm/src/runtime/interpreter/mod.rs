@@ -203,7 +203,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                     BlockFrame::new(
                         cf.instr_ptr,
                         cf.instr_ptr + *end_offset,
-                        stack.values.len(), // - params,
+                        stack.values.len(),
                         BlockType::If,
                         args,
                         module,
@@ -219,7 +219,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 let label = BlockFrame::new(
                     cf.instr_ptr + *else_offset,
                     cf.instr_ptr + *end_offset,
-                    stack.values.len(), // - params,
+                    stack.values.len(),
                     BlockType::Else,
                     args,
                     module,
@@ -236,7 +236,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 BlockFrame::new(
                     cf.instr_ptr,
                     cf.instr_ptr + *end_offset,
-                    stack.values.len(), // - params,
+                    stack.values.len(),
                     BlockType::Loop,
                     args,
                     module,

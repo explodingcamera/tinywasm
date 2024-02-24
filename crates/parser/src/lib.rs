@@ -32,7 +32,7 @@ use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
 use tinywasm_types::{TypedWasmFunction, WasmFunction};
-use wasmparser::Validator;
+use wasmparser::{Validator, WasmFeatures};
 
 pub use tinywasm_types::TinyWasmModule;
 
@@ -46,10 +46,38 @@ impl Parser {
         Self {}
     }
 
+    fn create_validator(&self) -> Validator {
+        let features = WasmFeatures {
+            bulk_memory: true,
+            floats: true,
+            function_references: true,
+            multi_value: true,
+            mutable_global: true,
+            reference_types: true,
+            sign_extension: true,
+            saturating_float_to_int: true,
+
+            component_model: false,
+            component_model_nested_names: false,
+            component_model_values: false,
+            exceptions: false,
+            extended_const: false,
+            gc: false,
+            memory64: false,
+            memory_control: false,
+            relaxed_simd: false,
+            simd: false,
+            tail_call: false,
+            threads: false,
+            multi_memory: false, // should be working mostly
+        };
+        Validator::new_with_features(features)
+    }
+
     /// Parse a [`TinyWasmModule`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
         let wasm = wasm.as_ref();
-        let mut validator = Validator::new();
+        let mut validator = self.create_validator();
         let mut reader = ModuleReader::new();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
@@ -79,7 +107,7 @@ impl Parser {
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
         use alloc::format;
 
-        let mut validator = Validator::new();
+        let mut validator = self.create_validator();
         let mut reader = ModuleReader::new();
         let mut buffer = Vec::new();
         let mut parser = wasmparser::Parser::new(0);

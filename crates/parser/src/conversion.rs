@@ -15,26 +15,34 @@ pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Res
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
         wasmparser::ElementKind::Active { table_index, offset_expr } => tinywasm_types::ElementKind::Active {
-            table: table_index,
+            table: table_index.unwrap_or(0),
             offset: process_const_operators(offset_expr.get_operators_reader())?,
         },
         wasmparser::ElementKind::Passive => tinywasm_types::ElementKind::Passive,
         wasmparser::ElementKind::Declared => tinywasm_types::ElementKind::Declared,
     };
 
-    let items = match element.items {
+    match element.items {
         wasmparser::ElementItems::Functions(funcs) => {
-            funcs.into_iter().map(|func| Ok(ElementItem::Func(func?))).collect::<Result<Vec<_>>>()?.into_boxed_slice()
+            let items = funcs
+                .into_iter()
+                .map(|func| Ok(ElementItem::Func(func?)))
+                .collect::<Result<Vec<_>>>()?
+                .into_boxed_slice();
+
+            Ok(tinywasm_types::Element { kind, items, ty: ValType::RefFunc, range: element.range })
         }
 
-        wasmparser::ElementItems::Expressions(exprs) => exprs
-            .into_iter()
-            .map(|expr| Ok(ElementItem::Expr(process_const_operators(expr?.get_operators_reader())?)))
-            .collect::<Result<Vec<_>>>()?
-            .into_boxed_slice(),
-    };
+        wasmparser::ElementItems::Expressions(ty, exprs) => {
+            let items = exprs
+                .into_iter()
+                .map(|expr| Ok(ElementItem::Expr(process_const_operators(expr?.get_operators_reader())?)))
+                .collect::<Result<Vec<_>>>()?
+                .into_boxed_slice();
 
-    Ok(tinywasm_types::Element { kind, items, ty: convert_valtype(&element.ty), range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(&ty), range: element.range })
+        }
+    }
 }
 
 pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
@@ -71,7 +79,11 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         name: import.name.to_string().into_boxed_str(),
         kind: match import.ty {
             wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
-            wasmparser::TypeRef::Table(ty) => ImportKind::Table(convert_module_table(ty)?),
+            wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
+                element_type: convert_reftype(&ty.element_type),
+                size_initial: ty.initial,
+                size_max: ty.maximum,
+            }),
             wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
             wasmparser::TypeRef::Global(ty) => {
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
@@ -103,16 +115,16 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<Me
     })
 }
 
-pub(crate) fn convert_module_tables<T: IntoIterator<Item = wasmparser::Result<wasmparser::TableType>>>(
+pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Table<'a>>>>(
     table_types: T,
 ) -> Result<Vec<TableType>> {
     let table_type = table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()?;
     Ok(table_type)
 }
 
-pub(crate) fn convert_module_table(table: wasmparser::TableType) -> Result<TableType> {
-    let ty = convert_valtype(&table.element_type);
-    Ok(TableType { element_type: ty, size_initial: table.initial, size_max: table.maximum })
+pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
+    let ty = convert_reftype(&table.ty.element_type);
+    Ok(TableType { element_type: ty, size_initial: table.ty.initial, size_max: table.ty.maximum })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
@@ -168,8 +180,15 @@ pub(crate) fn convert_module_code(
     Ok(CodeSection { locals: locals.into_boxed_slice(), body })
 }
 
-pub(crate) fn convert_module_type(ty: wasmparser::Type) -> Result<FuncType> {
-    let wasmparser::Type::Func(ty) = ty;
+pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {
+    let mut types = ty.types();
+
+    if types.len() != 1 {
+        return Err(crate::ParseError::UnsupportedOperator(
+            "Expected exactly one type in the type section".to_string(),
+        ));
+    }
+    let ty = types.next().unwrap().unwrap_func();
     let params =
         ty.params().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
 
@@ -188,6 +207,14 @@ pub(crate) fn convert_blocktype(blocktype: wasmparser::BlockType) -> BlockArgs {
     }
 }
 
+pub(crate) fn convert_reftype(reftype: &wasmparser::RefType) -> ValType {
+    match reftype {
+        _ if reftype.is_func_ref() => ValType::RefFunc,
+        _ if reftype.is_extern_ref() => ValType::RefExtern,
+        _ => unimplemented!("Unsupported reference type: {:?}", reftype),
+    }
+}
+
 pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
     use wasmparser::ValType::*;
     match valtype {
@@ -195,9 +222,8 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         I64 => ValType::I64,
         F32 => ValType::F32,
         F64 => ValType::F64,
+        Ref(r) => convert_reftype(r),
         V128 => unimplemented!("128-bit values are not supported yet"),
-        FuncRef => ValType::RefFunc,
-        ExternRef => ValType::RefExtern,
     }
 }
 
@@ -217,7 +243,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
 
 pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<ConstInstruction> {
     match op {
-        wasmparser::Operator::RefNull { ty } => Ok(ConstInstruction::RefNull(convert_valtype(&ty))),
+        wasmparser::Operator::RefNull { hty } => Ok(ConstInstruction::RefNull(convert_heaptype(hty))),
         wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
         wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
@@ -225,6 +251,14 @@ pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<Con
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
+    }
+}
+
+fn convert_heaptype(heap: wasmparser::HeapType) -> ValType {
+    match heap {
+        wasmparser::HeapType::Func => ValType::RefFunc,
+        wasmparser::HeapType::Extern => ValType::RefExtern,
+        _ => unimplemented!("Unsupported heap type: {:?}", heap),
     }
 }
 
@@ -357,7 +391,7 @@ pub(crate) fn process_operators(
             I64Const { value } => Instruction::I64Const(value),
             F32Const { value } => Instruction::F32Const(f32::from_bits(value.bits())),
             F64Const { value } => Instruction::F64Const(f64::from_bits(value.bits())),
-            RefNull { ty } => Instruction::RefNull(convert_valtype(&ty)),
+            RefNull { hty } => Instruction::RefNull(convert_heaptype(hty)),
             RefIsNull => Instruction::RefIsNull,
             RefFunc { function_index } => Instruction::RefFunc(function_index),
             I32Load { memarg } => Instruction::I32Load(convert_memarg(memarg)),
