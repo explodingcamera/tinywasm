@@ -4,7 +4,7 @@ use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{ElementKind, ValType};
 
 use super::{InterpreterRuntime, Stack};
-use crate::runtime::{BlockType, CallFrame, LabelFrame};
+use crate::runtime::{BlockFrame, BlockType, CallFrame};
 use crate::{cold, log, unlikely};
 use crate::{Error, FuncContext, ModuleInstance, Result, Store, Trap};
 
@@ -80,6 +80,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
     }
 
+    log::debug!("instr: {:?}", instrs[cf.instr_ptr]);
+    log::debug!("blocks: {:?}", stack.blocks);
+
     // A match statement is probably the fastest way to do this without
     // unreasonable complexity
     // See https://pliniker.github.io/post/dispatchers/
@@ -123,7 +126,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             };
 
             let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params);
+            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params, stack.blocks.len());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -180,7 +183,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params);
+            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params, stack.blocks.len());
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
@@ -194,8 +197,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         If(args, else_offset, end_offset) => {
             // truthy value is on the top of the stack, so enter the then block
             if stack.values.pop_t::<i32>()? != 0 {
-                cf.enter_label(
-                    LabelFrame::new(
+                log::debug!("entering if block");
+                cf.enter_block(
+                    BlockFrame::new(
                         cf.instr_ptr,
                         cf.instr_ptr + *end_offset,
                         stack.values.len(), // - params,
@@ -204,13 +208,16 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                         module,
                     ),
                     &mut stack.values,
+                    &mut stack.blocks,
                 );
                 return Ok(ExecResult::Ok);
             }
 
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
-                let label = LabelFrame::new(
+                log::debug!("entering ifelse block");
+
+                let label = BlockFrame::new(
                     cf.instr_ptr + *else_offset,
                     cf.instr_ptr + *end_offset,
                     stack.values.len(), // - params,
@@ -219,15 +226,15 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                     module,
                 );
                 cf.instr_ptr += *else_offset;
-                cf.enter_label(label, &mut stack.values);
+                cf.enter_block(label, &mut stack.values, &mut stack.blocks);
             } else {
                 cf.instr_ptr += *end_offset;
             }
         }
 
         Loop(args, end_offset) => {
-            cf.enter_label(
-                LabelFrame::new(
+            cf.enter_block(
+                BlockFrame::new(
                     cf.instr_ptr,
                     cf.instr_ptr + *end_offset,
                     stack.values.len(), // - params,
@@ -236,12 +243,13 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                     module,
                 ),
                 &mut stack.values,
+                &mut stack.blocks,
             );
         }
 
         Block(args, end_offset) => {
-            cf.enter_label(
-                LabelFrame::new(
+            cf.enter_block(
+                BlockFrame::new(
                     cf.instr_ptr,
                     cf.instr_ptr + *end_offset,
                     stack.values.len(), // - params,
@@ -250,6 +258,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                     module,
                 ),
                 &mut stack.values,
+                &mut stack.blocks,
             );
         }
 
@@ -291,10 +300,12 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         },
 
         EndFunc => {
-            assert!(
-                cf.labels.len() == 0,
-                "endfunc: block frames not empty, this should have been validated by the parser"
-            );
+            if stack.blocks.len() != cf.block_ptr {
+                log::error!("call stack: {:?}", stack.call_stack);
+                log::error!("block frames: {:?}, ptr: {}", stack.blocks, cf.block_ptr);
+                cold();
+                panic!("endfunc: block frames not empty, this should have been validated by the parser");
+            }
 
             match stack.call_stack.is_empty() {
                 true => return Ok(ExecResult::Return),
@@ -304,7 +315,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
-            let Some(block) = cf.labels.pop() else {
+            let Some(block) = stack.blocks.pop() else {
                 cold();
                 panic!("else: no label to end, this should have been validated by the parser");
             };
@@ -316,7 +327,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         EndBlockFrame => {
             // remove the label from the label stack
-            let Some(block) = cf.labels.pop() else {
+            let Some(block) = stack.blocks.pop() else {
                 cold();
                 panic!("end: no label to end, this should have been validated by the parser");
             };
@@ -325,7 +336,18 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
         LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
-        LocalTee(local_index) => cf.set_local(*local_index as usize, *stack.values.last()?),
+        LocalTee(local_index) => {
+            let last_val = match stack.values.last() {
+                Ok(val) => val,
+                Err(_) => {
+                    log::error!("index: {}", local_index);
+                    log::error!("stack: {:?}", stack.values);
+
+                    panic!();
+                }
+            };
+            cf.set_local(*local_index as usize, *last_val)
+        }
 
         GlobalGet(global_index) => {
             let idx = module.resolve_global_addr(*global_index);

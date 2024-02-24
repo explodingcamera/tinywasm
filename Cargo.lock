@@ -2043,6 +2043,7 @@ name = "tinywasm-root"
 version = "0.0.0"
 dependencies = [
  "color-eyre",
+ "pretty_env_logger",
  "tinywasm",
  "wat",
 ]

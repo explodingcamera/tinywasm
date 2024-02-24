@@ -1,10 +1,11 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{ModuleInstanceAddr, WasmFunction};
 
-use super::{blocks::Labels, LabelFrame};
 use crate::runtime::{BlockType, RawWasmValue};
 use crate::unlikely;
 use crate::{Error, Result, Trap};
+
+use super::BlockFrame;
 
 const CALL_STACK_SIZE: usize = 128;
 const CALL_STACK_MAX_SIZE: usize = 1024;
@@ -31,7 +32,7 @@ impl CallStack {
     pub(crate) fn pop(&mut self) -> Result<CallFrame> {
         match self.stack.pop() {
             Some(frame) => Ok(frame),
-            None => Err(Error::CallStackEmpty),
+            None => Err(Error::CallStackUnderflow),
         }
     }
 
@@ -48,25 +49,35 @@ impl CallStack {
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
+    pub(crate) block_ptr: usize,
     pub(crate) func_instance: (Rc<WasmFunction>, ModuleInstanceAddr),
-    pub(crate) labels: Labels,
     pub(crate) locals: Box<[RawWasmValue]>,
 }
 
 impl CallFrame {
     /// Push a new label to the label stack and ensure the stack has the correct values
-    pub(crate) fn enter_label(&mut self, label_frame: LabelFrame, stack: &mut super::ValueStack) {
-        if label_frame.params > 0 {
-            stack.extend_from_within((label_frame.stack_ptr - label_frame.params)..label_frame.stack_ptr);
+    pub(crate) fn enter_block(
+        &mut self,
+        block_frame: BlockFrame,
+        values: &mut super::ValueStack,
+        blocks: &mut super::BlockStack,
+    ) {
+        if block_frame.params > 0 {
+            values.extend_from_within((block_frame.stack_ptr - block_frame.params)..block_frame.stack_ptr);
         }
 
-        self.labels.push(label_frame);
+        blocks.push(block_frame);
     }
 
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
-    pub(crate) fn break_to(&mut self, break_to_relative: u32, value_stack: &mut super::ValueStack) -> Option<()> {
-        let break_to = self.labels.get_relative_to_top(break_to_relative as usize)?;
+    pub(crate) fn break_to(
+        &mut self,
+        break_to_relative: u32,
+        values: &mut super::ValueStack,
+        blocks: &mut super::BlockStack,
+    ) -> Option<()> {
+        let break_to = blocks.get_relative_to(break_to_relative as usize, self.block_ptr)?;
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr
@@ -76,12 +87,12 @@ impl CallFrame {
                 self.instr_ptr = break_to.instr_ptr;
 
                 // We also want to push the params to the stack
-                value_stack.break_to(break_to.stack_ptr, break_to.params);
+                values.break_to(break_to.stack_ptr, break_to.params);
 
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
                     // we also want to trim the label stack to the loop (but not including the loop)
-                    self.labels.truncate(self.labels.len() - break_to_relative as usize);
+                    blocks.truncate(blocks.len() - break_to_relative as usize);
                     return Some(());
                 }
             }
@@ -89,13 +100,13 @@ impl CallFrame {
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack
-                value_stack.break_to(break_to.stack_ptr, break_to.results);
+                values.break_to(break_to.stack_ptr, break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.end_instr_ptr;
 
                 // we also want to trim the label stack, including the block
-                self.labels.truncate(self.labels.len() - (break_to_relative as usize + 1));
+                blocks.truncate(blocks.len() - (break_to_relative as usize + 1));
             }
         }
 
@@ -108,6 +119,7 @@ impl CallFrame {
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
         params: impl Iterator<Item = RawWasmValue> + ExactSizeIterator,
+        block_ptr: usize,
     ) -> Self {
         let locals = {
             let local_types = &wasm_func_inst.locals;
@@ -118,7 +130,7 @@ impl CallFrame {
             locals.into_boxed_slice()
         };
 
-        Self { instr_ptr: 0, func_instance: (wasm_func_inst, owner), locals, labels: Labels::new() }
+        Self { instr_ptr: 0, func_instance: (wasm_func_inst, owner), locals, block_ptr }
     }
 
     #[inline]

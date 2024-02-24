@@ -1,4 +1,4 @@
-use core::ops::Range;
+use core::{ops::Range, panic};
 
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
@@ -63,7 +63,7 @@ impl ValueStack {
             Some(v) => Ok(v),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
@@ -74,7 +74,7 @@ impl ValueStack {
             Some(v) => Ok(v.into()),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
@@ -85,19 +85,21 @@ impl ValueStack {
             Some(v) => Ok(v),
             None => {
                 cold();
-                Err(Error::StackUnderflow)
+                Err(Error::ValueStackUnderflow)
             }
         }
     }
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
+        log::error!("pop_params: types: {:?}", types);
         let res = self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
         Ok(res)
     }
 
     #[inline]
     pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
+        log::error!("break_to: new_stack_size: {}, result_count: {}", new_stack_size, result_count);
         self.stack.drain(new_stack_size..(self.stack.len() - result_count));
     }
 
@@ -105,7 +107,7 @@ impl ValueStack {
     pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
         let len = self.stack.len();
         if unlikely(len < n) {
-            return Err(Error::StackUnderflow);
+            return Err(Error::ValueStackUnderflow);
         }
         Ok(&self.stack[len - n..len])
     }
@@ -114,7 +116,7 @@ impl ValueStack {
     pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
         let len = self.stack.len();
         if unlikely(len < n) {
-            return Err(Error::StackUnderflow);
+            return Err(Error::ValueStackUnderflow);
         }
         let res = self.stack.drain((len - n)..);
         Ok(res)
