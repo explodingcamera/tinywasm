@@ -2,6 +2,11 @@
 
 use tinywasm::{self, parser::Parser, types::TinyWasmModule};
 
+pub fn parse_wasm(wasm: &[u8]) -> TinyWasmModule {
+    let parser = Parser::new();
+    parser.parse_module_bytes(wasm).expect("parse_module_bytes")
+}
+
 pub fn wasm_to_twasm(wasm: &[u8]) -> Vec<u8> {
     let parser = Parser::new();
     let res = parser.parse_module_bytes(wasm).expect("parse_module_bytes");

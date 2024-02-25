@@ -1,15 +1,8 @@
 use crate::log::debug;
 use crate::{conversion, ParseError, Result};
 use alloc::{boxed::Box, format, vec::Vec};
-use core::fmt::Debug;
 use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
-
-#[derive(Debug, Clone)]
-pub(crate) struct CodeSection {
-    pub(crate) locals: Box<[ValType]>,
-    pub(crate) body: Box<[Instruction]>,
-}
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {
@@ -18,7 +11,7 @@ pub(crate) struct ModuleReader {
     pub(crate) func_types: Vec<FuncType>,
     pub(crate) code_type_addrs: Vec<u32>,
     pub(crate) exports: Vec<Export>,
-    pub(crate) code: Vec<CodeSection>,
+    pub(crate) code: Vec<(Box<[Instruction]>, Box<[ValType]>)>,
     pub(crate) globals: Vec<Global>,
     pub(crate) table_types: Vec<TableType>,
     pub(crate) memory_types: Vec<MemoryType>,
@@ -66,15 +59,7 @@ impl ModuleReader {
                     .map(|t| conversion::convert_module_type(t?))
                     .collect::<Result<Vec<FuncType>>>()?;
             }
-            FunctionSection(reader) => {
-                if !self.code_type_addrs.is_empty() {
-                    return Err(ParseError::DuplicateSection("Function section".into()));
-                }
 
-                debug!("Found function section");
-                validator.function_section(&reader)?;
-                self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
-            }
             GlobalSection(reader) => {
                 if !self.globals.is_empty() {
                     return Err(ParseError::DuplicateSection("Global section".into()));
@@ -122,11 +107,21 @@ impl ModuleReader {
                 }
                 validator.data_count_section(count, &range)?;
             }
+            FunctionSection(reader) => {
+                if !self.code_type_addrs.is_empty() {
+                    return Err(ParseError::DuplicateSection("Function section".into()));
+                }
+
+                debug!("Found function section");
+                validator.function_section(&reader)?;
+                self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
+            }
             CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({} functions)", count);
                 if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
+                self.code.reserve(count as usize);
                 validator.code_section_start(count, &range)?;
             }
             CodeSectionEntry(function) => {

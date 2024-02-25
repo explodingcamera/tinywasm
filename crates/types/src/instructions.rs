@@ -13,10 +13,10 @@ pub enum BlockArgs {
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct MemoryArg {
+    pub offset: u64,
     pub mem_addr: MemAddr,
     pub align: u8,
     pub align_max: u8,
-    pub offset: u64,
 }
 
 type BrTableDefault = u32;

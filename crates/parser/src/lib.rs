@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 //! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
+#![recursion_limit = "1028"]
 
 mod std;
 extern crate alloc;
@@ -28,6 +29,7 @@ mod log {
 mod conversion;
 mod error;
 mod module;
+mod visit;
 use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
@@ -155,11 +157,11 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             .code
             .into_iter()
             .zip(code_type_addrs)
-            .map(|(f, ty_idx)| TypedWasmFunction {
+            .map(|((instructions, locals), ty_idx)| TypedWasmFunction {
                 type_addr: ty_idx,
                 wasm_function: WasmFunction {
-                    instructions: f.body,
-                    locals: f.locals,
+                    instructions,
+                    locals,
                     ty: reader.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
                 },
             })
