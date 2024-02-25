@@ -1,5 +1,5 @@
-use crate::visit::process_operators;
 use crate::Result;
+use crate::{module::Code, visit::process_operators};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
@@ -159,7 +159,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
     mut validator: FuncValidator<ValidatorResources>,
-) -> Result<(Box<[Instruction]>, Box<[ValType]>)> {
+) -> Result<Code> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
@@ -173,7 +173,7 @@ pub(crate) fn convert_module_code(
         }
     }
 
-    let body = process_operators(&mut validator, &func)?;
+    let body = process_operators(Some(&mut validator), &func)?;
     let locals = locals.into_boxed_slice();
     Ok((body, locals))
 }

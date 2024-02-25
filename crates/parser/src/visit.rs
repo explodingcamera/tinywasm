@@ -10,6 +10,7 @@ struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            #[inline]
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
                 self.0.$visit($($($arg.clone()),*)?)?;
                 Ok(self.1.$visit($($($arg),*)?))
@@ -24,23 +25,29 @@ where
     U: VisitOperator<'a>,
 {
     type Output = Result<U::Output>;
-
     wasmparser::for_each_operator!(validate_then_visit);
 }
 
 pub(crate) fn process_operators<R: WasmModuleResources>(
-    validator: &mut FuncValidator<R>,
+    validator: Option<&mut FuncValidator<R>>,
     body: &FunctionBody<'_>,
 ) -> Result<Box<[Instruction]>> {
     let mut reader = body.get_operators_reader()?;
-    let mut builder = FunctionBuilder::new(1024);
+    let remaining = reader.get_binary_reader().bytes_remaining();
+    let mut builder = FunctionBuilder::new(remaining);
 
-    while !reader.eof() {
-        let validate = validator.visitor(reader.original_position());
-        reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))???;
+    if let Some(validator) = validator {
+        while !reader.eof() {
+            let validate = validator.visitor(reader.original_position());
+            reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))???;
+        }
+        validator.finish(reader.original_position())?;
+    } else {
+        while !reader.eof() {
+            reader.visit_operator(&mut builder)??;
+        }
     }
 
-    validator.finish(reader.original_position())?;
     Ok(builder.instructions.into_boxed_slice())
 }
 
@@ -114,7 +121,7 @@ pub(crate) struct FunctionBuilder {
 
 impl FunctionBuilder {
     pub(crate) fn new(instr_capacity: usize) -> Self {
-        Self { instructions: Vec::with_capacity(instr_capacity), label_ptrs: Vec::with_capacity(64) }
+        Self { instructions: Vec::with_capacity(instr_capacity), label_ptrs: Vec::with_capacity(128) }
     }
 
     #[cold]
@@ -124,7 +131,8 @@ impl FunctionBuilder {
 
     #[inline]
     fn visit(&mut self, op: Instruction) -> Result<()> {
-        Ok(self.instructions.push(op))
+        self.instructions.push(op);
+        Ok(())
     }
 }
 
@@ -337,6 +345,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         self.visit(Instruction::Else(0))
     }
 
+    #[inline]
     fn visit_end(&mut self) -> Self::Output {
         let Some(label_pointer) = self.label_ptrs.pop() else {
             return self.visit(Instruction::EndFunc);
@@ -348,16 +357,19 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             Instruction::Else(ref mut else_instr_end_offset) => {
                 *else_instr_end_offset = current_instr_ptr - label_pointer;
 
+                #[cold]
+                fn error() -> crate::ParseError {
+                    crate::ParseError::UnsupportedOperator(
+                        "Expected to end an if block, but the last label was not an if".to_string(),
+                    )
+                }
+
                 // since we're ending an else block, we need to end the if block as well
-                let if_label_pointer = self.label_ptrs.pop().ok_or(crate::ParseError::UnsupportedOperator(
-                    "Expected to end an if block, but the last label was not an if".to_string(),
-                ))?;
+                let if_label_pointer = self.label_ptrs.pop().ok_or_else(error)?;
 
                 let if_instruction = &mut self.instructions[if_label_pointer];
                 let Instruction::If(_, ref mut else_offset, ref mut end_offset) = if_instruction else {
-                    return Err(crate::ParseError::UnsupportedOperator(
-                        "Expected to end an if block, but the last label was not an if".to_string(),
-                    ));
+                    return Err(error());
                 };
 
                 *else_offset = Some(label_pointer - if_label_pointer);
@@ -386,8 +398,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
             .expect("BrTable targets are invalid, this should have been caught by the validator");
 
-        self.instructions
-            .extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len())]).chain(instrs.into_iter()));
+        self.instructions.extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len())]).chain(instrs));
         Ok(())
     }
 

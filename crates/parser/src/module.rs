@@ -4,6 +4,8 @@ use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
 use wasmparser::{Payload, Validator};
 
+pub(crate) type Code = (Box<[Instruction]>, Box<[ValType]>);
+
 #[derive(Default)]
 pub(crate) struct ModuleReader {
     pub(crate) version: Option<u16>,
@@ -11,7 +13,7 @@ pub(crate) struct ModuleReader {
     pub(crate) func_types: Vec<FuncType>,
     pub(crate) code_type_addrs: Vec<u32>,
     pub(crate) exports: Vec<Export>,
-    pub(crate) code: Vec<(Box<[Instruction]>, Box<[ValType]>)>,
+    pub(crate) code: Vec<Code>,
     pub(crate) globals: Vec<Global>,
     pub(crate) table_types: Vec<TableType>,
     pub(crate) memory_types: Vec<MemoryType>,
