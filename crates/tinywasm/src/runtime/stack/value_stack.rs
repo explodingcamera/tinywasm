@@ -58,14 +58,8 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn last(&self) -> Result<&RawWasmValue> {
-        match self.stack.last() {
-            Some(v) => Ok(v),
-            None => {
-                cold();
-                Err(Error::ValueStackUnderflow)
-            }
-        }
+    pub(crate) fn last(&self) -> Option<&RawWasmValue> {
+        self.stack.last()
     }
 
     #[inline]

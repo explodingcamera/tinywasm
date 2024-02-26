@@ -54,6 +54,32 @@ pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),
 
+    //== Not implemented yet, to be determined
+
+    // LocalGet + I32Const + I32Add
+    // One of the most common patterns in the Rust compiler output
+    I32LocalGetConstAdd(LocalAddr, i32),
+
+    // LocalGet + I32Const + I32Store
+    // Also common, helps us skip the stack entirely
+    I32LocalGetConstStore(LocalAddr, i32, MemoryArg), // I32Store + LocalGet + I32Const
+
+    // I64Xor + I64Const + I64RotL
+    // Commonly used by a few crypto libraries
+    I64XorConstRotl(i64),
+
+    // LocalTee + LocalGet
+    LocalTeeGet(LocalAddr, LocalAddr),
+    LocalGet2(LocalAddr, LocalAddr),
+    LocalGet3(LocalAddr, LocalAddr, LocalAddr),
+    LocalGet4(LocalAddr, LocalAddr, LocalAddr, LocalAddr),
+    LocalGetSet(LocalAddr, LocalAddr),
+
+    I32AddConst(i32),
+    I32SubConst(i32),
+    I64AddConst(i64),
+    I64SubConst(i64),
+
     // Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,

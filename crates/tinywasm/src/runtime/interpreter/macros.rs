@@ -11,7 +11,7 @@
 // from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
     ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
-        if $cf.break_to(*$break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
+        if $cf.break_to($break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
             if $stack.call_stack.is_empty() {
                 return Ok(ExecResult::Return);
             } else {
