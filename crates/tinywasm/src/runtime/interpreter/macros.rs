@@ -32,7 +32,7 @@ macro_rules! mem_load {
         let mem = $store.get_mem(mem_idx as usize)?;
         let mem_ref = mem.borrow_mut();
 
-        let addr = $stack.values.pop()?.raw_value();
+        let addr: u64 = $stack.values.pop()?.into();
         let addr = $arg.offset.checked_add(addr).ok_or_else(|| {
             cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
@@ -71,7 +71,7 @@ macro_rules! mem_store {
         let mem = $store.get_mem(mem_idx as usize)?;
 
         let val = $stack.values.pop_t::<$store_type>()?;
-        let addr = $stack.values.pop()?.raw_value();
+        let addr: u64 = $stack.values.pop()?.into();
 
         let val = val as $store_type;
         let val = val.to_le_bytes();
