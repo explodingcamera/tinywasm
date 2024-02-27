@@ -71,6 +71,14 @@ macro_rules! define_primitive_operands {
             }
         )*
     };
+    ($($name:ident, $instr:expr, $ty:ty, $ty2:ty),*) => {
+        $(
+            fn $name(&mut self, arg: $ty, arg2: $ty) -> Self::Output {
+                self.instructions.push($instr(arg, arg2));
+                Ok(())
+            }
+        )*
+    };
 }
 
 macro_rules! define_mem_operands {
@@ -86,34 +94,6 @@ macro_rules! define_mem_operands {
             }
         )*
     };
-}
-
-macro_rules! impl_visit_operator {
-    ( @mvp $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @sign_extension $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @saturating_float_to_int $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @bulk_memory $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @reference_types $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @@skipped $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
-        impl_visit_operator!($($rest)*);
-    };
-    ( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
-        fn $visit(&mut self $($(, $arg: $argty)*)?) -> Self::Output {
-            self.unsupported(stringify!($op))
-        }
-        impl_visit_operator!($($rest)*);
-    };
-    () => {};
 }
 
 pub(crate) struct FunctionBuilder {
@@ -140,6 +120,10 @@ impl FunctionBuilder {
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     type Output = Result<()>;
+
+    fn visit_default(&mut self, op: &str) -> Self::Output {
+        self.unsupported(op)
+    }
 
     define_primitive_operands! {
         visit_br, Instruction::Br, u32,
@@ -329,7 +313,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             match instruction {
                 Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
                 Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-                // Instruction::LocalGet3(a, b, c) => *instruction = Instruction::LocalGet4(*a, *b, *c, idx),
                 Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
                 _ => return self.visit(Instruction::LocalGet(idx)),
             };
@@ -502,24 +485,14 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     // Bulk Memory Operations
 
-    fn visit_memory_init(&mut self, data_index: u32, mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryInit(data_index, mem))
+    define_primitive_operands! {
+        visit_memory_init, Instruction::MemoryInit, u32, u32,
+        visit_memory_copy, Instruction::MemoryCopy, u32, u32,
+        visit_table_init, Instruction::TableInit, u32, u32
     }
-
-    fn visit_data_drop(&mut self, data_index: u32) -> Self::Output {
-        self.visit(Instruction::DataDrop(data_index))
-    }
-
-    fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryCopy(dst_mem, src_mem))
-    }
-
-    fn visit_memory_fill(&mut self, mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryFill(mem))
-    }
-
-    fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Self::Output {
-        self.visit(Instruction::TableInit(elem_index, table))
+    define_primitive_operands! {
+        visit_memory_fill, Instruction::MemoryFill, u32,
+        visit_data_drop, Instruction::DataDrop, u32
     }
 
     fn visit_elem_drop(&mut self, _elem_index: u32) -> Self::Output {
@@ -540,33 +513,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         self.visit(Instruction::RefIsNull)
     }
 
-    fn visit_ref_func(&mut self, idx: u32) -> Self::Output {
-        self.visit(Instruction::RefFunc(idx))
-    }
-
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
         self.visit(Instruction::Select(Some(convert_valtype(&ty))))
     }
 
-    fn visit_table_fill(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableFill(table))
+    define_primitive_operands! {
+        visit_ref_func, Instruction::RefFunc, u32,
+        visit_table_fill, Instruction::TableFill, u32,
+        visit_table_get, Instruction::TableGet, u32,
+        visit_table_set, Instruction::TableSet, u32,
+        visit_table_grow, Instruction::TableGrow, u32,
+        visit_table_size, Instruction::TableSize, u32
     }
-
-    fn visit_table_get(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableGet(table))
-    }
-
-    fn visit_table_set(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableSet(table))
-    }
-
-    fn visit_table_grow(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableGrow(table))
-    }
-
-    fn visit_table_size(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableSize(table))
-    }
-
-    wasmparser::for_each_operator!(impl_visit_operator);
 }

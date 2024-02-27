@@ -2120,9 +2120,9 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-wasmparser"
-version = "0.200.2"
+version = "0.200.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9fce1b3563499af272f7e88c8b0357e740e62c2bcf59f134992698d35af96da"
+checksum = "365709f885b90cad71c71120414f99255e74d9d03f232618d9d1c6eb5db0ea99"
 dependencies = [
  "ahash 0.8.9",
  "bitflags 2.4.2",
