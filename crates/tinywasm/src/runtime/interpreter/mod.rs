@@ -113,7 +113,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         Call(v) => {
             // prepare the call frame
-            let func_idx = module.resolve_func_addr(v);
+            let func_idx = module.resolve_func_addr(*v);
             let func_inst = store.get_func(func_idx as usize)?.clone();
 
             let wasm_func = match &func_inst.func {
@@ -140,7 +140,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         CallIndirect(type_addr, table_addr) => {
-            let table = store.get_table(module.resolve_table_addr(table_addr) as usize)?;
+            let table = store.get_table(module.resolve_table_addr(*table_addr) as usize)?;
             let table_idx = stack.values.pop_t::<u32>()?;
 
             // verify that the table is of the right type, this should be validated by the parser already
@@ -155,7 +155,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             };
 
             let func_inst = store.get_func(func_ref as usize)?.clone();
-            let call_ty = module.func_ty(type_addr);
+            let call_ty = module.func_ty(*type_addr);
 
             let wasm_func = match func_inst.func {
                 crate::Function::Wasm(ref f) => f.clone(),
@@ -202,10 +202,10 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 cf.enter_block(
                     BlockFrame::new(
                         cf.instr_ptr,
-                        cf.instr_ptr + end_offset as usize,
+                        cf.instr_ptr + *end_offset as usize,
                         stack.values.len(),
                         BlockType::If,
-                        &args,
+                        &args.unpack(),
                         module,
                     ),
                     &mut stack.values,
@@ -215,19 +215,19 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             // falsy value is on the top of the stack
-            if let Some(else_offset) = else_offset {
+            if *else_offset != 0 {
                 let label = BlockFrame::new(
-                    cf.instr_ptr + else_offset as usize,
-                    cf.instr_ptr + end_offset as usize,
+                    cf.instr_ptr + *else_offset as usize,
+                    cf.instr_ptr + *end_offset as usize,
                     stack.values.len(),
                     BlockType::Else,
-                    &args,
+                    &args.unpack(),
                     module,
                 );
-                cf.instr_ptr += else_offset as usize;
+                cf.instr_ptr += *else_offset as usize;
                 cf.enter_block(label, &mut stack.values, &mut stack.blocks);
             } else {
-                cf.instr_ptr += end_offset as usize;
+                cf.instr_ptr += *end_offset as usize;
             }
         }
 
@@ -235,7 +235,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             cf.enter_block(
                 BlockFrame::new(
                     cf.instr_ptr,
-                    cf.instr_ptr + end_offset as usize,
+                    cf.instr_ptr + *end_offset as usize,
                     stack.values.len(),
                     BlockType::Loop,
                     &args,
@@ -250,7 +250,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             cf.enter_block(
                 BlockFrame::new(
                     cf.instr_ptr,
-                    cf.instr_ptr + end_offset as usize,
+                    cf.instr_ptr + *end_offset as usize,
                     stack.values.len(), // - params,
                     BlockType::Block,
                     &args,
@@ -262,7 +262,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         BrTable(default, len) => {
-            let instr = cf.instructions()[cf.instr_ptr + 1..cf.instr_ptr + 1 + len as usize]
+            let instr = cf.instructions()[cf.instr_ptr + 1..cf.instr_ptr + 1 + *len as usize]
                 .iter()
                 .map(|i| match i {
                     BrLabel(l) => Ok(*l),
@@ -273,7 +273,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 })
                 .collect::<Result<Vec<_>>>()?;
 
-            if unlikely(instr.len() != len as usize) {
+            if unlikely(instr.len() != *len as usize) {
                 panic!(
                     "Expected {} BrLabel instructions, got {}, this should have been validated by the parser",
                     len,
@@ -282,7 +282,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             let idx = stack.values.pop_t::<i32>()? as usize;
-            let to = *instr.get(idx).unwrap_or(&default);
+            let to = instr.get(idx).unwrap_or(&default);
             break_to!(cf, stack, to);
         }
 
@@ -319,7 +319,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
             let res_count = block.results;
             stack.values.truncate_keep(block.stack_ptr, res_count);
-            cf.instr_ptr += end_offset as usize;
+            cf.instr_ptr += *end_offset as usize;
         }
 
         EndBlockFrame => {
@@ -332,11 +332,11 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             stack.values.truncate_keep(block.stack_ptr, block.results);
         }
 
-        LocalGet(local_index) => stack.values.push(cf.get_local(local_index as usize)),
-        LocalSet(local_index) => cf.set_local(local_index as usize, stack.values.pop()?),
+        LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
+        LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
         LocalTee(local_index) => {
             cf.set_local(
-                local_index as usize,
+                *local_index as usize,
                 stack
                     .values
                     .last()
@@ -346,39 +346,39 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         GlobalGet(global_index) => {
-            let idx = module.resolve_global_addr(global_index);
+            let idx = module.resolve_global_addr(*global_index);
             let global = store.get_global_val(idx as usize)?;
             stack.values.push(global);
         }
 
         GlobalSet(global_index) => {
-            let idx = module.resolve_global_addr(global_index);
+            let idx = module.resolve_global_addr(*global_index);
             store.set_global_val(idx as usize, stack.values.pop()?)?;
         }
 
-        I32Const(val) => stack.values.push((val).into()),
-        I64Const(val) => stack.values.push((val).into()),
-        F32Const(val) => stack.values.push((val).into()),
-        F64Const(val) => stack.values.push((val).into()),
+        I32Const(val) => stack.values.push((*val).into()),
+        I64Const(val) => stack.values.push((*val).into()),
+        F32Const(val) => stack.values.push((*val).into()),
+        F64Const(val) => stack.values.push((*val).into()),
 
         MemorySize(addr, byte) => {
-            if byte != 0 {
+            if *byte != 0 {
                 cold();
                 return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
             }
 
-            let mem_idx = module.resolve_mem_addr(addr);
+            let mem_idx = module.resolve_mem_addr(*addr);
             let mem = store.get_mem(mem_idx as usize)?;
             stack.values.push((mem.borrow().page_count() as i32).into());
         }
 
         MemoryGrow(addr, byte) => {
-            if byte != 0 {
+            if *byte != 0 {
                 cold();
                 return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
             }
 
-            let mem_idx = module.resolve_mem_addr(addr);
+            let mem_idx = module.resolve_mem_addr(*addr);
             let mem = store.get_mem(mem_idx as usize)?;
 
             let (res, prev_size) = {
@@ -399,7 +399,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let src = stack.values.pop_t::<i32>()?;
             let dst = stack.values.pop_t::<i32>()?;
 
-            let mem = store.get_mem(module.resolve_mem_addr(from) as usize)?;
+            let mem = store.get_mem(module.resolve_mem_addr(*from) as usize)?;
             let mut mem = mem.borrow_mut();
 
             if from == to {
@@ -407,7 +407,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 mem.copy_within(dst as usize, src as usize, size as usize)?;
             } else {
                 // copy between two memories
-                let mem2 = store.get_mem(module.resolve_mem_addr(to) as usize)?;
+                let mem2 = store.get_mem(module.resolve_mem_addr(*to) as usize)?;
                 let mut mem2 = mem2.borrow_mut();
                 mem2.copy_from_slice(dst as usize, mem.load(src as usize, size as usize)?)?;
             }
@@ -418,7 +418,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let val = stack.values.pop_t::<i32>()?;
             let dst = stack.values.pop_t::<i32>()?;
 
-            let mem = store.get_mem(module.resolve_mem_addr(addr) as usize)?;
+            let mem = store.get_mem(module.resolve_mem_addr(*addr) as usize)?;
             let mut mem = mem.borrow_mut();
             mem.fill(dst as usize, size as usize, val as u8)?;
         }
@@ -428,13 +428,13 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let offset = stack.values.pop_t::<i32>()? as usize;
             let dst = stack.values.pop_t::<i32>()? as usize;
 
-            let data_idx = module.resolve_data_addr(data_index);
+            let data_idx = module.resolve_data_addr(*data_index);
             let Some(ref data) = store.get_data(data_idx as usize)?.data else {
                 cold();
                 return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into());
             };
 
-            let mem_idx = module.resolve_mem_addr(mem_index);
+            let mem_idx = module.resolve_mem_addr(*mem_index);
             let mem = store.get_mem(mem_idx as usize)?;
 
             let data_len = data.len();
@@ -451,35 +451,35 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         DataDrop(data_index) => {
-            let data_idx = module.resolve_data_addr(data_index);
+            let data_idx = module.resolve_data_addr(*data_index);
             let data = store.get_data_mut(data_idx as usize)?;
             data.drop();
         }
 
-        I32Store(arg) => mem_store!(i32, arg, stack, store, module),
-        I64Store(arg) => mem_store!(i64, arg, stack, store, module),
-        F32Store(arg) => mem_store!(f32, arg, stack, store, module),
-        F64Store(arg) => mem_store!(f64, arg, stack, store, module),
-        I32Store8(arg) => mem_store!(i8, i32, arg, stack, store, module),
-        I32Store16(arg) => mem_store!(i16, i32, arg, stack, store, module),
-        I64Store8(arg) => mem_store!(i8, i64, arg, stack, store, module),
-        I64Store16(arg) => mem_store!(i16, i64, arg, stack, store, module),
-        I64Store32(arg) => mem_store!(i32, i64, arg, stack, store, module),
+        I32Store { mem_addr, offset } => mem_store!(i32, (mem_addr, offset), stack, store, module),
+        I64Store { mem_addr, offset } => mem_store!(i64, (mem_addr, offset), stack, store, module),
+        F32Store { mem_addr, offset } => mem_store!(f32, (mem_addr, offset), stack, store, module),
+        F64Store { mem_addr, offset } => mem_store!(f64, (mem_addr, offset), stack, store, module),
+        I32Store8 { mem_addr, offset } => mem_store!(i8, i32, (mem_addr, offset), stack, store, module),
+        I32Store16 { mem_addr, offset } => mem_store!(i16, i32, (mem_addr, offset), stack, store, module),
+        I64Store8 { mem_addr, offset } => mem_store!(i8, i64, (mem_addr, offset), stack, store, module),
+        I64Store16 { mem_addr, offset } => mem_store!(i16, i64, (mem_addr, offset), stack, store, module),
+        I64Store32 { mem_addr, offset } => mem_store!(i32, i64, (mem_addr, offset), stack, store, module),
 
-        I32Load(arg) => mem_load!(i32, arg, stack, store, module),
-        I64Load(arg) => mem_load!(i64, arg, stack, store, module),
-        F32Load(arg) => mem_load!(f32, arg, stack, store, module),
-        F64Load(arg) => mem_load!(f64, arg, stack, store, module),
-        I32Load8S(arg) => mem_load!(i8, i32, arg, stack, store, module),
-        I32Load8U(arg) => mem_load!(u8, i32, arg, stack, store, module),
-        I32Load16S(arg) => mem_load!(i16, i32, arg, stack, store, module),
-        I32Load16U(arg) => mem_load!(u16, i32, arg, stack, store, module),
-        I64Load8S(arg) => mem_load!(i8, i64, arg, stack, store, module),
-        I64Load8U(arg) => mem_load!(u8, i64, arg, stack, store, module),
-        I64Load16S(arg) => mem_load!(i16, i64, arg, stack, store, module),
-        I64Load16U(arg) => mem_load!(u16, i64, arg, stack, store, module),
-        I64Load32S(arg) => mem_load!(i32, i64, arg, stack, store, module),
-        I64Load32U(arg) => mem_load!(u32, i64, arg, stack, store, module),
+        I32Load { mem_addr, offset } => mem_load!(i32, (mem_addr, offset), stack, store, module),
+        I64Load { mem_addr, offset } => mem_load!(i64, (mem_addr, offset), stack, store, module),
+        F32Load { mem_addr, offset } => mem_load!(f32, (mem_addr, offset), stack, store, module),
+        F64Load { mem_addr, offset } => mem_load!(f64, (mem_addr, offset), stack, store, module),
+        I32Load8S { mem_addr, offset } => mem_load!(i8, i32, (mem_addr, offset), stack, store, module),
+        I32Load8U { mem_addr, offset } => mem_load!(u8, i32, (mem_addr, offset), stack, store, module),
+        I32Load16S { mem_addr, offset } => mem_load!(i16, i32, (mem_addr, offset), stack, store, module),
+        I32Load16U { mem_addr, offset } => mem_load!(u16, i32, (mem_addr, offset), stack, store, module),
+        I64Load8S { mem_addr, offset } => mem_load!(i8, i64, (mem_addr, offset), stack, store, module),
+        I64Load8U { mem_addr, offset } => mem_load!(u8, i64, (mem_addr, offset), stack, store, module),
+        I64Load16S { mem_addr, offset } => mem_load!(i16, i64, (mem_addr, offset), stack, store, module),
+        I64Load16U { mem_addr, offset } => mem_load!(u16, i64, (mem_addr, offset), stack, store, module),
+        I64Load32S { mem_addr, offset } => mem_load!(i32, i64, (mem_addr, offset), stack, store, module),
+        I64Load32U { mem_addr, offset } => mem_load!(u32, i64, (mem_addr, offset), stack, store, module),
 
         I64Eqz => comp_zero!(==, i64, stack),
         I32Eqz => comp_zero!(==, i32, stack),
@@ -630,7 +630,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         I64TruncF64U => checked_conv_float!(f64, u64, i64, stack),
 
         TableGet(table_index) => {
-            let table_idx = module.resolve_table_addr(table_index);
+            let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
             let idx = stack.values.pop_t::<i32>()? as usize;
             let v = table.borrow().get_wasm_val(idx)?;
@@ -638,7 +638,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         TableSet(table_index) => {
-            let table_idx = module.resolve_table_addr(table_index);
+            let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
             let val = stack.values.pop_t::<u32>()?;
             let idx = stack.values.pop_t::<u32>()? as usize;
@@ -646,16 +646,16 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         TableSize(table_index) => {
-            let table_idx = module.resolve_table_addr(table_index);
+            let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
             stack.values.push(table.borrow().size().into());
         }
 
         TableInit(table_index, elem_index) => {
-            let table_idx = module.resolve_table_addr(table_index);
+            let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx as usize)?;
 
-            let elem_idx = module.resolve_elem_addr(elem_index);
+            let elem_idx = module.resolve_elem_addr(*elem_index);
             let elem = store.get_elem(elem_idx as usize)?;
 
             if let ElementKind::Passive = elem.kind {
@@ -680,43 +680,46 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // custom instructions
         LocalGet2(a, b) => {
-            stack.values.extend_from_slice(&[cf.get_local(a as usize), cf.get_local(b as usize)]);
+            stack.values.extend_from_slice(&[cf.get_local(*a as usize), cf.get_local(*b as usize)]);
         }
         LocalGet3(a, b, c) => {
             stack.values.extend_from_slice(&[
-                cf.get_local(a as usize),
-                cf.get_local(b as usize),
-                cf.get_local(c as usize),
+                cf.get_local(*a as usize),
+                cf.get_local(*b as usize),
+                cf.get_local(*c as usize),
             ]);
         }
-        LocalGet4(a, b, c, d) => {
-            stack.values.extend_from_slice(&[
-                cf.get_local(a as usize),
-                cf.get_local(b as usize),
-                cf.get_local(c as usize),
-                cf.get_local(d as usize),
-            ]);
-        }
+        // LocalGet4(a, b, c, d) => {
+        //     stack.values.extend_from_slice(&[
+        //         cf.get_local(*a as usize),
+        //         cf.get_local(*b as usize),
+        //         cf.get_local(*c as usize),
+        //         cf.get_local(*d as usize),
+        //     ]);
+        // }
         LocalTeeGet(a, b) => {
-            let last =
-                *stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser");
-            cf.set_local(a as usize, last);
-            stack.values.push(cf.get_local(b as usize));
+            #[inline]
+            fn local_tee_get(cf: &mut CallFrame, stack: &mut Stack, a: u32, b: u32) -> Result<()> {
+                let last = *stack
+                    .values
+                    .last()
+                    .expect("localtee: stack is empty. this should have been validated by the parser");
+                cf.set_local(a as usize, last);
+                stack.values.push(cf.get_local(b as usize));
+                Ok(())
+            }
+            local_tee_get(cf, stack, *a, *b)?;
         }
-
         LocalGetSet(a, b) => {
-            let a = cf.get_local(a as usize);
-            cf.set_local(b as usize, a);
+            let a = cf.get_local(*a as usize);
+            cf.set_local(*b as usize, a);
         }
-
-        // I64Xor + I64Const + I64RotL
         I64XorConstRotl(rotate_by) => {
             let val = stack.values.pop_t::<i64>()?;
             let mask = stack.values.pop_t::<i64>()?;
             let res = val ^ mask;
-            stack.values.push(res.rotate_left(rotate_by as u32).into());
+            stack.values.push(res.rotate_left(*rotate_by as u32).into());
         }
-
         i => {
             cold();
             log::error!("unimplemented instruction: {:?}", i);

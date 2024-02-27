@@ -149,7 +149,7 @@ impl CallFrame {
     }
 
     #[inline(always)]
-    pub(crate) fn current_instruction(&self) -> Instruction {
-        self.func_instance.0.instructions[self.instr_ptr]
+    pub(crate) fn current_instruction(&self) -> &Instruction {
+        &self.func_instance.0.instructions[self.instr_ptr]
     }
 }

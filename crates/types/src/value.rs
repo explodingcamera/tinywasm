@@ -141,6 +141,29 @@ impl ValType {
     pub fn default_value(&self) -> WasmValue {
         WasmValue::default_for(*self)
     }
+
+    pub(crate) fn to_byte(&self) -> u8 {
+        match self {
+            ValType::I32 => 0x7F,
+            ValType::I64 => 0x7E,
+            ValType::F32 => 0x7D,
+            ValType::F64 => 0x7C,
+            ValType::RefFunc => 0x70,
+            ValType::RefExtern => 0x6F,
+        }
+    }
+
+    pub(crate) fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x7F => Some(ValType::I32),
+            0x7E => Some(ValType::I64),
+            0x7D => Some(ValType::F32),
+            0x7C => Some(ValType::F64),
+            0x70 => Some(ValType::RefFunc),
+            0x6F => Some(ValType::RefExtern),
+            _ => None,
+        }
+    }
 }
 
 macro_rules! impl_conversion_for_wasmvalue {

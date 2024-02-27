@@ -3,7 +3,7 @@ use crate::{conversion::convert_blocktype, Result};
 use crate::conversion::{convert_heaptype, convert_memarg, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
-use tinywasm_types::Instruction;
+use tinywasm_types::{BlockArgsPacked, Instruction};
 use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
 
 struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
@@ -74,12 +74,14 @@ macro_rules! define_primitive_operands {
 }
 
 macro_rules! define_mem_operands {
-    ($($name:ident, $instr:expr),*) => {
+    ($($name:ident, $instr:ident),*) => {
         $(
             fn $name(&mut self, mem_arg: wasmparser::MemArg) -> Self::Output {
-                self.instructions.push($instr(
-                    convert_memarg(mem_arg)
-                ));
+                let arg = convert_memarg(mem_arg);
+                self.instructions.push(Instruction::$instr {
+                    offset: arg.offset,
+                    mem_addr: arg.mem_addr,
+                });
                 Ok(())
             }
         )*
@@ -149,29 +151,29 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     define_mem_operands! {
-        visit_i32_load, Instruction::I32Load,
-        visit_i64_load, Instruction::I64Load,
-        visit_f32_load, Instruction::F32Load,
-        visit_f64_load, Instruction::F64Load,
-        visit_i32_load8_s, Instruction::I32Load8S,
-        visit_i32_load8_u, Instruction::I32Load8U,
-        visit_i32_load16_s, Instruction::I32Load16S,
-        visit_i32_load16_u, Instruction::I32Load16U,
-        visit_i64_load8_s, Instruction::I64Load8S,
-        visit_i64_load8_u, Instruction::I64Load8U,
-        visit_i64_load16_s, Instruction::I64Load16S,
-        visit_i64_load16_u, Instruction::I64Load16U,
-        visit_i64_load32_s, Instruction::I64Load32S,
-        visit_i64_load32_u, Instruction::I64Load32U,
-        visit_i32_store, Instruction::I32Store,
-        visit_i64_store, Instruction::I64Store,
-        visit_f32_store, Instruction::F32Store,
-        visit_f64_store, Instruction::F64Store,
-        visit_i32_store8, Instruction::I32Store8,
-        visit_i32_store16, Instruction::I32Store16,
-        visit_i64_store8, Instruction::I64Store8,
-        visit_i64_store16, Instruction::I64Store16,
-        visit_i64_store32, Instruction::I64Store32
+        visit_i32_load, I32Load,
+        visit_i64_load, I64Load,
+        visit_f32_load, F32Load,
+        visit_f64_load, F64Load,
+        visit_i32_load8_s, I32Load8S,
+        visit_i32_load8_u, I32Load8U,
+        visit_i32_load16_s, I32Load16S,
+        visit_i32_load16_u, I32Load16U,
+        visit_i64_load8_s, I64Load8S,
+        visit_i64_load8_u, I64Load8U,
+        visit_i64_load16_s, I64Load16S,
+        visit_i64_load16_u, I64Load16U,
+        visit_i64_load32_s, I64Load32S,
+        visit_i64_load32_u, I64Load32U,
+        visit_i32_store, I32Store,
+        visit_i64_store, I64Store,
+        visit_f32_store, F32Store,
+        visit_f64_store, F64Store,
+        visit_i32_store8, I32Store8,
+        visit_i32_store16, I32Store16,
+        visit_i64_store8, I64Store8,
+        visit_i64_store16, I64Store16,
+        visit_i64_store32, I64Store32
     }
 
     define_operands! {
@@ -327,7 +329,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             match instruction {
                 Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
                 Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-                Instruction::LocalGet3(a, b, c) => *instruction = Instruction::LocalGet4(*a, *b, *c, idx),
+                // Instruction::LocalGet3(a, b, c) => *instruction = Instruction::LocalGet4(*a, *b, *c, idx),
                 Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
                 _ => return self.visit(Instruction::LocalGet(idx)),
             };
@@ -396,7 +398,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.visit(Instruction::If(convert_blocktype(ty), None, 0))
+        self.visit(Instruction::If(BlockArgsPacked::new(convert_blocktype(ty)), 0, 0))
     }
 
     fn visit_else(&mut self) -> Self::Output {
@@ -414,7 +416,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
         match self.instructions[label_pointer] {
             Instruction::Else(ref mut else_instr_end_offset) => {
-                *else_instr_end_offset = (current_instr_ptr - label_pointer as usize) as u32;
+                *else_instr_end_offset = (current_instr_ptr - label_pointer as usize)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support if blocks that large");
 
                 #[cold]
                 fn error() -> crate::ParseError {
@@ -431,13 +435,20 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                     return Err(error());
                 };
 
-                *else_offset = Some((label_pointer - if_label_pointer) as u32);
-                *end_offset = (current_instr_ptr - if_label_pointer) as u32;
+                *else_offset = (label_pointer - if_label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
+
+                *end_offset = (current_instr_ptr - if_label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
             }
             Instruction::Block(_, ref mut end_offset)
             | Instruction::Loop(_, ref mut end_offset)
             | Instruction::If(_, _, ref mut end_offset) => {
-                *end_offset = (current_instr_ptr - label_pointer) as u32;
+                *end_offset = (current_instr_ptr - label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
             }
             _ => {
                 return Err(crate::ParseError::UnsupportedOperator(

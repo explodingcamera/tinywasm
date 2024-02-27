@@ -11,7 +11,7 @@
 // from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
     ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
-        if $cf.break_to($break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
+        if $cf.break_to(*$break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
             if $stack.call_stack.is_empty() {
                 return Ok(ExecResult::Return);
             } else {
@@ -23,20 +23,22 @@ macro_rules! break_to {
 
 /// Load a value from memory
 macro_rules! mem_load {
-    ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+    ($type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
         mem_load!($type, $type, $arg, $stack, $store, $module)
     }};
 
-    ($load_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
-        let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
+    ($load_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+        let (mem_addr, offset) = $arg;
+
+        let mem_idx = $module.resolve_mem_addr(*mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
         let mem_ref = mem.borrow_mut();
 
         let addr: u64 = $stack.values.pop()?.into();
-        let addr = $arg.offset.checked_add(addr).ok_or_else(|| {
+        let addr = offset.checked_add(addr).ok_or_else(|| {
             cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: $arg.offset as usize,
+                offset: *offset as usize,
                 len: core::mem::size_of::<$load_type>(),
                 max: mem_ref.max_pages(),
             })
@@ -45,7 +47,7 @@ macro_rules! mem_load {
         let addr: usize = addr.try_into().ok().ok_or_else(|| {
             cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: $arg.offset as usize,
+                offset: *offset as usize,
                 len: core::mem::size_of::<$load_type>(),
                 max: mem_ref.max_pages(),
             })
@@ -59,15 +61,14 @@ macro_rules! mem_load {
 
 /// Store a value to memory
 macro_rules! mem_store {
-    ($type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
+    ($type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
         log::debug!("mem_store!({}, {:?})", stringify!($type), $arg);
-
         mem_store!($type, $type, $arg, $stack, $store, $module)
     }};
 
-    ($store_type:ty, $target_type:ty, $arg:ident, $stack:ident, $store:ident, $module:ident) => {{
-        // likewise, there could be a lot of performance improvements here
-        let mem_idx = $module.resolve_mem_addr($arg.mem_addr);
+    ($store_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+        let (mem_addr, offset) = $arg;
+        let mem_idx = $module.resolve_mem_addr(*mem_addr);
         let mem = $store.get_mem(mem_idx as usize)?;
 
         let val = $stack.values.pop_t::<$store_type>()?;
@@ -76,7 +77,7 @@ macro_rules! mem_store {
         let val = val as $store_type;
         let val = val.to_le_bytes();
 
-        mem.borrow_mut().store(($arg.offset + addr) as usize, val.len(), &val)?;
+        mem.borrow_mut().store((*offset + addr) as usize, val.len(), &val)?;
     }};
 }
 
