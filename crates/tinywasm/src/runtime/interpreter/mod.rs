@@ -680,19 +680,22 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // custom instructions
         LocalGet2(a, b) => {
-            stack.values.push(cf.get_local(a as usize));
-            stack.values.push(cf.get_local(b as usize));
+            stack.values.extend_from_slice(&[cf.get_local(a as usize), cf.get_local(b as usize)]);
         }
         LocalGet3(a, b, c) => {
-            stack.values.push(cf.get_local(a as usize));
-            stack.values.push(cf.get_local(b as usize));
-            stack.values.push(cf.get_local(c as usize));
+            stack.values.extend_from_slice(&[
+                cf.get_local(a as usize),
+                cf.get_local(b as usize),
+                cf.get_local(c as usize),
+            ]);
         }
         LocalGet4(a, b, c, d) => {
-            stack.values.push(cf.get_local(a as usize));
-            stack.values.push(cf.get_local(b as usize));
-            stack.values.push(cf.get_local(c as usize));
-            stack.values.push(cf.get_local(d as usize));
+            stack.values.extend_from_slice(&[
+                cf.get_local(a as usize),
+                cf.get_local(b as usize),
+                cf.get_local(c as usize),
+                cf.get_local(d as usize),
+            ]);
         }
         LocalTeeGet(a, b) => {
             let last =
@@ -701,10 +704,14 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             stack.values.push(cf.get_local(b as usize));
         }
 
-        // LocalTeeGet
-        // LocalGetSet
-        // I64XorConstRotl
-        // I32LocalGetConstAdd
+        // I64Xor + I64Const + I64RotL
+        I64XorConstRotl(rotate_by) => {
+            let val = stack.values.pop_t::<i64>()?;
+            let mask = stack.values.pop_t::<i64>()?;
+            let res = val ^ mask;
+            stack.values.push(res.rotate_left(rotate_by as u32).into());
+        }
+
         i => {
             cold();
             log::error!("unimplemented instruction: {:?}", i);

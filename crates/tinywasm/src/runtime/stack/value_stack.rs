@@ -25,11 +25,12 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
-        if values.is_empty() {
-            return;
-        }
-
         self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
+    }
+
+    #[inline]
+    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
+        self.stack.extend_from_slice(values);
     }
 
     #[inline]

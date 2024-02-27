@@ -325,10 +325,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         if let Some(instruction) = self.instructions.last_mut() {
             match instruction {
-                // Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
-                // Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-                // Instruction::LocalGet3(a, b, c) => *instruction = Instruction::LocalGet4(*a, *b, *c, idx),
-                // Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
+                Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
+                Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
+                Instruction::LocalGet3(a, b, c) => *instruction = Instruction::LocalGet4(*a, *b, *c, idx),
+                Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
                 _ => return self.visit(Instruction::LocalGet(idx)),
             };
             Ok(())
@@ -338,16 +338,15 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        // LocalGetSet
-        if let Some(instruction) = self.instructions.last_mut() {
-            match instruction {
-                // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-                _ => return self.visit(Instruction::LocalSet(idx)),
-            };
-            Ok(())
-        } else {
-            self.visit(Instruction::LocalSet(idx))
+        if self.instructions.len() < 1 {
+            return self.visit(Instruction::I64Rotl);
         }
+
+        // LocalGetSet
+        match self.instructions[self.instructions.len() - 1..] {
+            // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
+            _ => return self.visit(Instruction::LocalSet(idx)),
+        };
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
@@ -360,11 +359,11 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         }
 
         match self.instructions[self.instructions.len() - 2..] {
-            // [Instruction::I64Xor, Instruction::I64Const(a)] => {
-            //     self.instructions.pop();
-            //     self.instructions.pop();
-            //     self.visit(Instruction::I64XorConstRotl(a))
-            // }
+            [Instruction::I64Xor, Instruction::I64Const(a)] => {
+                self.instructions.pop();
+                self.instructions.pop();
+                self.visit(Instruction::I64XorConstRotl(a))
+            }
             _ => self.visit(Instruction::I64Rotl),
         }
     }
