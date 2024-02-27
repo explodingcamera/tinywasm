@@ -12,10 +12,9 @@
 macro_rules! break_to {
     ($cf:ident, $stack:ident, $break_to_relative:ident) => {{
         if $cf.break_to(*$break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
-            if $stack.call_stack.is_empty() {
-                return Ok(ExecResult::Return);
-            } else {
-                return Ok(ExecResult::Call);
+            match $stack.call_stack.is_empty() {
+                true => return Ok(ExecResult::Return),
+                false => return Ok(ExecResult::Call),
             }
         }
     }};
@@ -62,21 +61,15 @@ macro_rules! mem_load {
 /// Store a value to memory
 macro_rules! mem_store {
     ($type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
-        log::debug!("mem_store!({}, {:?})", stringify!($type), $arg);
         mem_store!($type, $type, $arg, $stack, $store, $module)
     }};
 
     ($store_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
         let (mem_addr, offset) = $arg;
-        let mem_idx = $module.resolve_mem_addr(*mem_addr);
-        let mem = $store.get_mem(mem_idx as usize)?;
-
-        let val = $stack.values.pop_t::<$store_type>()?;
-        let addr: u64 = $stack.values.pop()?.into();
-
-        let val = val as $store_type;
+        let mem = $store.get_mem($module.resolve_mem_addr(*mem_addr) as usize)?;
+        let val: $store_type = $stack.values.pop()?.into();
         let val = val.to_le_bytes();
-
+        let addr: u64 = $stack.values.pop()?.into();
         mem.borrow_mut().store((*offset + addr) as usize, val.len(), &val)?;
     }};
 }
@@ -103,13 +96,11 @@ macro_rules! float_min_max {
 
 /// Convert a value on the stack
 macro_rules! conv {
-    ($from:ty, $intermediate:ty, $to:ty, $stack:ident) => {{
-        let a = $stack.values.pop_t::<$from>()? as $intermediate;
-        $stack.values.push((a as $to).into());
-    }};
     ($from:ty, $to:ty, $stack:ident) => {{
-        let a = $stack.values.pop_t::<$from>()?;
-        $stack.values.push((a as $to).into());
+        $stack.values.replace_top(|v| {
+            let a: $from = v.into();
+            (a as $to).into()
+        });
     }};
 }
 
@@ -138,13 +129,9 @@ macro_rules! checked_conv_float {
 
 /// Compare two values on the stack
 macro_rules! comp {
-    ($op:tt, $ty:ty, $stack:ident) => {{
-        comp!($op, $ty, $ty, $stack)
-    }};
-
-    ($op:tt, $intermediate:ty, $to:ty, $stack:ident) => {{
-        let b = $stack.values.pop_t::<$intermediate>()? as $to;
-        let a = $stack.values.pop_t::<$intermediate>()? as $to;
+    ($op:tt, $to:ty, $stack:ident) => {{
+        let b: $to = $stack.values.pop()?.into();
+        let a: $to = $stack.values.pop()?.into();
         $stack.values.push(((a $op b) as i32).into());
     }};
 }
@@ -152,62 +139,52 @@ macro_rules! comp {
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
     ($op:tt, $ty:ty, $stack:ident) => {{
-        let a = $stack.values.pop_t::<$ty>()?;
+        let a: $ty = $stack.values.pop()?.into();
         $stack.values.push(((a $op 0) as i32).into());
     }};
 }
 
 /// Apply an arithmetic method to two values on the stack
 macro_rules! arithmetic {
-    ($op:ident, $ty:ty, $stack:ident) => {
-        arithmetic!($op, $ty, $ty, $stack)
-    };
+    ($op:ident, $to:ty, $stack:ident) => {{
+        let b: $to = $stack.values.pop()?.into();
+        let a: $to = $stack.values.pop()?.into();
+        $stack.values.push((a.$op(b) as $to).into());
+    }};
 
     // also allow operators such as +, -
     ($op:tt, $ty:ty, $stack:ident) => {{
-        let b: $ty = $stack.values.pop_t()?;
-        let a: $ty = $stack.values.pop_t()?;
+        let b: $ty = $stack.values.pop()?.into();
+        let a: $ty = $stack.values.pop()?.into();
         $stack.values.push((a $op b).into());
-    }};
-
-    ($op:ident, $intermediate:ty, $to:ty, $stack:ident) => {{
-        let b = $stack.values.pop_t::<$to>()? as $intermediate;
-        let a = $stack.values.pop_t::<$to>()? as $intermediate;
-        $stack.values.push((a.$op(b) as $to).into());
     }};
 }
 
 /// Apply an arithmetic method to a single value on the stack
 macro_rules! arithmetic_single {
     ($op:ident, $ty:ty, $stack:ident) => {{
-        let a = $stack.values.pop_t::<$ty>()?;
+        let a: $ty = $stack.values.pop()?.into();
         $stack.values.push((a.$op() as $ty).into());
     }};
 
     ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
-        let a = $stack.values.pop_t::<$from>()?;
+        let a: $from = $stack.values.pop()?.into();
         $stack.values.push((a.$op() as $to).into());
     }};
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking
 macro_rules! checked_int_arithmetic {
-    // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $stack:ident) => {{
-        checked_int_arithmetic!($from, $to, $to, $stack)
-    }};
+    ($op:ident, $to:ty, $stack:ident) => {{
+        let b: $to = $stack.values.pop()?.into();
+        let a: $to = $stack.values.pop()?.into();
 
-    ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
-        let b = $stack.values.pop_t::<$from>()? as $to;
-        let a = $stack.values.pop_t::<$from>()? as $to;
-
-        if b == 0 {
+        if unlikely(b == 0) {
             return Err(Error::Trap(crate::Trap::DivisionByZero));
         }
 
         let result = a.$op(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
-        // Cast back to original type if different
-        $stack.values.push((result as $from).into());
+        $stack.values.push((result).into());
     }};
 }
 

@@ -79,14 +79,14 @@ enum ExecResult {
 #[inline(always)]
 fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &ModuleInstance) -> Result<ExecResult> {
     let instrs = &cf.func_instance.0.instructions;
+
     if unlikely(cf.instr_ptr >= instrs.len() || instrs.is_empty()) {
-        cold();
         log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len());
         return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
     }
 
     // A match statement is probably the fastest way to do this without
-    // unreasonable complexity
+    // unreasonable complexity. This *should* be optimized to a jump table.
     // See https://pliniker.github.io/post/dispatchers/
     use tinywasm_types::Instruction::*;
     match cf.current_instruction() {
@@ -144,14 +144,10 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let table_idx = stack.values.pop_t::<u32>()?;
 
             // verify that the table is of the right type, this should be validated by the parser already
-            assert!(table.borrow().kind.element_type == ValType::RefFunc, "table is not of type funcref");
-
             let func_ref = {
-                table
-                    .borrow()
-                    .get(table_idx as usize)?
-                    .addr()
-                    .ok_or(Trap::UninitializedElement { index: table_idx as usize })?
+                let table = table.borrow();
+                assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
+                table.get(table_idx as usize)?.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize })?
             };
 
             let func_inst = store.get_func(func_ref as usize)?.clone();
@@ -238,7 +234,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                     cf.instr_ptr + *end_offset as usize,
                     stack.values.len(),
                     BlockType::Loop,
-                    &args,
+                    args,
                     module,
                 ),
                 &mut stack.values,
@@ -251,9 +247,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 BlockFrame::new(
                     cf.instr_ptr,
                     cf.instr_ptr + *end_offset as usize,
-                    stack.values.len(), // - params,
+                    stack.values.len(),
                     BlockType::Block,
-                    &args,
+                    args,
                     module,
                 ),
                 &mut stack.values,
@@ -282,7 +278,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             let idx = stack.values.pop_t::<i32>()? as usize;
-            let to = instr.get(idx).unwrap_or(&default);
+            let to = instr.get(idx).unwrap_or(default);
             break_to!(cf, stack, to);
         }
 
@@ -335,13 +331,10 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
         LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
         LocalTee(local_index) => {
+            let local = stack.values.last();
             cf.set_local(
                 *local_index as usize,
-                stack
-                    .values
-                    .last()
-                    .expect("localtee: stack is empty. this should have been validated by the parser")
-                    .clone(),
+                *local.expect("localtee: stack is empty. this should have been validated by the parser"),
             );
         }
 
@@ -362,8 +355,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         F64Const(val) => stack.values.push((*val).into()),
 
         MemorySize(addr, byte) => {
-            if *byte != 0 {
-                cold();
+            if unlikely(*byte != 0) {
                 return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
             }
 
@@ -373,8 +365,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         MemoryGrow(addr, byte) => {
-            if *byte != 0 {
-                cold();
+            if unlikely(*byte != 0) {
                 return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
             }
 
@@ -395,9 +386,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // Bulk memory operations
         MemoryCopy(from, to) => {
-            let size = stack.values.pop_t::<i32>()?;
-            let src = stack.values.pop_t::<i32>()?;
-            let dst = stack.values.pop_t::<i32>()?;
+            let size: i32 = stack.values.pop()?.into();
+            let src: i32 = stack.values.pop()?.into();
+            let dst: i32 = stack.values.pop()?.into();
 
             let mem = store.get_mem(module.resolve_mem_addr(*from) as usize)?;
             let mut mem = mem.borrow_mut();
@@ -414,9 +405,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         MemoryFill(addr) => {
-            let size = stack.values.pop_t::<i32>()?;
-            let val = stack.values.pop_t::<i32>()?;
-            let dst = stack.values.pop_t::<i32>()?;
+            let size: i32 = stack.values.pop()?.into();
+            let val: i32 = stack.values.pop()?.into();
+            let dst: i32 = stack.values.pop()?.into();
 
             let mem = store.get_mem(module.resolve_mem_addr(*addr) as usize)?;
             let mut mem = mem.borrow_mut();
@@ -428,26 +419,20 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let offset = stack.values.pop_t::<i32>()? as usize;
             let dst = stack.values.pop_t::<i32>()? as usize;
 
-            let data_idx = module.resolve_data_addr(*data_index);
-            let Some(ref data) = store.get_data(data_idx as usize)?.data else {
-                cold();
-                return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into());
+            let data = match &store.get_data(module.resolve_data_addr(*data_index) as usize)?.data {
+                Some(data) => data,
+                None => return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()),
             };
 
-            let mem_idx = module.resolve_mem_addr(*mem_index);
-            let mem = store.get_mem(mem_idx as usize)?;
-
-            let data_len = data.len();
-            if offset + size > data_len {
-                cold();
-                return Err(Trap::MemoryOutOfBounds { offset, len: size, max: data_len }.into());
+            if unlikely(offset + size > data.len()) {
+                return Err(Trap::MemoryOutOfBounds { offset, len: size, max: data.len() }.into());
             }
 
+            let mem = store.get_mem(module.resolve_mem_addr(*mem_index) as usize)?;
             let mut mem = mem.borrow_mut();
-            let data = &data[offset..(offset + size)];
 
             // mem.store checks bounds
-            mem.store(dst, size, data)?;
+            mem.store(dst, size, &data[offset..(offset + size)])?;
         }
 
         DataDrop(data_index) => {
@@ -496,29 +481,29 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         I32LtS => comp!(<, i32, stack),
         I64LtS => comp!(<, i64, stack),
-        I32LtU => comp!(<, i32, u32, stack),
-        I64LtU => comp!(<, i64, u64, stack),
+        I32LtU => comp!(<, u32, stack),
+        I64LtU => comp!(<, u64, stack),
         F32Lt => comp!(<, f32, stack),
         F64Lt => comp!(<, f64, stack),
 
         I32LeS => comp!(<=, i32, stack),
         I64LeS => comp!(<=, i64, stack),
-        I32LeU => comp!(<=, i32, u32, stack),
-        I64LeU => comp!(<=, i64, u64, stack),
+        I32LeU => comp!(<=, u32, stack),
+        I64LeU => comp!(<=, u64, stack),
         F32Le => comp!(<=, f32, stack),
         F64Le => comp!(<=, f64, stack),
 
         I32GeS => comp!(>=, i32, stack),
         I64GeS => comp!(>=, i64, stack),
-        I32GeU => comp!(>=, i32, u32, stack),
-        I64GeU => comp!(>=, i64, u64, stack),
+        I32GeU => comp!(>=, u32, stack),
+        I64GeU => comp!(>=, u64, stack),
         F32Ge => comp!(>=, f32, stack),
         F64Ge => comp!(>=, f64, stack),
 
         I32GtS => comp!(>, i32, stack),
         I64GtS => comp!(>, i64, stack),
-        I32GtU => comp!(>, i32, u32, stack),
-        I64GtU => comp!(>, i64, u64, stack),
+        I32GtU => comp!(>, u32, stack),
+        I64GtU => comp!(>, u64, stack),
         F32Gt => comp!(>, f32, stack),
         F64Gt => comp!(>, f64, stack),
 
@@ -543,13 +528,13 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         // these can trap
         I32DivS => checked_int_arithmetic!(checked_div, i32, stack),
         I64DivS => checked_int_arithmetic!(checked_div, i64, stack),
-        I32DivU => checked_int_arithmetic!(checked_div, i32, u32, stack),
-        I64DivU => checked_int_arithmetic!(checked_div, i64, u64, stack),
+        I32DivU => checked_int_arithmetic!(checked_div, u32, stack),
+        I64DivU => checked_int_arithmetic!(checked_div, u64, stack),
 
         I32RemS => checked_int_arithmetic!(checked_wrapping_rem, i32, stack),
         I64RemS => checked_int_arithmetic!(checked_wrapping_rem, i64, stack),
-        I32RemU => checked_int_arithmetic!(checked_wrapping_rem, i32, u32, stack),
-        I64RemU => checked_int_arithmetic!(checked_wrapping_rem, i64, u64, stack),
+        I32RemU => checked_int_arithmetic!(checked_wrapping_rem, u32, stack),
+        I64RemU => checked_int_arithmetic!(checked_wrapping_rem, u64, stack),
 
         I32And => arithmetic!(bitand, i32, stack),
         I64And => arithmetic!(bitand, i64, stack),
@@ -561,8 +546,8 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         I64Shl => arithmetic!(wasm_shl, i64, stack),
         I32ShrS => arithmetic!(wasm_shr, i32, stack),
         I64ShrS => arithmetic!(wasm_shr, i64, stack),
-        I32ShrU => arithmetic!(wasm_shr, u32, i32, stack),
-        I64ShrU => arithmetic!(wasm_shr, u64, i64, stack),
+        I32ShrU => arithmetic!(wasm_shr, u32, stack),
+        I64ShrU => arithmetic!(wasm_shr, u64, stack),
         I32Rotl => arithmetic!(wasm_rotl, i32, stack),
         I64Rotl => arithmetic!(wasm_rotl, i64, stack),
         I32Rotr => arithmetic!(wasm_rotr, i32, stack),
@@ -579,16 +564,16 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         F32ConvertI64S => conv!(i64, f32, stack),
         F64ConvertI32S => conv!(i32, f64, stack),
         F64ConvertI64S => conv!(i64, f64, stack),
-        F32ConvertI32U => conv!(i32, u32, f32, stack),
-        F32ConvertI64U => conv!(i64, u64, f32, stack),
-        F64ConvertI32U => conv!(i32, u32, f64, stack),
-        F64ConvertI64U => conv!(i64, u64, f64, stack),
-        I32Extend8S => conv!(i32, i8, i32, stack),
-        I32Extend16S => conv!(i32, i16, i32, stack),
-        I64Extend8S => conv!(i64, i8, i64, stack),
-        I64Extend16S => conv!(i64, i16, i64, stack),
-        I64Extend32S => conv!(i64, i32, i64, stack),
-        I64ExtendI32U => conv!(i32, u32, i64, stack),
+        F32ConvertI32U => conv!(u32, f32, stack),
+        F32ConvertI64U => conv!(u64, f32, stack),
+        F64ConvertI32U => conv!(u32, f64, stack),
+        F64ConvertI64U => conv!(u64, f64, stack),
+        I32Extend8S => conv!(i8, i32, stack),
+        I32Extend16S => conv!(i16, i32, stack),
+        I64Extend8S => conv!(i8, i64, stack),
+        I64Extend16S => conv!(i16, i64, stack),
+        I64Extend32S => conv!(i32, i64, stack),
+        I64ExtendI32U => conv!(u32, i64, stack),
         I64ExtendI32S => conv!(i32, i64, stack),
         I32WrapI64 => conv!(i64, i32, stack),
 

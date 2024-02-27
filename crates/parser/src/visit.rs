@@ -340,16 +340,17 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        if let Some(instruction) = self.instructions.last_mut() {
-            match instruction {
-                // Needs more testing, seems to make performance worse
-                // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-                _ => return self.visit(Instruction::LocalSet(idx)),
-            };
-            // Ok(())
-        } else {
-            self.visit(Instruction::LocalSet(idx))
-        }
+        self.visit(Instruction::LocalSet(idx))
+        // if let Some(instruction) = self.instructions.last_mut() {
+        //     match instruction {
+        //         // Needs more testing, seems to make performance worse
+        //         // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
+        //         _ => return self.visit(Instruction::LocalSet(idx)),
+        //     };
+        //     // Ok(())
+        // } else {
+        //     self.visit(Instruction::LocalSet(idx))
+        // }
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
@@ -372,18 +373,19 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        if self.instructions.len() < 2 {
-            return self.visit(Instruction::I32Add);
-        }
+        self.visit(Instruction::I32Add)
+        // if self.instructions.len() < 2 {
+        //     return self.visit(Instruction::I32Add);
+        // }
 
-        match self.instructions[self.instructions.len() - 2..] {
-            // [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-            //     self.instructions.pop();
-            //     self.instructions.pop();
-            //     self.visit(Instruction::I32LocalGetConstAdd(a, b))
-            // }
-            _ => self.visit(Instruction::I32Add),
-        }
+        // match self.instructions[self.instructions.len() - 2..] {
+        //     // [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
+        //     //     self.instructions.pop();
+        //     //     self.instructions.pop();
+        //     //     self.visit(Instruction::I32LocalGetConstAdd(a, b))
+        //     // }
+        //     _ => self.visit(Instruction::I32Add),
+        // }
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
@@ -416,7 +418,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
         match self.instructions[label_pointer] {
             Instruction::Else(ref mut else_instr_end_offset) => {
-                *else_instr_end_offset = (current_instr_ptr - label_pointer as usize)
+                *else_instr_end_offset = (current_instr_ptr - label_pointer)
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support if blocks that large");
 

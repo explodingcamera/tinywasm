@@ -94,7 +94,7 @@ pub enum Instruction {
     // LocalGet + I32Const + I32Store => I32LocalGetConstStore + I32Const
     // Also common, helps us skip the stack entirely.
     // Has to be followed by an I32Const instruction
-    // I32LocalGetConstStore { local: LocalAddr, offset: i32, mem_addr: MemAddr }, // I32Store + LocalGet + I32Const
+    // I32StoreLocal { local: LocalAddr, offset: i32, mem_addr: MemAddr },
 
     // I64Xor + I64Const + I64RotL
     // Commonly used by a few crypto libraries

@@ -142,7 +142,7 @@ impl ValType {
         WasmValue::default_for(*self)
     }
 
-    pub(crate) fn to_byte(&self) -> u8 {
+    pub(crate) fn to_byte(self) -> u8 {
         match self {
             ValType::I32 => 0x7F,
             ValType::I64 => 0x7E,

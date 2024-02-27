@@ -143,7 +143,7 @@ impl CallFrame {
         self.locals[local_index]
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn instructions(&self) -> &[Instruction] {
         &self.func_instance.0.instructions
     }

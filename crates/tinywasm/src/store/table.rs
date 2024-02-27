@@ -1,4 +1,4 @@
-use crate::log;
+use crate::{log, unlikely};
 use crate::{Error, Result, Trap};
 use alloc::{vec, vec::Vec};
 use tinywasm_types::*;
@@ -40,7 +40,7 @@ impl TableInstance {
 
     pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Result<()> {
         if new_size > self.elements.len() {
-            if new_size > self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize {
+            if unlikely(new_size > self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize) {
                 return Err(crate::Trap::TableOutOfBounds { offset: new_size, len: 1, max: self.elements.len() }.into());
             }
 

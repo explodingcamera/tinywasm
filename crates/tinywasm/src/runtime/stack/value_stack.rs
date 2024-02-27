@@ -34,6 +34,16 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn replace_top(&mut self, func: impl FnOnce(RawWasmValue) -> RawWasmValue) {
+        let len = self.stack.len();
+        if unlikely(len == 0) {
+            return;
+        }
+        let top = self.stack[len - 1];
+        self.stack[len - 1] = func(top);
+    }
+
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         self.stack.len()
     }
@@ -53,7 +63,7 @@ impl ValueStack {
         self.stack.drain(remove_start_index..remove_end_index);
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn push(&mut self, value: RawWasmValue) {
         self.stack.push(value);
     }

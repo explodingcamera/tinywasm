@@ -172,11 +172,8 @@ impl Store {
     /// Set the global at the actual index in the store
     #[inline]
     pub(crate) fn set_global_val(&mut self, addr: usize, value: RawWasmValue) -> Result<()> {
-        self.data
-            .globals
-            .get(addr)
-            .ok_or_else(|| Self::not_found_error("global"))
-            .map(|global| global.borrow_mut().value = value)
+        let global = self.data.globals.get(addr).ok_or_else(|| Self::not_found_error("global"));
+        global.map(|global| global.borrow_mut().value = value)
     }
 }
 
@@ -190,12 +187,10 @@ impl Store {
     ) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
-
         for (i, func) in funcs.into_iter().enumerate() {
             self.data.funcs.push(FunctionInstance::new_wasm(func.wasm_function, idx));
             func_addrs.push((i + func_count) as FuncAddr);
         }
-
         Ok(func_addrs)
     }
 
@@ -264,10 +259,9 @@ impl Store {
                 let val = i64::from(global.borrow().value);
 
                 // check if the global is actually a null reference
-                if val < 0 {
-                    None
-                } else {
-                    Some(val as u32)
+                match val < 0 {
+                    true => None,
+                    false => Some(val as u32),
                 }
             }
             _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))),
@@ -300,10 +294,7 @@ impl Store {
                 ElementKind::Passive => Some(init),
 
                 // this one is not available to the runtime but needs to be initialized to declare references
-                ElementKind::Declared => {
-                    // a. Execute the instruction elm.drop i
-                    None
-                }
+                ElementKind::Declared => None, // a. Execute the instruction elm.drop i
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
@@ -313,17 +304,17 @@ impl Store {
                         .copied()
                         .ok_or_else(|| Error::Other(format!("table {} not found for element {}", table, i)))?;
 
-                    if let Some(table) = self.data.tables.get_mut(table_addr as usize) {
-                        // In wasm 2.0, it's possible to call a function that hasn't been instantiated yet,
-                        // when using a partially initialized active element segments.
-                        // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
-                        // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
-                        // I have NO IDEA why this is allowed, but it is.
-                        if let Err(Error::Trap(trap)) = table.borrow_mut().init_raw(offset, &init) {
-                            return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
-                        }
-                    } else {
+                    let Some(table) = self.data.tables.get_mut(table_addr as usize) else {
                         return Err(Error::Other(format!("table {} not found for element {}", table, i)));
+                    };
+
+                    // In wasm 2.0, it's possible to call a function that hasn't been instantiated yet,
+                    // when using a partially initialized active element segments.
+                    // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
+                    // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
+                    // I have NO IDEA why this is allowed, but it is.
+                    if let Err(Error::Trap(trap)) = table.borrow_mut().init_raw(offset, &init) {
+                        return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 
                     // f. Execute the instruction elm.drop i
@@ -356,26 +347,20 @@ impl Store {
                         return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
                     }
 
-                    let mem_addr = mem_addrs
-                        .get(mem_addr as usize)
-                        .copied()
-                        .ok_or_else(|| Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)))?;
+                    let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
+                        return Err(Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)));
+                    };
 
                     let offset = self.eval_i32_const(&offset)?;
+                    let Some(mem) = self.data.memories.get_mut(*mem_addr as usize) else {
+                        return Err(Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)));
+                    };
 
-                    let mem =
-                        self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
-                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
-                        })?;
-
-                    // See comment for active element sections in the function above why we need to do this here
-                    if let Err(Error::Trap(trap)) = mem.borrow_mut().store(offset as usize, data.data.len(), &data.data)
-                    {
-                        return Ok((data_addrs.into_boxed_slice(), Some(trap)));
+                    match mem.borrow_mut().store(offset as usize, data.data.len(), &data.data) {
+                        Ok(()) => None,
+                        Err(Error::Trap(trap)) => return Ok((data_addrs.into_boxed_slice(), Some(trap))),
+                        Err(e) => return Err(e),
                     }
-
-                    // drop the data
-                    None
                 }
                 tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
             };
@@ -417,10 +402,8 @@ impl Store {
         let val = match const_instr {
             I32Const(i) => *i,
             GlobalGet(addr) => {
-                let addr = *addr as usize;
-                let global = self.data.globals[addr].clone();
-                let val = global.borrow().value;
-                i32::from(val)
+                let global = self.data.globals[*addr as usize].borrow();
+                i32::from(global.value)
             }
             _ => return Err(Error::Other("expected i32".to_string())),
         };
@@ -441,17 +424,17 @@ impl Store {
             I32Const(i) => RawWasmValue::from(*i),
             I64Const(i) => RawWasmValue::from(*i),
             GlobalGet(addr) => {
-                let addr = module_global_addrs.get(*addr as usize).copied().ok_or_else(|| {
+                let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
 
                 let global =
-                    self.data.globals.get(addr as usize).expect("global not found. This should be unreachable");
+                    self.data.globals.get(*addr as usize).expect("global not found. This should be unreachable");
 
                 global.borrow().value
             }
             RefNull(t) => RawWasmValue::from(t.default_value()),
-            RefFunc(idx) => RawWasmValue::from(module_func_addrs.get(*idx as usize).copied().ok_or_else(|| {
+            RefFunc(idx) => RawWasmValue::from(*module_func_addrs.get(*idx as usize).ok_or_else(|| {
                 Error::Other(format!("function {} not found. This should have been caught by the validator", idx))
             })?),
         };
