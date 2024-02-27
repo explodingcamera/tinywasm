@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryType, ModuleInstanceAddr};
 
-use crate::{Error, Result};
+use crate::{log, Error, Result};
 
 const PAGE_SIZE: usize = 65536;
 const MAX_PAGES: usize = 65536;
