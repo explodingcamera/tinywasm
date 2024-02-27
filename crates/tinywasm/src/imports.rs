@@ -157,7 +157,6 @@ impl Extern {
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
-
         Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(inner_func), ty })))
     }
 

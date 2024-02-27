@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryType, ModuleInstanceAddr};
 
-use crate::{Error, Result};
+use crate::{log, Error, Result};
 
 const PAGE_SIZE: usize = 65536;
 const MAX_PAGES: usize = 65536;
@@ -37,7 +37,7 @@ impl MemoryInstance {
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
     }
 
-    pub(crate) fn store(&mut self, addr: usize, _align: usize, data: &[u8], len: usize) -> Result<()> {
+    pub(crate) fn store(&mut self, addr: usize, len: usize, data: &[u8]) -> Result<()> {
         let Some(end) = addr.checked_add(len) else {
             return Err(self.trap_oob(addr, data.len()));
         };
@@ -67,7 +67,7 @@ impl MemoryInstance {
         self.kind.page_count_max.unwrap_or(MAX_PAGES as u64) as usize
     }
 
-    pub(crate) fn load(&self, addr: usize, _align: usize, len: usize) -> Result<&[u8]> {
+    pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
         let Some(end) = addr.checked_add(len) else {
             return Err(self.trap_oob(addr, len));
         };
@@ -80,7 +80,7 @@ impl MemoryInstance {
     }
 
     // this is a workaround since we can't use generic const expressions yet (https://github.com/rust-lang/rust/issues/76560)
-    pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize, _align: usize) -> Result<T> {
+    pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
             return Err(self.trap_oob(addr, SIZE));
         };
@@ -223,8 +223,8 @@ mod memory_instance_tests {
     fn test_memory_store_and_load() {
         let mut memory = create_test_memory();
         let data_to_store = [1, 2, 3, 4];
-        assert!(memory.store(0, 0, &data_to_store, data_to_store.len()).is_ok());
-        let loaded_data = memory.load(0, 0, data_to_store.len()).unwrap();
+        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_ok());
+        let loaded_data = memory.load(0, data_to_store.len()).unwrap();
         assert_eq!(loaded_data, &data_to_store);
     }
 
@@ -232,7 +232,7 @@ mod memory_instance_tests {
     fn test_memory_store_out_of_bounds() {
         let mut memory = create_test_memory();
         let data_to_store = [1, 2, 3, 4];
-        assert!(memory.store(memory.data.len(), 0, &data_to_store, data_to_store.len()).is_err());
+        assert!(memory.store(memory.data.len(), data_to_store.len(), &data_to_store).is_err());
     }
 
     #[test]

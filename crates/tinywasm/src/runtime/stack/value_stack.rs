@@ -25,11 +25,22 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
-        if values.is_empty() {
+        self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
+    }
+
+    #[inline]
+    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
+        self.stack.extend_from_slice(values);
+    }
+
+    #[inline]
+    pub(crate) fn replace_top(&mut self, func: impl FnOnce(RawWasmValue) -> RawWasmValue) {
+        let len = self.stack.len();
+        if unlikely(len == 0) {
             return;
         }
-
-        self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
+        let top = self.stack[len - 1];
+        self.stack[len - 1] = func(top);
     }
 
     #[inline]
@@ -52,20 +63,14 @@ impl ValueStack {
         self.stack.drain(remove_start_index..remove_end_index);
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn push(&mut self, value: RawWasmValue) {
         self.stack.push(value);
     }
 
     #[inline]
-    pub(crate) fn last(&self) -> Result<&RawWasmValue> {
-        match self.stack.last() {
-            Some(v) => Ok(v),
-            None => {
-                cold();
-                Err(Error::ValueStackUnderflow)
-            }
-        }
+    pub(crate) fn last(&self) -> Option<&RawWasmValue> {
+        self.stack.last()
     }
 
     #[inline]

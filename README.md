@@ -12,7 +12,7 @@
 
 ## Why TinyWasm?
 
-- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality.
+- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality (< 6000 lines of code).
 - **Portable**: TinyWasm runs on any platform that Rust can target, including WebAssembly itself, with minimal external dependencies.
 - **Lightweight**: TinyWasm is easy to integrate and has a low call overhead, making it suitable for scripting and embedding.
 

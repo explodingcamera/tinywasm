@@ -22,6 +22,9 @@ impl FuncHandle {
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        // Comments are ordered by the steps in the spec
+        // In this implementation, some steps are combined and ordered differently for performance reasons
+
         // 3. Let func_ty be the function type
         let func_ty = &self.ty;
 
@@ -35,7 +38,7 @@ impl FuncHandle {
         }
 
         // 5. For each value type and the corresponding value, check if types match
-        if !unlikely(func_ty.params.iter().zip(params).enumerate().all(|(i, (ty, param))| {
+        if !(func_ty.params.iter().zip(params).enumerate().all(|(i, (ty, param))| {
             if ty != &param.val_type() {
                 log::error!("param type mismatch at index {}: expected {:?}, got {:?}", i, ty, param);
                 false
@@ -57,8 +60,8 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let call_frame =
-            CallFrame::new(wasm_func.clone(), func_inst.owner, params.iter().map(|v| RawWasmValue::from(*v)), 0);
+        let call_frame_params = params.iter().map(|v| RawWasmValue::from(*v));
+        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, call_frame_params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
@@ -113,6 +116,7 @@ impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
         R::from_wasm_value_tuple(&result)
     }
 }
+
 macro_rules! impl_into_wasm_value_tuple {
     ($($T:ident),*) => {
         impl<$($T),*> IntoWasmValueTuple for ($($T,)*)
@@ -139,21 +143,6 @@ macro_rules! impl_into_wasm_value_tuple_single {
         }
     };
 }
-
-impl_into_wasm_value_tuple_single!(i32);
-impl_into_wasm_value_tuple_single!(i64);
-impl_into_wasm_value_tuple_single!(f32);
-impl_into_wasm_value_tuple_single!(f64);
-
-impl_into_wasm_value_tuple!();
-impl_into_wasm_value_tuple!(T1);
-impl_into_wasm_value_tuple!(T1, T2);
-impl_into_wasm_value_tuple!(T1, T2, T3);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7, T8);
 
 macro_rules! impl_from_wasm_value_tuple {
     ($($T:ident),*) => {
@@ -199,21 +188,6 @@ macro_rules! impl_from_wasm_value_tuple_single {
         }
     };
 }
-
-impl_from_wasm_value_tuple_single!(i32);
-impl_from_wasm_value_tuple_single!(i64);
-impl_from_wasm_value_tuple_single!(f32);
-impl_from_wasm_value_tuple_single!(f64);
-
-impl_from_wasm_value_tuple!();
-impl_from_wasm_value_tuple!(T1);
-impl_from_wasm_value_tuple!(T1, T2);
-impl_from_wasm_value_tuple!(T1, T2, T3);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6, T7, T8);
 
 pub trait ValTypesFromTuple {
     fn val_types() -> Box<[ValType]>;
@@ -268,15 +242,22 @@ impl ValTypesFromTuple for () {
     }
 }
 
-impl<T1> ValTypesFromTuple for T1
-where
-    T1: ToValType,
-{
+impl<T: ToValType> ValTypesFromTuple for T {
     #[inline]
     fn val_types() -> Box<[ValType]> {
-        Box::new([T1::to_val_type()])
+        Box::new([T::to_val_type()])
     }
 }
+
+impl_from_wasm_value_tuple_single!(i32);
+impl_from_wasm_value_tuple_single!(i64);
+impl_from_wasm_value_tuple_single!(f32);
+impl_from_wasm_value_tuple_single!(f64);
+
+impl_into_wasm_value_tuple_single!(i32);
+impl_into_wasm_value_tuple_single!(i64);
+impl_into_wasm_value_tuple_single!(f32);
+impl_into_wasm_value_tuple_single!(f64);
 
 impl_val_types_from_tuple!(T1);
 impl_val_types_from_tuple!(T1, T2);
@@ -284,3 +265,19 @@ impl_val_types_from_tuple!(T1, T2, T3);
 impl_val_types_from_tuple!(T1, T2, T3, T4);
 impl_val_types_from_tuple!(T1, T2, T3, T4, T5);
 impl_val_types_from_tuple!(T1, T2, T3, T4, T5, T6);
+
+impl_from_wasm_value_tuple!();
+impl_from_wasm_value_tuple!(T1);
+impl_from_wasm_value_tuple!(T1, T2);
+impl_from_wasm_value_tuple!(T1, T2, T3);
+impl_from_wasm_value_tuple!(T1, T2, T3, T4);
+impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5);
+impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
+
+impl_into_wasm_value_tuple!();
+impl_into_wasm_value_tuple!(T1);
+impl_into_wasm_value_tuple!(T1, T2);
+impl_into_wasm_value_tuple!(T1, T2, T3);
+impl_into_wasm_value_tuple!(T1, T2, T3, T4);
+impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5);
+impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);

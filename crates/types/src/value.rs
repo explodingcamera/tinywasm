@@ -16,7 +16,8 @@ pub enum WasmValue {
     F32(f32),
     /// A 64-bit float.
     F64(f64),
-
+    // /// A 128-bit vector
+    // V128(u128),
     RefExtern(ExternAddr),
     RefFunc(FuncAddr),
     RefNull(ValType),
@@ -47,6 +48,7 @@ impl WasmValue {
             ValType::I64 => Self::I64(0),
             ValType::F32 => Self::F32(0.0),
             ValType::F64 => Self::F64(0.0),
+            // ValType::V128 => Self::V128(0),
             ValType::RefFunc => Self::RefNull(ValType::RefFunc),
             ValType::RefExtern => Self::RefNull(ValType::RefExtern),
         }
@@ -89,6 +91,7 @@ impl Debug for WasmValue {
             WasmValue::I64(i) => write!(f, "i64({})", i),
             WasmValue::F32(i) => write!(f, "f32({})", i),
             WasmValue::F64(i) => write!(f, "f64({})", i),
+            // WasmValue::V128(i) => write!(f, "v128.half({:?})", i),
             WasmValue::RefExtern(addr) => write!(f, "ref.extern({:?})", addr),
             WasmValue::RefFunc(addr) => write!(f, "ref.func({:?})", addr),
             WasmValue::RefNull(ty) => write!(f, "ref.null({:?})", ty),
@@ -105,6 +108,7 @@ impl WasmValue {
             Self::I64(_) => ValType::I64,
             Self::F32(_) => ValType::F32,
             Self::F64(_) => ValType::F64,
+            // Self::V128(_) => ValType::V128,
             Self::RefExtern(_) => ValType::RefExtern,
             Self::RefFunc(_) => ValType::RefFunc,
             Self::RefNull(ty) => *ty,
@@ -124,6 +128,8 @@ pub enum ValType {
     F32,
     /// A 64-bit float.
     F64,
+    /// A 128-bit vector
+    // V128,
     /// A reference to a function.
     RefFunc,
     /// A reference to an external value.
@@ -134,6 +140,29 @@ impl ValType {
     #[inline]
     pub fn default_value(&self) -> WasmValue {
         WasmValue::default_for(*self)
+    }
+
+    pub(crate) fn to_byte(self) -> u8 {
+        match self {
+            ValType::I32 => 0x7F,
+            ValType::I64 => 0x7E,
+            ValType::F32 => 0x7D,
+            ValType::F64 => 0x7C,
+            ValType::RefFunc => 0x70,
+            ValType::RefExtern => 0x6F,
+        }
+    }
+
+    pub(crate) fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            0x7F => Some(ValType::I32),
+            0x7E => Some(ValType::I64),
+            0x7D => Some(ValType::F32),
+            0x7C => Some(ValType::F64),
+            0x70 => Some(ValType::RefFunc),
+            0x6F => Some(ValType::RefExtern),
+            _ => None,
+        }
     }
 }
 

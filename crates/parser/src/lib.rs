@@ -7,7 +7,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 //! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
-#![recursion_limit = "1028"]
 
 mod std;
 extern crate alloc;

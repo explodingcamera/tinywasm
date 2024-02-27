@@ -24,23 +24,15 @@ macro_rules! impl_wasm_float_ops {
                     x if x.is_infinite() || x == 0.0 => x, // preserve infinities and zeros
                     x if (0.0..=0.5).contains(&x) => 0.0,
                     x if (-0.5..0.0).contains(&x) => -0.0,
-                    // x => x.round(),
                     x => {
                         // Handle normal and halfway cases
                         let rounded = x.round();
                         let diff = (x - rounded).abs();
-
-                        if diff == 0.5 {
-                            // Halfway case: round to even
-                            if rounded % 2.0 == 0.0 {
-                                rounded // Already even
-                            } else {
-                                rounded - x.signum() // Make even
-                            }
-                        } else {
-                            // Normal case
-                            rounded
+                        if diff != 0.5 || rounded % 2.0 == 0.0 {
+                            return rounded
                         }
+
+                        rounded - x.signum() // Make even
                     }
                 }
             }
@@ -49,15 +41,11 @@ macro_rules! impl_wasm_float_ops {
             // Based on f32::minimum (which is not yet stable)
             #[inline]
             fn tw_minimum(self, other: Self) -> Self {
-                if self < other {
-                    self
-                } else if other < self {
-                    other
-                } else if self == other {
-                    if self.is_sign_negative() && other.is_sign_positive() { self } else { other }
-                } else {
-                    // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
-                    self + other
+                match self.partial_cmp(&other) {
+                    Some(core::cmp::Ordering::Less) => self,
+                    Some(core::cmp::Ordering::Greater) => other,
+                    Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { self } else { other },
+                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
                 }
             }
 
@@ -65,15 +53,11 @@ macro_rules! impl_wasm_float_ops {
             // Based on f32::maximum (which is not yet stable)
             #[inline]
             fn tw_maximum(self, other: Self) -> Self {
-                if self > other {
-                    self
-                } else if other > self {
-                    other
-                } else if self == other {
-                    if self.is_sign_negative() && other.is_sign_positive() { other } else { self }
-                } else {
-                    // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
-                    self + other
+                match self.partial_cmp(&other) {
+                    Some(core::cmp::Ordering::Greater) => self,
+                    Some(core::cmp::Ordering::Less) => other,
+                    Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { other } else { self },
+                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
                 }
             }
         }

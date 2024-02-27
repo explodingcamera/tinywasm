@@ -9,20 +9,50 @@ pub enum BlockArgs {
     FuncType(u32),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+/// A packed representation of BlockArgs
+/// This is needed to keep the size of the Instruction enum small.
+/// Sadly, using #[repr(u8)] on BlockArgs itself is not possible because of the FuncType variant.
+pub struct BlockArgsPacked([u8; 5]); // Modifying this directly can cause runtime errors, but no UB
+impl BlockArgsPacked {
+    pub fn new(args: BlockArgs) -> Self {
+        let mut packed = [0; 5];
+        match args {
+            BlockArgs::Empty => packed[0] = 0,
+            BlockArgs::Type(t) => {
+                packed[0] = 1;
+                packed[1] = t.to_byte();
+            }
+            BlockArgs::FuncType(t) => {
+                packed[0] = 2;
+                packed[1..].copy_from_slice(&t.to_le_bytes());
+            }
+        }
+        Self(packed)
+    }
+    pub fn unpack(&self) -> BlockArgs {
+        match self.0[0] {
+            0 => BlockArgs::Empty,
+            1 => BlockArgs::Type(ValType::from_byte(self.0[1]).unwrap()),
+            2 => BlockArgs::FuncType(u32::from_le_bytes(self.0[1..].try_into().unwrap())),
+            _ => unreachable!(),
+        }
+    }
+}
+
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct MemoryArg {
     pub offset: u64,
     pub mem_addr: MemAddr,
-    pub align: u8,
-    pub align_max: u8,
 }
 
 type BrTableDefault = u32;
-type BrTableLen = usize;
-type EndOffset = usize;
-type ElseOffset = usize;
+type BrTableLen = u32;
+type EndOffset = u32;
+type ElseOffset = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
@@ -48,11 +78,39 @@ pub enum ConstInstruction {
 ///   This makes it easier to implement the label stack iteratively.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+// should be kept as small as possible (16 bytes max)
 pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),
+
+    // Not implemented yet
+    // LocalGet + I32Const + I32Add
+    // One of the most common patterns in the Rust compiler output
+    // I32LocalGetConstAdd(LocalAddr, i32),
+
+    // Not implemented yet
+    // LocalGet + I32Const + I32Store => I32LocalGetConstStore + I32Const
+    // Also common, helps us skip the stack entirely.
+    // Has to be followed by an I32Const instruction
+    // I32StoreLocal { local: LocalAddr, offset: i32, mem_addr: MemAddr },
+
+    // I64Xor + I64Const + I64RotL
+    // Commonly used by a few crypto libraries
+    I64XorConstRotl(i64),
+
+    // LocalTee + LocalGet
+    LocalTeeGet(LocalAddr, LocalAddr),
+    LocalGet2(LocalAddr, LocalAddr),
+    LocalGet3(LocalAddr, LocalAddr, LocalAddr),
+    LocalGetSet(LocalAddr, LocalAddr),
+
+    // Not implemented yet
+    // I32AddConst(i32),
+    // I32SubConst(i32),
+    // I64AddConst(i64),
+    // I64SubConst(i64),
 
     // Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
@@ -60,7 +118,7 @@ pub enum Instruction {
     Nop,
     Block(BlockArgs, EndOffset),
     Loop(BlockArgs, EndOffset),
-    If(BlockArgs, Option<ElseOffset>, EndOffset),
+    If(BlockArgsPacked, ElseOffset, EndOffset), // If else offset is 0 if there is no else block
     Else(EndOffset),
     EndBlockFrame,
     EndFunc,
@@ -85,29 +143,29 @@ pub enum Instruction {
     GlobalSet(GlobalAddr),
 
     // Memory Instructions
-    I32Load(MemoryArg),
-    I64Load(MemoryArg),
-    F32Load(MemoryArg),
-    F64Load(MemoryArg),
-    I32Load8S(MemoryArg),
-    I32Load8U(MemoryArg),
-    I32Load16S(MemoryArg),
-    I32Load16U(MemoryArg),
-    I64Load8S(MemoryArg),
-    I64Load8U(MemoryArg),
-    I64Load16S(MemoryArg),
-    I64Load16U(MemoryArg),
-    I64Load32S(MemoryArg),
-    I64Load32U(MemoryArg),
-    I32Store(MemoryArg),
-    I64Store(MemoryArg),
-    F32Store(MemoryArg),
-    F64Store(MemoryArg),
-    I32Store8(MemoryArg),
-    I32Store16(MemoryArg),
-    I64Store8(MemoryArg),
-    I64Store16(MemoryArg),
-    I64Store32(MemoryArg),
+    I32Load { offset: u64, mem_addr: MemAddr },
+    I64Load { offset: u64, mem_addr: MemAddr },
+    F32Load { offset: u64, mem_addr: MemAddr },
+    F64Load { offset: u64, mem_addr: MemAddr },
+    I32Load8S { offset: u64, mem_addr: MemAddr },
+    I32Load8U { offset: u64, mem_addr: MemAddr },
+    I32Load16S { offset: u64, mem_addr: MemAddr },
+    I32Load16U { offset: u64, mem_addr: MemAddr },
+    I64Load8S { offset: u64, mem_addr: MemAddr },
+    I64Load8U { offset: u64, mem_addr: MemAddr },
+    I64Load16S { offset: u64, mem_addr: MemAddr },
+    I64Load16U { offset: u64, mem_addr: MemAddr },
+    I64Load32S { offset: u64, mem_addr: MemAddr },
+    I64Load32U { offset: u64, mem_addr: MemAddr },
+    I32Store { offset: u64, mem_addr: MemAddr },
+    I64Store { offset: u64, mem_addr: MemAddr },
+    F32Store { offset: u64, mem_addr: MemAddr },
+    F64Store { offset: u64, mem_addr: MemAddr },
+    I32Store8 { offset: u64, mem_addr: MemAddr },
+    I32Store16 { offset: u64, mem_addr: MemAddr },
+    I64Store8 { offset: u64, mem_addr: MemAddr },
+    I64Store16 { offset: u64, mem_addr: MemAddr },
+    I64Store32 { offset: u64, mem_addr: MemAddr },
     MemorySize(MemAddr, u8),
     MemoryGrow(MemAddr, u8),
 
@@ -275,4 +333,52 @@ pub enum Instruction {
     MemoryCopy(MemAddr, MemAddr),
     MemoryFill(MemAddr),
     DataDrop(DataAddr),
+}
+
+#[cfg(test)]
+mod test_blockargs_packed {
+    use super::*;
+
+    #[test]
+    fn test_empty() {
+        let args = BlockArgs::Empty;
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::Empty);
+    }
+
+    #[test]
+    fn test_val_type_i32() {
+        let args = BlockArgs::Type(ValType::I32);
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::I32));
+    }
+
+    #[test]
+    fn test_val_type_i64() {
+        let args = BlockArgs::Type(ValType::I64);
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::I64));
+    }
+
+    #[test]
+    fn test_val_type_f32() {
+        let args = BlockArgs::Type(ValType::F32);
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::F32));
+    }
+
+    #[test]
+    fn test_val_type_f64() {
+        let args = BlockArgs::Type(ValType::F64);
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::F64));
+    }
+
+    #[test]
+    fn test_func_type() {
+        let func_type = 123; // Use an arbitrary u32 value
+        let args = BlockArgs::FuncType(func_type);
+        let packed = BlockArgsPacked::new(args);
+        assert_eq!(packed.unpack(), BlockArgs::FuncType(func_type));
+    }
 }

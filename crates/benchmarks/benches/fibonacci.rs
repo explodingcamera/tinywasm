@@ -17,10 +17,10 @@ fn run_wasmi(wasm: &[u8], iterations: i32, name: &str) {
 
 fn run_wasmer(wasm: &[u8], iterations: i32, name: &str) {
     use wasmer::*;
-    let engine: Engine = wasmer::Singlepass::default().into();
-    let mut store = Store::default();
+    let compiler = wasmer::Singlepass::default();
+    let mut store = Store::new(compiler);
     let import_object = imports! {};
-    let module = wasmer::Module::from_binary(&engine, wasm).expect("wasmer::Module::from_binary");
+    let module = wasmer::Module::from_binary(&store, wasm).expect("wasmer::Module::from_binary");
     let instance = Instance::new(&mut store, &module, &import_object).expect("Instance::new");
     let fib = instance.exports.get_typed_function::<i32, i32>(&store, name).expect("get_function");
     fib.call(&mut store, iterations).expect("call");

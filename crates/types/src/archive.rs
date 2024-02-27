@@ -7,10 +7,8 @@ use rkyv::{
     Deserialize,
 };
 
-// 16 bytes
 const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
 const TWASM_VERSION: &[u8; 2] = b"01";
-
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 

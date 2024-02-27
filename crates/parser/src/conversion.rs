@@ -226,7 +226,7 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
 }
 
 pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemoryArg {
-    MemoryArg { offset: memarg.offset, align: memarg.align, align_max: memarg.max_align, mem_addr: memarg.memory }
+    MemoryArg { offset: memarg.offset, mem_addr: memarg.memory }
 }
 
 pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstInstruction> {

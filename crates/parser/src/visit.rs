@@ -3,7 +3,7 @@ use crate::{conversion::convert_blocktype, Result};
 use crate::conversion::{convert_heaptype, convert_memarg, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
-use tinywasm_types::Instruction;
+use tinywasm_types::{BlockArgsPacked, Instruction};
 use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
 
 struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
@@ -71,47 +71,29 @@ macro_rules! define_primitive_operands {
             }
         )*
     };
-}
-
-macro_rules! define_mem_operands {
-    ($($name:ident, $instr:expr),*) => {
+    ($($name:ident, $instr:expr, $ty:ty, $ty2:ty),*) => {
         $(
-            fn $name(&mut self, mem_arg: wasmparser::MemArg) -> Self::Output {
-                self.instructions.push($instr(
-                    convert_memarg(mem_arg)
-                ));
+            fn $name(&mut self, arg: $ty, arg2: $ty) -> Self::Output {
+                self.instructions.push($instr(arg, arg2));
                 Ok(())
             }
         )*
     };
 }
 
-macro_rules! impl_visit_operator {
-    ( @mvp $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
+macro_rules! define_mem_operands {
+    ($($name:ident, $instr:ident),*) => {
+        $(
+            fn $name(&mut self, mem_arg: wasmparser::MemArg) -> Self::Output {
+                let arg = convert_memarg(mem_arg);
+                self.instructions.push(Instruction::$instr {
+                    offset: arg.offset,
+                    mem_addr: arg.mem_addr,
+                });
+                Ok(())
+            }
+        )*
     };
-    ( @sign_extension $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @saturating_float_to_int $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @bulk_memory $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @reference_types $($rest:tt)* ) => {
-        impl_visit_operator!(@@skipped $($rest)*);
-    };
-    ( @@skipped $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
-        impl_visit_operator!($($rest)*);
-    };
-    ( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident $($rest:tt)* ) => {
-        fn $visit(&mut self $($(, $arg: $argty)*)?) -> Self::Output {
-            self.unsupported(stringify!($op))
-        }
-        impl_visit_operator!($($rest)*);
-    };
-    () => {};
 }
 
 pub(crate) struct FunctionBuilder {
@@ -139,12 +121,13 @@ impl FunctionBuilder {
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     type Output = Result<()>;
 
+    fn visit_default(&mut self, op: &str) -> Self::Output {
+        self.unsupported(op)
+    }
+
     define_primitive_operands! {
         visit_br, Instruction::Br, u32,
         visit_br_if, Instruction::BrIf, u32,
-        visit_local_get, Instruction::LocalGet, u32,
-        visit_local_set, Instruction::LocalSet, u32,
-        visit_local_tee, Instruction::LocalTee, u32,
         visit_global_get, Instruction::GlobalGet, u32,
         visit_global_set, Instruction::GlobalSet, u32,
         visit_i32_const, Instruction::I32Const, i32,
@@ -152,29 +135,29 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     define_mem_operands! {
-        visit_i32_load, Instruction::I32Load,
-        visit_i64_load, Instruction::I64Load,
-        visit_f32_load, Instruction::F32Load,
-        visit_f64_load, Instruction::F64Load,
-        visit_i32_load8_s, Instruction::I32Load8S,
-        visit_i32_load8_u, Instruction::I32Load8U,
-        visit_i32_load16_s, Instruction::I32Load16S,
-        visit_i32_load16_u, Instruction::I32Load16U,
-        visit_i64_load8_s, Instruction::I64Load8S,
-        visit_i64_load8_u, Instruction::I64Load8U,
-        visit_i64_load16_s, Instruction::I64Load16S,
-        visit_i64_load16_u, Instruction::I64Load16U,
-        visit_i64_load32_s, Instruction::I64Load32S,
-        visit_i64_load32_u, Instruction::I64Load32U,
-        visit_i32_store, Instruction::I32Store,
-        visit_i64_store, Instruction::I64Store,
-        visit_f32_store, Instruction::F32Store,
-        visit_f64_store, Instruction::F64Store,
-        visit_i32_store8, Instruction::I32Store8,
-        visit_i32_store16, Instruction::I32Store16,
-        visit_i64_store8, Instruction::I64Store8,
-        visit_i64_store16, Instruction::I64Store16,
-        visit_i64_store32, Instruction::I64Store32
+        visit_i32_load, I32Load,
+        visit_i64_load, I64Load,
+        visit_f32_load, F32Load,
+        visit_f64_load, F64Load,
+        visit_i32_load8_s, I32Load8S,
+        visit_i32_load8_u, I32Load8U,
+        visit_i32_load16_s, I32Load16S,
+        visit_i32_load16_u, I32Load16U,
+        visit_i64_load8_s, I64Load8S,
+        visit_i64_load8_u, I64Load8U,
+        visit_i64_load16_s, I64Load16S,
+        visit_i64_load16_u, I64Load16U,
+        visit_i64_load32_s, I64Load32S,
+        visit_i64_load32_u, I64Load32U,
+        visit_i32_store, I32Store,
+        visit_i64_store, I64Store,
+        visit_f32_store, F32Store,
+        visit_f64_store, F64Store,
+        visit_i32_store8, I32Store8,
+        visit_i32_store16, I32Store16,
+        visit_i64_store8, I64Store8,
+        visit_i64_store16, I64Store16,
+        visit_i64_store32, I64Store32
     }
 
     define_operands! {
@@ -220,7 +203,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i32_clz, Instruction::I32Clz,
         visit_i32_ctz, Instruction::I32Ctz,
         visit_i32_popcnt, Instruction::I32Popcnt,
-        visit_i32_add, Instruction::I32Add,
+        // visit_i32_add, Instruction::I32Add, custom implementation
         visit_i32_sub, Instruction::I32Sub,
         visit_i32_mul, Instruction::I32Mul,
         visit_i32_div_s, Instruction::I32DivS,
@@ -251,7 +234,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_shl, Instruction::I64Shl,
         visit_i64_shr_s, Instruction::I64ShrS,
         visit_i64_shr_u, Instruction::I64ShrU,
-        visit_i64_rotl, Instruction::I64Rotl,
+        // visit_i64_rotl, Instruction::I64Rotl, custom implementation
         visit_i64_rotr, Instruction::I64Rotr,
         visit_f32_abs, Instruction::F32Abs,
         visit_f32_neg, Instruction::F32Neg,
@@ -325,6 +308,69 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
     }
 
+    fn visit_local_get(&mut self, idx: u32) -> Self::Output {
+        if let Some(instruction) = self.instructions.last_mut() {
+            match instruction {
+                Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
+                Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
+                Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
+                _ => return self.visit(Instruction::LocalGet(idx)),
+            };
+            Ok(())
+        } else {
+            self.visit(Instruction::LocalGet(idx))
+        }
+    }
+
+    fn visit_local_set(&mut self, idx: u32) -> Self::Output {
+        self.visit(Instruction::LocalSet(idx))
+        // if let Some(instruction) = self.instructions.last_mut() {
+        //     match instruction {
+        //         // Needs more testing, seems to make performance worse
+        //         // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
+        //         _ => return self.visit(Instruction::LocalSet(idx)),
+        //     };
+        //     // Ok(())
+        // } else {
+        //     self.visit(Instruction::LocalSet(idx))
+        // }
+    }
+
+    fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
+        self.visit(Instruction::LocalTee(idx))
+    }
+
+    fn visit_i64_rotl(&mut self) -> Self::Output {
+        if self.instructions.len() < 2 {
+            return self.visit(Instruction::I64Rotl);
+        }
+
+        match self.instructions[self.instructions.len() - 2..] {
+            [Instruction::I64Xor, Instruction::I64Const(a)] => {
+                self.instructions.pop();
+                self.instructions.pop();
+                self.visit(Instruction::I64XorConstRotl(a))
+            }
+            _ => self.visit(Instruction::I64Rotl),
+        }
+    }
+
+    fn visit_i32_add(&mut self) -> Self::Output {
+        self.visit(Instruction::I32Add)
+        // if self.instructions.len() < 2 {
+        //     return self.visit(Instruction::I32Add);
+        // }
+
+        // match self.instructions[self.instructions.len() - 2..] {
+        //     // [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
+        //     //     self.instructions.pop();
+        //     //     self.instructions.pop();
+        //     //     self.visit(Instruction::I32LocalGetConstAdd(a, b))
+        //     // }
+        //     _ => self.visit(Instruction::I32Add),
+        // }
+    }
+
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
         self.visit(Instruction::Block(convert_blocktype(blockty), 0))
@@ -337,7 +383,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.visit(Instruction::If(convert_blocktype(ty), None, 0))
+        self.visit(Instruction::If(BlockArgsPacked::new(convert_blocktype(ty)), 0, 0))
     }
 
     fn visit_else(&mut self) -> Self::Output {
@@ -355,7 +401,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
         match self.instructions[label_pointer] {
             Instruction::Else(ref mut else_instr_end_offset) => {
-                *else_instr_end_offset = current_instr_ptr - label_pointer;
+                *else_instr_end_offset = (current_instr_ptr - label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support if blocks that large");
 
                 #[cold]
                 fn error() -> crate::ParseError {
@@ -372,13 +420,20 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                     return Err(error());
                 };
 
-                *else_offset = Some(label_pointer - if_label_pointer);
-                *end_offset = current_instr_ptr - if_label_pointer;
+                *else_offset = (label_pointer - if_label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
+
+                *end_offset = (current_instr_ptr - if_label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
             }
             Instruction::Block(_, ref mut end_offset)
             | Instruction::Loop(_, ref mut end_offset)
             | Instruction::If(_, _, ref mut end_offset) => {
-                *end_offset = current_instr_ptr - label_pointer;
+                *end_offset = (current_instr_ptr - label_pointer)
+                    .try_into()
+                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
             }
             _ => {
                 return Err(crate::ParseError::UnsupportedOperator(
@@ -398,7 +453,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
             .expect("BrTable targets are invalid, this should have been caught by the validator");
 
-        self.instructions.extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len())]).chain(instrs));
+        self.instructions
+            .extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len() as u32)]).chain(instrs));
+
         Ok(())
     }
 
@@ -428,24 +485,14 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     // Bulk Memory Operations
 
-    fn visit_memory_init(&mut self, data_index: u32, mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryInit(data_index, mem))
+    define_primitive_operands! {
+        visit_memory_init, Instruction::MemoryInit, u32, u32,
+        visit_memory_copy, Instruction::MemoryCopy, u32, u32,
+        visit_table_init, Instruction::TableInit, u32, u32
     }
-
-    fn visit_data_drop(&mut self, data_index: u32) -> Self::Output {
-        self.visit(Instruction::DataDrop(data_index))
-    }
-
-    fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryCopy(dst_mem, src_mem))
-    }
-
-    fn visit_memory_fill(&mut self, mem: u32) -> Self::Output {
-        self.visit(Instruction::MemoryFill(mem))
-    }
-
-    fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Self::Output {
-        self.visit(Instruction::TableInit(elem_index, table))
+    define_primitive_operands! {
+        visit_memory_fill, Instruction::MemoryFill, u32,
+        visit_data_drop, Instruction::DataDrop, u32
     }
 
     fn visit_elem_drop(&mut self, _elem_index: u32) -> Self::Output {
@@ -466,33 +513,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         self.visit(Instruction::RefIsNull)
     }
 
-    fn visit_ref_func(&mut self, idx: u32) -> Self::Output {
-        self.visit(Instruction::RefFunc(idx))
-    }
-
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
         self.visit(Instruction::Select(Some(convert_valtype(&ty))))
     }
 
-    fn visit_table_fill(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableFill(table))
+    define_primitive_operands! {
+        visit_ref_func, Instruction::RefFunc, u32,
+        visit_table_fill, Instruction::TableFill, u32,
+        visit_table_get, Instruction::TableGet, u32,
+        visit_table_set, Instruction::TableSet, u32,
+        visit_table_grow, Instruction::TableGrow, u32,
+        visit_table_size, Instruction::TableSize, u32
     }
-
-    fn visit_table_get(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableGet(table))
-    }
-
-    fn visit_table_set(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableSet(table))
-    }
-
-    fn visit_table_grow(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableGrow(table))
-    }
-
-    fn visit_table_size(&mut self, table: u32) -> Self::Output {
-        self.visit(Instruction::TableSize(table))
-    }
-
-    wasmparser::for_each_operator!(impl_visit_operator);
 }
