@@ -45,10 +45,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.measurement_time(std::time::Duration::from_secs(7));
     group.sample_size(10);
 
-    // group.bench_function("native", |b| b.iter(|| run_native(black_box(params))));
+    group.bench_function("native", |b| b.iter(|| run_native(black_box(params))));
     group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(&twasm, black_box(params), "argon2id")));
-    // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(ARGON2ID, black_box(params), "argon2id")));
-    // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(ARGON2ID, black_box(params), "argon2id")));
+    group.bench_function("wasmi", |b| b.iter(|| run_wasmi(ARGON2ID, black_box(params), "argon2id")));
+    group.bench_function("wasmer", |b| b.iter(|| run_wasmer(ARGON2ID, black_box(params), "argon2id")));
 }
 
 criterion_group!(

@@ -30,12 +30,12 @@ All runtimes are compiled with the following settings:
 
 | Benchmark    | Native   | TinyWasm\* | Wasmi     | Wasmer (Single Pass) |
 | ------------ | -------- | ---------- | --------- | -------------------- |
-| `fib`        | \*\*     | ` 43.81µs` | `48.60µs` | ` 43.97µs`           |
-| `fib-rec`    | `0.26ms` | ` 20.99ms` | ` 4.64ms` | `  0.50ms`           |
-| `argon2id`   | `0.53ms` | `107.77ms` | `47.76ms` | `  4.49ms`           |
-| `selfhosted` | `0.06ms` | `  2.88ms` | ` 6.20ms` | `359.33ms`           |
+| `fib`        | \*\*     | ` 43.60µs` | `48.27µs` | ` 44.99µs`           |
+| `fib-rec`    | `0.27ms` | ` 21.13ms` | ` 4.63ms` | `  0.47ms`           |
+| `argon2id`   | `0.53ms` | ` 99.16ms` | `45.00ms` | `  4.59ms`           |
+| `selfhosted` | `0.05ms` | `  1.84ms` | ` 6.51ms` | `446.48ms`           |
 
-_\* converting WASM to TinyWasm bytecode is not included. I takes ~7ms to convert `tinywasm.wasm` to TinyWasm bytecode._
+_\* converting WASM to TinyWasm bytecode is not included. I takes ~5.7ms to convert `tinywasm.wasm` to TinyWasm bytecode._
 _\*\* essentially instant as it gets computed at compile time._
 
 ### Fib
