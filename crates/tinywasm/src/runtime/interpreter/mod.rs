@@ -202,7 +202,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 cf.enter_block(
                     BlockFrame::new(
                         cf.instr_ptr,
-                        cf.instr_ptr + end_offset,
+                        cf.instr_ptr + end_offset as usize,
                         stack.values.len(),
                         BlockType::If,
                         &args,
@@ -217,17 +217,17 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             // falsy value is on the top of the stack
             if let Some(else_offset) = else_offset {
                 let label = BlockFrame::new(
-                    cf.instr_ptr + else_offset,
-                    cf.instr_ptr + end_offset,
+                    cf.instr_ptr + else_offset as usize,
+                    cf.instr_ptr + end_offset as usize,
                     stack.values.len(),
                     BlockType::Else,
                     &args,
                     module,
                 );
-                cf.instr_ptr += else_offset;
+                cf.instr_ptr += else_offset as usize;
                 cf.enter_block(label, &mut stack.values, &mut stack.blocks);
             } else {
-                cf.instr_ptr += end_offset;
+                cf.instr_ptr += end_offset as usize;
             }
         }
 
@@ -235,7 +235,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             cf.enter_block(
                 BlockFrame::new(
                     cf.instr_ptr,
-                    cf.instr_ptr + end_offset,
+                    cf.instr_ptr + end_offset as usize,
                     stack.values.len(),
                     BlockType::Loop,
                     &args,
@@ -250,7 +250,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             cf.enter_block(
                 BlockFrame::new(
                     cf.instr_ptr,
-                    cf.instr_ptr + end_offset,
+                    cf.instr_ptr + end_offset as usize,
                     stack.values.len(), // - params,
                     BlockType::Block,
                     &args,
@@ -262,7 +262,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         BrTable(default, len) => {
-            let instr = cf.instructions()[cf.instr_ptr + 1..cf.instr_ptr + 1 + len]
+            let instr = cf.instructions()[cf.instr_ptr + 1..cf.instr_ptr + 1 + len as usize]
                 .iter()
                 .map(|i| match i {
                     BrLabel(l) => Ok(*l),
@@ -273,7 +273,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 })
                 .collect::<Result<Vec<_>>>()?;
 
-            if unlikely(instr.len() != len) {
+            if unlikely(instr.len() != len as usize) {
                 panic!(
                     "Expected {} BrLabel instructions, got {}, this should have been validated by the parser",
                     len,
@@ -319,7 +319,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
             let res_count = block.results;
             stack.values.truncate_keep(block.stack_ptr, res_count);
-            cf.instr_ptr += end_offset;
+            cf.instr_ptr += end_offset as usize;
         }
 
         EndBlockFrame => {
@@ -409,7 +409,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 // copy between two memories
                 let mem2 = store.get_mem(module.resolve_mem_addr(to) as usize)?;
                 let mut mem2 = mem2.borrow_mut();
-                mem2.copy_from_slice(dst as usize, mem.load(src as usize, 0, size as usize)?)?;
+                mem2.copy_from_slice(dst as usize, mem.load(src as usize, size as usize)?)?;
             }
         }
 
@@ -447,7 +447,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let data = &data[offset..(offset + size)];
 
             // mem.store checks bounds
-            mem.store(dst, 0, data, size)?;
+            mem.store(dst, size, data)?;
         }
 
         DataDrop(data_index) => {
@@ -702,6 +702,11 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 *stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser");
             cf.set_local(a as usize, last);
             stack.values.push(cf.get_local(b as usize));
+        }
+
+        LocalGetSet(a, b) => {
+            let a = cf.get_local(a as usize);
+            cf.set_local(b as usize, a);
         }
 
         // I64Xor + I64Const + I64RotL

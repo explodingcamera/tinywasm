@@ -52,7 +52,7 @@ macro_rules! mem_load {
         })?;
 
         const LEN: usize = core::mem::size_of::<$load_type>();
-        let val = mem_ref.load_as::<LEN, $load_type>(addr, $arg.align as usize)?;
+        let val = mem_ref.load_as::<LEN, $load_type>(addr)?;
         $stack.values.push((val as $target_type).into());
     }};
 }
@@ -76,7 +76,7 @@ macro_rules! mem_store {
         let val = val as $store_type;
         let val = val.to_le_bytes();
 
-        mem.borrow_mut().store(($arg.offset + addr) as usize, $arg.align as usize, &val, val.len())?;
+        mem.borrow_mut().store(($arg.offset + addr) as usize, val.len(), &val)?;
     }};
 }
 

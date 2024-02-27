@@ -349,36 +349,36 @@ impl Store {
         let data_count = self.data.datas.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in datas.into_iter().enumerate() {
-            let data_val =
-                match data.kind {
-                    tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
-                        // a. Assert: memidx == 0
-                        if mem_addr != 0 {
-                            return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
-                        }
-
-                        let mem_addr = mem_addrs.get(mem_addr as usize).copied().ok_or_else(|| {
-                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
-                        })?;
-
-                        let offset = self.eval_i32_const(&offset)?;
-
-                        let mem = self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
-                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
-                        })?;
-
-                        // See comment for active element sections in the function above why we need to do this here
-                        if let Err(Error::Trap(trap)) =
-                            mem.borrow_mut().store(offset as usize, 0, &data.data, data.data.len())
-                        {
-                            return Ok((data_addrs.into_boxed_slice(), Some(trap)));
-                        }
-
-                        // drop the data
-                        None
+            let data_val = match data.kind {
+                tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
+                    // a. Assert: memidx == 0
+                    if mem_addr != 0 {
+                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
                     }
-                    tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
-                };
+
+                    let mem_addr = mem_addrs
+                        .get(mem_addr as usize)
+                        .copied()
+                        .ok_or_else(|| Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)))?;
+
+                    let offset = self.eval_i32_const(&offset)?;
+
+                    let mem =
+                        self.data.memories.get_mut(mem_addr as usize).ok_or_else(|| {
+                            Error::Other(format!("memory {} not found for data segment {}", mem_addr, i))
+                        })?;
+
+                    // See comment for active element sections in the function above why we need to do this here
+                    if let Err(Error::Trap(trap)) = mem.borrow_mut().store(offset as usize, data.data.len(), &data.data)
+                    {
+                        return Ok((data_addrs.into_boxed_slice(), Some(trap)));
+                    }
+
+                    // drop the data
+                    None
+                }
+                tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
+            };
 
             self.data.datas.push(DataInstance::new(data_val, idx));
             data_addrs.push((i + data_count) as Addr);

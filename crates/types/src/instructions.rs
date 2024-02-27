@@ -15,14 +15,14 @@ pub enum BlockArgs {
 pub struct MemoryArg {
     pub offset: u64,
     pub mem_addr: MemAddr,
-    pub align: u8,
-    pub align_max: u8,
+    // pub align: u8,
+    // pub align_max: u8,
 }
 
 type BrTableDefault = u32;
-type BrTableLen = usize;
-type EndOffset = usize;
-type ElseOffset = usize;
+type BrTableLen = u32;
+type EndOffset = u32;
+type ElseOffset = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
@@ -62,7 +62,7 @@ pub enum Instruction {
 
     // LocalGet + I32Const + I32Store
     // Also common, helps us skip the stack entirely
-    I32LocalGetConstStore(LocalAddr, i32, MemoryArg), // I32Store + LocalGet + I32Const
+    // I32LocalGetConstStore(LocalAddr, i32, MemoryArg), // I32Store + LocalGet + I32Const
 
     // I64Xor + I64Const + I64RotL
     // Commonly used by a few crypto libraries

@@ -338,15 +338,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        if self.instructions.len() < 1 {
-            return self.visit(Instruction::I64Rotl);
+        if let Some(instruction) = self.instructions.last_mut() {
+            match instruction {
+                // Needs more testing, seems to make performance worse
+                // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
+                _ => return self.visit(Instruction::LocalSet(idx)),
+            };
+            // Ok(())
+        } else {
+            self.visit(Instruction::LocalSet(idx))
         }
-
-        // LocalGetSet
-        match self.instructions[self.instructions.len() - 1..] {
-            // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-            _ => return self.visit(Instruction::LocalSet(idx)),
-        };
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
@@ -413,7 +414,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
         match self.instructions[label_pointer] {
             Instruction::Else(ref mut else_instr_end_offset) => {
-                *else_instr_end_offset = current_instr_ptr - label_pointer;
+                *else_instr_end_offset = (current_instr_ptr - label_pointer as usize) as u32;
 
                 #[cold]
                 fn error() -> crate::ParseError {
@@ -430,13 +431,13 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                     return Err(error());
                 };
 
-                *else_offset = Some(label_pointer - if_label_pointer);
-                *end_offset = current_instr_ptr - if_label_pointer;
+                *else_offset = Some((label_pointer - if_label_pointer) as u32);
+                *end_offset = (current_instr_ptr - if_label_pointer) as u32;
             }
             Instruction::Block(_, ref mut end_offset)
             | Instruction::Loop(_, ref mut end_offset)
             | Instruction::If(_, _, ref mut end_offset) => {
-                *end_offset = current_instr_ptr - label_pointer;
+                *end_offset = (current_instr_ptr - label_pointer) as u32;
             }
             _ => {
                 return Err(crate::ParseError::UnsupportedOperator(
@@ -456,7 +457,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
             .expect("BrTable targets are invalid, this should have been caught by the validator");
 
-        self.instructions.extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len())]).chain(instrs));
+        self.instructions
+            .extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len() as u32)]).chain(instrs));
+
         Ok(())
     }
 

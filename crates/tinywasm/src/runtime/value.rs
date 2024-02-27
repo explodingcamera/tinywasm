@@ -7,7 +7,6 @@ use tinywasm_types::{ValType, WasmValue};
 ///
 /// See [`WasmValue`] for the public representation.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-#[repr(transparent)]
 // pub struct RawWasmValue([u8; 16]);
 pub struct RawWasmValue([u8; 8]);
 

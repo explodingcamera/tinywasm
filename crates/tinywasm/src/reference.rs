@@ -26,21 +26,21 @@ pub struct MemoryRefMut<'a> {
 impl<'a> MemoryRefLoad for MemoryRef<'a> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, 0, len)
+        self.instance.load(offset, len)
     }
 }
 
 impl<'a> MemoryRefLoad for MemoryRefMut<'a> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, 0, len)
+        self.instance.load(offset, len)
     }
 }
 
 impl MemoryRef<'_> {
     /// Load a slice of memory
     pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, 0, len)
+        self.instance.load(offset, len)
     }
 
     /// Load a slice of memory as a vector
@@ -52,7 +52,7 @@ impl MemoryRef<'_> {
 impl MemoryRefMut<'_> {
     /// Load a slice of memory
     pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, 0, len)
+        self.instance.load(offset, len)
     }
 
     /// Load a slice of memory as a vector
@@ -82,7 +82,7 @@ impl MemoryRefMut<'_> {
 
     /// Store a slice of memory
     pub fn store(&mut self, offset: usize, len: usize, data: &[u8]) -> Result<()> {
-        self.instance.store(offset, 0, data, len)
+        self.instance.store(offset, len, data)
     }
 }
 
