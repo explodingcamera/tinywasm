@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Removed
+
+## [0.5.0] - 2024-03-01
+
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.4.0...v0.5.0
 
 ### Added
@@ -27,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Removed duplicate internal code
 
-## [0.4.0] - 2024-02-04 [(commits)](https://github.com/explodingcamera/tinywasm/compare/v0.3.0...v0.4.0)
+## [0.4.0] - 2024-02-04
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.3.0...v0.4.0
 
