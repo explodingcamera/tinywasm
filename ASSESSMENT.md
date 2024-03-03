@@ -1,0 +1,36 @@
+- [docs.rs](https://docs.rs/tinywasm/latest/tinywasm/)
+- [examples](./examples/)
+  - `cargo run --example simple` ([src](./examples/simple.rs))
+  - `cargo run --example archive` ([src](./examples/archive.rs))
+  - `cargo run --example linking` ([src](./examples/linking.rs))
+  - `cargo run --example wasm-rust tinywasm` ([src](./examples/wasm-rust.rs))
+- `tinywasm`
+  - [Runtime](./crates/tinywasm/src/runtime/mod.rs)
+    - [dispatch table](./crates/tinywasm/src/runtime/interpreter/mod.rs)
+    - [macros](./crates/tinywasm/src/runtime/interpreter/macros.rs)
+    - [stack](./crates/tinywasm/src/runtime/stack.rs)
+      - [Block Stack](./crates/tinywasm/src/runtime/stack/block_stack.rs)
+      - [Value Stack](./crates/tinywasm/src/runtime/stack/value_stack.rs)
+      - [Call Stack](./crates/tinywasm/src/runtime/stack/call_stack.rs)
+  - [Store](./crates/tinywasm/src/store/mod.rs)
+    - [Module Instances](./crates/tinywasm/src/instance.rs)
+  - [Linker](./crates/tinywasm/src/imports.rs)
+- `tinywasm-types`
+  - [Bytecode Format](./crates/types/src/instructions.rs)
+  - [Module Format](./crates/types/src/lib.rs)
+  - [TWasm File Format](./crates/types/src/archive.rs)
+- `tinywasm-parser`
+  - [WebAssembly Modules](./crates/parser/src/module.rs)
+  - [Instructions](./crates/parser/src/visit.rs)
+- tests
+  - [WebAssembly Test Suite](./crates/wasm-testsuite/data/)
+  - `cargo test-mvp`
+  - doc-tests
+  - [results](./crates/tinywasm/tests/generated/README.md)
+- benchmarks
+  - `cargo benchmark` (alias)
+  - [benchmarks](./crates/benchmarks/benches/)
+  - [results](./BENCHMARKS.md)
+- `no_std`
+  - [`wasmparser` fork](https://crates.io/crates/tinywasm-wasmparser)
+  - [`floats`](./crates/tinywasm/src/runtime/interpreter/no_std_floats.rs)
