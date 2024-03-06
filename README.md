@@ -13,14 +13,16 @@
 ## Why TinyWasm?
 
 - **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality (< 6000 lines of code).
-- **Portable**: TinyWasm runs on any platform that Rust can target, including WebAssembly itself, with minimal external dependencies.
+- **Portable**: TinyWasm runs on any platform that Rust can target, including other WebAssembly Runtimes, with minimal external dependencies.
 - **Lightweight**: TinyWasm is easy to integrate and has a low call overhead, making it suitable for scripting and embedding.
 
 ## Status
 
-As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This enables TinyWasm to run most WebAssembly programs, including versions of TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuites are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
+As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This enables TinyWasm to run most WebAssembly programs, including executing TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuites are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
-The API is still unstable and may change at any time, so you probably don't want to use it in production _yet_. Note that TinyWasm isn't primarily designed for high performance; its focus lies more on simplicity, size, and portability. More details on its performance aspects can be found in [BENCHMARKS.md](./BENCHMARKS.md).
+The API is still unstable and may change at any time, so you probably don't want to use it in production _yet_. TinyWasm isn't primarily designed for high performance; it focuses more on simplicity, size, and portability. More details on its performance can be found in [BENCHMARKS.md](./BENCHMARKS.md).
+
+**Future Development**: The first major version will focus on improving the API and adding support for [WASI](https://wasi.dev/). While doing so, I also want to further simplify and reduce the codebase's size and improve the parser's performance.
 
 ## Supported Proposals
 
@@ -64,10 +66,21 @@ $ tinywasm-cli --help
 - **`archive`**\
   Enables pre-parsing of archives. This is enabled by default.
 - **`unsafe`**\
-  Uses `unsafe` code to improve performance, particularly in Memory access
+  Uses `unsafe` code to improve performance, particularly in Memory access.
 
-With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm` and can be used in `no_std` environments.
+With all these features disabled, TinyWasm only depends on `core`, `alloc` ,and `libm` and can be used in `no_std` environments.
 Since `libm` is not as performant as the compiler's math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)), especially on wasm32 targets.
+
+## Inspiration
+
+Big thanks to the authors of the following projects, which have inspired and influenced TinyWasm:
+
+- [wasmi](https://github.com/wasmi-labs/wasmi) - an efficient and lightweight WebAssembly interpreter that also runs on `no_std` environments
+- [wasm3](https://github.com/wasm3/wasm3) - a high performance WebAssembly interpreter written in C
+- [wazero](https://wazero.io/) - a zero-dependency WebAssembly interpreter written in go
+- [wain](https://github.com/rhysd/wain) - a zero-dependency WebAssembly interpreter written in Rust
+
+I encourage you to check these projects out if you're looking for a more mature and feature-complete WebAssembly interpreter.
 
 ## License
 

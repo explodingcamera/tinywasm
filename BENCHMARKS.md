@@ -4,7 +4,8 @@ All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM, running Linux 6.6.
 WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen),
 and the benchmark code is available in the `crates/benchmarks` folder.
 
-These are mainly preliminary benchmarks, and I will be adding more in the future that are also looking into memory usage and other metrics.
+These are mainly preliminary benchmarks, and I will be rewriting the benchmarks to be more accurate and to test more features in the future.
+In particular, I want to test and improve memory usage, as well as the performance of the parser.
 
 ## WebAssembly Settings
 
@@ -40,19 +41,19 @@ _\*\* essentially instant as it gets computed at compile time._
 
 ### Fib
 
-The first benchmark is a simple optimized Fibonacci function, which is a good way to show the overhead of calling functions and parsing the bytecode.
+The first benchmark is a simple optimized Fibonacci function, a good way to show the overhead of calling functions and parsing the bytecode.
 TinyWasm is slightly faster than Wasmi here, but that's probably because of the overhead of parsing the bytecode, as TinyWasm uses a custom bytecode to pre-process the WebAssembly bytecode.
 
 ### Fib-Rec
 
-This benchmark is a recursive Fibonacci function, which highlights some of the issues with the current implementation of TinyWasm's Call Stack.
-TinyWasm is a lot slower here, but that's because there's currently no way to reuse the same Call Frame for recursive calls, so a new Call Frame is allocated for every call. This is not a problem for most programs, and the upcoming `tail-call` proposal will make this a lot easier to implement.
+This benchmark is a recursive Fibonacci function, highlighting some issues with the current implementation of TinyWasm's Call Stack.
+TinyWasm is a lot slower here, but that's because there's currently no way to reuse the same Call Frame for recursive calls, so a new Call Frame is allocated for every call. This is not a problem for most programs; the upcoming `tail-call` proposal will make this much easier to implement.
 
 ### Argon2id
 
-This benchmark runs the Argon2id hashing algorithm, with 2 iterations, 1KB of memory, and 1 parallel lane.
-I had to decrease the memory usage from the default to 1KB, because especially the interpreters were struggling to finish in a reasonable amount of time.
-This is where `simd` instructions would be really useful, and it also highlights some of the issues with the current implementation of TinyWasm's Value Stack and Memory Instances. These spend a lot of time on `Vec` operations, so they might be a good place to start experimenting with Arena Allocation.
+This benchmark runs the Argon2id hashing algorithm with 2 iterations, 1KB of memory, and 1 parallel lane.
+I had to decrease the memory usage from the default to 1KB because the interpreters were struggling to finish in a reasonable amount of time.
+This is where `simd` instructions would be really useful, and it also highlights some of the issues with the current implementation of TinyWasm's Value Stack and Memory Instances. These spend much time on stack operations, so they might be a good place to experiment with Arena Allocation.
 
 ### Selfhosted
 
@@ -63,9 +64,9 @@ Wasmer also offers a pre-parsed module format, so keep in mind that this number 
 
 ### Conclusion
 
-After profiling and fixing some low-hanging fruits, I found the biggest bottleneck to be Vector operations, especially for the Value Stack, and having shared access to Memory Instances using RefCell. These are the two areas I will be focusing on improving in the future, trying out Arena Allocation and other data structures to improve performance. Additionally, typed FuncHandles have a significant overhead over the untyped ones, so I will be looking into improving that as well. Still, I'm quite happy with the results, especially considering the use of standard Rust data structures.
+After profiling and fixing some low-hanging fruits, I found the biggest bottleneck to be Vector operations, especially for the Value Stack, and having shared access to Memory Instances using RefCell. These are the two areas I will focus on improving in the future, trying out Arena Allocation and other data structures to improve performance. Additionally, typed FuncHandles have a significant overhead over the untyped ones, so I will also look into improving that. Still, I'm pretty happy with the results, especially considering the focus on simplicity and portability over performance.
 
-Something that made a much bigger difference than I expected was to give compiler hints about cold paths, and to force inlining of some functions. This made the benchmarks 30%+ faster in some cases. A lot of places in the codebase have comments about what optimizations have been done.
+Something that made a much more significant difference than I expected was to give compiler hints about cold paths and to force the inlining of some functions. This made the benchmarks 30%+ faster in some cases. Many places in the codebase have comments about what optimizations have been done.
 
 # Running benchmarks
 
