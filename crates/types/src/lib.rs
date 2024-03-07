@@ -56,7 +56,7 @@ pub struct TinyWasmModule {
     /// The exports of the WebAssembly module.
     pub exports: Box<[Export]>,
 
-    /// The tables of the WebAssembly module.
+    /// The globals of the WebAssembly module.
     pub globals: Box<[Global]>,
 
     /// The tables of the WebAssembly module.
