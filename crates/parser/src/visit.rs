@@ -10,7 +10,6 @@ struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
-            #[inline]
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
                 self.0.$visit($($($arg.clone()),*)?)?;
                 Ok(self.1.$visit($($($arg),*)?))
@@ -103,7 +102,7 @@ pub(crate) struct FunctionBuilder {
 
 impl FunctionBuilder {
     pub(crate) fn new(instr_capacity: usize) -> Self {
-        Self { instructions: Vec::with_capacity(instr_capacity), label_ptrs: Vec::with_capacity(128) }
+        Self { instructions: Vec::with_capacity(instr_capacity), label_ptrs: Vec::with_capacity(256) }
     }
 
     #[cold]
@@ -391,7 +390,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         self.visit(Instruction::Else(0))
     }
 
-    #[inline]
     fn visit_end(&mut self) -> Self::Output {
         let Some(label_pointer) = self.label_ptrs.pop() else {
             return self.visit(Instruction::EndFunc);
@@ -422,11 +420,11 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
                 *else_offset = (label_pointer - if_label_pointer)
                     .try_into()
-                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
+                    .expect("else_instr_end_offset is too large, tinywasm does not support blocks that large");
 
                 *end_offset = (current_instr_ptr - if_label_pointer)
                     .try_into()
-                    .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
+                    .expect("else_instr_end_offset is too large, tinywasm does not support blocks that large");
             }
             Instruction::Block(_, ref mut end_offset)
             | Instruction::Loop(_, ref mut end_offset)

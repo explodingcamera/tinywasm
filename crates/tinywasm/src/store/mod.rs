@@ -180,15 +180,11 @@ impl Store {
 // Linking related functions
 impl Store {
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(
-        &mut self,
-        funcs: Vec<TypedWasmFunction>,
-        idx: ModuleInstanceAddr,
-    ) -> Result<Vec<FuncAddr>> {
+    pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.into_iter().enumerate() {
-            self.data.funcs.push(FunctionInstance::new_wasm(func.wasm_function, idx));
+            self.data.funcs.push(FunctionInstance::new_wasm(func, idx));
             func_addrs.push((i + func_count) as FuncAddr);
         }
         Ok(func_addrs)

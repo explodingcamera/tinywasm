@@ -187,6 +187,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
         ));
     }
     let ty = types.next().unwrap().unwrap_func();
+
     let params =
         ty.params().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
 
@@ -197,11 +198,10 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
 }
 
 pub(crate) fn convert_blocktype(blocktype: wasmparser::BlockType) -> BlockArgs {
-    use wasmparser::BlockType::*;
     match blocktype {
-        Empty => BlockArgs::Empty,
-        Type(ty) => BlockArgs::Type(convert_valtype(&ty)),
-        FuncType(ty) => BlockArgs::FuncType(ty),
+        wasmparser::BlockType::Empty => BlockArgs::Empty,
+        wasmparser::BlockType::Type(ty) => BlockArgs::Type(convert_valtype(&ty)),
+        wasmparser::BlockType::FuncType(ty) => BlockArgs::FuncType(ty),
     }
 }
 

@@ -275,4 +275,11 @@ mod memory_instance_tests {
         let mut memory = create_test_memory();
         assert!(memory.grow(MAX_PAGES as i32 + 1).is_none());
     }
+
+    #[test]
+    fn test_memory_grow_max_pages() {
+        let mut memory = create_test_memory();
+        assert_eq!(memory.grow(1), Some(1));
+        assert_eq!(memory.grow(1), None);
+    }
 }

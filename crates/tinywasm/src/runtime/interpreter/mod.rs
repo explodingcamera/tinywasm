@@ -94,7 +94,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         Unreachable => {
             cold();
             return Err(crate::Trap::Unreachable.into());
-        } // we don't need to include the call frame here because it's already on the stack
+        }
         Drop => stack.values.pop().map(|_| ())?,
 
         Select(
@@ -295,8 +295,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         },
 
         EndFunc => {
-            if stack.blocks.len() != cf.block_ptr {
-                cold();
+            if unlikely(stack.blocks.len() != cf.block_ptr) {
                 panic!("endfunc: block frames not empty, this should have been validated by the parser");
             }
 
@@ -308,35 +307,29 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
-            let Some(block) = stack.blocks.pop() else {
-                cold();
-                panic!("else: no label to end, this should have been validated by the parser");
-            };
+            let block =
+                stack.blocks.pop().expect("else: no label to end, this should have been validated by the parser");
 
-            let res_count = block.results;
-            stack.values.truncate_keep(block.stack_ptr, res_count);
+            stack.values.truncate_keep(block.stack_ptr, block.results);
             cf.instr_ptr += *end_offset as usize;
         }
 
+        // remove the label from the label stack
         EndBlockFrame => {
-            // remove the label from the label stack
-            let Some(block) = stack.blocks.pop() else {
-                cold();
-                panic!("end blockframe: no label to end, this should have been validated by the parser");
-            };
+            let block = stack
+                .blocks
+                .pop()
+                .expect("end blockframe: no label to end, this should have been validated by the parser");
 
             stack.values.truncate_keep(block.stack_ptr, block.results);
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
         LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
-        LocalTee(local_index) => {
-            let local = stack.values.last();
-            cf.set_local(
-                *local_index as usize,
-                *local.expect("localtee: stack is empty. this should have been validated by the parser"),
-            );
-        }
+        LocalTee(local_index) => cf.set_local(
+            *local_index as usize,
+            *stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser"),
+        ),
 
         GlobalGet(global_index) => {
             let idx = module.resolve_global_addr(*global_index);

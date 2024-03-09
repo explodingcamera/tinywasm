@@ -1,11 +1,13 @@
 # Benchmark results
 
-All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM, running Linux 6.6.
+All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM on Linux 6.6.
 WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen),
 and the benchmark code is available in the `crates/benchmarks` folder.
 
 These are mainly preliminary benchmarks, and I will be rewriting the benchmarks to be more accurate and to test more features in the future.
 In particular, I want to test and improve memory usage, as well as the performance of the parser.
+
+Take these results with a grain of salt, as they are not very accurate and are likely to change in the future.
 
 ## WebAssembly Settings
 
@@ -36,7 +38,8 @@ All runtimes are compiled with the following settings:
 | `argon2id`   | `0.53ms` | ` 99.16ms` | `45.00ms` | `  4.59ms`           |
 | `selfhosted` | `0.05ms` | `  1.84ms` | ` 6.51ms` | `446.48ms`           |
 
-_\* converting WASM to TinyWasm bytecode is not included. I takes ~5.7ms to convert `tinywasm.wasm` to TinyWasm bytecode._
+_\* Uses tinywasm's internal module format instead of `wasm`. It takes ~5.7ms to parse and validate `tinywasm.wasm`._
+
 _\*\* essentially instant as it gets computed at compile time._
 
 ### Fib

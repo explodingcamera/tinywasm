@@ -92,7 +92,6 @@ type RawValue = u64;
 type RawValueRep = [u8; 8];
 
 // This all looks like a lot of extra steps, but the compiler will optimize it all away.
-// The `u128` is used to make the conversion easier to write.
 impl_from_raw_wasm_value!(i32, |x| x as RawValue, |x: RawValueRep| i32::from_ne_bytes(x[0..4].try_into().unwrap()));
 impl_from_raw_wasm_value!(i64, |x| x as RawValue, |x: RawValueRep| i64::from_ne_bytes(x[0..8].try_into().unwrap()));
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as RawValue, |x: RawValueRep| f32::from_bits(u32::from_ne_bytes(

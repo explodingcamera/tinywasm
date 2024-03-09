@@ -8,8 +8,10 @@
 #![cfg_attr(not(feature = "std"), feature(error_in_core))]
 //! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
 
-mod std;
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
@@ -32,7 +34,7 @@ mod visit;
 use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::{TypedWasmFunction, WasmFunction};
+use tinywasm_types::WasmFunction;
 use wasmparser::{Validator, WasmFeatures};
 
 pub use tinywasm_types::TinyWasmModule;
@@ -156,13 +158,10 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             .code
             .into_iter()
             .zip(code_type_addrs)
-            .map(|((instructions, locals), ty_idx)| TypedWasmFunction {
-                type_addr: ty_idx,
-                wasm_function: WasmFunction {
-                    instructions,
-                    locals,
-                    ty: reader.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
-                },
+            .map(|((instructions, locals), ty_idx)| WasmFunction {
+                instructions,
+                locals,
+                ty: reader.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
             })
             .collect::<Vec<_>>();
 
@@ -175,7 +174,6 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
             globals: globals.into_boxed_slice(),
             table_types: table_types.into_boxed_slice(),
             imports: reader.imports.into_boxed_slice(),
-            version: reader.version,
             start_func: reader.start_func,
             data: reader.data.into_boxed_slice(),
             exports: reader.exports.into_boxed_slice(),

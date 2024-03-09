@@ -1,4 +1,4 @@
-use crate::{unlikely, ModuleInstance};
+use crate::{unlikely, Error, ModuleInstance, Result};
 use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
@@ -30,8 +30,8 @@ impl BlockStack {
     }
 
     #[inline]
-    pub(crate) fn pop(&mut self) -> Option<BlockFrame> {
-        self.0.pop()
+    pub(crate) fn pop(&mut self) -> Result<BlockFrame> {
+        self.0.pop().ok_or(Error::BlockStackUnderflow)
     }
 
     /// keep the top `len` blocks and discard the rest

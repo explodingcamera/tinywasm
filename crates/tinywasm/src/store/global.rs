@@ -40,3 +40,32 @@ impl GlobalInstance {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_global_instance_get_set() {
+        let global_type = GlobalType { ty: ValType::I32, mutable: true };
+        let initial_value = RawWasmValue::from(10i32);
+        let owner = 0;
+
+        let mut global_instance = GlobalInstance::new(global_type, initial_value, owner);
+
+        // Test `get`
+        assert_eq!(global_instance.get(), WasmValue::I32(10), "global value should be 10");
+
+        // Test `set` with correct type
+        assert!(global_instance.set(WasmValue::I32(20)).is_ok(), "set should succeed");
+        assert_eq!(global_instance.get(), WasmValue::I32(20), "global value should be 20");
+
+        // Test `set` with incorrect type
+        assert!(matches!(global_instance.set(WasmValue::F32(1.0)), Err(Error::Other(_))), "set should fail");
+
+        // Test `set` on immutable global
+        let immutable_global_type = GlobalType { ty: ValType::I32, mutable: false };
+        let mut immutable_global_instance = GlobalInstance::new(immutable_global_type, initial_value, owner);
+        assert!(matches!(immutable_global_instance.set(WasmValue::I32(30)), Err(Error::Other(_))));
+    }
+}

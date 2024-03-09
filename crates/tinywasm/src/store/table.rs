@@ -116,3 +116,86 @@ impl TableElement {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to create a dummy TableType
+    fn dummy_table_type() -> TableType {
+        TableType { element_type: ValType::RefFunc, size_initial: 10, size_max: Some(20) }
+    }
+
+    #[test]
+    fn test_table_instance_creation() {
+        let kind = dummy_table_type();
+        let table_instance = TableInstance::new(kind.clone(), 0);
+        assert_eq!(table_instance.size(), kind.size_initial as i32, "Table instance creation failed: size mismatch");
+    }
+
+    #[test]
+    fn test_get_wasm_val() {
+        let kind = dummy_table_type();
+        let mut table_instance = TableInstance::new(kind, 0);
+
+        table_instance.set(0, 0).expect("Setting table element failed");
+
+        match table_instance.get_wasm_val(0) {
+            Ok(WasmValue::RefFunc(_)) => {}
+            _ => assert!(false, "get_wasm_val failed to return the correct WasmValue"),
+        }
+
+        match table_instance.get_wasm_val(999) {
+            Err(Error::Trap(Trap::UndefinedElement { .. })) => {}
+            _ => assert!(false, "get_wasm_val failed to handle undefined element correctly"),
+        }
+    }
+
+    #[test]
+    fn test_set_and_get() {
+        let kind = dummy_table_type();
+        let mut table_instance = TableInstance::new(kind, 0);
+
+        let result = table_instance.set(0, 1);
+        assert!(result.is_ok(), "Setting table element failed");
+
+        let elem = table_instance.get(0);
+        assert!(
+            elem.is_ok() && matches!(elem.unwrap(), &TableElement::Initialized(1)),
+            "Getting table element failed or returned incorrect value"
+        );
+    }
+
+    #[test]
+    fn test_table_grow_and_fit() {
+        let kind = dummy_table_type();
+        let mut table_instance = TableInstance::new(kind, 0);
+
+        let result = table_instance.set(15, 1);
+        assert!(result.is_ok(), "Table grow on set failed");
+
+        let size = table_instance.size();
+        assert!(size >= 16, "Table did not grow to expected size");
+    }
+
+    #[test]
+    fn test_table_init() {
+        let kind = dummy_table_type();
+        let mut table_instance = TableInstance::new(kind, 0);
+
+        let init_elements = vec![TableElement::Initialized(0); 5];
+        let func_addrs = vec![0, 1, 2, 3, 4];
+        let result = table_instance.init(&func_addrs, 0, &init_elements);
+
+        assert!(result.is_ok(), "Initializing table with elements failed");
+
+        for i in 0..5 {
+            let elem = table_instance.get(i);
+            assert!(
+                elem.is_ok() && matches!(elem.unwrap(), &TableElement::Initialized(_)),
+                "Element not initialized correctly at index {}",
+                i
+            );
+        }
+    }
+}

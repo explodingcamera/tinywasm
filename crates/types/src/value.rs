@@ -5,7 +5,7 @@ use crate::{ConstInstruction, ExternAddr, FuncAddr};
 /// A WebAssembly value.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#value-types>
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum WasmValue {
     // Num types
     /// A 32-bit integer.

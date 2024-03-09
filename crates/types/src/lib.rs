@@ -41,37 +41,54 @@ pub mod archive;
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct TinyWasmModule {
-    /// The version of the WebAssembly module.
-    pub version: Option<u16>,
-
-    /// The start function of the WebAssembly module.
+    /// Optional address of the start function
+    ///
+    /// Corresponds to the `start` section of the original WebAssembly module.
     pub start_func: Option<FuncAddr>,
 
-    /// The functions of the WebAssembly module.
-    pub funcs: Box<[TypedWasmFunction]>,
+    /// Optimized and validated WebAssembly functions
+    ///
+    /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
+    pub funcs: Box<[WasmFunction]>,
 
-    /// The types of the WebAssembly module.
+    /// A vector of type definitions, indexed by `TypeAddr`
+    ///
+    /// Corresponds to the `type` section of the original WebAssembly module.
     pub func_types: Box<[FuncType]>,
 
-    /// The exports of the WebAssembly module.
+    /// Exported items of the WebAssembly module.
+    ///
+    /// Corresponds to the `export` section of the original WebAssembly module.
     pub exports: Box<[Export]>,
 
-    /// The tables of the WebAssembly module.
+    /// Global components of the WebAssembly module.
+    ///
+    /// Corresponds to the `global` section of the original WebAssembly module.
     pub globals: Box<[Global]>,
 
-    /// The tables of the WebAssembly module.
+    /// Table components of the WebAssembly module used to initialize tables.
+    ///
+    /// Corresponds to the `table` section of the original WebAssembly module.
     pub table_types: Box<[TableType]>,
 
-    /// The memories of the WebAssembly module.
+    /// Memory components of the WebAssembly module used to initialize memories.
+    ///
+    /// Corresponds to the `memory` section of the original WebAssembly module.
     pub memory_types: Box<[MemoryType]>,
 
-    /// The imports of the WebAssembly module.
+    /// Imports of the WebAssembly module.
+    ///
+    /// Corresponds to the `import` section of the original WebAssembly module.
     pub imports: Box<[Import]>,
 
     /// Data segments of the WebAssembly module.
+    ///
+    /// Corresponds to the `data` section of the original WebAssembly module.
     pub data: Box<[Data]>,
 
     /// Element segments of the WebAssembly module.
+    ///
+    /// Corresponds to the `elem` section of the original WebAssembly module.
     pub elements: Box<[Element]>,
 }
 
@@ -162,13 +179,6 @@ pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
     pub locals: Box<[ValType]>,
     pub ty: FuncType,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
-pub struct TypedWasmFunction {
-    pub type_addr: u32,
-    pub wasm_function: WasmFunction,
 }
 
 /// A WebAssembly Module Export
