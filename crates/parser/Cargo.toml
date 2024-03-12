@@ -17,4 +17,3 @@ tinywasm-types={version="0.5.0", path="../types", default-features=false}
 default=["std", "logging"]
 logging=["log"]
 std=["tinywasm-types/std"]
- 

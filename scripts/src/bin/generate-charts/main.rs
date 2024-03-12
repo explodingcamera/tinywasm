@@ -8,7 +8,7 @@ fn main() -> Result<()> {
 }
 
 fn generate_charts() -> Result<()> {
-    let results_dir = PathBuf::from_str("../crates/tinywasm/tests/generated")?;
+    let results_dir = PathBuf::from_str("./crates/tinywasm/tests/generated")?;
 
     // check if the folder exists
     if !results_dir.exists() {
