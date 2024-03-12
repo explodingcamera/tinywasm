@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests can now be run on more targets
 - Nightly version has been updated to fix broken builds in some cases
 - Enhance support for scripted language bindings by making Imports and Module cloneable
+- Add `aarch64-apple-darwin` and `armv7-unknown-linux-gnueabihf` targets to CI
 
 ### Removed
 
