@@ -6,3 +6,5 @@ examples/rust/Cargo.lock
 examples/wast/*
 perf.*
 flamegraph.svg
+/.idea
+/*.iml

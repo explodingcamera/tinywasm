@@ -5,6 +5,7 @@ use tinywasm_types::TinyWasmModule;
 /// A WebAssembly Module
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
+#[derive(Clone)]
 pub struct Module {
     pub(crate) data: TinyWasmModule,
 }
