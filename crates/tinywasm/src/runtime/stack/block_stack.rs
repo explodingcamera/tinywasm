@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct BlockStack(Vec<BlockFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the lable count when parsing the module?
+pub(crate) struct BlockStack(Vec<BlockFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the label count when parsing the module?
 
 impl BlockStack {
     #[inline]

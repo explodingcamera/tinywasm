@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Improved documentation and added more tests
+- Tests can now be run on more targets
+- Nightly version has been updated to fix broken builds in some cases
 
 ### Removed
 
@@ -31,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduced the overhead of control flow instructions
 - Reduced the size of bytecode instructions
 - Fixed issues on the latest nightly Rust compiler
-- Simpliefied a lot of the internal macros
+- Simplified a lot of the internal macros
 
 ### Removed
 
@@ -74,9 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.1.0...v0.2.0
 
-- Support for br_table
-- Memory trapping improvments
-- Implicit function lable scopes
+- Support for `br_table`
+- Memory trapping improvements
+- Implicit function label scopes
 - else Instructions
 - All Memory instructions
 - Imports

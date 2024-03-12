@@ -72,7 +72,7 @@ pub enum ConstInstruction {
 /// Wasm Bytecode can map to multiple of these instructions.
 ///
 /// # Differences to the spec
-/// * `br_table` stores the jump lables in the following `br_label` instructions to keep this enum small.
+/// * `br_table` stores the jump labels in the following `br_label` instructions to keep this enum small.
 /// * Lables/Blocks: we store the label end offset in the instruction itself and
 ///   have seperate EndBlockFrame and EndFunc instructions to mark the end of a block or function.
 ///   This makes it easier to implement the label stack iteratively.

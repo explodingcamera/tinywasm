@@ -7,6 +7,3 @@ test-wast="test --package tinywasm --test test-wast -- --enable "
 test-wast-release="test --package tinywasm --test test-wast --release -- --enable "
 generate-charts="run --package scripts --bin generate-charts --release"
 benchmark="bench -p benchmarks --bench"
-
-[target.armv7-unknown-linux-gnueabihf]
-linker="arm-none-linux-gnueabihf-gcc"
