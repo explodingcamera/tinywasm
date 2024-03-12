@@ -19,7 +19,7 @@ jobs:
       - name: Build wasm
         run: ./examples/rust/build.sh
       - name: Save artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: wasm
           path: examples/rust/out
@@ -38,7 +38,7 @@ jobs:
         run: rustup update stable
 
       - name: Load wasm
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: wasm
           path: examples/rust/out
@@ -66,7 +66,7 @@ jobs:
         run: rustup update nightly
 
       - name: Load wasm
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: wasm
           path: examples/rust/out
@@ -94,15 +94,15 @@ jobs:
           rustup +stable target add aarch64-apple-darwin
 
       - name: Load wasm
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: wasm
           path: examples/rust/out
 
       - name: Build (stable)
-        run: cargo +stable build --workspace --target aarch64-apple-darwin
+        run: cargo +stable build --target aarch64-apple-darwin
       - name: Run tests (stable)
-        run: cargo +stable test --workspace --target aarch64-apple-darwin
+        run: cargo +stable test --target aarch64-apple-darwin
       - name: Run MVP testsuite
         run: cargo +stable test-mvp --target aarch64-apple-darwin
 
@@ -117,7 +117,7 @@ jobs:
           submodules: true
 
       - name: Load wasm
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: wasm
           path: examples/rust/out
