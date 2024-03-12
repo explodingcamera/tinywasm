@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved documentation and added more tests
 - Tests can now be run on more targets
 - Nightly version has been updated to fix broken builds in some cases
+- Enhance support for scripted language bindings by making Imports and Module cloneable
 
 ### Removed
 
