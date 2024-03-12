@@ -7,7 +7,25 @@ on:
     branches: [main]
 
 jobs:
+  build-wasm:
+    name: Build wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Rust toolchain & Binaryen
+        run: rustup update && rustup target add wasm32-unknown-unknown && sudo apt-get install -y binaryen wabt
+      - name: Build wasm
+        run: ./examples/rust/build.sh
+      - name: Save artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: examples/rust/out
+
   test-std:
+    needs: build-wasm
     name: Test with default features on stable Rust
     runs-on: ubuntu-latest
 
@@ -16,15 +34,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Install stable Rust toolchain & Binaryen
-        run: |
-          rustup update stable
-          rustup update nightly
-          rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen wabt
+      - name: Install latest stable Rust toolchain
+        run: rustup update stable
 
-      - name: Build wasm
-        run: ./examples/rust/build.sh
+      - name: Load wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: examples/rust/out
 
       - name: Build (stable)
         run: cargo +stable build --workspace
@@ -36,6 +53,7 @@ jobs:
         run: cargo +stable test-mvp
 
   test-no-std:
+    needs: build-wasm
     name: Test without default features on nightly Rust
     runs-on: ubuntu-latest
 
@@ -44,14 +62,14 @@ jobs:
         with:
           submodules: true
 
-      - name: Install nightly Rust toolchain & Binaryen
-        run: |
-          rustup update nightly
-          rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen wabt
+      - name: Install latest nightly Rust toolchain
+        run: rustup update nightly
 
-      - name: Build wasm
-        run: ./examples/rust/build.sh
+      - name: Load wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: examples/rust/out
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --no-default-features
@@ -61,3 +79,58 @@ jobs:
 
       - name: Run MVP testsuite (nightly)
         run: cargo +nightly test-mvp
+
+  test-m1:
+    needs: build-wasm
+    name: Test on arm64 (Apple M1)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install stable Rust toolchain
+        run: rustup update stable
+
+      - name: Load wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: examples/rust/out
+
+      - name: Build (stable)
+        run: cargo +stable build
+      - name: Run tests (stable)
+        run: cargo +stable test
+      - name: Run MVP testsuite
+        run: cargo +stable test-mvp
+
+  test-armv7:
+    needs: build-wasm
+    name: Test on armv7 (32-Bit Raspberry Pi)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Load wasm
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: examples/rust/out
+
+      - name: Run all tests (for the default workspace members)
+        uses: houseabsolute/actions-rust-cross@v0.0.12
+        with:
+          command: test
+          target: armv7-unknown-linux-gnueabihf
+          toolchain: nightly
+
+      - name: Run MVP testsuite
+        uses: houseabsolute/actions-rust-cross@v0.0.12
+        with:
+          command: test
+          args: "-p tinywasm --test test-mvp --release -- --enable"
+          target: armv7-unknown-linux-gnueabihf
+          toolchain: nightly

@@ -4,7 +4,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 
 fn run_native() {
     use tinywasm::*;
-    let module = tinywasm::Module::parse_bytes(include_bytes!("../../../examples/rust/out/print.wasm")).expect("parse");
+    let module = tinywasm::Module::parse_bytes(include_bytes!("../../examples/rust/out/print.wasm")).expect("parse");
     let mut store = Store::default();
     let mut imports = Imports::default();
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
@@ -51,7 +51,7 @@ fn run_wasmer(wasm: &[u8]) {
     hello.call(&mut store, &[]).expect("call");
 }
 
-const TINYWASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
+const TINYWASM: &[u8] = include_bytes!("../../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut group = c.benchmark_group("selfhosted-parse");

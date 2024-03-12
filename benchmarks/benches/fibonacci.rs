@@ -45,7 +45,7 @@ fn run_native_recursive(n: i32) -> i32 {
     run_native_recursive(n - 1) + run_native_recursive(n - 2)
 }
 
-const FIBONACCI: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.wasm");
+const FIBONACCI: &[u8] = include_bytes!("../../examples/rust/out/fibonacci.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     let twasm = wasm_to_twasm(FIBONACCI);
 

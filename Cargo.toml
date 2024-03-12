@@ -1,5 +1,5 @@
 [workspace]
-members=["crates/*"]
+members=["crates/*", "benchmarks", "scripts"]
 default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
@@ -40,4 +40,4 @@ debug=true
 
 [patch.crates-io]
 # https://github.com/servo/pathfinder/pull/548 & https://github.com/servo/pathfinder/issues/558
-pathfinder_simd={git="https://github.com/explodingcamera/pathfinder", rev="4ada8c2484f6bdd2a57546f055000c2df8e65eab"}
+pathfinder_simd={git="https://github.com/servo/pathfinder", rev="30419d07660dc11a21e42ef4a7fa329600cff152"}
