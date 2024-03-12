@@ -17,9 +17,7 @@ jobs:
       - name: Install Rust toolchain & Binaryen
         run: rustup update && rustup target add wasm32-unknown-unknown && sudo apt-get install -y binaryen wabt
       - name: Build wasm
-        run: |
-          ./examples/rust/build.sh
-          tar -czf wasm.tar.gz examples/rust/out
+        run: ./examples/rust/build.sh
       - name: Save artifacts
         uses: actions/upload-artifact@v2
         with:
@@ -43,9 +41,7 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: wasm
-
-      - name: Unpack wasm
-        run: tar -xzf wasm.tar.gz
+          path: examples/rust/out
 
       - name: Build (stable)
         run: cargo +stable build --workspace
@@ -73,9 +69,7 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: wasm
-
-      - name: Unpack wasm
-        run: tar -xzf wasm.tar.gz
+          path: examples/rust/out
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --no-default-features
@@ -103,9 +97,7 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: wasm
-
-      - name: Unpack wasm
-        run: tar -xzf wasm.tar.gz
+          path: examples/rust/out
 
       - name: Build (stable)
         run: cargo +stable build --workspace --target aarch64-apple-darwin
@@ -128,9 +120,7 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: wasm
-
-      - name: Unpack wasm
-        run: tar -xzf wasm.tar.gz
+          path: examples/rust/out
 
       - name: Run all tests (for the default workspace members)
         uses: houseabsolute/actions-rust-cross@v0.0.12
