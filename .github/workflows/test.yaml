@@ -15,7 +15,7 @@ jobs:
         with:
           submodules: true
       - name: Install Rust toolchain & Binaryen
-        run: rustup update && sudo apt-get install -y binaryen wabt
+        run: rustup update && rustup target add wasm32-unknown-unknown && sudo apt-get install -y binaryen wabt
       - name: Build wasm
         run: |
           ./examples/rust/build.sh
