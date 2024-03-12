@@ -1797,6 +1797,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
+name = "scripts"
+version = "0.0.0"
+dependencies = [
+ "eyre",
+ "plotters",
+]
+
+[[package]]
 name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2043,7 +2051,6 @@ dependencies = [
  "libm",
  "log",
  "owo-colors 4.0.0",
- "plotters",
  "pretty_env_logger",
  "serde",
  "serde_json",

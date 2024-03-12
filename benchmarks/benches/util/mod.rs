@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use tinywasm::{self, parser::Parser, types::TinyWasmModule};
+use tinywasm::{parser::Parser, types::TinyWasmModule};
 
 pub fn parse_wasm(wasm: &[u8]) -> TinyWasmModule {
     let parser = Parser::new();

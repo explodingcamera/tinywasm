@@ -15,4 +15,4 @@ path="lib.rs"
 independent=true
 
 [dependencies]
-rust-embed={version="8.1.0", features=["include-exclude"]}
+rust-embed={version="8.3", features=["include-exclude"]}

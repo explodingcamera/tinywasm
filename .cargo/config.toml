@@ -5,5 +5,8 @@ test-mvp="test --package tinywasm --test test-mvp --release -- --enable "
 test-2="test --package tinywasm --test test-two --release -- --enable "
 test-wast="test --package tinywasm --test test-wast -- --enable "
 test-wast-release="test --package tinywasm --test test-wast --release -- --enable "
-generate-charts="test --package tinywasm --test generate-charts -- --enable "
+generate-charts="run --package scripts --bin generate-charts --release"
 benchmark="bench -p benchmarks --bench"
+
+[target.armv7-unknown-linux-gnueabihf]
+linker="arm-none-linux-gnueabihf-gcc"
