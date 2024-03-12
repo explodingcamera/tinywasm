@@ -7,7 +7,27 @@ on:
     branches: [main]
 
 jobs:
+  build-wasm:
+    name: Build wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install Binaryen
+        run: sudo apt-get install -y binaryen wabt
+      - name: Build wasm
+        run: |
+          ./examples/rust/build.sh
+          tar -czf wasm.tar.gz examples/rust/out
+      - name: Save artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: wasm
+          path: examples/rust/out
+
   test-std:
+    needs: build-wasm
     name: Test with default features on stable Rust
     runs-on: ubuntu-latest
 
@@ -16,15 +36,16 @@ jobs:
         with:
           submodules: true
 
-      - name: Install stable Rust toolchain & Binaryen
-        run: |
-          rustup update stable
-          rustup update nightly
-          rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen wabt
+      - name: Install latest stable Rust toolchain
+        run: rustup update stable
 
-      - name: Build wasm
-        run: ./examples/rust/build.sh
+      - name: Load wasm
+        uses: actions/download-artifact@v2
+        with:
+          name: wasm
+
+      - name: Unpack wasm
+        run: tar -xzf wasm.tar.gz
 
       - name: Build (stable)
         run: cargo +stable build --workspace
@@ -36,6 +57,7 @@ jobs:
         run: cargo +stable test-mvp
 
   test-no-std:
+    needs: build-wasm
     name: Test without default features on nightly Rust
     runs-on: ubuntu-latest
 
@@ -44,14 +66,15 @@ jobs:
         with:
           submodules: true
 
-      - name: Install latest nightly Rust toolchain & Binaryen
-        run: |
-          rustup update nightly
-          rustup target add wasm32-unknown-unknown
-          sudo apt-get install -y binaryen wabt
+      - name: Install latest nightly Rust toolchain
+        run: rustup update nightly
 
-      - name: Build wasm
-        run: ./examples/rust/build.sh
+      - name: Load wasm
+        uses: actions/download-artifact@v2
+        with:
+          name: wasm
+      - name: Unpack wasm
+        run: tar -xzf wasm.tar.gz
 
       - name: Build (nightly, no default features)
         run: cargo +nightly build --workspace --no-default-features
@@ -69,10 +92,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Install stable Rust toolchain & Binaryen
+      - name: Install stable Rust toolchain
         run: |
           rustup update stable
           rustup +stable target add aarch64-apple-darwin
+
+      - name: Load wasm
+        uses: actions/download-artifact@v2
+        with:
+          name: wasm
+
+      - name: Unpack wasm
+        run: tar -xzf wasm.tar.gz
+
       - name: Build (stable)
         run: cargo +stable build --workspace --target aarch64-apple-darwin
       - name: Run tests (stable)
@@ -88,6 +120,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Load wasm
+        uses: actions/download-artifact@v2
+        with:
+          name: wasm
+
+      - name: Unpack wasm
+        run: tar -xzf wasm.tar.gz
 
       - name: Run all tests (for the default workspace members)
         uses: houseabsolute/actions-rust-cross@v0.0.12
