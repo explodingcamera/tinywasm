@@ -83,15 +83,13 @@ jobs:
   test-m1:
     needs: build-wasm
     name: Test on arm64 (Apple M1)
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
       - name: Install stable Rust toolchain
-        run: |
-          rustup update stable
-          rustup +stable target add aarch64-apple-darwin
+        run: rustup update stable
 
       - name: Load wasm
         uses: actions/download-artifact@v4
@@ -100,11 +98,11 @@ jobs:
           path: examples/rust/out
 
       - name: Build (stable)
-        run: cargo +stable build --target aarch64-apple-darwin
+        run: cargo +stable build
       - name: Run tests (stable)
-        run: cargo +stable test --target aarch64-apple-darwin
+        run: cargo +stable test
       - name: Run MVP testsuite
-        run: cargo +stable test-mvp --target aarch64-apple-darwin
+        run: cargo +stable test-mvp
 
   test-armv7:
     needs: build-wasm
