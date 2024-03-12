@@ -218,6 +218,7 @@ impl From<&Import> for ExternName {
 ///
 /// Note that module instance addresses for [`Imports::link_module`] can be obtained from [`crate::ModuleInstance::id`].
 /// Now, the imports object can be passed to [`crate::ModuleInstance::instantiate`].
+#[derive(Clone)]
 pub struct Imports {
     values: BTreeMap<ExternName, Extern>,
     modules: BTreeMap<String, ModuleInstanceAddr>,
