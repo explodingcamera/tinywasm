@@ -71,8 +71,8 @@ jobs:
           submodules: true
       - name: Install stable Rust toolchain & Binaryen
         run: |
-          rustup update
-          rustup target add aarch64-apple-darwin
+          rustup update stable
+          rustup +stable target add aarch64-apple-darwin
       - name: Build (stable)
         run: cargo +stable build --workspace --target aarch64-apple-darwin
       - name: Run tests (stable)
@@ -94,6 +94,7 @@ jobs:
         with:
           command: test
           target: armv7-unknown-linux-gnueabihf
+          toolchain: nightly
 
       - name: Run MVP testsuite
         uses: houseabsolute/actions-rust-cross@v0.0.12
@@ -101,3 +102,4 @@ jobs:
           command: test
           args: "-p tinywasm --test test-mvp --release -- --enable"
           target: armv7-unknown-linux-gnueabihf
+          toolchain: nightly
