@@ -48,8 +48,8 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: usize,
-    pub(crate) block_ptr: usize,
+    pub(crate) instr_ptr: u32,
+    pub(crate) block_ptr: u32,
     pub(crate) func_instance: (Rc<WasmFunction>, ModuleInstanceAddr),
     pub(crate) locals: Box<[RawWasmValue]>,
 }
@@ -63,7 +63,9 @@ impl CallFrame {
         blocks: &mut super::BlockStack,
     ) {
         if block_frame.params > 0 {
-            values.extend_from_within((block_frame.stack_ptr - block_frame.params)..block_frame.stack_ptr);
+            let start = (block_frame.stack_ptr - block_frame.params as u32) as usize;
+            let end = block_frame.stack_ptr as usize;
+            values.extend_from_within(start..end);
         }
 
         blocks.push(block_frame);
@@ -77,7 +79,7 @@ impl CallFrame {
         values: &mut super::ValueStack,
         blocks: &mut super::BlockStack,
     ) -> Option<()> {
-        let break_to = blocks.get_relative_to(break_to_relative as usize, self.block_ptr)?;
+        let break_to = blocks.get_relative_to(break_to_relative, self.block_ptr)?;
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr
@@ -92,7 +94,7 @@ impl CallFrame {
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
                     // we also want to trim the label stack to the loop (but not including the loop)
-                    blocks.truncate(blocks.len() - break_to_relative as usize);
+                    blocks.truncate(blocks.len() as u32 - break_to_relative);
                     return Some(());
                 }
             }
@@ -106,7 +108,7 @@ impl CallFrame {
                 self.instr_ptr = break_to.end_instr_ptr;
 
                 // we also want to trim the label stack, including the block
-                blocks.truncate(blocks.len() - (break_to_relative as usize + 1));
+                blocks.truncate(blocks.len() as u32 - (break_to_relative + 1));
             }
         }
 
@@ -118,8 +120,8 @@ impl CallFrame {
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
-        params: impl Iterator<Item = RawWasmValue> + ExactSizeIterator,
-        block_ptr: usize,
+        params: impl ExactSizeIterator<Item = RawWasmValue>,
+        block_ptr: u32,
     ) -> Self {
         let locals = {
             let local_types = &wasm_func_inst.locals;
@@ -150,6 +152,6 @@ impl CallFrame {
 
     #[inline(always)]
     pub(crate) fn current_instruction(&self) -> &Instruction {
-        &self.func_instance.0.instructions[self.instr_ptr]
+        &self.func_instance.0.instructions[self.instr_ptr as usize]
     }
 }

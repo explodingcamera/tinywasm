@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use _log as log;
 use eyre::{bail, eyre, Result};
 use owo_colors::OwoColorize;
 use testsuite::TestSuite;

@@ -1,4 +1,5 @@
 mod testsuite;
+use _log as log;
 use eyre::{eyre, Result};
 use owo_colors::OwoColorize;
 use testsuite::TestSuite;

@@ -48,6 +48,9 @@ impl Display for TwasmError {
 }
 
 #[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(feature = "std")]
 impl std::error::Error for TwasmError {}
 
 impl TinyWasmModule {

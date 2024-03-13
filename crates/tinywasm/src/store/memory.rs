@@ -211,7 +211,7 @@ impl_mem_loadable_for_primitive!(
 #[cfg(test)]
 mod memory_instance_tests {
     use super::*;
-    use tinywasm_types::{MemoryArch, MemoryType, ModuleInstanceAddr};
+    use tinywasm_types::MemoryArch;
 
     fn create_test_memory() -> MemoryInstance {
         let kind = MemoryType { arch: MemoryArch::I32, page_count_initial: 1, page_count_max: Some(2) };
