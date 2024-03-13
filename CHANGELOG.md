@@ -13,10 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Improved documentation and added more tests (735c7cb)
+- Improved documentation and added more tests (735c7cb636edfd4704460c94a9c7d65e5bf4df48)
 - Tests can now be run on more targets (#11)
-- Nightly version has been updated to fix broken builds in some cases
-- Add `aarch64-apple-darwin` and `armv7-unknown-linux-gnueabihf` targets to CI
+- Nightly version has been updated to fix broken builds in some cases (#12)
+- Add `aarch64-apple-darwin` and `armv7-unknown-linux-gnueabihf` targets to CI (#12)
 
 ### Removed
 
