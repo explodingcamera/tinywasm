@@ -47,7 +47,7 @@ jobs:
         run: cargo +stable build --workspace
 
       - name: Run tests (stable)
-        run: cargo +stable test --workspace
+        run: cargo +stable test --workspace && cargo +stable run --example wasm-rust all
 
       - name: Run MVP testsuite
         run: cargo +stable test-mvp
@@ -75,7 +75,7 @@ jobs:
         run: cargo +nightly build --workspace --no-default-features
 
       - name: Run tests (nightly, no default features)
-        run: cargo +nightly test --workspace --no-default-features
+        run: cargo +nightly test --workspace --no-default-features && cargo +nightly run --example wasm-rust all
 
       - name: Run MVP testsuite (nightly)
         run: cargo +nightly test-mvp

@@ -73,8 +73,7 @@ pub enum ConstInstruction {
 ///
 /// # Differences to the spec
 /// * `br_table` stores the jump labels in the following `br_label` instructions to keep this enum small.
-/// * Lables/Blocks: we store the label end offset in the instruction itself and
-///   have seperate EndBlockFrame and EndFunc instructions to mark the end of a block or function.
+/// * Lables/Blocks: we store the label end offset in the instruction itself and use `EndBlockFrame` to mark the end of a block.
 ///   This makes it easier to implement the label stack iteratively.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
@@ -121,7 +120,6 @@ pub enum Instruction {
     If(BlockArgsPacked, ElseOffset, EndOffset), // If else offset is 0 if there is no else block
     Else(EndOffset),
     EndBlockFrame,
-    EndFunc,
     Br(LabelAddr),
     BrIf(LabelAddr),
     BrTable(BrTableDefault, BrTableLen), // has to be followed by multiple BrLabel instructions

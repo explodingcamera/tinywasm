@@ -36,6 +36,17 @@ fn main() -> Result<()> {
         "printi32" => printi32()?,
         "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
+        "all" => {
+            println!("Running all examples");
+            println!("\nhello.wasm:");
+            hello()?;
+            println!("\nprinti32.wasm:");
+            printi32()?;
+            println!("\nfibonacci.wasm:");
+            fibonacci()?;
+            println!("\ntinywasm.wasm:");
+            tinywasm()?;
+        }
         _ => {}
     }
 

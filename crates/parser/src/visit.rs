@@ -392,7 +392,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     fn visit_end(&mut self) -> Self::Output {
         let Some(label_pointer) = self.label_ptrs.pop() else {
-            return self.visit(Instruction::EndFunc);
+            return self.visit(Instruction::Return);
         };
 
         let current_instr_ptr = self.instructions.len();

@@ -9,15 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Imports` and `Module` are now cloneable (#9)
+
 ### Changed
 
-- Improved documentation and added more tests
-- Tests can now be run on more targets
+- Improved documentation and added more tests (735c7cb)
+- Tests can now be run on more targets (#11)
 - Nightly version has been updated to fix broken builds in some cases
-- Enhance support for scripted language bindings by making Imports and Module cloneable
 - Add `aarch64-apple-darwin` and `armv7-unknown-linux-gnueabihf` targets to CI
 
 ### Removed
+
+- Removed the `EndFunc` instruction, as it was already covered by the `Return` instruction\
+  This also fixes a weird bug that only occurred on certain nightly versions of Rust
 
 ## [0.5.0] - 2024-03-01
 

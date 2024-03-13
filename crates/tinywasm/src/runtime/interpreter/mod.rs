@@ -296,21 +296,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             false => return Ok(ExecResult::Call),
         },
 
-        EndFunc => {
-            if unlikely(stack.blocks.len() as u32 != cf.block_ptr) {
-                panic!(
-                    "endfunc: block frames not empty, this should have been validated by the parser: {:?}/{:?}",
-                    stack.blocks.len(),
-                    cf.block_ptr
-                );
-            }
-
-            match stack.call_stack.is_empty() {
-                true => return Ok(ExecResult::Return),
-                false => return Ok(ExecResult::Call),
-            }
-        }
-
         // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
             let block =
