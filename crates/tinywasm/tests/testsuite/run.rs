@@ -3,6 +3,7 @@ use crate::testsuite::util::*;
 use std::{borrow::Cow, collections::HashMap};
 
 use super::TestSuite;
+use _log as log;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};

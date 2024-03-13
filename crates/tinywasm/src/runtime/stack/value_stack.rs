@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
 pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024;
+// pub(crate) const MAX_VALUE_STACK_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
@@ -48,9 +49,9 @@ impl ValueStack {
         self.stack.len()
     }
 
-    pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
+    pub(crate) fn truncate_keep(&mut self, n: u32, end_keep: u32) {
         let total_to_keep = n + end_keep;
-        let len = self.stack.len();
+        let len = self.stack.len() as u32;
         assert!(len >= total_to_keep, "Total to keep should be less than or equal to self.top");
 
         if len <= total_to_keep {
@@ -58,8 +59,8 @@ impl ValueStack {
         }
 
         let items_to_remove = len - total_to_keep;
-        let remove_start_index = len - items_to_remove - end_keep;
-        let remove_end_index = len - end_keep;
+        let remove_start_index = (len - items_to_remove - end_keep) as usize;
+        let remove_end_index = (len - end_keep) as usize;
         self.stack.drain(remove_start_index..remove_end_index);
     }
 
@@ -108,8 +109,10 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn break_to(&mut self, new_stack_size: usize, result_count: usize) {
-        self.stack.drain(new_stack_size..(self.stack.len() - result_count));
+    pub(crate) fn break_to(&mut self, new_stack_size: u32, result_count: u8) {
+        let start = new_stack_size as usize;
+        let end = self.stack.len() - result_count as usize;
+        self.stack.drain(start..end);
     }
 
     #[inline]

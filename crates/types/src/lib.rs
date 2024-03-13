@@ -3,7 +3,7 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #![cfg_attr(not(feature = "unsafe"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unsafe", deny(unused_unsafe))]
 
