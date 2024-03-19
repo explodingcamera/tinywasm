@@ -1,4 +1,4 @@
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{eyre, Result};
 use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
 /// Examples of using WebAssembly compiled from Rust with tinywasm.
@@ -19,6 +19,10 @@ use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 ///
 fn main() -> Result<()> {
     pretty_env_logger::init();
+
+    if !std::path::Path::new("./examples/rust/out/").exists() {
+        return Err(eyre!("No WebAssembly files found. See examples/wasm-rust.rs for instructions."));
+    }
 
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
@@ -54,8 +58,7 @@ fn main() -> Result<()> {
 }
 
 fn tinywasm() -> Result<()> {
-    const TINYWASM: &[u8] = include_bytes!("./rust/out/tinywasm.wasm");
-    let module = Module::parse_bytes(TINYWASM)?;
+    let module = Module::parse_file("./examples/rust/out/tinywasm.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -76,8 +79,7 @@ fn tinywasm() -> Result<()> {
 }
 
 fn hello() -> Result<()> {
-    const HELLO_WASM: &[u8] = include_bytes!("./rust/out/hello.wasm");
-    let module = Module::parse_bytes(HELLO_WASM)?;
+    let module = Module::parse_file("./examples/rust/out/hello.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -106,8 +108,7 @@ fn hello() -> Result<()> {
 }
 
 fn printi32() -> Result<()> {
-    const HELLO_WASM: &[u8] = include_bytes!("./rust/out/print.wasm");
-    let module = Module::parse_bytes(HELLO_WASM)?;
+    let module = Module::parse_file("./examples/rust/out/print.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -128,8 +129,7 @@ fn printi32() -> Result<()> {
 }
 
 fn fibonacci() -> Result<()> {
-    const FIBONACCI_WASM: &[u8] = include_bytes!("./rust/out/fibonacci.wasm");
-    let module = Module::parse_bytes(FIBONACCI_WASM)?;
+    let module = Module::parse_file("./examples/rust/out/fibonacci.wasm")?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
