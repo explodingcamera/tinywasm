@@ -57,8 +57,8 @@ v0.4.1 (27551)
 v0.5.0 (27551)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="875,345 875,350 "/>
-<rect x="767" y="58" width="217" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="312" y="58" width="217" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="539" y="58" width="218" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="85" y="67" width="217" height="277" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="539" y="58" width="218" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="312" y="58" width="217" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="767" y="58" width="217" height="286" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>

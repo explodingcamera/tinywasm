@@ -44,12 +44,12 @@ v0.0.4 (9258)
 v0.4.0 (20254)
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="704,345 704,350 "/>
-<rect x="85" y="212" width="103" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="652" y="55" width="104" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="312" y="92" width="103" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="766" y="54" width="104" height="290" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="880" y="54" width="104" height="290" opacity="0.5" fill="#0000FF" stroke="none"/>
-<rect x="539" y="55" width="103" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="425" y="68" width="104" height="276" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="880" y="54" width="104" height="290" opacity="0.5" fill="#0000FF" stroke="none"/>
 <rect x="198" y="185" width="104" height="159" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="652" y="55" width="104" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="539" y="55" width="103" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="85" y="212" width="103" height="132" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="312" y="92" width="103" height="252" opacity="0.5" fill="#0000FF" stroke="none"/>
+<rect x="766" y="55" width="104" height="289" opacity="0.5" fill="#0000FF" stroke="none"/>
 </svg>
