@@ -155,7 +155,7 @@ trait FloatToken {
         }
     }
 }
-impl FloatToken for wast::token::Float32 {
+impl FloatToken for wast::token::F32 {
     fn bits(&self) -> Bits {
         Bits::U32(self.bits)
     }
@@ -168,7 +168,7 @@ impl FloatToken for wast::token::Float32 {
         WasmValue::F32(f32::NAN)
     }
 }
-impl FloatToken for wast::token::Float64 {
+impl FloatToken for wast::token::F64 {
     fn bits(&self) -> Bits {
         Bits::U64(self.bits)
     }

@@ -291,7 +291,7 @@ impl TestSuite {
                                 )?;
                                 return Ok(());
                             }
-                            wast::WastExecute::Get { module: _, global: _ } => {
+                            wast::WastExecute::Get { module: _, global: _, .. } => {
                                 panic!("get not supported");
                             }
                             wast::WastExecute::Invoke(invoke) => invoke,
@@ -395,7 +395,7 @@ impl TestSuite {
 
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
-                        wast::WastExecute::Get { module: module_id, global } => {
+                        wast::WastExecute::Get { module: module_id, global, .. } => {
                             let module = registered_modules.get(module_id, &store);
                             let Some(module) = module else {
                                 test_group.add_result(
