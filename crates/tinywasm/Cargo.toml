@@ -14,8 +14,8 @@ path="src/lib.rs"
 
 [dependencies]
 _log={version="0.4", optional=true, package="log"}
-tinywasm-parser={version="0.5.0", path="../parser", default-features=false, optional=true}
-tinywasm-types={version="0.5.0", path="../types", default-features=false}
+tinywasm-parser={version="0.6.0", path="../parser", default-features=false, optional=true}
+tinywasm-types={version="0.6.0", path="../types", default-features=false}
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
