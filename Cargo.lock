@@ -2066,7 +2066,7 @@ dependencies = [
  "tinywasm-parser",
  "tinywasm-types",
  "wasm-testsuite",
- "wast 201.0.0",
+ "wast 202.0.0",
 ]
 
 [[package]]
@@ -2078,7 +2078,7 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "tinywasm",
- "wast 201.0.0",
+ "wast 202.0.0",
 ]
 
 [[package]]
@@ -2111,9 +2111,9 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-wasmparser"
-version = "0.200.3"
+version = "0.202.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "365709f885b90cad71c71120414f99255e74d9d03f232618d9d1c6eb5db0ea99"
+checksum = "b02b9566a3c8b98f29dd9821d0584de1ad0290cdc9132296f66fbf4015001bb1"
 dependencies = [
  "ahash 0.8.11",
  "bitflags 2.5.0",
@@ -2298,9 +2298,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.201.0"
+version = "0.202.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9c7d2731df60006819b013f64ccc2019691deccf6e11a1804bc850cd6748f1a"
+checksum = "bfd106365a7f5f7aa3c1916a98cbb3ad477f5ff96ddb130285a91c6e7429e67a"
 dependencies = [
  "leb128",
 ]
@@ -2528,15 +2528,15 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "201.0.0"
+version = "202.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ef6e1ef34d7da3e2b374fd2b1a9c0227aff6cad596e1b24df9b58d0f6222faa"
+checksum = "1fbcb11204515c953c9b42ede0a46a1c5e17f82af05c4fae201a8efff1b0f4fe"
 dependencies = [
  "bumpalo",
  "leb128",
  "memchr",
  "unicode-width",
- "wasm-encoder 0.201.0",
+ "wasm-encoder 0.202.0",
 ]
 
 [[package]]

@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2024-03-27
+
+**All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.5.0...v0.6.0
 
 ### Added
 
@@ -13,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Improved documentation and added more tests (735c7cb636edfd4704460c94a9c7d65e5bf4df48)
+- Improved documentation and added more tests
 - Tests can now be run on more targets (#11)
 - Nightly version has been updated to fix broken builds in some cases (#12)
 - Add `aarch64-apple-darwin` and `armv7-unknown-linux-gnueabihf` targets to CI (#12)
