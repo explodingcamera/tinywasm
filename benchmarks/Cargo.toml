@@ -6,7 +6,7 @@ edition.workspace=true
 [dependencies]
 criterion={version="0.5", features=["html_reports"]}
 tinywasm={path="../crates/tinywasm", features=["unsafe"]}
-wat={version="1.205"}
+wat={version="1.206"}
 wasmi={version="0.31", features=["std"]}
 wasmer={version="4.2", features=["cranelift", "singlepass"]}
 argon2={version="0.5"}
