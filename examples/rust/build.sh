@@ -6,7 +6,7 @@ exclude_wat=("tinywasm")
 out_dir="./target/wasm32-unknown-unknown/wasm"
 dest_dir="out"
 
-features="+reference-types,+bulk-memory,+mutable-globals"
+features="+reference-types,+bulk-memory,+mutable-globals,+multivalue"
 
 # ensure out dir exists
 mkdir -p "$dest_dir"

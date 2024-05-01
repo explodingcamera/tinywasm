@@ -35,7 +35,7 @@ use alloc::{string::ToString, vec::Vec};
 pub use error::*;
 use module::ModuleReader;
 use tinywasm_types::WasmFunction;
-use wasmparser::{Validator, WasmFeatures};
+use wasmparser::{Validator, WasmFeaturesInflated};
 
 pub use tinywasm_types::TinyWasmModule;
 
@@ -50,7 +50,7 @@ impl Parser {
     }
 
     fn create_validator(&self) -> Validator {
-        let features = WasmFeatures {
+        let features = WasmFeaturesInflated {
             bulk_memory: true,
             floats: true,
             multi_value: true,
@@ -73,8 +73,10 @@ impl Parser {
             tail_call: false,
             threads: false,
             multi_memory: false, // should be working mostly
+            custom_page_sizes: false,
+            shared_everything_threads: false,
         };
-        Validator::new_with_features(features)
+        Validator::new_with_features(features.into())
     }
 
     /// Parse a [`TinyWasmModule`] from bytes

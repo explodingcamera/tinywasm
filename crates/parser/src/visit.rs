@@ -117,12 +117,26 @@ impl FunctionBuilder {
     }
 }
 
+macro_rules! impl_visit_operator {
+    ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
+        $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit);)*
+    };
+
+    (@@mvp $($rest:tt)* ) => {};
+    (@@reference_types $($rest:tt)* ) => {};
+    (@@sign_extension $($rest:tt)* ) => {};
+    (@@saturating_float_to_int $($rest:tt)* ) => {};
+    (@@bulk_memory $($rest:tt)* ) => {};
+    (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
+        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Result<()>{
+            self.unsupported(stringify!($visit))
+        }
+    };
+}
+
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     type Output = Result<()>;
-
-    fn visit_default(&mut self, op: &str) -> Self::Output {
-        self.unsupported(op)
-    }
+    wasmparser::for_each_operator!(impl_visit_operator);
 
     define_primitive_operands! {
         visit_br, Instruction::Br, u32,
