@@ -36,7 +36,7 @@ All runtimes are compiled with the following settings:
 | ------------ | -------- | ---------- | --------- | -------------------- |
 | `fib`        | \*\*     | ` 43.60µs` | `48.27µs` | ` 44.99µs`           |
 | `fib-rec`    | `0.27ms` | ` 21.13ms` | ` 4.63ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 99.16ms` | `45.00ms` | `  4.59ms`           |
+| `argon2id`   | `0.53ms` | ` 86.16ms` | `45.00ms` | `  4.59ms`           |
 | `selfhosted` | `0.05ms` | `  1.84ms` | ` 6.51ms` | `446.48ms`           |
 
 _\* Uses tinywasm's internal module format instead of `wasm`. It takes ~5.7ms to parse and validate `tinywasm.wasm`._

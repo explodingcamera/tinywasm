@@ -84,16 +84,14 @@ pub enum Instruction {
     // Custom Instructions
     BrLabel(LabelAddr),
 
-    // Not implemented yet
     // LocalGet + I32Const + I32Add
     // One of the most common patterns in the Rust compiler output
-    // I32LocalGetConstAdd(LocalAddr, i32),
+    I32LocalGetConstAdd(LocalAddr, i32),
 
-    // Not implemented yet
     // LocalGet + I32Const + I32Store => I32LocalGetConstStore + I32Const
     // Also common, helps us skip the stack entirely.
     // Has to be followed by an I32Const instruction
-    // I32StoreLocal { local: LocalAddr, offset: i32, mem_addr: MemAddr },
+    I32StoreLocal { local: LocalAddr, consti32: i32, offset: u32, mem_addr: u8 },
 
     // I64Xor + I64Const + I64RotL
     // Commonly used by a few crypto libraries

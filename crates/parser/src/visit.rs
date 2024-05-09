@@ -162,7 +162,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_load16_u, I64Load16U,
         visit_i64_load32_s, I64Load32S,
         visit_i64_load32_u, I64Load32U,
-        visit_i32_store, I32Store,
+        // visit_i32_store, I32Store,
         visit_i64_store, I64Store,
         visit_f32_store, F32Store,
         visit_f64_store, F64Store,
@@ -321,6 +321,37 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
     }
 
+    fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        let arg = convert_memarg(memarg);
+        let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
+
+        if self.instructions.len() < 3 {
+            return self.visit(i32store);
+        }
+
+        #[cold]
+        fn cold() {}
+
+        if arg.mem_addr > 0xFF || arg.offset > 0xFFFF_FFFF {
+            cold();
+            return self.visit(i32store);
+        }
+
+        match self.instructions[self.instructions.len() - 2..] {
+            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
+                self.instructions.pop();
+                self.instructions.pop();
+                self.visit(Instruction::I32StoreLocal {
+                    local: a,
+                    consti32: b,
+                    offset: arg.offset as u32,
+                    mem_addr: arg.mem_addr as u8,
+                })
+            }
+            _ => self.visit(i32store),
+        }
+    }
+
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         if let Some(instruction) = self.instructions.last_mut() {
             match instruction {
@@ -369,19 +400,18 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        self.visit(Instruction::I32Add)
-        // if self.instructions.len() < 2 {
-        //     return self.visit(Instruction::I32Add);
-        // }
+        if self.instructions.len() < 2 {
+            return self.visit(Instruction::I32Add);
+        }
 
-        // match self.instructions[self.instructions.len() - 2..] {
-        //     // [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-        //     //     self.instructions.pop();
-        //     //     self.instructions.pop();
-        //     //     self.visit(Instruction::I32LocalGetConstAdd(a, b))
-        //     // }
-        //     _ => self.visit(Instruction::I32Add),
-        // }
+        match self.instructions[self.instructions.len() - 2..] {
+            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
+                self.instructions.pop();
+                self.instructions.pop();
+                self.visit(Instruction::I32LocalGetConstAdd(a, b))
+            }
+            _ => self.visit(Instruction::I32Add),
+        }
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {

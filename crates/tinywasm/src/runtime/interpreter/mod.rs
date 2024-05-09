@@ -689,6 +689,21 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let res = val ^ mask;
             stack.values.push(res.rotate_left(*rotate_by as u32).into());
         }
+
+        I32LocalGetConstAdd(local, val) => {
+            let local: i32 = cf.get_local(*local as usize).into();
+            stack.values.push((local + *val).into());
+        }
+
+        I32StoreLocal { local, consti32, offset, mem_addr } => {
+            let (mem_addr, offset) = (*mem_addr as u32, *offset as u32);
+            let mem = store.get_mem(module.resolve_mem_addr(mem_addr) as usize)?;
+            let val = consti32;
+            let val = val.to_le_bytes();
+            let addr: u64 = cf.get_local(*local as usize).into();
+            mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
+        }
+
         i => {
             cold();
             log::error!("unimplemented instruction: {:?}", i);
