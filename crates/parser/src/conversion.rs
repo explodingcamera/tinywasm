@@ -80,8 +80,16 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
             wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
             wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
                 element_type: convert_reftype(&ty.element_type),
-                size_initial: ty.initial,
-                size_max: ty.maximum,
+                size_initial: ty.initial.try_into().map_err(|_| {
+                    crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
+                })?,
+                size_max: if let Some(max) = ty.maximum {
+                    Some(max.try_into().map_err(|_| {
+                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
+                    })?)
+                } else {
+                    None
+                },
             }),
             wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
             wasmparser::TypeRef::Global(ty) => {
@@ -123,7 +131,20 @@ pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Resul
 
 pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
     let ty = convert_reftype(&table.ty.element_type);
-    Ok(TableType { element_type: ty, size_initial: table.ty.initial, size_max: table.ty.maximum })
+
+    let size_initial = table.ty.initial.try_into().map_err(|_| {
+        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
+    })?;
+    let size_max = if let Some(max) = table.ty.maximum {
+        Some(
+            max.try_into()
+                .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max)))?,
+        )
+    } else {
+        None
+    };
+
+    Ok(TableType { element_type: ty, size_initial: size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
