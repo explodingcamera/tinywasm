@@ -2048,7 +2048,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tinywasm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "eyre",
  "libm",
@@ -2065,7 +2065,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "argh",
  "color-eyre",
@@ -2077,7 +2077,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-parser"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "log",
  "tinywasm-types",
@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-types"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bytecheck 0.7.0",
  "log",
@@ -2337,7 +2337,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-testsuite"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rust-embed",
 ]
