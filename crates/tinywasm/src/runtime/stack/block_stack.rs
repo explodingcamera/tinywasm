@@ -2,10 +2,16 @@ use crate::{unlikely, Error, ModuleInstance, Result};
 use alloc::vec::Vec;
 use tinywasm_types::BlockArgs;
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct BlockStack(Vec<BlockFrame>); // TODO: maybe Box<[LabelFrame]> by analyzing the label count when parsing the module?
+#[derive(Debug, Clone)]
+pub(crate) struct BlockStack(Vec<BlockFrame>);
 
 impl BlockStack {
+    pub(crate) fn new() -> Self {
+        let mut vec = Vec::new();
+        vec.reserve(128); // gives a slight performance over with_capacity
+        Self(vec)
+    }
+
     #[inline]
     pub(crate) fn len(&self) -> usize {
         self.0.len()

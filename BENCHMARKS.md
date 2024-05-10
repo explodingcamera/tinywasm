@@ -26,22 +26,18 @@ All runtimes are compiled with the following settings:
 
 ## Versions
 
-- `tinywasm`: `0.4.1`
+- `tinywasm`: `0.6.2`
 - `wasmi`: `0.31.2`
-- `wasmer`: `4.2.5`
+- `wasmer`: `4.2.8`
 
 ## Results
 
-| Benchmark    | Native   | TinyWasm\* | Wasmi     | Wasmer (Single Pass) |
+| Benchmark    | Native   | TinyWasm   | Wasmi     | Wasmer (Single Pass) |
 | ------------ | -------- | ---------- | --------- | -------------------- |
-| `fib`        | \*\*     | ` 43.60µs` | `48.27µs` | ` 44.99µs`           |
-| `fib-rec`    | `0.27ms` | ` 21.13ms` | ` 4.63ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 86.16ms` | `45.00ms` | `  4.59ms`           |
-| `selfhosted` | `0.05ms` | `  1.84ms` | ` 6.51ms` | `446.48ms`           |
-
-_\* Uses tinywasm's internal module format instead of `wasm`. It takes ~5.7ms to parse and validate `tinywasm.wasm`._
-
-_\*\* essentially instant as it gets computed at compile time._
+| `fib`        | `0ms`    | ` 19.09µs` | `18.53µs` | ` 48.09µs`           |
+| `fib-rec`    | `0.27ms` | ` 22.22ms` | ` 4.96ms` | `  0.47ms`           |
+| `argon2id`   | `0.53ms` | ` 86.42ms` | `46.36ms` | `  4.82ms`           |
+| `selfhosted` | `0.05ms` | `  7.26ms` | ` 6.51ms` | `446.48ms`           |
 
 ### Fib
 

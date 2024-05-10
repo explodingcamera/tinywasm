@@ -20,7 +20,7 @@ impl TableInstance {
         Self { elements: vec![TableElement::Uninitialized; kind.size_initial as usize], kind, _owner: owner }
     }
 
-    pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue> {
+    pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue> {
         let val = self.get(addr)?.addr();
 
         Ok(match self.kind.element_type {
@@ -30,12 +30,13 @@ impl TableInstance {
         })
     }
 
-    pub(crate) fn get(&self, addr: usize) -> Result<&TableElement> {
-        self.elements.get(addr).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr }))
+    pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement> {
+        self.elements.get(addr as usize).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr as usize }))
     }
 
-    pub(crate) fn set(&mut self, table_idx: usize, value: Addr) -> Result<()> {
-        self.grow_to_fit(table_idx + 1).map(|_| self.elements[table_idx] = TableElement::Initialized(value))
+    pub(crate) fn set(&mut self, table_idx: TableAddr, value: Addr) -> Result<()> {
+        self.grow_to_fit(table_idx as usize + 1)
+            .map(|_| self.elements[table_idx as usize] = TableElement::Initialized(value))
     }
 
     pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Result<()> {

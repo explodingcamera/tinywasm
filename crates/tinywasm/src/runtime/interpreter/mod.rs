@@ -22,42 +22,39 @@ use no_std_floats::NoStdFloatExt;
 impl InterpreterRuntime {
     // #[inline(always)] // a small 2-3% performance improvement in some cases
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
-        // The current call frame, gets updated inside of exec_one
-        let mut cf = stack.call_stack.pop()?;
-
-        // The function to execute, gets updated from ExecResult::Call
-        let mut current_module = store.get_module_instance_raw(cf.func_instance.1);
+        let mut call_frame = stack.call_stack.pop()?;
+        let mut current_module = store.get_module_instance_raw(call_frame.func_instance.1);
 
         loop {
-            match exec_one(&mut cf, stack, store, &current_module) {
+            match exec_one(&mut call_frame, stack, store, &current_module) {
+                // return from the function
+                Ok(ExecResult::Return) => return Ok(()),
+
+                // continue to the next instruction and increment the instruction pointer
+                Ok(ExecResult::Ok) => call_frame.instr_ptr += 1,
+
                 // Continue execution at the new top of the call stack
                 Ok(ExecResult::Call) => {
-                    let old = cf.block_ptr;
-                    cf = stack.call_stack.pop()?;
+                    let old = call_frame.block_ptr;
+                    call_frame = stack.call_stack.pop()?;
 
-                    if old > cf.block_ptr {
+                    if old > call_frame.block_ptr {
                         stack.blocks.truncate(old);
                     }
 
                     // keeping the pointer seperate from the call frame is about 2% faster
                     // than storing it in the call frame
-                    if cf.func_instance.1 != current_module.id() {
-                        current_module.swap_with(cf.func_instance.1, store);
+                    if call_frame.func_instance.1 != current_module.id() {
+                        current_module.swap_with(call_frame.func_instance.1, store);
                     }
                 }
 
-                // return from the function
-                Ok(ExecResult::Return) => return Ok(()),
-
-                // continue to the next instruction and increment the instruction pointer
-                Ok(ExecResult::Ok) => cf.instr_ptr += 1,
-
                 // trap the program
                 Err(error) => {
-                    cf.instr_ptr += 1;
+                    call_frame.instr_ptr += 1;
                     // push the call frame back onto the stack so that it can be resumed
                     // if the trap can be handled
-                    stack.call_stack.push(cf)?;
+                    stack.call_stack.push(call_frame)?;
                     return Err(error);
                 }
             }
@@ -89,7 +86,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
     // unreasonable complexity. This *should* be optimized to a jump table.
     // See https://pliniker.github.io/post/dispatchers/
     use tinywasm_types::Instruction::*;
-    match cf.current_instruction() {
+    match &instrs[cf.instr_ptr as usize] {
         Nop => { /* do nothing */ }
         Unreachable => {
             cold();
@@ -113,8 +110,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         Call(v) => {
             // prepare the call frame
-            let func_idx = module.resolve_func_addr(*v);
-            let func_inst = store.get_func(func_idx as usize)?.clone();
+            let func_inst = store.get_func(module.resolve_func_addr(*v))?.clone();
 
             let wasm_func = match &func_inst.func {
                 crate::Function::Wasm(wasm_func) => wasm_func.clone(),
@@ -140,17 +136,17 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         CallIndirect(type_addr, table_addr) => {
-            let table = store.get_table(module.resolve_table_addr(*table_addr) as usize)?;
+            let table = store.get_table(module.resolve_table_addr(*table_addr))?;
             let table_idx = stack.values.pop_t::<u32>()?;
 
             // verify that the table is of the right type, this should be validated by the parser already
             let func_ref = {
                 let table = table.borrow();
                 assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
-                table.get(table_idx as usize)?.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize })?
+                table.get(table_idx)?.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize })?
             };
 
-            let func_inst = store.get_func(func_ref as usize)?.clone();
+            let func_inst = store.get_func(func_ref)?.clone();
             let call_ty = module.func_ty(*type_addr);
 
             let wasm_func = match func_inst.func {
@@ -315,22 +311,21 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             stack.values.truncate_keep(block.stack_ptr, block.results as u32);
         }
 
-        LocalGet(local_index) => stack.values.push(cf.get_local(*local_index as usize)),
-        LocalSet(local_index) => cf.set_local(*local_index as usize, stack.values.pop()?),
+        LocalGet(local_index) => stack.values.push(cf.get_local(*local_index)),
+        LocalSet(local_index) => cf.set_local(*local_index, stack.values.pop()?),
         LocalTee(local_index) => cf.set_local(
-            *local_index as usize,
+            *local_index,
             *stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser"),
         ),
 
         GlobalGet(global_index) => {
-            let idx = module.resolve_global_addr(*global_index);
-            let global = store.get_global_val(idx as usize)?;
+            let global = store.get_global_val(module.resolve_global_addr(*global_index))?;
             stack.values.push(global);
         }
 
         GlobalSet(global_index) => {
             let idx = module.resolve_global_addr(*global_index);
-            store.set_global_val(idx as usize, stack.values.pop()?)?;
+            store.set_global_val(idx, stack.values.pop()?)?;
         }
 
         I32Const(val) => stack.values.push((*val).into()),
@@ -344,7 +339,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             let mem_idx = module.resolve_mem_addr(*addr);
-            let mem = store.get_mem(mem_idx as usize)?;
+            let mem = store.get_mem(mem_idx)?;
             stack.values.push((mem.borrow().page_count() as i32).into());
         }
 
@@ -353,16 +348,11 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
             }
 
-            let mem_idx = module.resolve_mem_addr(*addr);
-            let mem = store.get_mem(mem_idx as usize)?;
+            let mem = store.get_mem(module.resolve_mem_addr(*addr))?;
+            let mut mem = mem.borrow_mut();
+            let prev_size = mem.page_count() as i32;
 
-            let (res, prev_size) = {
-                let mut mem = mem.borrow_mut();
-                let prev_size = mem.page_count() as i32;
-                (mem.grow(stack.values.pop_t::<i32>()?), prev_size)
-            };
-
-            match res {
+            match mem.grow(stack.values.pop_t::<i32>()?) {
                 Some(_) => stack.values.push(prev_size.into()),
                 None => stack.values.push((-1).into()),
             }
@@ -374,7 +364,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let src: i32 = stack.values.pop()?.into();
             let dst: i32 = stack.values.pop()?.into();
 
-            let mem = store.get_mem(module.resolve_mem_addr(*from) as usize)?;
+            let mem = store.get_mem(module.resolve_mem_addr(*from))?;
             let mut mem = mem.borrow_mut();
 
             if from == to {
@@ -382,7 +372,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 mem.copy_within(dst as usize, src as usize, size as usize)?;
             } else {
                 // copy between two memories
-                let mem2 = store.get_mem(module.resolve_mem_addr(*to) as usize)?;
+                let mem2 = store.get_mem(module.resolve_mem_addr(*to))?;
                 let mut mem2 = mem2.borrow_mut();
                 mem2.copy_from_slice(dst as usize, mem.load(src as usize, size as usize)?)?;
             }
@@ -393,9 +383,8 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let val: i32 = stack.values.pop()?.into();
             let dst: i32 = stack.values.pop()?.into();
 
-            let mem = store.get_mem(module.resolve_mem_addr(*addr) as usize)?;
-            let mut mem = mem.borrow_mut();
-            mem.fill(dst as usize, size as usize, val as u8)?;
+            let mem = store.get_mem(module.resolve_mem_addr(*addr))?;
+            mem.borrow_mut().fill(dst as usize, size as usize, val as u8)?;
         }
 
         MemoryInit(data_index, mem_index) => {
@@ -403,7 +392,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let offset = stack.values.pop_t::<i32>()? as usize;
             let dst = stack.values.pop_t::<i32>()? as usize;
 
-            let data = match &store.get_data(module.resolve_data_addr(*data_index) as usize)?.data {
+            let data = match &store.get_data(module.resolve_data_addr(*data_index))?.data {
                 Some(data) => data,
                 None => return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()),
             };
@@ -412,18 +401,11 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 return Err(Trap::MemoryOutOfBounds { offset, len: size, max: data.len() }.into());
             }
 
-            let mem = store.get_mem(module.resolve_mem_addr(*mem_index) as usize)?;
-            let mut mem = mem.borrow_mut();
-
-            // mem.store checks bounds
-            mem.store(dst, size, &data[offset..(offset + size)])?;
+            let mem = store.get_mem(module.resolve_mem_addr(*mem_index))?;
+            mem.borrow_mut().store(dst, size, &data[offset..(offset + size)])?; // mem.store checks bounds
         }
 
-        DataDrop(data_index) => {
-            let data_idx = module.resolve_data_addr(*data_index);
-            let data = store.get_data_mut(data_idx as usize)?;
-            data.drop();
-        }
+        DataDrop(data_index) => store.get_data_mut(module.resolve_data_addr(*data_index))?.drop(),
 
         I32Store { mem_addr, offset } => mem_store!(i32, (mem_addr, offset), stack, store, module),
         I64Store { mem_addr, offset } => mem_store!(i64, (mem_addr, offset), stack, store, module),
@@ -600,32 +582,28 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         TableGet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
-            let table = store.get_table(table_idx as usize)?;
-            let idx = stack.values.pop_t::<i32>()? as usize;
+            let table = store.get_table(table_idx)?;
+            let idx = stack.values.pop_t::<u32>()?;
             let v = table.borrow().get_wasm_val(idx)?;
             stack.values.push(v.into());
         }
 
         TableSet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
-            let table = store.get_table(table_idx as usize)?;
+            let table = store.get_table(table_idx)?;
             let val = stack.values.pop_t::<u32>()?;
-            let idx = stack.values.pop_t::<u32>()? as usize;
+            let idx = stack.values.pop_t::<u32>()?;
             table.borrow_mut().set(idx, val)?;
         }
 
         TableSize(table_index) => {
-            let table_idx = module.resolve_table_addr(*table_index);
-            let table = store.get_table(table_idx as usize)?;
+            let table = store.get_table(module.resolve_table_addr(*table_index))?;
             stack.values.push(table.borrow().size().into());
         }
 
         TableInit(table_index, elem_index) => {
-            let table_idx = module.resolve_table_addr(*table_index);
-            let table = store.get_table(table_idx as usize)?;
-
-            let elem_idx = module.resolve_elem_addr(*elem_index);
-            let elem = store.get_elem(elem_idx as usize)?;
+            let table = store.get_table(module.resolve_table_addr(*table_index))?;
+            let elem = store.get_elem(module.resolve_elem_addr(*elem_index))?;
 
             if let ElementKind::Passive = elem.kind {
                 return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
@@ -648,62 +626,41 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, stack),
 
         // custom instructions
-        LocalGet2(a, b) => {
-            stack.values.extend_from_slice(&[cf.get_local(*a as usize), cf.get_local(*b as usize)]);
-        }
-        LocalGet3(a, b, c) => {
-            stack.values.extend_from_slice(&[
-                cf.get_local(*a as usize),
-                cf.get_local(*b as usize),
-                cf.get_local(*c as usize),
-            ]);
-        }
-        // LocalGet4(a, b, c, d) => {
-        //     stack.values.extend_from_slice(&[
-        //         cf.get_local(*a as usize),
-        //         cf.get_local(*b as usize),
-        //         cf.get_local(*c as usize),
-        //         cf.get_local(*d as usize),
-        //     ]);
-        // }
+        LocalGet2(a, b) => stack.values.extend_from_slice(&[cf.get_local(*a), cf.get_local(*b)]),
+        LocalGet3(a, b, c) => stack.values.extend_from_slice(&[cf.get_local(*a), cf.get_local(*b), cf.get_local(*c)]),
+
         LocalTeeGet(a, b) => {
-            #[inline]
-            fn local_tee_get(cf: &mut CallFrame, stack: &mut Stack, a: u32, b: u32) -> Result<()> {
-                let last = *stack
-                    .values
-                    .last()
-                    .expect("localtee: stack is empty. this should have been validated by the parser");
-                cf.set_local(a as usize, last);
-                stack.values.push(cf.get_local(b as usize));
-                Ok(())
+            #[inline(always)]
+            fn local_tee_get(cf: &mut CallFrame, stack: &mut Stack, a: u32, b: u32) {
+                let last = match stack.values.last() {
+                    Ok(v) => v,
+                    Err(_) => unreachable!("localtee: stack is empty. this should have been validated by the parser"),
+                };
+
+                cf.set_local(a, *last);
+                stack.values.push(cf.get_local(b));
             }
-            local_tee_get(cf, stack, *a, *b)?;
+
+            local_tee_get(cf, stack, *a, *b);
         }
-        LocalGetSet(a, b) => {
-            let a = cf.get_local(*a as usize);
-            cf.set_local(*b as usize, a);
-        }
+        LocalGetSet(a, b) => cf.set_local(*b, cf.get_local(*a)),
         I64XorConstRotl(rotate_by) => {
-            let val = stack.values.pop_t::<i64>()?;
-            let mask = stack.values.pop_t::<i64>()?;
+            let val: i64 = stack.values.pop()?.into();
+            let mask: i64 = stack.values.pop()?.into();
             let res = val ^ mask;
             stack.values.push(res.rotate_left(*rotate_by as u32).into());
         }
-
         I32LocalGetConstAdd(local, val) => {
-            let local: i32 = cf.get_local(*local as usize).into();
+            let local: i32 = cf.get_local(*local).into();
             stack.values.push((local + *val).into());
         }
-
-        I32StoreLocal { local, consti32, offset, mem_addr } => {
+        I32StoreLocal { local, const_i32: consti32, offset, mem_addr } => {
             let (mem_addr, offset) = (*mem_addr as u32, *offset as u32);
-            let mem = store.get_mem(module.resolve_mem_addr(mem_addr) as usize)?;
-            let val = consti32;
-            let val = val.to_le_bytes();
-            let addr: u64 = cf.get_local(*local as usize).into();
+            let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
+            let val = consti32.to_le_bytes();
+            let addr: u64 = cf.get_local(*local).into();
             mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
         }
-
         i => {
             cold();
             log::error!("unimplemented instruction: {:?}", i);

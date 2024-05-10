@@ -343,7 +343,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                 self.instructions.pop();
                 self.visit(Instruction::I32StoreLocal {
                     local: a,
-                    consti32: b,
+                    const_i32: b,
                     offset: arg.offset as u32,
                     mem_addr: arg.mem_addr as u8,
                 })

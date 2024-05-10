@@ -13,17 +13,17 @@ if len(sys.argv) < 2:
 file_path = sys.argv[1]
 
 # Regex to match WASM operators, adjust as necessary
-operator_pattern = re.compile(r'\b[a-z0-9_]+\.[a-z0-9_]+\b')
+operator_pattern = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
 
 # Read the file
-with open(file_path, 'r') as file:
+with open(file_path, "r") as file:
     content = file.read()
 
 # Find all operators
 operators = operator_pattern.findall(content)
 
 # Generate sequences of three consecutive operators
-sequences = [' '.join(operators[i:i+seq_len]) for i in range(len(operators) - 2)]
+sequences = [" ".join(operators[i : i + seq_len]) for i in range(len(operators) - 2)]
 
 # Count occurrences of each sequence
 sequence_counts = Counter(sequences)

@@ -4,8 +4,7 @@ use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
-pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024;
-// pub(crate) const MAX_VALUE_STACK_SIZE: usize = 1024 * 1024;
+pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024 * 128;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
@@ -14,7 +13,9 @@ pub(crate) struct ValueStack {
 
 impl Default for ValueStack {
     fn default() -> Self {
-        Self { stack: Vec::with_capacity(MIN_VALUE_STACK_SIZE) }
+        let mut vec = Vec::new();
+        vec.reserve(MIN_VALUE_STACK_SIZE); // gives a slight performance over with_capacity
+        Self { stack: vec }
     }
 }
 
@@ -85,7 +86,7 @@ impl ValueStack {
         match self.stack.pop() {
             Some(v) => Ok(v.into()),
             None => {
-                cold();
+                cold(); // 20+ performance improvement most of the time
                 Err(Error::ValueStackUnderflow)
             }
         }
@@ -104,8 +105,7 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        let res = self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect();
-        Ok(res)
+        Ok(self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect())
     }
 
     #[inline]

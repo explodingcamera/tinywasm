@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use tinywasm_types::{Instruction, ModuleInstanceAddr, WasmFunction};
+use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
 
 use crate::runtime::{BlockType, RawWasmValue};
 use crate::unlikely;
@@ -136,22 +136,17 @@ impl CallFrame {
     }
 
     #[inline]
-    pub(crate) fn set_local(&mut self, local_index: usize, value: RawWasmValue) {
-        self.locals[local_index] = value;
+    pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: RawWasmValue) {
+        self.locals[local_index as usize] = value;
     }
 
     #[inline]
-    pub(crate) fn get_local(&self, local_index: usize) -> RawWasmValue {
-        self.locals[local_index]
+    pub(crate) fn get_local(&self, local_index: LocalAddr) -> RawWasmValue {
+        self.locals[local_index as usize]
     }
 
     #[inline(always)]
     pub(crate) fn instructions(&self) -> &[Instruction] {
         &self.func_instance.0.instructions
-    }
-
-    #[inline(always)]
-    pub(crate) fn current_instruction(&self) -> &Instruction {
-        &self.func_instance.0.instructions[self.instr_ptr as usize]
     }
 }

@@ -2,7 +2,7 @@ mod block_stack;
 mod call_stack;
 mod value_stack;
 
-use self::{call_stack::CallStack, value_stack::ValueStack};
+pub(crate) use self::{call_stack::CallStack, value_stack::ValueStack};
 pub(crate) use block_stack::{BlockFrame, BlockStack, BlockType};
 pub(crate) use call_stack::CallFrame;
 
@@ -16,6 +16,6 @@ pub struct Stack {
 
 impl Stack {
     pub(crate) fn new(call_frame: CallFrame) -> Self {
-        Self { values: ValueStack::default(), blocks: BlockStack::default(), call_stack: CallStack::new(call_frame) }
+        Self { values: ValueStack::default(), blocks: BlockStack::new(), call_stack: CallStack::new(call_frame) }
     }
 }

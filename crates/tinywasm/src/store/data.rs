@@ -15,13 +15,7 @@ impl DataInstance {
         Self { data, _owner: owner }
     }
 
-    pub(crate) fn drop(&mut self) -> Option<()> {
-        match self.data {
-            None => None,
-            Some(_) => {
-                let _ = self.data.take();
-                Some(())
-            }
-        }
+    pub(crate) fn drop(&mut self) {
+        self.data.is_some().then(|| self.data.take());
     }
 }

@@ -2,7 +2,7 @@ use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
-use crate::{log, Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store};
+use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store};
 
 /// An instanciated WebAssembly module
 ///
@@ -61,13 +61,9 @@ impl ModuleInstance {
         // don't need to create a auxiliary frame etc.
 
         let idx = store.next_module_instance_idx();
-        log::info!("Instantiating module at index {}", idx);
-        let imports = imports.unwrap_or_default();
-
-        let mut addrs = imports.link(store, &module, idx)?;
+        let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
         let data = module.data;
 
-        // TODO: check if the compiler correctly optimizes this to prevent wasted allocations
         addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
         addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
@@ -110,15 +106,14 @@ impl ModuleInstance {
     /// Get a export by name
     pub fn export_addr(&self, name: &str) -> Option<ExternVal> {
         let exports = self.0.exports.iter().find(|e| e.name == name.into())?;
-        let kind = exports.kind.clone();
-        let addr = match kind {
+        let addr = match exports.kind {
             ExternalKind::Func => self.0.func_addrs.get(exports.index as usize)?,
             ExternalKind::Table => self.0.table_addrs.get(exports.index as usize)?,
             ExternalKind::Memory => self.0.mem_addrs.get(exports.index as usize)?,
             ExternalKind::Global => self.0.global_addrs.get(exports.index as usize)?,
         };
 
-        Some(ExternVal::new(kind, *addr))
+        Some(ExternVal::new(exports.kind.clone(), *addr))
     }
 
     #[inline]
@@ -183,7 +178,7 @@ impl ModuleInstance {
             return Err(Error::Other(format!("Export is not a function: {}", name)));
         };
 
-        let func_inst = store.get_func(func_addr as usize)?;
+        let func_inst = store.get_func(func_addr)?;
         let ty = func_inst.func.ty();
 
         Ok(FuncHandle { addr: func_addr, module_addr: self.id(), name: Some(name.to_string()), ty: ty.clone() })
@@ -205,8 +200,8 @@ impl ModuleInstance {
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {}", name)));
         };
-        let mem = self.memory(store, mem_addr)?;
-        Ok(mem)
+
+        self.memory(store, mem_addr)
     }
 
     /// Get an exported memory by name
@@ -215,21 +210,19 @@ impl ModuleInstance {
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {}", name)));
         };
-        let mem = self.memory_mut(store, mem_addr)?;
-        Ok(mem)
+
+        self.memory_mut(store, mem_addr)
     }
 
     /// Get a memory by address
     pub fn memory<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
-        let addr = self.resolve_mem_addr(addr);
-        let mem = store.get_mem(addr as usize)?;
+        let mem = store.get_mem(self.resolve_mem_addr(addr))?;
         Ok(MemoryRef { instance: mem.borrow() })
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
-        let addr = self.resolve_mem_addr(addr);
-        let mem = store.get_mem(addr as usize)?;
+        let mem = store.get_mem(self.resolve_mem_addr(addr))?;
         Ok(MemoryRefMut { instance: mem.borrow_mut() })
     }
 
@@ -257,7 +250,7 @@ impl ModuleInstance {
         };
 
         let func_addr = self.0.func_addrs.get(func_index as usize).expect("No func addr for start func, this is a bug");
-        let func_inst = store.get_func(*func_addr as usize)?;
+        let func_inst = store.get_func(*func_addr)?;
         let ty = func_inst.func.ty();
 
         Ok(Some(FuncHandle { module_addr: self.id(), addr: *func_addr, ty: ty.clone(), name: None }))

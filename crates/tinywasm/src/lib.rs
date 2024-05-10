@@ -93,15 +93,13 @@ pub(crate) mod log {
 }
 
 mod error;
-pub use {
-    error::*,
-    func::{FuncHandle, FuncHandleTyped},
-    imports::*,
-    instance::ModuleInstance,
-    module::Module,
-    reference::*,
-    store::*,
-};
+pub use error::*;
+pub use func::{FuncHandle, FuncHandleTyped};
+pub use imports::*;
+pub use instance::ModuleInstance;
+pub use module::Module;
+pub use reference::*;
+pub use store::*;
 
 mod func;
 mod imports;

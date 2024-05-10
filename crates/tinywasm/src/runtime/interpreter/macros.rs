@@ -30,27 +30,24 @@ macro_rules! mem_load {
         let (mem_addr, offset) = $arg;
 
         let mem_idx = $module.resolve_mem_addr(*mem_addr);
-        let mem = $store.get_mem(mem_idx as usize)?;
+        let mem = $store.get_mem(mem_idx)?;
         let mem_ref = mem.borrow_mut();
 
-        let addr: u64 = $stack.values.pop()?.into();
-        let addr = offset.checked_add(addr).ok_or_else(|| {
+        let memory_out_of_bounds = || {
             cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: *offset as usize,
                 len: core::mem::size_of::<$load_type>(),
                 max: mem_ref.max_pages(),
             })
-        })?;
+        };
 
-        let addr: usize = addr.try_into().ok().ok_or_else(|| {
-            cold();
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: *offset as usize,
-                len: core::mem::size_of::<$load_type>(),
-                max: mem_ref.max_pages(),
-            })
-        })?;
+        let addr: usize = offset
+            .checked_add($stack.values.pop()?.into())
+            .ok_or_else(memory_out_of_bounds)?
+            .try_into()
+            .ok()
+            .ok_or_else(memory_out_of_bounds)?;
 
         const LEN: usize = core::mem::size_of::<$load_type>();
         let val = mem_ref.load_as::<LEN, $load_type>(addr)?;
@@ -66,10 +63,11 @@ macro_rules! mem_store {
 
     ($store_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
         let (mem_addr, offset) = $arg;
-        let mem = $store.get_mem($module.resolve_mem_addr(*mem_addr) as usize)?;
+        let mem = $store.get_mem($module.resolve_mem_addr(*mem_addr))?;
         let val: $store_type = $stack.values.pop()?.into();
         let val = val.to_le_bytes();
         let addr: u64 = $stack.values.pop()?.into();
+
         mem.borrow_mut().store((*offset + addr) as usize, val.len(), &val)?;
     }};
 }
@@ -163,8 +161,7 @@ macro_rules! arithmetic {
 /// Apply an arithmetic method to a single value on the stack
 macro_rules! arithmetic_single {
     ($op:ident, $ty:ty, $stack:ident) => {{
-        let a: $ty = $stack.values.pop()?.into();
-        $stack.values.push((a.$op() as $ty).into());
+        arithmetic_single!($op, $ty, $ty, $stack)
     }};
 
     ($op:ident, $from:ty, $to:ty, $stack:ident) => {{

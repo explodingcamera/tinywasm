@@ -49,7 +49,7 @@ impl FuncHandle {
             return Err(Error::Other("Type mismatch".into()));
         }
 
-        let func_inst = store.get_func(self.addr as usize)?;
+        let func_inst = store.get_func(self.addr)?;
         let wasm_func = match &func_inst.func {
             Function::Host(host_func) => {
                 let func = &host_func.clone().func;

@@ -226,11 +226,8 @@ pub struct Imports {
 }
 
 pub(crate) enum ResolvedExtern<S, V> {
-    // already in the store
-    Store(S),
-
-    // needs to be added to the store, provided value
-    Extern(V),
+    Store(S),  // already in the store
+    Extern(V), // needs to be added to the store, provided value
 }
 
 pub(crate) struct ResolvedImports {
@@ -391,17 +388,17 @@ impl Imports {
 
                     match (val, &import.kind) {
                         (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
-                            let global = store.get_global(global_addr as usize)?;
+                            let global = store.get_global(global_addr)?;
                             Self::compare_types(import, &global.borrow().ty, ty)?;
                             imports.globals.push(global_addr);
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
-                            let table = store.get_table(table_addr as usize)?;
+                            let table = store.get_table(table_addr)?;
                             Self::compare_table_types(import, &table.borrow().kind, ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
-                            let mem = store.get_mem(memory_addr as usize)?;
+                            let mem = store.get_mem(memory_addr)?;
                             let (size, kind) = {
                                 let mem = mem.borrow();
                                 (mem.page_count(), mem.kind)
@@ -410,7 +407,7 @@ impl Imports {
                             imports.memories.push(memory_addr);
                         }
                         (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
-                            let func = store.get_func(func_addr as usize)?;
+                            let func = store.get_func(func_addr)?;
                             let import_func_type = module
                                 .data
                                 .func_types
