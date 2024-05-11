@@ -3,7 +3,7 @@ use crate::{conversion::convert_blocktype, Result};
 use crate::conversion::{convert_heaptype, convert_memarg, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
-use tinywasm_types::{BlockArgsPacked, Instruction};
+use tinywasm_types::Instruction;
 use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
 
 struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
@@ -65,16 +65,14 @@ macro_rules! define_primitive_operands {
     ($($name:ident, $instr:expr, $ty:ty),*) => {
         $(
             fn $name(&mut self, arg: $ty) -> Self::Output {
-                self.instructions.push($instr(arg));
-                Ok(())
+                Ok(self.instructions.push($instr(arg)))
             }
         )*
     };
     ($($name:ident, $instr:expr, $ty:ty, $ty2:ty),*) => {
         $(
             fn $name(&mut self, arg: $ty, arg2: $ty) -> Self::Output {
-                self.instructions.push($instr(arg, arg2));
-                Ok(())
+                Ok(self.instructions.push($instr(arg, arg2)))
             }
         )*
     };
@@ -112,8 +110,7 @@ impl FunctionBuilder {
 
     #[inline]
     fn visit(&mut self, op: Instruction) -> Result<()> {
-        self.instructions.push(op);
-        Ok(())
+        Ok(self.instructions.push(op))
     }
 }
 
@@ -162,7 +159,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_load16_u, I64Load16U,
         visit_i64_load32_s, I64Load32S,
         visit_i64_load32_u, I64Load32U,
-        // visit_i32_store, I32Store,
+        // visit_i32_store, I32Store, custom implementation
         visit_i64_store, I64Store,
         visit_f32_store, F32Store,
         visit_f64_store, F64Store,
@@ -325,15 +322,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         let arg = convert_memarg(memarg);
         let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
 
-        if self.instructions.len() < 3 {
-            return self.visit(i32store);
-        }
-
-        #[cold]
-        fn cold() {}
-
-        if arg.mem_addr > 0xFF || arg.offset > 0xFFFF_FFFF {
-            cold();
+        if self.instructions.len() < 3 || arg.mem_addr > 0xFF || arg.offset > 0xFFFF_FFFF {
             return self.visit(i32store);
         }
 
@@ -353,31 +342,22 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        if let Some(instruction) = self.instructions.last_mut() {
-            match instruction {
-                Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
-                Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-                Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
-                _ => return self.visit(Instruction::LocalGet(idx)),
-            };
-            Ok(())
-        } else {
-            self.visit(Instruction::LocalGet(idx))
-        }
+        let Some(instruction) = self.instructions.last_mut() else {
+            return self.visit(Instruction::LocalGet(idx));
+        };
+
+        match instruction {
+            Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
+            Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
+            Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
+            _ => return self.visit(Instruction::LocalGet(idx)),
+        };
+
+        Ok(())
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
         self.visit(Instruction::LocalSet(idx))
-        // if let Some(instruction) = self.instructions.last_mut() {
-        //     match instruction {
-        //         // Needs more testing, seems to make performance worse
-        //         // Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-        //         _ => return self.visit(Instruction::LocalSet(idx)),
-        //     };
-        //     // Ok(())
-        // } else {
-        //     self.visit(Instruction::LocalSet(idx))
-        // }
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
@@ -426,7 +406,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.visit(Instruction::If(BlockArgsPacked::new(convert_blocktype(ty)), 0, 0))
+        self.visit(Instruction::If(convert_blocktype(ty).into(), 0, 0))
     }
 
     fn visit_else(&mut self) -> Self::Output {

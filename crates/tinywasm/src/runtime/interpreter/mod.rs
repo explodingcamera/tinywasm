@@ -1,11 +1,11 @@
 use alloc::format;
-use alloc::{string::ToString, vec::Vec};
+use alloc::string::ToString;
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{ElementKind, ValType};
 
 use super::{InterpreterRuntime, Stack};
 use crate::runtime::{BlockFrame, BlockType, CallFrame};
-use crate::{cold, log, unlikely};
+use crate::{cold, unlikely};
 use crate::{Error, FuncContext, ModuleInstance, Result, Store, Trap};
 
 mod macros;
@@ -23,13 +23,10 @@ impl InterpreterRuntime {
     // #[inline(always)] // a small 2-3% performance improvement in some cases
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         let mut call_frame = stack.call_stack.pop()?;
-        let mut current_module = store.get_module_instance_raw(call_frame.func_instance.1);
+        let mut current_module = store.get_module_instance_raw(call_frame.module_addr);
 
         loop {
             match exec_one(&mut call_frame, stack, store, &current_module) {
-                // return from the function
-                Ok(ExecResult::Return) => return Ok(()),
-
                 // continue to the next instruction and increment the instruction pointer
                 Ok(ExecResult::Ok) => call_frame.instr_ptr += 1,
 
@@ -44,18 +41,25 @@ impl InterpreterRuntime {
 
                     // keeping the pointer seperate from the call frame is about 2% faster
                     // than storing it in the call frame
-                    if call_frame.func_instance.1 != current_module.id() {
-                        current_module.swap_with(call_frame.func_instance.1, store);
+                    if call_frame.module_addr != current_module.id() {
+                        current_module.swap_with(call_frame.module_addr, store);
                     }
                 }
 
+                // return from the function
+                Ok(ExecResult::Return) => {
+                    cold();
+                    return Ok(());
+                }
+
                 // trap the program
-                Err(error) => {
+                Err(e) => {
+                    cold();
                     call_frame.instr_ptr += 1;
                     // push the call frame back onto the stack so that it can be resumed
                     // if the trap can be handled
                     stack.call_stack.push(call_frame)?;
-                    return Err(error);
+                    return Err(e);
                 }
             }
         }
@@ -75,28 +79,17 @@ enum ExecResult {
 // this can be a 30%+ performance difference in some cases
 #[inline(always)]
 fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &ModuleInstance) -> Result<ExecResult> {
-    let instrs = &cf.func_instance.0.instructions;
-
-    if unlikely(cf.instr_ptr as usize >= instrs.len() || instrs.is_empty()) {
-        log::error!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len());
-        return Err(Error::Other(format!("instr_ptr out of bounds: {} >= {}", cf.instr_ptr, instrs.len())));
-    }
+    let instrs = &cf.func_instance.instructions;
 
     // A match statement is probably the fastest way to do this without
     // unreasonable complexity. This *should* be optimized to a jump table.
     // See https://pliniker.github.io/post/dispatchers/
     use tinywasm_types::Instruction::*;
-    match &instrs[cf.instr_ptr as usize] {
+    match instrs.get(cf.instr_ptr as usize).expect("instr_ptr out of bounds, this should never happen") {
         Nop => { /* do nothing */ }
-        Unreachable => {
-            cold();
-            return Err(crate::Trap::Unreachable.into());
-        }
+        Unreachable => return Err(crate::Trap::Unreachable.into()),
         Drop => stack.values.pop().map(|_| ())?,
-
-        Select(
-            _valtype, // due to validation, we know that the type of the values on the stack are correct
-        ) => {
+        Select(_valtype) => {
             // due to validation, we know that the type of the values on the stack
             let cond: i32 = stack.values.pop()?.into();
             let val2 = stack.values.pop()?;
@@ -110,24 +103,32 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         Call(v) => {
             // prepare the call frame
-            let func_inst = store.get_func(module.resolve_func_addr(*v))?.clone();
-
+            let func_inst = store.get_func(module.resolve_func_addr(*v))?;
             let wasm_func = match &func_inst.func {
-                crate::Function::Wasm(wasm_func) => wasm_func.clone(),
+                crate::Function::Wasm(wasm_func) => wasm_func,
                 crate::Function::Host(host_func) => {
-                    let func = &host_func.func;
+                    let func = &host_func.clone();
                     let params = stack.values.pop_params(&host_func.ty.params)?;
-                    let res = (func)(FuncContext { store, module_addr: module.id() }, &params)?;
+                    let res = (func.func)(FuncContext { store, module_addr: module.id() }, &params)?;
                     stack.values.extend_from_typed(&res);
                     return Ok(ExecResult::Ok);
                 }
             };
 
             let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params, stack.blocks.len() as u32);
+            let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, stack.blocks.len() as u32);
 
             // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
+
+            // this is sometimes faster, and seems more efficient, but sometimes it's also a lot slower
+            // stack.call_stack.push(core::mem::replace(cf, call_frame))?;
+            // if cf.module_addr != module.id() {
+            //     module.swap_with(cf.module_addr, store);
+            // }
+            // cf.instr_ptr -= 1;
+            // return Ok(ExecResult::Ok);
+
             stack.call_stack.push(cf.clone())?;
             stack.call_stack.push(call_frame)?;
 
@@ -150,10 +151,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let call_ty = module.func_ty(*type_addr);
 
             let wasm_func = match func_inst.func {
-                crate::Function::Wasm(ref f) => f.clone(),
+                crate::Function::Wasm(ref f) => f,
                 crate::Function::Host(host_func) => {
                     if unlikely(host_func.ty != *call_ty) {
-                        log::error!("indirect call type mismatch: {:?} != {:?}", host_func.ty, call_ty);
                         return Err(Trap::IndirectCallTypeMismatch {
                             actual: host_func.ty.clone(),
                             expected: call_ty.clone(),
@@ -170,16 +170,14 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             };
 
             if unlikely(wasm_func.ty != *call_ty) {
-                log::error!("indirect call type mismatch: {:?} != {:?}", wasm_func.ty, call_ty);
                 return Err(
                     Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into()
                 );
             }
 
             let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-            let call_frame = CallFrame::new(wasm_func, func_inst.owner, params, stack.blocks.len() as u32);
+            let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, stack.blocks.len() as u32);
 
-            // push the call frame
             cf.instr_ptr += 1; // skip the call instruction
             stack.call_stack.push(cf.clone())?;
             stack.call_stack.push(call_frame)?;
@@ -197,7 +195,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                         cf.instr_ptr + *end_offset,
                         stack.values.len() as u32,
                         BlockType::If,
-                        &args.unpack(),
+                        &(*args).into(),
                         module,
                     ),
                     &mut stack.values,
@@ -207,20 +205,21 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             }
 
             // falsy value is on the top of the stack
-            if *else_offset != 0 {
-                let label = BlockFrame::new(
-                    cf.instr_ptr + *else_offset,
-                    cf.instr_ptr + *end_offset,
-                    stack.values.len() as u32,
-                    BlockType::Else,
-                    &args.unpack(),
-                    module,
-                );
-                cf.instr_ptr += *else_offset;
-                cf.enter_block(label, &mut stack.values, &mut stack.blocks);
-            } else {
+            if *else_offset == 0 {
                 cf.instr_ptr += *end_offset;
+                return Ok(ExecResult::Ok);
             }
+
+            let label = BlockFrame::new(
+                cf.instr_ptr + *else_offset,
+                cf.instr_ptr + *end_offset,
+                stack.values.len() as u32,
+                BlockType::Else,
+                &(*args).into(),
+                module,
+            );
+            cf.instr_ptr += *else_offset;
+            cf.enter_block(label, &mut stack.values, &mut stack.blocks);
         }
 
         Loop(args, end_offset) => {
@@ -254,30 +253,18 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         BrTable(default, len) => {
-            let start = cf.instr_ptr + 1;
-            let end = cf.instr_ptr + 1 + *len;
-            let instr = cf.instructions()[start as usize..end as usize]
-                .iter()
-                .map(|i| match i {
-                    BrLabel(l) => Ok(*l),
-                    _ => {
-                        cold();
-                        panic!("Expected BrLabel, this should have been validated by the parser")
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            if unlikely(instr.len() != *len as usize) {
-                panic!(
-                    "Expected {} BrLabel instructions, got {}, this should have been validated by the parser",
-                    len,
-                    instr.len()
-                );
+            let start = (cf.instr_ptr + 1) as usize;
+            let end = start + *len as usize;
+            if end > cf.instructions().len() {
+                return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, cf.instructions().len())));
             }
 
             let idx = stack.values.pop_t::<i32>()? as usize;
-            let to = instr.get(idx).unwrap_or(default);
-            break_to!(cf, stack, to);
+            match cf.instructions()[start..end].get(idx) {
+                None => break_to!(cf, stack, default),
+                Some(BrLabel(to)) => break_to!(cf, stack, to),
+                _ => return Err(Error::Other("br_table with invalid label".to_string())),
+            }
         }
 
         Br(v) => break_to!(cf, stack, v),
@@ -294,29 +281,20 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         // We're essentially using else as a EndBlockFrame instruction for if blocks
         Else(end_offset) => {
-            let block =
-                stack.blocks.pop().expect("else: no label to end, this should have been validated by the parser");
-
+            let block = stack.blocks.pop()?;
             stack.values.truncate_keep(block.stack_ptr, block.results as u32);
             cf.instr_ptr += *end_offset;
         }
 
         // remove the label from the label stack
         EndBlockFrame => {
-            let block = stack
-                .blocks
-                .pop()
-                .expect("end blockframe: no label to end, this should have been validated by the parser");
-
+            let block = stack.blocks.pop()?;
             stack.values.truncate_keep(block.stack_ptr, block.results as u32);
         }
 
         LocalGet(local_index) => stack.values.push(cf.get_local(*local_index)),
         LocalSet(local_index) => cf.set_local(*local_index, stack.values.pop()?),
-        LocalTee(local_index) => cf.set_local(
-            *local_index,
-            *stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser"),
-        ),
+        LocalTee(local_index) => cf.set_local(*local_index, *stack.values.last()?),
 
         GlobalGet(global_index) => {
             let global = store.get_global_val(module.resolve_global_addr(*global_index))?;
@@ -628,7 +606,6 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         // custom instructions
         LocalGet2(a, b) => stack.values.extend_from_slice(&[cf.get_local(*a), cf.get_local(*b)]),
         LocalGet3(a, b, c) => stack.values.extend_from_slice(&[cf.get_local(*a), cf.get_local(*b), cf.get_local(*c)]),
-
         LocalTeeGet(a, b) => {
             #[inline(always)]
             fn local_tee_get(cf: &mut CallFrame, stack: &mut Stack, a: u32, b: u32) {
@@ -663,8 +640,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
         i => {
             cold();
-            log::error!("unimplemented instruction: {:?}", i);
-            return Err(Error::UnsupportedFeature(alloc::format!("unimplemented instruction: {:?}", i)));
+            return Err(Error::UnsupportedFeature(format!("unimplemented instruction: {:?}", i)));
         }
     };
 

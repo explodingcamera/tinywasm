@@ -126,12 +126,10 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
-        let len = self.stack.len();
-        if unlikely(len < n) {
+        if unlikely(self.stack.len() < n) {
             return Err(Error::ValueStackUnderflow);
         }
-        let res = self.stack.drain((len - n)..);
-        Ok(res)
+        Ok(self.stack.drain((self.stack.len() - n)..))
     }
 }
 

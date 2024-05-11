@@ -15,7 +15,7 @@ pub enum Function {
     /// A host function
     Host(Rc<HostFunction>),
 
-    /// A function defined in WebAssembly
+    /// A pointer to a WebAssembly function
     Wasm(Rc<WasmFunction>),
 }
 

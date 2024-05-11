@@ -15,8 +15,9 @@ pub enum BlockArgs {
 /// This is needed to keep the size of the Instruction enum small.
 /// Sadly, using #[repr(u8)] on BlockArgs itself is not possible because of the FuncType variant.
 pub struct BlockArgsPacked([u8; 5]); // Modifying this directly can cause runtime errors, but no UB
-impl BlockArgsPacked {
-    pub fn new(args: BlockArgs) -> Self {
+
+impl From<BlockArgs> for BlockArgsPacked {
+    fn from(args: BlockArgs) -> Self {
         let mut packed = [0; 5];
         match args {
             BlockArgs::Empty => packed[0] = 0,
@@ -31,11 +32,14 @@ impl BlockArgsPacked {
         }
         Self(packed)
     }
-    pub fn unpack(&self) -> BlockArgs {
-        match self.0[0] {
+}
+
+impl From<BlockArgsPacked> for BlockArgs {
+    fn from(packed: BlockArgsPacked) -> Self {
+        match packed.0[0] {
             0 => BlockArgs::Empty,
-            1 => BlockArgs::Type(ValType::from_byte(self.0[1]).unwrap()),
-            2 => BlockArgs::FuncType(u32::from_le_bytes(self.0[1..].try_into().unwrap())),
+            1 => BlockArgs::Type(ValType::from_byte(packed.0[1]).unwrap()),
+            2 => BlockArgs::FuncType(u32::from_le_bytes(packed.0[1..].try_into().unwrap())),
             _ => unreachable!(),
         }
     }
@@ -80,30 +84,27 @@ pub enum ConstInstruction {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 // should be kept as small as possible (16 bytes max)
+#[rustfmt::skip]
 pub enum Instruction {
-    // Custom Instructions
+    // > Custom Instructions
     BrLabel(LabelAddr),
-
     // LocalGet + I32Const + I32Add
     // One of the most common patterns in the Rust compiler output
     I32LocalGetConstAdd(LocalAddr, i32),
-
     // LocalGet + I32Const + I32Store => I32LocalGetConstStore + I32Const
     // Also common, helps us skip the stack entirely.
     // Has to be followed by an I32Const instruction
     I32StoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
-
     // I64Xor + I64Const + I64RotL
     // Commonly used by a few crypto libraries
     I64XorConstRotl(i64),
-
     // LocalTee + LocalGet
     LocalTeeGet(LocalAddr, LocalAddr),
     LocalGet2(LocalAddr, LocalAddr),
     LocalGet3(LocalAddr, LocalAddr, LocalAddr),
     LocalGetSet(LocalAddr, LocalAddr),
 
-    // Control Instructions
+    // > Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
@@ -119,12 +120,12 @@ pub enum Instruction {
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
 
-    // Parametric Instructions
+    // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
     Drop,
     Select(Option<ValType>),
 
-    // Variable Instructions
+    // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
     LocalGet(LocalAddr),
     LocalSet(LocalAddr),
@@ -132,7 +133,7 @@ pub enum Instruction {
     GlobalGet(GlobalAddr),
     GlobalSet(GlobalAddr),
 
-    // Memory Instructions
+    // > Memory Instructions
     I32Load { offset: u64, mem_addr: MemAddr },
     I64Load { offset: u64, mem_addr: MemAddr },
     F32Load { offset: u64, mem_addr: MemAddr },
@@ -159,157 +160,43 @@ pub enum Instruction {
     MemorySize(MemAddr, u8),
     MemoryGrow(MemAddr, u8),
 
-    // Constants
+    // > Constants
     I32Const(i32),
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
 
-    // Reference Types
+    // > Reference Types
     RefNull(ValType),
     RefFunc(FuncAddr),
     RefIsNull,
 
-    // Numeric Instructions
+    // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
-    I32Eqz,
-    I32Eq,
-    I32Ne,
-    I32LtS,
-    I32LtU,
-    I32GtS,
-    I32GtU,
-    I32LeS,
-    I32LeU,
-    I32GeS,
-    I32GeU,
-    I64Eqz,
-    I64Eq,
-    I64Ne,
-    I64LtS,
-    I64LtU,
-    I64GtS,
-    I64GtU,
-    I64LeS,
-    I64LeU,
-    I64GeS,
-    I64GeU,
-    F32Eq,
-    F32Ne,
-    F32Lt,
-    F32Gt,
-    F32Le,
-    F32Ge,
-    F64Eq,
-    F64Ne,
-    F64Lt,
-    F64Gt,
-    F64Le,
-    F64Ge,
-    I32Clz,
-    I32Ctz,
-    I32Popcnt,
-    I32Add,
-    I32Sub,
-    I32Mul,
-    I32DivS,
-    I32DivU,
-    I32RemS,
-    I32RemU,
-    I32And,
-    I32Or,
-    I32Xor,
-    I32Shl,
-    I32ShrS,
-    I32ShrU,
-    I32Rotl,
-    I32Rotr,
-    I64Clz,
-    I64Ctz,
-    I64Popcnt,
-    I64Add,
-    I64Sub,
-    I64Mul,
-    I64DivS,
-    I64DivU,
-    I64RemS,
-    I64RemU,
-    I64And,
-    I64Or,
-    I64Xor,
-    I64Shl,
-    I64ShrS,
-    I64ShrU,
-    I64Rotl,
-    I64Rotr,
-    F32Abs,
-    F32Neg,
-    F32Ceil,
-    F32Floor,
-    F32Trunc,
-    F32Nearest,
-    F32Sqrt,
-    F32Add,
-    F32Sub,
-    F32Mul,
-    F32Div,
-    F32Min,
-    F32Max,
-    F32Copysign,
-    F64Abs,
-    F64Neg,
-    F64Ceil,
-    F64Floor,
-    F64Trunc,
-    F64Nearest,
-    F64Sqrt,
-    F64Add,
-    F64Sub,
-    F64Mul,
-    F64Div,
-    F64Min,
-    F64Max,
-    F64Copysign,
-    I32WrapI64,
-    I32TruncF32S,
-    I32TruncF32U,
-    I32TruncF64S,
-    I32TruncF64U,
-    I32Extend8S,
-    I32Extend16S,
-    I64Extend8S,
-    I64Extend16S,
-    I64Extend32S,
-    I64ExtendI32S,
-    I64ExtendI32U,
-    I64TruncF32S,
-    I64TruncF32U,
-    I64TruncF64S,
-    I64TruncF64U,
-    F32ConvertI32S,
-    F32ConvertI32U,
-    F32ConvertI64S,
-    F32ConvertI64U,
-    F32DemoteF64,
-    F64ConvertI32S,
-    F64ConvertI32U,
-    F64ConvertI64S,
-    F64ConvertI64U,
-    F64PromoteF32,
-    I32ReinterpretF32,
-    I64ReinterpretF64,
-    F32ReinterpretI32,
-    F64ReinterpretI64,
-    I32TruncSatF32S,
-    I32TruncSatF32U,
-    I32TruncSatF64S,
-    I32TruncSatF64U,
-    I64TruncSatF32S,
-    I64TruncSatF32U,
-    I64TruncSatF64S,
-    I64TruncSatF64U,
+    I32Eqz, I32Eq, I32Ne, I32LtS, I32LtU, I32GtS, I32GtU, I32LeS, I32LeU, I32GeS, I32GeU,
+    I64Eqz, I64Eq, I64Ne, I64LtS, I64LtU, I64GtS, I64GtU, I64LeS, I64LeU, I64GeS, I64GeU,
+    // Comparisons
+    F32Eq, F32Ne, F32Lt, F32Gt, F32Le, F32Ge,
+    F64Eq, F64Ne, F64Lt, F64Gt, F64Le, F64Ge,
+    I32Clz, I32Ctz, I32Popcnt, I32Add, I32Sub, I32Mul, I32DivS, I32DivU, I32RemS, I32RemU,
+    I64Clz, I64Ctz, I64Popcnt, I64Add, I64Sub, I64Mul, I64DivS, I64DivU, I64RemS, I64RemU,
+    // Bitwise
+    I32And, I32Or, I32Xor, I32Shl, I32ShrS, I32ShrU, I32Rotl, I32Rotr,
+    I64And, I64Or, I64Xor, I64Shl, I64ShrS, I64ShrU, I64Rotl, I64Rotr,
+    // Floating Point
+    F32Abs, F32Neg, F32Ceil, F32Floor, F32Trunc, F32Nearest, F32Sqrt, F32Add, F32Sub, F32Mul, F32Div, F32Min, F32Max, F32Copysign,
+    F64Abs, F64Neg, F64Ceil, F64Floor, F64Trunc, F64Nearest, F64Sqrt, F64Add, F64Sub, F64Mul, F64Div, F64Min, F64Max, F64Copysign,
+    I32WrapI64, I32TruncF32S, I32TruncF32U, I32TruncF64S, I32TruncF64U, I32Extend8S, I32Extend16S,
+    I64Extend8S, I64Extend16S, I64Extend32S, I64ExtendI32S, I64ExtendI32U, I64TruncF32S, I64TruncF32U, I64TruncF64S, I64TruncF64U,
+    F32ConvertI32S, F32ConvertI32U, F32ConvertI64S, F32ConvertI64U, F32DemoteF64,
+    F64ConvertI32S, F64ConvertI32U, F64ConvertI64S, F64ConvertI64U, F64PromoteF32,
+    // Reinterpretations (noops at runtime)
+    I32ReinterpretF32, I64ReinterpretF64, F32ReinterpretI32, F64ReinterpretI64,
+    // Saturating Float-to-Int Conversions
+    I32TruncSatF32S, I32TruncSatF32U, I32TruncSatF64S, I32TruncSatF64U,
+    I64TruncSatF32S, I64TruncSatF32U, I64TruncSatF64S, I64TruncSatF64U,
 
-    // Table Instructions
+    // > Table Instructions
     TableInit(TableAddr, ElemAddr),
     TableGet(TableAddr),
     TableSet(TableAddr),
@@ -318,7 +205,7 @@ pub enum Instruction {
     TableSize(TableAddr),
     TableFill(TableAddr),
 
-    // Bulk Memory Instructions
+    // > Bulk Memory Instructions
     MemoryInit(MemAddr, DataAddr),
     MemoryCopy(MemAddr, MemAddr),
     MemoryFill(MemAddr),
@@ -331,44 +218,37 @@ mod test_blockargs_packed {
 
     #[test]
     fn test_empty() {
-        let args = BlockArgs::Empty;
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::Empty);
+        let packed: BlockArgsPacked = BlockArgs::Empty.into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::Empty);
     }
 
     #[test]
     fn test_val_type_i32() {
-        let args = BlockArgs::Type(ValType::I32);
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::I32));
+        let packed: BlockArgsPacked = BlockArgs::Type(ValType::I32).into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::I32));
     }
 
     #[test]
     fn test_val_type_i64() {
-        let args = BlockArgs::Type(ValType::I64);
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::I64));
+        let packed: BlockArgsPacked = BlockArgs::Type(ValType::I64).into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::I64));
     }
 
     #[test]
     fn test_val_type_f32() {
-        let args = BlockArgs::Type(ValType::F32);
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::F32));
+        let packed: BlockArgsPacked = BlockArgs::Type(ValType::F32).into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::F32));
     }
 
     #[test]
     fn test_val_type_f64() {
-        let args = BlockArgs::Type(ValType::F64);
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::Type(ValType::F64));
+        let packed: BlockArgsPacked = BlockArgs::Type(ValType::F64).into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::F64));
     }
 
     #[test]
     fn test_func_type() {
-        let func_type = 123; // Use an arbitrary u32 value
-        let args = BlockArgs::FuncType(func_type);
-        let packed = BlockArgsPacked::new(args);
-        assert_eq!(packed.unpack(), BlockArgs::FuncType(func_type));
+        let packed: BlockArgsPacked = BlockArgs::FuncType(0x12345678).into();
+        assert_eq!(BlockArgs::from(packed), BlockArgs::FuncType(0x12345678));
     }
 }

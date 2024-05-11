@@ -7,8 +7,7 @@ use crate::{Error, Result, Trap};
 
 use super::BlockFrame;
 
-const CALL_STACK_SIZE: usize = 128;
-const CALL_STACK_MAX_SIZE: usize = 1024;
+const CALL_STACK_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -18,7 +17,10 @@ pub(crate) struct CallStack {
 impl CallStack {
     #[inline]
     pub(crate) fn new(initial_frame: CallFrame) -> Self {
-        let mut stack = Self { stack: Vec::with_capacity(CALL_STACK_SIZE) };
+        let mut stack = Vec::new();
+        stack.reserve_exact(CALL_STACK_SIZE);
+
+        let mut stack = Self { stack: stack };
         stack.push(initial_frame).unwrap();
         stack
     }
@@ -38,7 +40,7 @@ impl CallStack {
 
     #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.stack.len() >= CALL_STACK_MAX_SIZE) {
+        if unlikely(self.stack.len() >= CALL_STACK_SIZE) {
             return Err(Trap::CallStackOverflow.into());
         }
         self.stack.push(call_frame);
@@ -50,7 +52,8 @@ impl CallStack {
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: u32,
     pub(crate) block_ptr: u32,
-    pub(crate) func_instance: (Rc<WasmFunction>, ModuleInstanceAddr),
+    pub(crate) func_instance: Rc<WasmFunction>,
+    pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) locals: Box<[RawWasmValue]>,
 }
 
@@ -124,15 +127,15 @@ impl CallFrame {
         block_ptr: u32,
     ) -> Self {
         let locals = {
-            let local_types = &wasm_func_inst.locals;
-            let total_size = local_types.len() + params.len();
-            let mut locals = Vec::with_capacity(total_size);
+            let total_size = wasm_func_inst.locals.len() + params.len();
+            let mut locals = Vec::new();
+            locals.reserve_exact(total_size);
             locals.extend(params);
             locals.resize_with(total_size, RawWasmValue::default);
             locals.into_boxed_slice()
         };
 
-        Self { instr_ptr: 0, func_instance: (wasm_func_inst, owner), locals, block_ptr }
+        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, locals, block_ptr }
     }
 
     #[inline]
@@ -147,6 +150,6 @@ impl CallFrame {
 
     #[inline(always)]
     pub(crate) fn instructions(&self) -> &[Instruction] {
-        &self.func_instance.0.instructions
+        &self.func_instance.instructions
     }
 }

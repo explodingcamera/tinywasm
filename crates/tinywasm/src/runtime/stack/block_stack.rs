@@ -8,7 +8,7 @@ pub(crate) struct BlockStack(Vec<BlockFrame>);
 impl BlockStack {
     pub(crate) fn new() -> Self {
         let mut vec = Vec::new();
-        vec.reserve(128); // gives a slight performance over with_capacity
+        vec.reserve(128);
         Self(vec)
     }
 
@@ -17,7 +17,7 @@ impl BlockStack {
         self.0.len()
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn push(&mut self, block: BlockFrame) {
         self.0.push(block);
     }
@@ -63,7 +63,7 @@ pub(crate) struct BlockFrame {
 }
 
 impl BlockFrame {
-    #[inline]
+    #[inline(always)]
     pub(crate) fn new(
         instr_ptr: u32,
         end_instr_ptr: u32,

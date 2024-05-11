@@ -83,12 +83,11 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
                 size_initial: ty.initial.try_into().map_err(|_| {
                     crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
                 })?,
-                size_max: if let Some(max) = ty.maximum {
-                    Some(max.try_into().map_err(|_| {
+                size_max: match ty.maximum {
+                    Some(max) => Some(max.try_into().map_err(|_| {
                         crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
-                    })?)
-                } else {
-                    None
+                    })?),
+                    None => None,
                 },
             }),
             wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
@@ -105,10 +104,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
 pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
     memory_types: T,
 ) -> Result<Vec<MemoryType>> {
-    let memory_type =
-        memory_types.into_iter().map(|memory| convert_module_memory(memory?)).collect::<Result<Vec<_>>>()?;
-
-    Ok(memory_type)
+    memory_types.into_iter().map(|memory| convert_module_memory(memory?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<MemoryType> {
@@ -125,26 +121,23 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<Me
 pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Table<'a>>>>(
     table_types: T,
 ) -> Result<Vec<TableType>> {
-    let table_type = table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()?;
-    Ok(table_type)
+    table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
-    let ty = convert_reftype(&table.ty.element_type);
-
     let size_initial = table.ty.initial.try_into().map_err(|_| {
         crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
     })?;
-    let size_max = if let Some(max) = table.ty.maximum {
-        Some(
+
+    let size_max = match table.ty.maximum {
+        Some(max) => Some(
             max.try_into()
                 .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max)))?,
-        )
-    } else {
-        None
+        ),
+        None => None,
     };
 
-    Ok(TableType { element_type: ty, size_initial: size_initial, size_max })
+    Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial: size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
@@ -208,12 +201,8 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
         ));
     }
     let ty = types.next().unwrap().unwrap_func();
-
-    let params =
-        ty.params().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
-
-    let results =
-        ty.results().iter().map(|p| Ok(convert_valtype(p))).collect::<Result<Vec<ValType>>>()?.into_boxed_slice();
+    let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
+    let results = ty.results().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
 
     Ok(FuncType { params, results })
 }
@@ -235,14 +224,13 @@ pub(crate) fn convert_reftype(reftype: &wasmparser::RefType) -> ValType {
 }
 
 pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
-    use wasmparser::ValType::*;
     match valtype {
-        I32 => ValType::I32,
-        I64 => ValType::I64,
-        F32 => ValType::F32,
-        F64 => ValType::F64,
-        Ref(r) => convert_reftype(r),
-        V128 => unimplemented!("128-bit values are not supported yet"),
+        wasmparser::ValType::I32 => ValType::I32,
+        wasmparser::ValType::I64 => ValType::I64,
+        wasmparser::ValType::F32 => ValType::F32,
+        wasmparser::ValType::F64 => ValType::F64,
+        wasmparser::ValType::Ref(r) => convert_reftype(r),
+        wasmparser::ValType::V128 => unimplemented!("128-bit values are not supported yet"),
     }
 }
 
