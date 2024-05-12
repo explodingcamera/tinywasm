@@ -137,7 +137,7 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
         None => None,
     };
 
-    Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial: size_initial, size_max })
+    Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(

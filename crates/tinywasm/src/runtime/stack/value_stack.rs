@@ -82,17 +82,6 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn pop_t<T: From<RawWasmValue>>(&mut self) -> Result<T> {
-        match self.stack.pop() {
-            Some(v) => Ok(v.into()),
-            None => {
-                cold(); // 20+ performance improvement most of the time
-                Err(Error::ValueStackUnderflow)
-            }
-        }
-    }
-
-    #[inline]
     pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
         match self.stack.pop() {
             Some(v) => Ok(v),
@@ -144,11 +133,38 @@ mod tests {
         stack.push(2.into());
         stack.push(3.into());
         assert_eq!(stack.len(), 3);
-        assert_eq!(stack.pop_t::<i32>().unwrap(), 3);
+        assert_eq!(i32::from(stack.pop().unwrap()), 3);
         assert_eq!(stack.len(), 2);
-        assert_eq!(stack.pop_t::<i32>().unwrap(), 2);
+        assert_eq!(i32::from(stack.pop().unwrap()), 2);
         assert_eq!(stack.len(), 1);
-        assert_eq!(stack.pop_t::<i32>().unwrap(), 1);
+        assert_eq!(i32::from(stack.pop().unwrap()), 1);
         assert_eq!(stack.len(), 0);
+    }
+
+    #[test]
+    fn test_truncate_keep() {
+        macro_rules! test_macro {
+            ($( $n:expr, $end_keep:expr, $expected:expr ),*) => {
+            $(
+                let mut stack = ValueStack::default();
+                stack.push(1.into());
+                stack.push(2.into());
+                stack.push(3.into());
+                stack.push(4.into());
+                stack.push(5.into());
+                stack.truncate_keep($n, $end_keep);
+                assert_eq!(stack.len(), $expected);
+            )*
+            };
+        }
+
+        test_macro! {
+            0, 0, 0,
+            1, 0, 1,
+            0, 1, 1,
+            1, 1, 2,
+            2, 1, 3,
+            2, 2, 4
+        }
     }
 }

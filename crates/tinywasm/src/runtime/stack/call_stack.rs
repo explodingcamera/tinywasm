@@ -20,7 +20,7 @@ impl CallStack {
         let mut stack = Vec::new();
         stack.reserve_exact(CALL_STACK_SIZE);
 
-        let mut stack = Self { stack: stack };
+        let mut stack = Self { stack };
         stack.push(initial_frame).unwrap();
         stack
     }

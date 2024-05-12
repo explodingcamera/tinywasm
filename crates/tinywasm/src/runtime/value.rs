@@ -83,12 +83,36 @@ impl_from_raw_wasm_value!(i64, |x| x as u64, |x: [u8; 8]| i64::from_ne_bytes(x[0
 impl_from_raw_wasm_value!(u8, |x| x as u64, |x: [u8; 8]| u8::from_ne_bytes(x[0..1].try_into().unwrap()));
 impl_from_raw_wasm_value!(u16, |x| x as u64, |x: [u8; 8]| u16::from_ne_bytes(x[0..2].try_into().unwrap()));
 impl_from_raw_wasm_value!(u32, |x| x as u64, |x: [u8; 8]| u32::from_ne_bytes(x[0..4].try_into().unwrap()));
-impl_from_raw_wasm_value!(u64, |x| x as u64, |x: [u8; 8]| u64::from_ne_bytes(x[0..8].try_into().unwrap()));
+impl_from_raw_wasm_value!(u64, |x| x, |x: [u8; 8]| u64::from_ne_bytes(x[0..8].try_into().unwrap()));
 impl_from_raw_wasm_value!(i8, |x| x as u64, |x: [u8; 8]| i8::from_ne_bytes(x[0..1].try_into().unwrap()));
 impl_from_raw_wasm_value!(i16, |x| x as u64, |x: [u8; 8]| i16::from_ne_bytes(x[0..2].try_into().unwrap()));
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x: [u8; 8]| f32::from_bits(u32::from_ne_bytes(
     x[0..4].try_into().unwrap()
 )));
-impl_from_raw_wasm_value!(f64, |x| f64::to_bits(x) as u64, |x: [u8; 8]| f64::from_bits(u64::from_ne_bytes(
+impl_from_raw_wasm_value!(f64, f64::to_bits, |x: [u8; 8]| f64::from_bits(u64::from_ne_bytes(
     x[0..8].try_into().unwrap()
 )));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_raw_wasm_value() {
+        macro_rules! test_macro {
+            ($( $ty:ty => $val:expr ),*) => {
+            $(
+                let raw: RawWasmValue = $val.into();
+                let val: $ty = raw.into();
+                assert_eq!(val, $val);
+            )*
+            };
+        }
+
+        test_macro! {
+             i32 => 0, i64 => 0, u8 => 0, u16 => 0, u32 => 0, u64 => 0, i8 => 0, i16 => 0, f32 => 0.0, f64 => 0.0,
+             i32 => i32::MIN, i64 => i64::MIN, u8 => u8::MIN, u16 => u16::MIN, u32 => u32::MIN, u64 => u64::MIN, i8 => i8::MIN, i16 => i16::MIN, f32 => f32::MIN, f64 => f64::MIN,
+             i32 => i32::MAX, i64 => i64::MAX, u8 => u8::MAX, u16 => u16::MAX, u32 => u32::MAX, u64 => u64::MAX, i8 => i8::MAX, i16 => i16::MAX, f32 => f32::MAX, f64 => f64::MAX
+        }
+    }
+}

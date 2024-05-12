@@ -110,7 +110,8 @@ impl FunctionBuilder {
 
     #[inline]
     fn visit(&mut self, op: Instruction) -> Result<()> {
-        Ok(self.instructions.push(op))
+        self.instructions.push(op);
+        Ok(())
     }
 }
 

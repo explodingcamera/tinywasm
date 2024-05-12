@@ -138,7 +138,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         CallIndirect(type_addr, table_addr) => {
             let table = store.get_table(module.resolve_table_addr(*table_addr))?;
-            let table_idx = stack.values.pop_t::<u32>()?;
+            let table_idx: u32 = stack.values.pop()?.into();
 
             // verify that the table is of the right type, this should be validated by the parser already
             let func_ref = {
@@ -188,7 +188,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         If(args, else_offset, end_offset) => {
             // truthy value is on the top of the stack, so enter the then block
-            if stack.values.pop_t::<i32>()? != 0 {
+            if i32::from(stack.values.pop()?) != 0 {
                 cf.enter_block(
                     BlockFrame::new(
                         cf.instr_ptr,
@@ -259,8 +259,8 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
                 return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, cf.instructions().len())));
             }
 
-            let idx = stack.values.pop_t::<i32>()? as usize;
-            match cf.instructions()[start..end].get(idx) {
+            let idx: i32 = stack.values.pop()?.into();
+            match cf.instructions()[start..end].get(idx as usize) {
                 None => break_to!(cf, stack, default),
                 Some(BrLabel(to)) => break_to!(cf, stack, to),
                 _ => return Err(Error::Other("br_table with invalid label".to_string())),
@@ -269,7 +269,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
 
         Br(v) => break_to!(cf, stack, v),
         BrIf(v) => {
-            if stack.values.pop_t::<i32>()? != 0 {
+            if i32::from(stack.values.pop()?) != 0 {
                 break_to!(cf, stack, v);
             }
         }
@@ -329,8 +329,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             let mem = store.get_mem(module.resolve_mem_addr(*addr))?;
             let mut mem = mem.borrow_mut();
             let prev_size = mem.page_count() as i32;
+            let pages_delta: i32 = stack.values.pop()?.into();
 
-            match mem.grow(stack.values.pop_t::<i32>()?) {
+            match mem.grow(pages_delta) {
                 Some(_) => stack.values.push(prev_size.into()),
                 None => stack.values.push((-1).into()),
             }
@@ -366,9 +367,9 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         }
 
         MemoryInit(data_index, mem_index) => {
-            let size = stack.values.pop_t::<i32>()? as usize;
-            let offset = stack.values.pop_t::<i32>()? as usize;
-            let dst = stack.values.pop_t::<i32>()? as usize;
+            let size = i32::from(stack.values.pop()?) as usize;
+            let offset = i32::from(stack.values.pop()?) as usize;
+            let dst = i32::from(stack.values.pop()?) as usize;
 
             let data = match &store.get_data(module.resolve_data_addr(*data_index))?.data {
                 Some(data) => data,
@@ -561,7 +562,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         TableGet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx)?;
-            let idx = stack.values.pop_t::<u32>()?;
+            let idx: u32 = stack.values.pop()?.into();
             let v = table.borrow().get_wasm_val(idx)?;
             stack.values.push(v.into());
         }
@@ -569,8 +570,8 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
         TableSet(table_index) => {
             let table_idx = module.resolve_table_addr(*table_index);
             let table = store.get_table(table_idx)?;
-            let val = stack.values.pop_t::<u32>()?;
-            let idx = stack.values.pop_t::<u32>()?;
+            let val = stack.values.pop()?.into();
+            let idx = stack.values.pop()?.into();
             table.borrow_mut().set(idx, val)?;
         }
 
@@ -632,7 +633,7 @@ fn exec_one(cf: &mut CallFrame, stack: &mut Stack, store: &mut Store, module: &M
             stack.values.push((local + *val).into());
         }
         I32StoreLocal { local, const_i32: consti32, offset, mem_addr } => {
-            let (mem_addr, offset) = (*mem_addr as u32, *offset as u32);
+            let (mem_addr, offset) = (*mem_addr as u32, *offset);
             let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
             let val = consti32.to_le_bytes();
             let addr: u64 = cf.get_local(*local).into();
