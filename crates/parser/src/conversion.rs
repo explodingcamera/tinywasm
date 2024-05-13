@@ -7,8 +7,7 @@ use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
 ) -> Result<Vec<tinywasm_types::Element>> {
-    let elements = elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()?;
-    Ok(elements)
+    elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
@@ -47,8 +46,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
 pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
     data_sections: T,
 ) -> Result<Vec<tinywasm_types::Data>> {
-    let data_sections = data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()?;
-    Ok(data_sections)
+    data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm_types::Data> {
@@ -68,8 +66,7 @@ pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm
 pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
     imports: T,
 ) -> Result<Vec<Import>> {
-    let imports = imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()?;
-    Ok(imports)
+    imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
@@ -187,7 +184,7 @@ pub(crate) fn convert_module_code(
         }
     }
 
-    let body = process_operators(Some(&mut validator), &func)?;
+    let body = process_operators(Some(validator), func)?;
     let locals = locals.into_boxed_slice();
     Ok((body, locals))
 }

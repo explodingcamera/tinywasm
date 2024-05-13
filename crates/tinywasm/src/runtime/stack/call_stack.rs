@@ -19,10 +19,8 @@ impl CallStack {
     pub(crate) fn new(initial_frame: CallFrame) -> Self {
         let mut stack = Vec::new();
         stack.reserve_exact(CALL_STACK_SIZE);
-
-        let mut stack = Self { stack };
-        stack.push(initial_frame).unwrap();
-        stack
+        stack.push(initial_frame);
+        Self { stack }
     }
 
     #[inline]
@@ -50,7 +48,7 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: u32,
+    pub(crate) instr_ptr: usize,
     pub(crate) block_ptr: u32,
     pub(crate) func_instance: Rc<WasmFunction>,
     pub(crate) module_addr: ModuleInstanceAddr,

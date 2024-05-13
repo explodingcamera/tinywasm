@@ -90,7 +90,7 @@ impl ModuleInstance {
         };
 
         let instance = ModuleInstance::new(instance);
-        store.add_instance(instance.clone())?;
+        store.add_instance(instance.clone());
 
         if let Some(trap) = elem_trapped {
             return Err(trap.into());
@@ -113,7 +113,7 @@ impl ModuleInstance {
             ExternalKind::Global => self.0.global_addrs.get(exports.index as usize)?,
         };
 
-        Some(ExternVal::new(exports.kind.clone(), *addr))
+        Some(ExternVal::new(exports.kind, *addr))
     }
 
     #[inline]

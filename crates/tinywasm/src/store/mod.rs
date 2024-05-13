@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, rc::Rc, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
@@ -31,7 +31,6 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct Store {
     id: usize,
     module_instances: Vec<ModuleInstance>,
-    module_instance_count: usize,
 
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
@@ -74,14 +73,7 @@ impl PartialEq for Store {
 impl Default for Store {
     fn default() -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-
-        Self {
-            id,
-            module_instances: Vec::new(),
-            module_instance_count: 0,
-            data: StoreData::default(),
-            runtime: Runtime::Default,
-        }
+        Self { id, module_instances: Vec::new(), data: StoreData::default(), runtime: Runtime::Default }
     }
 }
 
@@ -92,9 +84,9 @@ impl Default for Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<FunctionInstance>,
-    pub(crate) tables: Vec<Rc<RefCell<TableInstance>>>,
-    pub(crate) memories: Vec<Rc<RefCell<MemoryInstance>>>,
-    pub(crate) globals: Vec<Rc<RefCell<GlobalInstance>>>,
+    pub(crate) tables: Vec<RefCell<TableInstance>>,
+    pub(crate) memories: Vec<RefCell<MemoryInstance>>,
+    pub(crate) globals: Vec<GlobalInstance>,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) datas: Vec<DataInstance>,
 }
@@ -106,14 +98,12 @@ impl Store {
     }
 
     pub(crate) fn next_module_instance_idx(&self) -> ModuleInstanceAddr {
-        self.module_instance_count as ModuleInstanceAddr
+        self.module_instances.len() as ModuleInstanceAddr
     }
 
-    pub(crate) fn add_instance(&mut self, instance: ModuleInstance) -> Result<()> {
-        assert!(instance.id() == self.module_instance_count as ModuleInstanceAddr);
+    pub(crate) fn add_instance(&mut self, instance: ModuleInstance) {
+        assert!(instance.id() == self.module_instances.len() as ModuleInstanceAddr);
         self.module_instances.push(instance);
-        self.module_instance_count += 1;
-        Ok(())
     }
 
     #[cold]
@@ -129,13 +119,13 @@ impl Store {
 
     /// Get the memory at the actual index in the store
     #[inline]
-    pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&Rc<RefCell<MemoryInstance>>> {
+    pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&RefCell<MemoryInstance>> {
         self.data.memories.get(addr as usize).ok_or_else(|| Self::not_found_error("memory"))
     }
 
     /// Get the table at the actual index in the store
     #[inline]
-    pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&Rc<RefCell<TableInstance>>> {
+    pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&RefCell<TableInstance>> {
         self.data.tables.get(addr as usize).ok_or_else(|| Self::not_found_error("table"))
     }
 
@@ -159,7 +149,7 @@ impl Store {
 
     /// Get the global at the actual index in the store
     #[inline]
-    pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&Rc<RefCell<GlobalInstance>>> {
+    pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&GlobalInstance> {
         self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"))
     }
 
@@ -170,14 +160,14 @@ impl Store {
             .globals
             .get(addr as usize)
             .ok_or_else(|| Self::not_found_error("global"))
-            .map(|global| global.borrow().value)
+            .map(|global| global.value.get())
     }
 
     /// Set the global at the actual index in the store
     #[inline]
     pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: RawWasmValue) -> Result<()> {
         let global = self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"));
-        global.map(|global| global.borrow_mut().value = value)
+        global.map(|global| global.value.set(value))
     }
 }
 
@@ -199,7 +189,7 @@ impl Store {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+            self.data.tables.push(RefCell::new(TableInstance::new(table, idx)));
             table_addrs.push((i + table_count) as TableAddr);
         }
         Ok(table_addrs)
@@ -213,7 +203,7 @@ impl Store {
             if let MemoryArch::I64 = mem.arch {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
-            self.data.memories.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+            self.data.memories.push(RefCell::new(MemoryInstance::new(mem, idx)));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)
@@ -232,11 +222,11 @@ impl Store {
         let mut global_addrs = imported_globals;
 
         for (i, global) in new_globals.iter().enumerate() {
-            self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(
+            self.data.globals.push(GlobalInstance::new(
                 global.ty,
                 self.eval_const(&global.init, &global_addrs, func_addrs)?,
                 idx,
-            ))));
+            ));
             global_addrs.push((i + global_count) as Addr);
         }
 
@@ -255,8 +245,7 @@ impl Store {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
-                let global = self.data.globals[addr as usize].clone();
-                let val = i64::from(global.borrow().value);
+                let val: i64 = self.data.globals[addr as usize].value.get().into();
 
                 // check if the global is actually a null reference
                 match val < 0 {
@@ -374,12 +363,12 @@ impl Store {
     }
 
     pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
-        self.data.globals.push(Rc::new(RefCell::new(GlobalInstance::new(ty, value, idx))));
+        self.data.globals.push(GlobalInstance::new(ty, value, idx));
         Ok(self.data.globals.len() as Addr - 1)
     }
 
     pub(crate) fn add_table(&mut self, table: TableType, idx: ModuleInstanceAddr) -> Result<TableAddr> {
-        self.data.tables.push(Rc::new(RefCell::new(TableInstance::new(table, idx))));
+        self.data.tables.push(RefCell::new(TableInstance::new(table, idx)));
         Ok(self.data.tables.len() as TableAddr - 1)
     }
 
@@ -387,7 +376,7 @@ impl Store {
         if let MemoryArch::I64 = mem.arch {
             return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
         }
-        self.data.memories.push(Rc::new(RefCell::new(MemoryInstance::new(mem, idx))));
+        self.data.memories.push(RefCell::new(MemoryInstance::new(mem, idx)));
         Ok(self.data.memories.len() as MemAddr - 1)
     }
 
@@ -401,10 +390,7 @@ impl Store {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
             I32Const(i) => *i,
-            GlobalGet(addr) => {
-                let global = self.data.globals[*addr as usize].borrow();
-                i32::from(global.value)
-            }
+            GlobalGet(addr) => i32::from(self.data.globals[*addr as usize].value.get()),
             _ => return Err(Error::Other("expected i32".to_string())),
         };
         Ok(val)
@@ -430,8 +416,7 @@ impl Store {
 
                 let global =
                     self.data.globals.get(*addr as usize).expect("global not found. This should be unreachable");
-
-                global.borrow().value
+                global.value.get()
             }
             RefNull(t) => RawWasmValue::from(t.default_value()),
             RefFunc(idx) => RawWasmValue::from(*module_func_addrs.get(*idx as usize).ok_or_else(|| {

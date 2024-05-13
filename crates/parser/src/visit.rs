@@ -6,12 +6,22 @@ use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::Instruction;
 use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
 
+#[cold]
+fn cold() {}
+
 struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
+            #[inline]
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-                self.0.$visit($($($arg.clone()),*)?)?;
+                match self.0.$visit($($($arg.clone()),*)?) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        cold();
+                        return Err(e.into())
+                    },
+                };
                 Ok(self.1.$visit($($($arg),*)?))
             }
         )*
@@ -28,14 +38,14 @@ where
 }
 
 pub(crate) fn process_operators<R: WasmModuleResources>(
-    validator: Option<&mut FuncValidator<R>>,
-    body: &FunctionBody<'_>,
+    validator: Option<FuncValidator<R>>,
+    body: FunctionBody<'_>,
 ) -> Result<Box<[Instruction]>> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
     let mut builder = FunctionBuilder::new(remaining);
 
-    if let Some(validator) = validator {
+    if let Some(mut validator) = validator {
         while !reader.eof() {
             let validate = validator.visitor(reader.original_position());
             reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))???;
@@ -53,6 +63,7 @@ pub(crate) fn process_operators<R: WasmModuleResources>(
 macro_rules! define_operands {
     ($($name:ident, $instr:expr),*) => {
         $(
+            #[inline]
             fn $name(&mut self) -> Self::Output {
                 self.instructions.push($instr);
                 Ok(())
@@ -64,15 +75,19 @@ macro_rules! define_operands {
 macro_rules! define_primitive_operands {
     ($($name:ident, $instr:expr, $ty:ty),*) => {
         $(
+            #[inline]
             fn $name(&mut self, arg: $ty) -> Self::Output {
-                Ok(self.instructions.push($instr(arg)))
+                self.instructions.push($instr(arg));
+                Ok(())
             }
         )*
     };
     ($($name:ident, $instr:expr, $ty:ty, $ty2:ty),*) => {
         $(
+            #[inline]
             fn $name(&mut self, arg: $ty, arg2: $ty) -> Self::Output {
-                Ok(self.instructions.push($instr(arg, arg2)))
+                self.instructions.push($instr(arg, arg2));
+                Ok(())
             }
         )*
     };
@@ -81,6 +96,7 @@ macro_rules! define_primitive_operands {
 macro_rules! define_mem_operands {
     ($($name:ident, $instr:ident),*) => {
         $(
+            #[inline]
             fn $name(&mut self, mem_arg: wasmparser::MemArg) -> Self::Output {
                 let arg = convert_memarg(mem_arg);
                 self.instructions.push(Instruction::$instr {
@@ -126,6 +142,7 @@ macro_rules! impl_visit_operator {
     (@@saturating_float_to_int $($rest:tt)* ) => {};
     (@@bulk_memory $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
+        #[cold]
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Result<()>{
             self.unsupported(stringify!($visit))
         }
@@ -421,9 +438,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         };
 
         let current_instr_ptr = self.instructions.len();
-
-        match self.instructions[label_pointer] {
-            Instruction::Else(ref mut else_instr_end_offset) => {
+        match &mut self.instructions[label_pointer] {
+            Instruction::Else(else_instr_end_offset) => {
                 *else_instr_end_offset = (current_instr_ptr - label_pointer)
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support if blocks that large");
@@ -439,7 +455,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                 let if_label_pointer = self.label_ptrs.pop().ok_or_else(error)?;
 
                 let if_instruction = &mut self.instructions[if_label_pointer];
-                let Instruction::If(_, ref mut else_offset, ref mut end_offset) = if_instruction else {
+                let Instruction::If(_, else_offset, end_offset) = if_instruction else {
                     return Err(error());
                 };
 
@@ -451,17 +467,15 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support blocks that large");
             }
-            Instruction::Block(_, ref mut end_offset)
-            | Instruction::Loop(_, ref mut end_offset)
-            | Instruction::If(_, _, ref mut end_offset) => {
+            Instruction::Block(_, end_offset)
+            | Instruction::Loop(_, end_offset)
+            | Instruction::If(_, _, end_offset) => {
                 *end_offset = (current_instr_ptr - label_pointer)
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
             }
             _ => {
-                return Err(crate::ParseError::UnsupportedOperator(
-                    "Expected to end a block, but the last label was not a block".to_string(),
-                ))
+                unreachable!("Expected to end a block, but the last label was not a block")
             }
         };
 
@@ -476,9 +490,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
             .expect("BrTable targets are invalid, this should have been caught by the validator");
 
-        self.instructions
-            .extend(IntoIterator::into_iter([Instruction::BrTable(def, instrs.len() as u32)]).chain(instrs));
-
+        self.instructions.extend(([Instruction::BrTable(def, instrs.len() as u32)].into_iter()).chain(instrs));
         Ok(())
     }
 

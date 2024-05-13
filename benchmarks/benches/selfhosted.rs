@@ -1,5 +1,5 @@
 mod util;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn run_native() {
     use tinywasm::*;
@@ -54,10 +54,10 @@ const TINYWASM: &[u8] = include_bytes!("../../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut group = c.benchmark_group("selfhosted");
-        group.bench_function("native", |b| b.iter(run_native));
+        // group.bench_function("native", |b| b.iter(run_native));
         group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(TINYWASM)));
-        group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
-        group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
+        // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
+        // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
     }
 }
 

@@ -48,19 +48,19 @@ const FIBONACCI: &[u8] = include_bytes!("../../examples/rust/out/fibonacci.wasm"
 fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut group = c.benchmark_group("fibonacci");
-        group.bench_function("native", |b| b.iter(|| run_native(black_box(60))));
+        // group.bench_function("native", |b| b.iter(|| run_native(black_box(60))));
         group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(FIBONACCI, black_box(60), "fibonacci")));
-        group.bench_function("wasmi", |b| b.iter(|| run_wasmi(FIBONACCI, black_box(60), "fibonacci")));
-        group.bench_function("wasmer", |b| b.iter(|| run_wasmer(FIBONACCI, black_box(60), "fibonacci")));
+        // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(FIBONACCI, black_box(60), "fibonacci")));
+        // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(FIBONACCI, black_box(60), "fibonacci")));
     }
 
     {
         let mut group = c.benchmark_group("fibonacci-recursive");
         group.measurement_time(std::time::Duration::from_secs(5));
-        group.bench_function("native", |b| b.iter(|| run_native_recursive(black_box(26))));
+        // group.bench_function("native", |b| b.iter(|| run_native_recursive(black_box(26))));
         group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(FIBONACCI, black_box(26), "fibonacci_recursive")));
-        group.bench_function("wasmi", |b| b.iter(|| run_wasmi(FIBONACCI, black_box(26), "fibonacci_recursive")));
-        group.bench_function("wasmer", |b| b.iter(|| run_wasmer(FIBONACCI, black_box(26), "fibonacci_recursive")));
+        // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(FIBONACCI, black_box(26), "fibonacci_recursive")));
+        // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(FIBONACCI, black_box(26), "fibonacci_recursive")));
     }
 }
 

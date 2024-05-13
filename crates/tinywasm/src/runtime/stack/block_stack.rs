@@ -7,9 +7,7 @@ pub(crate) struct BlockStack(Vec<BlockFrame>);
 
 impl BlockStack {
     pub(crate) fn new() -> Self {
-        let mut vec = Vec::new();
-        vec.reserve(128);
-        Self(vec)
+        Self(Vec::with_capacity(128))
     }
 
     #[inline]
@@ -49,13 +47,9 @@ impl BlockStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct BlockFrame {
-    // position of the instruction pointer when the block was entered
-    pub(crate) instr_ptr: u32,
-    // position of the end instruction of the block
-    pub(crate) end_instr_ptr: u32,
-
-    // position of the stack pointer when the block was entered
-    pub(crate) stack_ptr: u32,
+    pub(crate) instr_ptr: usize, // position of the instruction pointer when the block was entered
+    pub(crate) end_instr_ptr: usize, // position of the end instruction of the block
+    pub(crate) stack_ptr: u32,   // position of the stack pointer when the block was entered
 
     pub(crate) results: u8,
     pub(crate) params: u8,
@@ -65,8 +59,8 @@ pub(crate) struct BlockFrame {
 impl BlockFrame {
     #[inline(always)]
     pub(crate) fn new(
-        instr_ptr: u32,
-        end_instr_ptr: u32,
+        instr_ptr: usize,
+        end_instr_ptr: usize,
         stack_ptr: u32,
         ty: BlockType,
         args: &BlockArgs,
