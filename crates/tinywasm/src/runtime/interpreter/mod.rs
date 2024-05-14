@@ -3,7 +3,7 @@ use alloc::string::ToString;
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{BlockArgs, ElementKind, ValType};
 
-use super::{InterpreterRuntime, Stack};
+use super::{InterpreterRuntime, RawWasmValue, Stack};
 use crate::runtime::{BlockFrame, BlockType, CallFrame};
 use crate::{cold, unlikely, ModuleInstance};
 use crate::{Error, FuncContext, Result, Store, Trap};
@@ -19,32 +19,6 @@ mod no_std_floats;
 #[allow(unused_imports)]
 use no_std_floats::NoStdFloatExt;
 
-macro_rules! call {
-    ($cf:expr, $stack:expr, $module:expr, $store:expr) => {{
-        let old = $cf.block_ptr;
-        $cf = $stack.call_stack.pop()?;
-
-        if old > $cf.block_ptr {
-            $stack.blocks.truncate(old);
-        }
-
-        if $cf.module_addr != $module.id() {
-            $module.swap_with($cf.module_addr, $store);
-        }
-
-        continue;
-    }};
-}
-
-macro_rules! skip {
-    ($code:expr) => {
-        match $code {
-            Ok(_) => continue,
-            Err(e) => return Err(e),
-        }
-    };
-}
-
 impl InterpreterRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
         let mut cf = stack.call_stack.pop()?;
@@ -52,16 +26,24 @@ impl InterpreterRuntime {
 
         loop {
             use tinywasm_types::Instruction::*;
-            match &cf.func_instance.instructions[cf.instr_ptr] {
-                Nop => { /* do nothing */ }
-                Unreachable => return Err(crate::Trap::Unreachable.into()),
+            match cf.fetch_instr() {
+                Nop => cold(),
+                Unreachable => self.exec_unreachable()?,
                 Drop => stack.values.pop().map(|_| ())?,
                 Select(_valtype) => self.exec_select(stack)?,
+
                 Call(v) => skip!(self.exec_call(*v, store, stack, &mut cf, &mut module)),
                 CallIndirect(ty, table) => skip!(self.exec_call_indirect(*ty, *table, store, stack, &mut cf, &mut module)),
                 If(args, el, end) => skip!(self.exec_if((*args).into(), *el, *end, stack, &mut cf, &mut module)),
                 Loop(args, end) => self.enter_block(stack, cf.instr_ptr, *end, BlockType::Loop, args, &module),
                 Block(args, end) => self.enter_block(stack, cf.instr_ptr, *end, BlockType::Block, args, &module),
+
+                Br(v) => break_to!(cf, stack, module, store, v),
+                BrIf(v) => {
+                    if i32::from(stack.values.pop()?) != 0 {
+                        break_to!(cf, stack, module, store, v);
+                    }
+                }
                 BrTable(default, len) => {
                     let start = cf.instr_ptr + 1;
                     let end = start + *len as usize;
@@ -77,30 +59,16 @@ impl InterpreterRuntime {
                     }
                 }
 
-                Br(v) => break_to!(cf, stack, module, store, v),
-                BrIf(v) => {
-                    if i32::from(stack.values.pop()?) != 0 {
-                        break_to!(cf, stack, module, store, v);
-                    }
-                }
-
                 Return => match stack.call_stack.is_empty() {
                     true => return Ok(()),
                     false => call!(cf, stack, module, store),
                 },
 
                 // We're essentially using else as a EndBlockFrame instruction for if blocks
-                Else(end_offset) => {
-                    let block = stack.blocks.pop()?;
-                    stack.values.truncate_keep(block.stack_ptr, block.results as u32);
-                    cf.instr_ptr += *end_offset as usize;
-                }
+                Else(end_offset) => self.exec_else(stack, *end_offset, &mut cf)?,
 
                 // remove the label from the label stack
-                EndBlockFrame => {
-                    let block = stack.blocks.pop()?;
-                    stack.values.truncate_keep(block.stack_ptr, block.results as u32);
-                }
+                EndBlockFrame => self.exec_end_block(stack)?,
 
                 LocalGet(local_index) => self.exec_local_get(*local_index, stack, &cf),
                 LocalSet(local_index) => self.exec_local_set(*local_index, stack, &mut cf)?,
@@ -109,10 +77,10 @@ impl InterpreterRuntime {
                 GlobalGet(global_index) => self.exec_global_get(*global_index, stack, store, &module)?,
                 GlobalSet(global_index) => self.exec_global_set(*global_index, stack, store, &module)?,
 
-                I32Const(val) => stack.values.push((*val).into()),
-                I64Const(val) => stack.values.push((*val).into()),
-                F32Const(val) => stack.values.push((*val).into()),
-                F64Const(val) => stack.values.push((*val).into()),
+                I32Const(val) => self.exec_const(*val, stack),
+                I64Const(val) => self.exec_const(*val, stack),
+                F32Const(val) => self.exec_const(*val, stack),
+                F64Const(val) => self.exec_const(*val, stack),
 
                 MemorySize(addr, byte) => self.exec_memory_size(*addr, *byte, stack, store, &module)?,
                 MemoryGrow(addr, byte) => self.exec_memory_grow(*addr, *byte, stack, store, &module)?,
@@ -314,23 +282,11 @@ impl InterpreterRuntime {
                 LocalGet2(a, b) => self.exec_local_get2(*a, *b, stack, &cf),
                 LocalGet3(a, b, c) => self.exec_local_get3(*a, *b, *c, stack, &cf),
                 LocalTeeGet(a, b) => self.exec_local_tee_get(*a, *b, stack, &mut cf),
-                LocalGetSet(a, b) => cf.set_local(*b, cf.get_local(*a)),
-                I64XorConstRotl(rotate_by) => {
-                    let val: i64 = stack.values.pop()?.into();
-                    let mask: i64 = stack.values.pop()?.into();
-                    let res = val ^ mask;
-                    stack.values.push(res.rotate_left(*rotate_by as u32).into());
-                }
-                I32LocalGetConstAdd(local, val) => {
-                    let local: i32 = cf.get_local(*local).into();
-                    stack.values.push((local + *val).into());
-                }
+                LocalGetSet(a, b) => self.exec_local_get_set(*a, *b, &mut cf),
+                I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by, stack)?,
+                I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val, stack, &cf),
                 I32StoreLocal { local, const_i32: consti32, offset, mem_addr } => {
-                    let (mem_addr, offset) = (*mem_addr as u32, *offset);
-                    let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
-                    let val = consti32.to_le_bytes();
-                    let addr: u64 = cf.get_local(*local).into();
-                    mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
+                    self.exec_i32_store_local(*local, *consti32, *offset, *mem_addr, &cf, store, &module)?
                 }
                 i => {
                     cold();
@@ -340,6 +296,66 @@ impl InterpreterRuntime {
 
             cf.instr_ptr += 1;
         }
+    }
+
+    #[inline(always)]
+    fn exec_end_block(&self, stack: &mut Stack) -> Result<()> {
+        let block = stack.blocks.pop()?;
+        stack.values.truncate_keep(block.stack_ptr, block.results as u32);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_else(&self, stack: &mut Stack, end_offset: u32, cf: &mut CallFrame) -> Result<()> {
+        let block = stack.blocks.pop()?;
+        stack.values.truncate_keep(block.stack_ptr, block.results as u32);
+        cf.instr_ptr += end_offset as usize;
+        Ok(())
+    }
+
+    #[inline(always)]
+    #[cold]
+    fn exec_unreachable(&self) -> Result<()> {
+        Err(Error::Trap(Trap::Unreachable))
+    }
+
+    #[inline(always)]
+    fn exec_const(&self, val: impl Into<RawWasmValue>, stack: &mut Stack) {
+        stack.values.push(val.into());
+    }
+
+    #[inline(always)]
+    fn exec_i32_store_local(
+        &self,
+        local: u32,
+        const_i32: i32,
+        offset: u32,
+        mem_addr: u8,
+        cf: &CallFrame,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
+        let mem_addr = module.resolve_mem_addr(mem_addr as u32);
+        let mem = store.get_mem(mem_addr)?;
+        let val = const_i32.to_le_bytes();
+        let addr: u64 = cf.get_local(local).into();
+        mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_i32_local_get_const_add(&self, local: u32, val: i32, stack: &mut Stack, cf: &CallFrame) {
+        let local: i32 = cf.get_local(local).into();
+        stack.values.push((local + val).into());
+    }
+
+    #[inline(always)]
+    fn exec_i64_xor_const_rotl(&self, rotate_by: i64, stack: &mut Stack) -> Result<()> {
+        let val: i64 = stack.values.pop()?.into();
+        let res = stack.values.last_mut()?;
+        let mask: i64 = (*res).into();
+        *res = (val ^ mask).rotate_left(rotate_by as u32).into();
+        Ok(())
     }
 
     #[inline(always)]
@@ -358,6 +374,11 @@ impl InterpreterRuntime {
         stack.values.push(cf.get_local(a));
         stack.values.push(cf.get_local(b));
         stack.values.push(cf.get_local(c));
+    }
+
+    #[inline(always)]
+    fn exec_local_get_set(&self, a: u32, b: u32, cf: &mut CallFrame) {
+        cf.set_local(b, cf.get_local(a))
     }
 
     #[inline(always)]
@@ -448,8 +469,7 @@ impl InterpreterRuntime {
         let val2 = stack.values.pop()?;
         // if cond != 0, we already have the right value on the stack
         if cond == 0 {
-            let _ = stack.values.pop()?;
-            stack.values.push(val2);
+            *stack.values.last_mut()? = val2;
         }
         Ok(())
     }
@@ -474,12 +494,12 @@ impl InterpreterRuntime {
 
         let mut mem = store.get_mem(module.resolve_mem_addr(addr))?.borrow_mut();
         let prev_size = mem.page_count() as i32;
-        let pages_delta: i32 = stack.values.pop()?.into();
+        let pages_delta = stack.values.last_mut()?;
+        *pages_delta = match mem.grow(i32::from(*pages_delta)) {
+            Some(_) => prev_size.into(),
+            None => (-1).into(),
+        };
 
-        match mem.grow(pages_delta) {
-            Some(_) => stack.values.push(prev_size.into()),
-            None => stack.values.push((-1).into()),
-        }
         Ok(())
     }
 
@@ -557,7 +577,6 @@ impl InterpreterRuntime {
                 let params = stack.values.pop_params(&host_func.ty.params)?;
                 let res = (func.func)(FuncContext { store, module_addr: module.id() }, &params)?;
                 stack.values.extend_from_typed(&res);
-
                 cf.instr_ptr += 1;
                 return Ok(());
             }

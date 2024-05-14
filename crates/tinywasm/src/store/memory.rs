@@ -80,6 +80,7 @@ impl MemoryInstance {
     }
 
     // this is a workaround since we can't use generic const expressions yet (https://github.com/rust-lang/rust/issues/76560)
+    #[inline]
     pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
             return Err(self.trap_oob(addr, SIZE));

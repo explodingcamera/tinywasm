@@ -86,9 +86,7 @@ impl_from_raw_wasm_value!(u32, |x| x as u64, |x: [u8; 8]| u32::from_ne_bytes(x[0
 impl_from_raw_wasm_value!(u64, |x| x, |x: [u8; 8]| u64::from_ne_bytes(x[0..8].try_into().unwrap()));
 impl_from_raw_wasm_value!(i8, |x| x as u64, |x: [u8; 8]| i8::from_ne_bytes(x[0..1].try_into().unwrap()));
 impl_from_raw_wasm_value!(i16, |x| x as u64, |x: [u8; 8]| i16::from_ne_bytes(x[0..2].try_into().unwrap()));
-impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x: [u8; 8]| f32::from_bits(u32::from_ne_bytes(
-    x[0..4].try_into().unwrap()
-)));
+impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x: [u8; 8]| f32::from_ne_bytes(x[0..4].try_into().unwrap()));
 impl_from_raw_wasm_value!(f64, f64::to_bits, |x: [u8; 8]| f64::from_bits(u64::from_ne_bytes(x[0..8].try_into().unwrap())));
 
 #[cfg(test)]

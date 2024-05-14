@@ -22,11 +22,8 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
 
     match element.items {
         wasmparser::ElementItems::Functions(funcs) => {
-            let items = funcs
-                .into_iter()
-                .map(|func| Ok(ElementItem::Func(func?)))
-                .collect::<Result<Vec<_>>>()?
-                .into_boxed_slice();
+            let items =
+                funcs.into_iter().map(|func| Ok(ElementItem::Func(func?))).collect::<Result<Vec<_>>>()?.into_boxed_slice();
 
             Ok(tinywasm_types::Element { kind, items, ty: ValType::RefFunc, range: element.range })
         }
@@ -75,18 +72,20 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         name: import.name.to_string().into_boxed_str(),
         kind: match import.ty {
             wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
-            wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
-                element_type: convert_reftype(&ty.element_type),
-                size_initial: ty.initial.try_into().map_err(|_| {
-                    crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
-                })?,
-                size_max: match ty.maximum {
-                    Some(max) => Some(max.try_into().map_err(|_| {
-                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
-                    })?),
-                    None => None,
-                },
-            }),
+            wasmparser::TypeRef::Table(ty) => {
+                ImportKind::Table(TableType {
+                    element_type: convert_reftype(&ty.element_type),
+                    size_initial: ty.initial.try_into().map_err(|_| {
+                        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
+                    })?,
+                    size_max: match ty.maximum {
+                        Some(max) => Some(max.try_into().map_err(|_| {
+                            crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
+                        })?),
+                        None => None,
+                    },
+                })
+            }
             wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
             wasmparser::TypeRef::Global(ty) => {
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
@@ -122,9 +121,10 @@ pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Resul
 }
 
 pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
-    let size_initial = table.ty.initial.try_into().map_err(|_| {
-        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
-    })?;
+    let size_initial =
+        table.ty.initial.try_into().map_err(|_| {
+            crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
+        })?;
 
     let size_max = match table.ty.maximum {
         Some(max) => Some(
@@ -137,16 +137,13 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
     Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial, size_max })
 }
 
-pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
-    globals: T,
-) -> Result<Vec<Global>> {
+pub(crate) fn convert_module_globals(globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>) -> Result<Vec<Global>> {
     let globals = globals
         .into_iter()
         .map(|global| {
             let global = global?;
             let ty = convert_valtype(&global.ty.content_type);
             let ops = global.init_expr.get_operators_reader();
-
             Ok(Global { init: process_const_operators(ops)?, ty: GlobalType { mutable: global.ty.mutable, ty } })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -193,9 +190,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     let mut types = ty.types();
 
     if types.len() != 1 {
-        return Err(crate::ParseError::UnsupportedOperator(
-            "Expected exactly one type in the type section".to_string(),
-        ));
+        return Err(crate::ParseError::UnsupportedOperator("Expected exactly one type in the type section".to_string()));
     }
     let ty = types.next().unwrap().unwrap_func();
     let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
@@ -242,18 +237,15 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
     // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
     assert!(ops.len() >= 2);
     assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
-    process_const_operator(ops[ops.len() - 2].clone())
-}
 
-pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<ConstInstruction> {
-    match op {
-        wasmparser::Operator::RefNull { hty } => Ok(ConstInstruction::RefNull(convert_heaptype(hty))),
-        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
-        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
-        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
+    match &ops[ops.len() - 2] {
+        wasmparser::Operator::RefNull { hty } => Ok(ConstInstruction::RefNull(convert_heaptype(*hty))),
+        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(*function_index)),
+        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(*value)),
+        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(*value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
-        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
+        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
     }
 }

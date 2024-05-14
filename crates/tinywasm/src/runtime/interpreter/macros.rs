@@ -28,30 +28,35 @@ macro_rules! mem_load {
     }};
 
     ($load_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+        #[inline(always)]
+        fn mem_load_inner(
+            store: &Store,
+            module: &crate::ModuleInstance,
+            stack: &mut crate::runtime::Stack,
+            mem_addr: tinywasm_types::MemAddr,
+            offset: u64,
+        ) -> Result<()> {
+            let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
+            let addr: usize = match offset.checked_add(stack.values.pop()?.into()).map(|a| a.try_into()) {
+                Some(Ok(a)) => a,
+                _ => {
+                    cold();
+                    return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
+                        offset: offset as usize,
+                        len: core::mem::size_of::<$load_type>(),
+                        max: mem.borrow().max_pages(),
+                    }));
+                }
+            };
+
+            const LEN: usize = core::mem::size_of::<$load_type>();
+            let val = mem.borrow().load_as::<LEN, $load_type>(addr)?;
+            stack.values.push((val as $target_type).into());
+            Ok(())
+        }
+
         let (mem_addr, offset) = $arg;
-
-        let mem_idx = $module.resolve_mem_addr(*mem_addr);
-        let mem = $store.get_mem(mem_idx)?;
-
-        let memory_out_of_bounds = || {
-            cold();
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset: *offset as usize,
-                len: core::mem::size_of::<$load_type>(),
-                max: mem.borrow().max_pages(),
-            })
-        };
-
-        let addr: usize = offset
-            .checked_add($stack.values.pop()?.into())
-            .ok_or_else(memory_out_of_bounds)?
-            .try_into()
-            .ok()
-            .ok_or_else(memory_out_of_bounds)?;
-
-        const LEN: usize = core::mem::size_of::<$load_type>();
-        let val = mem.borrow().load_as::<LEN, $load_type>(addr)?;
-        $stack.values.push((val as $target_type).into());
+        mem_load_inner($store, &$module, $stack, *mem_addr, *offset)?;
     }};
 }
 
@@ -62,12 +67,24 @@ macro_rules! mem_store {
     }};
 
     ($store_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+        #[inline(always)]
+        fn mem_store_inner(
+            store: &Store,
+            module: &crate::ModuleInstance,
+            stack: &mut crate::runtime::Stack,
+            mem_addr: tinywasm_types::MemAddr,
+            offset: u64,
+        ) -> Result<()> {
+            let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
+            let val: $store_type = stack.values.pop()?.into();
+            let val = val.to_le_bytes();
+            let addr: u64 = stack.values.pop()?.into();
+            mem.borrow_mut().store((offset + addr) as usize, val.len(), &val)?;
+            Ok(())
+        }
+
         let (mem_addr, offset) = $arg;
-        let mem = $store.get_mem($module.resolve_mem_addr(*mem_addr))?;
-        let val: $store_type = $stack.values.pop()?.into();
-        let val = val.to_le_bytes();
-        let addr: u64 = $stack.values.pop()?.into();
-        mem.borrow_mut().store((*offset + addr) as usize, val.len(), &val)?;
+        mem_store_inner($store, &$module, $stack, *mem_addr, *offset)?;
     }};
 }
 
@@ -76,8 +93,8 @@ macro_rules! mem_store {
 /// for a specific conversion, which are then used in the actual conversion.
 /// Rust sadly doesn't have wrapping casts for floats yet, maybe never.
 /// Alternatively, https://crates.io/crates/az could be used for this but
-/// it's not worth the dependency.
-#[rustfmt::skip] 
+/// it's not worth the dependency. 
+#[rustfmt::skip]
 macro_rules! float_min_max {
     (f32, i32) => {(-2147483904.0_f32, 2147483648.0_f32)};
     (f64, i32) => {(-2147483649.0_f64, 2147483648.0_f64)};
@@ -93,20 +110,17 @@ macro_rules! float_min_max {
 
 /// Convert a value on the stack
 macro_rules! conv {
-    ($from:ty, $to:ty, $stack:ident) => {{
-        $stack.values.replace_top(|v| {
-            let a: $from = v.into();
-            (a as $to).into()
-        });
-    }};
+    ($from:ty, $to:ty, $stack:ident) => {
+        $stack.values.replace_top(|v| (<$from>::from(v) as $to).into())?
+    };
 }
 
 /// Convert a value on the stack with error checking
 macro_rules! checked_conv_float {
     // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $stack:ident) => {{
+    ($from:tt, $to:tt, $stack:ident) => {
         checked_conv_float!($from, $to, $to, $stack)
-    }};
+    };
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $stack:ident) => {{
         let (min, max) = float_min_max!($from, $intermediate);
@@ -126,67 +140,96 @@ macro_rules! checked_conv_float {
 
 /// Compare two values on the stack
 macro_rules! comp {
-    ($op:tt, $to:ty, $stack:ident) => {{
-        let b: $to = $stack.values.pop()?.into();
-        let a: $to = $stack.values.pop()?.into();
-        $stack.values.push(((a $op b) as i32).into());
-    }};
+    ($op:tt, $to:ty, $stack:ident) => {
+        $stack.values.calculate(|a, b| {
+            ((<$to>::from(a) $op <$to>::from(b)) as i32).into()
+        })?
+    };
 }
 
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
-    ($op:tt, $ty:ty, $stack:ident) => {{
-        let a: $ty = $stack.values.pop()?.into();
-        $stack.values.push(((a $op 0) as i32).into());
-    }};
+    ($op:tt, $ty:ty, $stack:ident) => {
+        $stack.values.replace_top(|v| {
+            ((<$ty>::from(v) $op 0) as i32).into()
+        })?
+    };
 }
 
 /// Apply an arithmetic method to two values on the stack
 macro_rules! arithmetic {
-    ($op:ident, $to:ty, $stack:ident) => {{
-        let b: $to = $stack.values.pop()?.into();
-        let a: $to = $stack.values.pop()?.into();
-        $stack.values.push((a.$op(b) as $to).into());
-    }};
+    ($op:ident, $to:ty, $stack:ident) => {
+        $stack.values.calculate(|a, b| {
+            (<$to>::from(a).$op(<$to>::from(b)) as $to).into()
+        })?
+    };
 
     // also allow operators such as +, -
-    ($op:tt, $ty:ty, $stack:ident) => {{
-        let b: $ty = $stack.values.pop()?.into();
-        let a: $ty = $stack.values.pop()?.into();
-        $stack.values.push((a $op b).into());
-    }};
+    ($op:tt, $ty:ty, $stack:ident) => {
+        $stack.values.calculate(|a, b| {
+            ((<$ty>::from(a) $op <$ty>::from(b)) as $ty).into()
+        })?
+    };
 }
 
 /// Apply an arithmetic method to a single value on the stack
 macro_rules! arithmetic_single {
-    ($op:ident, $ty:ty, $stack:ident) => {{
+    ($op:ident, $ty:ty, $stack:ident) => {
         arithmetic_single!($op, $ty, $ty, $stack)
-    }};
+    };
 
-    ($op:ident, $from:ty, $to:ty, $stack:ident) => {{
-        let a: $from = $stack.values.pop()?.into();
-        $stack.values.push((a.$op() as $to).into());
-    }};
+    ($op:ident, $from:ty, $to:ty, $stack:ident) => {
+        $stack.values.replace_top(|v| (<$from>::from(v).$op() as $to).into())?
+    };
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking
 macro_rules! checked_int_arithmetic {
-    ($op:ident, $to:ty, $stack:ident) => {{
-        let b: $to = $stack.values.pop()?.into();
-        let a: $to = $stack.values.pop()?.into();
+    ($op:ident, $to:ty, $stack:ident) => {
+        $stack.values.calculate_trap(|a, b| {
+            let a: $to = a.into();
+            let b: $to = b.into();
 
-        if unlikely(b == 0) {
-            return Err(Error::Trap(crate::Trap::DivisionByZero));
+            if unlikely(b == 0) {
+                return Err(Error::Trap(crate::Trap::DivisionByZero));
+            }
+
+            let result = a.$op(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
+            Ok((result).into())
+        })?
+    };
+}
+
+macro_rules! call {
+    ($cf:expr, $stack:expr, $module:expr, $store:expr) => {{
+        let old = $cf.block_ptr;
+        $cf = $stack.call_stack.pop()?;
+
+        if old > $cf.block_ptr {
+            $stack.blocks.truncate(old);
         }
 
-        let result = a.$op(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))?;
-        $stack.values.push((result).into());
+        if $cf.module_addr != $module.id() {
+            $module.swap_with($cf.module_addr, $store);
+        }
+
+        continue;
     }};
+}
+
+macro_rules! skip {
+    ($code:expr) => {
+        match $code {
+            Ok(_) => continue,
+            Err(e) => return Err(e),
+        }
+    };
 }
 
 pub(super) use arithmetic;
 pub(super) use arithmetic_single;
 pub(super) use break_to;
+pub(super) use call;
 pub(super) use checked_conv_float;
 pub(super) use checked_int_arithmetic;
 pub(super) use comp;
@@ -195,3 +238,4 @@ pub(super) use conv;
 pub(super) use float_min_max;
 pub(super) use mem_load;
 pub(super) use mem_store;
+pub(super) use skip;

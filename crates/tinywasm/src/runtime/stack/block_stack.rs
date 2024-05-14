@@ -1,4 +1,4 @@
-use crate::{unlikely, Error, Result};
+use crate::{cold, unlikely, Error, Result};
 use alloc::vec::Vec;
 
 #[derive(Debug, Clone)]
@@ -9,7 +9,7 @@ impl BlockStack {
         Self(Vec::with_capacity(128))
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
@@ -32,13 +32,19 @@ impl BlockStack {
         Some(&self.0[self.0.len() - index as usize - 1])
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> Result<BlockFrame> {
-        self.0.pop().ok_or(Error::BlockStackUnderflow)
+        match self.0.pop() {
+            Some(frame) => Ok(frame),
+            None => {
+                cold();
+                Err(Error::BlockStackUnderflow)
+            }
+        }
     }
 
     /// keep the top `len` blocks and discard the rest
-    #[inline]
+    #[inline(always)]
     pub(crate) fn truncate(&mut self, len: u32) {
         self.0.truncate(len as usize);
     }

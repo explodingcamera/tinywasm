@@ -1,5 +1,5 @@
 use crate::runtime::{BlockType, RawWasmValue};
-use crate::unlikely;
+use crate::{cold, unlikely};
 use crate::{Error, Result, Trap};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
@@ -25,17 +25,20 @@ impl CallStack {
         self.stack.is_empty()
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> Result<CallFrame> {
         match self.stack.pop() {
             Some(frame) => Ok(frame),
-            None => Err(Error::CallStackUnderflow),
+            None => {
+                cold();
+                Err(Error::CallStackUnderflow)
+            }
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.stack.len() >= CALL_STACK_SIZE) {
+        if unlikely(self.stack.len() >= self.stack.capacity()) {
             return Err(Trap::CallStackOverflow.into());
         }
         self.stack.push(call_frame);
@@ -53,6 +56,17 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
+    #[inline(always)]
+    pub(crate) fn fetch_instr(&self) -> &Instruction {
+        match self.func_instance.instructions.get(self.instr_ptr) {
+            Some(instr) => instr,
+            None => {
+                cold();
+                panic!("Instruction pointer out of bounds");
+            }
+        }
+    }
+
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     pub(crate) fn break_to(
