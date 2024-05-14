@@ -17,7 +17,6 @@ _log={version="0.4", optional=true, package="log"}
 tinywasm-parser={version="0.6.0", path="../parser", default-features=false, optional=true}
 tinywasm-types={version="0.6.0", path="../types", default-features=false}
 libm={version="0.2", default-features=false}
-tinyvec={version="1.6.0", features=["alloc"]}
 
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}

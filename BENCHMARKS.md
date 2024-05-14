@@ -36,7 +36,7 @@ All runtimes are compiled with the following settings:
 | ------------ | -------- | ---------- | --------- | -------------------- |
 | `fib`        | `0ms`    | ` 18.70µs` | `18.53µs` | ` 48.09µs`           |
 | `fib-rec`    | `0.27ms` | ` 16.02ms` | ` 4.96ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 86.02ms` | `46.36ms` | `  4.82ms`           |
+| `argon2id`   | `0.53ms` | ` 80.54ms` | `46.36ms` | `  4.82ms`           |
 | `selfhosted` | `0.05ms` | `  7.26ms` | ` 6.51ms` | `446.48ms`           |
 
 ### Fib
