@@ -1,7 +1,7 @@
 # Benchmark results
 
 All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM on Linux 6.6.
-WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen),
+WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen) (with the `--O3` flag)
 and the benchmark code is available in the `crates/benchmarks` folder.
 
 These are mainly preliminary benchmarks, and I will be rewriting the benchmarks to be more accurate and to test more features in the future.
@@ -36,7 +36,7 @@ All runtimes are compiled with the following settings:
 | ------------ | -------- | ---------- | --------- | -------------------- |
 | `fib`        | `0ms`    | ` 18.70µs` | `18.53µs` | ` 48.09µs`           |
 | `fib-rec`    | `0.27ms` | ` 16.02ms` | ` 4.96ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 86.42ms` | `46.36ms` | `  4.82ms`           |
+| `argon2id`   | `0.53ms` | ` 86.02ms` | `46.36ms` | `  4.82ms`           |
 | `selfhosted` | `0.05ms` | `  7.26ms` | ` 6.51ms` | `446.48ms`           |
 
 ### Fib

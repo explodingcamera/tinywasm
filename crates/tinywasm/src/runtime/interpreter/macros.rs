@@ -32,14 +32,13 @@ macro_rules! mem_load {
 
         let mem_idx = $module.resolve_mem_addr(*mem_addr);
         let mem = $store.get_mem(mem_idx)?;
-        let mem_ref = mem.borrow_mut();
 
         let memory_out_of_bounds = || {
             cold();
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: *offset as usize,
                 len: core::mem::size_of::<$load_type>(),
-                max: mem_ref.max_pages(),
+                max: mem.borrow().max_pages(),
             })
         };
 
@@ -51,7 +50,7 @@ macro_rules! mem_load {
             .ok_or_else(memory_out_of_bounds)?;
 
         const LEN: usize = core::mem::size_of::<$load_type>();
-        let val = mem_ref.load_as::<LEN, $load_type>(addr)?;
+        let val = mem.borrow().load_as::<LEN, $load_type>(addr)?;
         $stack.values.push((val as $target_type).into());
     }};
 }
@@ -68,7 +67,6 @@ macro_rules! mem_store {
         let val: $store_type = $stack.values.pop()?.into();
         let val = val.to_le_bytes();
         let addr: u64 = $stack.values.pop()?.into();
-
         mem.borrow_mut().store((*offset + addr) as usize, val.len(), &val)?;
     }};
 }

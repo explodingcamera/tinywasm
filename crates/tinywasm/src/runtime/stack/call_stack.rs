@@ -1,11 +1,8 @@
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
-
 use crate::runtime::{BlockType, RawWasmValue};
 use crate::unlikely;
 use crate::{Error, Result, Trap};
-
-use super::BlockFrame;
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
 
 const CALL_STACK_SIZE: usize = 1024;
 
@@ -56,22 +53,6 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
-    /// Push a new label to the label stack and ensure the stack has the correct values
-    pub(crate) fn enter_block(
-        &mut self,
-        block_frame: BlockFrame,
-        values: &mut super::ValueStack,
-        blocks: &mut super::BlockStack,
-    ) {
-        if block_frame.params > 0 {
-            let start = (block_frame.stack_ptr - block_frame.params as u32) as usize;
-            let end = block_frame.stack_ptr as usize;
-            values.extend_from_within(start..end);
-        }
-
-        blocks.push(block_frame);
-    }
-
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     pub(crate) fn break_to(
@@ -106,7 +87,7 @@ impl CallFrame {
                 values.break_to(break_to.stack_ptr, break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
-                self.instr_ptr = break_to.end_instr_ptr;
+                self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;
 
                 // we also want to trim the label stack, including the block
                 blocks.truncate(blocks.len() as u32 - (break_to_relative + 1));
@@ -116,8 +97,7 @@ impl CallFrame {
         Some(())
     }
 
-    // TODO: perf: a lot of time is spent here
-    #[inline(always)] // about 10% faster with this
+    #[inline(always)]
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
@@ -136,12 +116,12 @@ impl CallFrame {
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, locals, block_ptr }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: RawWasmValue) {
         self.locals[local_index as usize] = value;
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_local(&self, local_index: LocalAddr) -> RawWasmValue {
         self.locals[local_index as usize]
     }

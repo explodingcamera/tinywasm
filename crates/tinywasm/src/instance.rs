@@ -69,8 +69,7 @@ impl ModuleInstance {
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
         let global_addrs = store.init_globals(addrs.globals, data.globals.into(), &addrs.funcs, idx)?;
-        let (elem_addrs, elem_trapped) =
-            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
+        let (elem_addrs, elem_trapped) = store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
         let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
@@ -132,37 +131,37 @@ impl ModuleInstance {
     }
 
     // resolve a function address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        *self.0.func_addrs.get(addr as usize).expect("No func addr for func, this is a bug")
+        self.0.func_addrs[addr as usize]
     }
 
     // resolve a table address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        *self.0.table_addrs.get(addr as usize).expect("No table addr for table, this is a bug")
+        self.0.table_addrs[addr as usize]
     }
 
     // resolve a memory address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        *self.0.mem_addrs.get(addr as usize).expect("No mem addr for mem, this is a bug")
+        self.0.mem_addrs[addr as usize]
     }
 
     // resolve a data address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> MemAddr {
-        *self.0.data_addrs.get(addr as usize).expect("No data addr for data, this is a bug")
+        self.0.data_addrs[addr as usize]
     }
 
     // resolve a memory address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        *self.0.elem_addrs.get(addr as usize).expect("No elem addr for elem, this is a bug")
+        self.0.elem_addrs[addr as usize]
     }
 
     // resolve a global address to the global store address
-    #[inline]
+    #[inline(always)]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
         self.0.global_addrs[addr as usize]
     }

@@ -169,7 +169,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    mut validator: FuncValidator<ValidatorResources>,
+    validator: &mut FuncValidator<ValidatorResources>,
 ) -> Result<Code> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();

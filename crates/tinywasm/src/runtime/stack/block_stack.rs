@@ -1,6 +1,5 @@
-use crate::{unlikely, Error, ModuleInstance, Result};
+use crate::{unlikely, Error, Result};
 use alloc::vec::Vec;
-use tinywasm_types::BlockArgs;
 
 #[derive(Debug, Clone)]
 pub(crate) struct BlockStack(Vec<BlockFrame>);
@@ -45,39 +44,18 @@ impl BlockStack {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct BlockFrame {
-    pub(crate) instr_ptr: usize, // position of the instruction pointer when the block was entered
-    pub(crate) end_instr_ptr: usize, // position of the end instruction of the block
-    pub(crate) stack_ptr: u32,   // position of the stack pointer when the block was entered
+    pub(crate) instr_ptr: usize,      // position of the instruction pointer when the block was entered
+    pub(crate) end_instr_offset: u32, // position of the end instruction of the block
+    pub(crate) stack_ptr: u32,        // position of the stack pointer when the block was entered
 
     pub(crate) results: u8,
     pub(crate) params: u8,
     pub(crate) ty: BlockType,
 }
 
-impl BlockFrame {
-    #[inline(always)]
-    pub(crate) fn new(
-        instr_ptr: usize,
-        end_instr_ptr: usize,
-        stack_ptr: u32,
-        ty: BlockType,
-        args: &BlockArgs,
-        module: &ModuleInstance,
-    ) -> Self {
-        let (params, results) = match args {
-            BlockArgs::Empty => (0, 0),
-            BlockArgs::Type(_) => (0, 1),
-            BlockArgs::FuncType(t) => {
-                let ty = module.func_ty(*t);
-                (ty.params.len() as u8, ty.results.len() as u8)
-            }
-        };
-
-        Self { instr_ptr, end_instr_ptr, stack_ptr, results, params, ty }
-    }
-}
+impl BlockFrame {}
 
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]

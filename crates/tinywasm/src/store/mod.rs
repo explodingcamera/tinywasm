@@ -156,11 +156,7 @@ impl Store {
     /// Get the global at the actual index in the store
     #[inline]
     pub fn get_global_val(&self, addr: MemAddr) -> Result<RawWasmValue> {
-        self.data
-            .globals
-            .get(addr as usize)
-            .ok_or_else(|| Self::not_found_error("global"))
-            .map(|global| global.value.get())
+        self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global")).map(|global| global.value.get())
     }
 
     /// Set the global at the actual index in the store
@@ -414,8 +410,7 @@ impl Store {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
 
-                let global =
-                    self.data.globals.get(*addr as usize).expect("global not found. This should be unreachable");
+                let global = self.data.globals.get(*addr as usize).expect("global not found. This should be unreachable");
                 global.value.get()
             }
             RefNull(t) => RawWasmValue::from(t.default_value()),

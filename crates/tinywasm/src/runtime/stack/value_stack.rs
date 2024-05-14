@@ -1,5 +1,3 @@
-use core::ops::Range;
-
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
@@ -21,18 +19,8 @@ impl Default for ValueStack {
 
 impl ValueStack {
     #[inline]
-    pub(crate) fn extend_from_within(&mut self, range: Range<usize>) {
-        self.stack.extend_from_within(range);
-    }
-
-    #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
         self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
-    }
-
-    #[inline]
-    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
-        self.stack.extend_from_slice(values);
     }
 
     #[inline]

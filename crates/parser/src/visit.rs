@@ -6,22 +6,13 @@ use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::Instruction;
 use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
 
-#[cold]
-fn cold() {}
-
 struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
             #[inline]
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-                match self.0.$visit($($($arg.clone()),*)?) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        cold();
-                        return Err(e.into())
-                    },
-                };
+                self.0.$visit($($($arg.clone()),*)?)?;
                 Ok(self.1.$visit($($($arg),*)?))
             }
         )*
@@ -38,14 +29,14 @@ where
 }
 
 pub(crate) fn process_operators<R: WasmModuleResources>(
-    validator: Option<FuncValidator<R>>,
+    validator: Option<&mut FuncValidator<R>>,
     body: FunctionBody<'_>,
 ) -> Result<Box<[Instruction]>> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
     let mut builder = FunctionBuilder::new(remaining);
 
-    if let Some(mut validator) = validator {
+    if let Some(validator) = validator {
         while !reader.eof() {
             let validate = validator.visitor(reader.original_position());
             reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))???;

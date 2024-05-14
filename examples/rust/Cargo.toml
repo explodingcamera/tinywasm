@@ -10,7 +10,7 @@ forced-target="wasm32-unknown-unknown"
 edition="2021"
 
 [dependencies]
-tinywasm={path="../../crates/tinywasm", features=["parser", "std", "unsafe"]}
+tinywasm={path="../../crates/tinywasm", features=["parser", "std", "unsafe", "nightly"]}
 argon2={version="0.5"}
 
 [[bin]]
