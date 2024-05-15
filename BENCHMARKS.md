@@ -1,7 +1,7 @@
 # Benchmark results
 
 All benchmarks are run on a Ryzen 7 5800X with 32GB of RAM on Linux 6.6.
-WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen),
+WebAssembly files are optimized using [wasm-opt](https://github.com/WebAssembly/binaryen) (with the `--O3` flag)
 and the benchmark code is available in the `crates/benchmarks` folder.
 
 These are mainly preliminary benchmarks, and I will be rewriting the benchmarks to be more accurate and to test more features in the future.
@@ -20,7 +20,6 @@ All WebAssembly files are compiled with the following settings:
 
 All runtimes are compiled with the following settings:
 
-- `unsafe` features are enabled.
 - `opt-level` is set to 3, `lto` is set to `thin`, `codegen-units` is set to 1.
 - No CPU-specific optimizations are used as AVX2 can reduce performance by more than 50% on some CPUs.
 
@@ -34,9 +33,9 @@ All runtimes are compiled with the following settings:
 
 | Benchmark    | Native   | TinyWasm   | Wasmi     | Wasmer (Single Pass) |
 | ------------ | -------- | ---------- | --------- | -------------------- |
-| `fib`        | `0ms`    | ` 19.09µs` | `18.53µs` | ` 48.09µs`           |
-| `fib-rec`    | `0.27ms` | ` 22.22ms` | ` 4.96ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 86.42ms` | `46.36ms` | `  4.82ms`           |
+| `fib`        | `0ms`    | ` 18.70µs` | `18.53µs` | ` 48.09µs`           |
+| `fib-rec`    | `0.27ms` | ` 16.02ms` | ` 4.96ms` | `  0.47ms`           |
+| `argon2id`   | `0.53ms` | ` 80.54ms` | `46.36ms` | `  4.82ms`           |
 | `selfhosted` | `0.05ms` | `  7.26ms` | ` 6.51ms` | `446.48ms`           |
 
 ### Fib

@@ -389,7 +389,7 @@ impl Imports {
                     match (val, &import.kind) {
                         (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
                             let global = store.get_global(global_addr)?;
-                            Self::compare_types(import, &global.borrow().ty, ty)?;
+                            Self::compare_types(import, &global.ty, ty)?;
                             imports.globals.push(global_addr);
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {

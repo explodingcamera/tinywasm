@@ -3,7 +3,7 @@
         <a href=""><img align="left" src="./tinywasm.png" width="100px"></a>
     </div>
     <h1>TinyWasm</h1>
-    A tiny WebAssembly Runtime written in Rust
+    A tiny WebAssembly Runtime written in safe Rust
 </div>
 
 <br>
@@ -12,9 +12,9 @@
 
 ## Why TinyWasm?
 
-- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality (< 6000 lines of code).
-- **Portable**: TinyWasm runs on any platform that Rust can target, including other WebAssembly Runtimes, with minimal external dependencies.
-- **Lightweight**: TinyWasm is easy to integrate and has a low call overhead, making it suitable for scripting and embedding.
+- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality (< 4000 LLOC).
+- **Portable**: TinyWasm runs on any platform that Rust can target, including `no_std`, with minimal external dependencies.
+- **Safe**: No unsafe code is used in the runtime (`rkyv` which uses unsafe code can be used for serialization, but it is optional).
 
 ## Status
 
@@ -65,8 +65,6 @@ $ tinywasm-cli --help
   Enables the `tinywasm-parser` crate. This is enabled by default.
 - **`archive`**\
   Enables pre-parsing of archives. This is enabled by default.
-- **`unsafe`**\
-  Uses `unsafe` code to improve performance, particularly in Memory access.
 
 With all these features disabled, TinyWasm only depends on `core`, `alloc` ,and `libm` and can be used in `no_std` environments.
 Since `libm` is not as performant as the compiler's math intrinsics, it is recommended to use the `std` feature if possible (at least [for now](https://github.com/rust-lang/rfcs/issues/2505)), especially on wasm32 targets.

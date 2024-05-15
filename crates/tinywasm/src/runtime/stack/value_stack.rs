@@ -1,5 +1,3 @@
-use core::ops::Range;
-
 use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
@@ -13,43 +11,48 @@ pub(crate) struct ValueStack {
 
 impl Default for ValueStack {
     fn default() -> Self {
-        let mut vec = Vec::new();
-        vec.reserve(MIN_VALUE_STACK_SIZE); // gives a slight performance over with_capacity
-        Self { stack: vec }
+        Self { stack: Vec::with_capacity(MIN_VALUE_STACK_SIZE) }
     }
 }
 
 impl ValueStack {
     #[inline]
-    pub(crate) fn extend_from_within(&mut self, range: Range<usize>) {
-        self.stack.extend_from_within(range);
-    }
-
-    #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
         self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
     }
 
-    #[inline]
-    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
-        self.stack.extend_from_slice(values);
+    #[inline(always)]
+    pub(crate) fn replace_top(&mut self, func: fn(RawWasmValue) -> RawWasmValue) -> Result<()> {
+        let v = self.last_mut()?;
+        *v = func(*v);
+        Ok(())
     }
 
-    #[inline]
-    pub(crate) fn replace_top(&mut self, func: impl FnOnce(RawWasmValue) -> RawWasmValue) {
-        let len = self.stack.len();
-        if unlikely(len == 0) {
-            return;
-        }
-        let top = self.stack[len - 1];
-        self.stack[len - 1] = func(top);
+    #[inline(always)]
+    pub(crate) fn calculate(&mut self, func: fn(RawWasmValue, RawWasmValue) -> RawWasmValue) -> Result<()> {
+        let v2 = self.pop()?;
+        let v1 = self.last_mut()?;
+        *v1 = func(*v1, v2);
+        Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
+    pub(crate) fn calculate_trap(
+        &mut self,
+        func: fn(RawWasmValue, RawWasmValue) -> Result<RawWasmValue>,
+    ) -> Result<()> {
+        let v2 = self.pop()?;
+        let v1 = self.last_mut()?;
+        *v1 = func(*v1, v2)?;
+        Ok(())
+    }
+
+    #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.stack.len()
     }
 
+    #[inline]
     pub(crate) fn truncate_keep(&mut self, n: u32, end_keep: u32) {
         let total_to_keep = n + end_keep;
         let len = self.stack.len() as u32;
@@ -71,6 +74,17 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn last_mut(&mut self) -> Result<&mut RawWasmValue> {
+        match self.stack.last_mut() {
+            Some(v) => Ok(v),
+            None => {
+                cold();
+                Err(Error::ValueStackUnderflow)
+            }
+        }
+    }
+
+    #[inline]
     pub(crate) fn last(&self) -> Result<&RawWasmValue> {
         match self.stack.last() {
             Some(v) => Ok(v),
@@ -81,7 +95,7 @@ impl ValueStack {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
         match self.stack.pop() {
             Some(v) => Ok(v),

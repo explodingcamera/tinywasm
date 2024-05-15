@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2024-05-15
+
+**All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.6.0...v0.7.0
+
+### Changed
+
+- Remove all unsafe code
+- Refactor interpreter loop
+- Optimize Call-frames
+- Remove unnecessary reference counter data from store
+
 ## [0.6.1] - 2024-05-10
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.6.0...v0.6.1

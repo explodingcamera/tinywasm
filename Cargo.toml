@@ -28,8 +28,8 @@ test=false
 
 [dev-dependencies]
 color-eyre="0.6"
-tinywasm={path="crates/tinywasm", features=["unsafe"]}
-wat={version="1.206"}
+tinywasm={path="crates/tinywasm"}
+wat={version="1"}
 pretty_env_logger="0.5"
 
 [profile.bench]

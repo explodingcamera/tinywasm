@@ -2,7 +2,6 @@ use core::cell::{Ref, RefCell, RefMut};
 use core::ffi::CStr;
 
 use alloc::ffi::CString;
-use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -142,9 +141,9 @@ impl MemoryStringExt for MemoryRef<'_> {}
 impl MemoryStringExt for MemoryRefMut<'_> {}
 
 /// A reference to a global instance
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct GlobalRef {
-    pub(crate) instance: Rc<RefCell<GlobalInstance>>,
+    pub(crate) instance: RefCell<GlobalInstance>,
 }
 
 impl GlobalRef {

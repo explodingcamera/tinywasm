@@ -4,8 +4,7 @@
 ))]
 #![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![no_std]
-#![cfg_attr(not(feature = "unsafe"), forbid(unsafe_code))]
-#![cfg_attr(feature = "unsafe", deny(unused_unsafe))]
+#![forbid(unsafe_code)]
 
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
@@ -95,7 +94,7 @@ pub struct TinyWasmModule {
 /// A WebAssembly External Kind.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ExternalKind {
     /// A WebAssembly Function.

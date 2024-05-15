@@ -7,8 +7,7 @@ use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
 ) -> Result<Vec<tinywasm_types::Element>> {
-    let elements = elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()?;
-    Ok(elements)
+    elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
@@ -47,8 +46,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
 pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
     data_sections: T,
 ) -> Result<Vec<tinywasm_types::Data>> {
-    let data_sections = data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()?;
-    Ok(data_sections)
+    data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm_types::Data> {
@@ -68,8 +66,7 @@ pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm
 pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
     imports: T,
 ) -> Result<Vec<Import>> {
-    let imports = imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()?;
-    Ok(imports)
+    imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
@@ -140,8 +137,8 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
     Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial, size_max })
 }
 
-pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Global<'a>>>>(
-    globals: T,
+pub(crate) fn convert_module_globals(
+    globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>,
 ) -> Result<Vec<Global>> {
     let globals = globals
         .into_iter()
@@ -149,7 +146,6 @@ pub(crate) fn convert_module_globals<'a, T: IntoIterator<Item = wasmparser::Resu
             let global = global?;
             let ty = convert_valtype(&global.ty.content_type);
             let ops = global.init_expr.get_operators_reader();
-
             Ok(Global { init: process_const_operators(ops)?, ty: GlobalType { mutable: global.ty.mutable, ty } })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -172,7 +168,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    mut validator: FuncValidator<ValidatorResources>,
+    validator: &mut FuncValidator<ValidatorResources>,
 ) -> Result<Code> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
@@ -187,7 +183,7 @@ pub(crate) fn convert_module_code(
         }
     }
 
-    let body = process_operators(Some(&mut validator), &func)?;
+    let body = process_operators(Some(validator), func)?;
     let locals = locals.into_boxed_slice();
     Ok((body, locals))
 }
@@ -245,18 +241,15 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
     // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
     assert!(ops.len() >= 2);
     assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
-    process_const_operator(ops[ops.len() - 2].clone())
-}
 
-pub(crate) fn process_const_operator(op: wasmparser::Operator<'_>) -> Result<ConstInstruction> {
-    match op {
-        wasmparser::Operator::RefNull { hty } => Ok(ConstInstruction::RefNull(convert_heaptype(hty))),
-        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(function_index)),
-        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(value)),
-        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(value)),
+    match &ops[ops.len() - 2] {
+        wasmparser::Operator::RefNull { hty } => Ok(ConstInstruction::RefNull(convert_heaptype(*hty))),
+        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(*function_index)),
+        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(*value)),
+        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(*value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
-        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(global_index)),
+        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
     }
 }

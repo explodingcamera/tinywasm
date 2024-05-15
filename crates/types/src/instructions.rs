@@ -85,6 +85,7 @@ pub enum ConstInstruction {
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
+#[non_exhaustive]
 pub enum Instruction {
     // > Custom Instructions
     BrLabel(LabelAddr),

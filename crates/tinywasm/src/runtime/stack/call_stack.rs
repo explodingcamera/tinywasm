@@ -1,11 +1,8 @@
+use crate::runtime::{BlockType, RawWasmValue};
+use crate::{cold, unlikely};
+use crate::{Error, Result, Trap};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
-
-use crate::runtime::{BlockType, RawWasmValue};
-use crate::unlikely;
-use crate::{Error, Result, Trap};
-
-use super::BlockFrame;
 
 const CALL_STACK_SIZE: usize = 1024;
 
@@ -19,10 +16,8 @@ impl CallStack {
     pub(crate) fn new(initial_frame: CallFrame) -> Self {
         let mut stack = Vec::new();
         stack.reserve_exact(CALL_STACK_SIZE);
-
-        let mut stack = Self { stack };
-        stack.push(initial_frame).unwrap();
-        stack
+        stack.push(initial_frame);
+        Self { stack }
     }
 
     #[inline]
@@ -30,17 +25,20 @@ impl CallStack {
         self.stack.is_empty()
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> Result<CallFrame> {
         match self.stack.pop() {
             Some(frame) => Ok(frame),
-            None => Err(Error::CallStackUnderflow),
+            None => {
+                cold();
+                Err(Error::CallStackUnderflow)
+            }
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.stack.len() >= CALL_STACK_SIZE) {
+        if unlikely(self.stack.len() >= self.stack.capacity()) {
             return Err(Trap::CallStackOverflow.into());
         }
         self.stack.push(call_frame);
@@ -50,7 +48,7 @@ impl CallStack {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: u32,
+    pub(crate) instr_ptr: usize,
     pub(crate) block_ptr: u32,
     pub(crate) func_instance: Rc<WasmFunction>,
     pub(crate) module_addr: ModuleInstanceAddr,
@@ -58,20 +56,15 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
-    /// Push a new label to the label stack and ensure the stack has the correct values
-    pub(crate) fn enter_block(
-        &mut self,
-        block_frame: BlockFrame,
-        values: &mut super::ValueStack,
-        blocks: &mut super::BlockStack,
-    ) {
-        if block_frame.params > 0 {
-            let start = (block_frame.stack_ptr - block_frame.params as u32) as usize;
-            let end = block_frame.stack_ptr as usize;
-            values.extend_from_within(start..end);
+    #[inline(always)]
+    pub(crate) fn fetch_instr(&self) -> &Instruction {
+        match self.func_instance.instructions.get(self.instr_ptr) {
+            Some(instr) => instr,
+            None => {
+                cold();
+                panic!("Instruction pointer out of bounds");
+            }
         }
-
-        blocks.push(block_frame);
     }
 
     /// Break to a block at the given index (relative to the current frame)
@@ -108,7 +101,7 @@ impl CallFrame {
                 values.break_to(break_to.stack_ptr, break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
-                self.instr_ptr = break_to.end_instr_ptr;
+                self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;
 
                 // we also want to trim the label stack, including the block
                 blocks.truncate(blocks.len() as u32 - (break_to_relative + 1));
@@ -118,8 +111,7 @@ impl CallFrame {
         Some(())
     }
 
-    // TODO: perf: a lot of time is spent here
-    #[inline(always)] // about 10% faster with this
+    #[inline(always)]
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
@@ -138,12 +130,12 @@ impl CallFrame {
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, locals, block_ptr }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: RawWasmValue) {
         self.locals[local_index as usize] = value;
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_local(&self, local_index: LocalAddr) -> RawWasmValue {
         self.locals[local_index as usize]
     }

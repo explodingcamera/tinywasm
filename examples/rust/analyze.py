@@ -2,15 +2,14 @@ import re
 import sys
 from collections import Counter
 
-seq_len = 5
-
 # Check if a file path was provided
-if len(sys.argv) < 2:
-    print("Usage: python script.py path/to/yourfile.wat")
+if len(sys.argv) < 3:
+    print("Usage: python script.py sequence_length path/to/yourfile.wat")
     sys.exit(1)
 
 # The first command line argument is the file path
-file_path = sys.argv[1]
+seq_len = int(sys.argv[1])
+file_path = sys.argv[2]
 
 # Regex to match WASM operators, adjust as necessary
 operator_pattern = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
