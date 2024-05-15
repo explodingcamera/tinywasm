@@ -10,7 +10,7 @@ repository.workspace=true
 [dependencies]
 wasmparser={version="0.207", default-features=false, features=["validate"]}
 log={version="0.4", optional=true}
-tinywasm-types={version="0.6.0", path="../types", default-features=false}
+tinywasm-types={version="0.7.0", path="../types", default-features=false}
 
 [features]
 default=["std", "logging"]
