@@ -37,7 +37,10 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn calculate_trap(&mut self, func: fn(RawWasmValue, RawWasmValue) -> Result<RawWasmValue>) -> Result<()> {
+    pub(crate) fn calculate_trap(
+        &mut self,
+        func: fn(RawWasmValue, RawWasmValue) -> Result<RawWasmValue>,
+    ) -> Result<()> {
         let v2 = self.pop()?;
         let v1 = self.last_mut()?;
         *v1 = func(*v1, v2)?;

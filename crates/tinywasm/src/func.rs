@@ -30,7 +30,11 @@ impl FuncHandle {
 
         // 4. If the length of the provided argument values is different from the number of expected arguments, then fail
         if unlikely(func_ty.params.len() != params.len()) {
-            return Err(Error::Other(format!("param count mismatch: expected {}, got {}", func_ty.params.len(), params.len())));
+            return Err(Error::Other(format!(
+                "param count mismatch: expected {}, got {}",
+                func_ty.params.len(),
+                params.len()
+            )));
         }
 
         // 5. For each value type and the corresponding value, check if types match
@@ -173,9 +177,13 @@ macro_rules! impl_from_wasm_value_tuple_single {
             fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
                 #[allow(unused_variables, unused_mut)]
                 let mut iter = values.iter();
-                $T::try_from(*iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?).map_err(
-                    |e| Error::Other(format!("FromWasmValueTupleSingle: Could not convert WasmValue to expected type: {:?}", e)),
-                )
+                $T::try_from(*iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
+                    .map_err(|e| {
+                        Error::Other(format!(
+                            "FromWasmValueTupleSingle: Could not convert WasmValue to expected type: {:?}",
+                            e
+                        ))
+                    })
             }
         }
     };

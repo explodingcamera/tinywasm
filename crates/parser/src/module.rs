@@ -58,8 +58,10 @@ impl ModuleReader {
 
                 debug!("Found type section");
                 validator.type_section(&reader)?;
-                self.func_types =
-                    reader.into_iter().map(|t| conversion::convert_module_type(t?)).collect::<Result<Vec<FuncType>>>()?;
+                self.func_types = reader
+                    .into_iter()
+                    .map(|t| conversion::convert_module_type(t?))
+                    .collect::<Result<Vec<FuncType>>>()?;
             }
 
             GlobalSection(reader) => {
@@ -149,7 +151,8 @@ impl ModuleReader {
 
                 debug!("Found export section");
                 validator.export_section(&reader)?;
-                self.exports = reader.into_iter().map(|e| conversion::convert_module_export(e?)).collect::<Result<Vec<_>>>()?;
+                self.exports =
+                    reader.into_iter().map(|e| conversion::convert_module_export(e?)).collect::<Result<Vec<_>>>()?;
             }
             End(offset) => {
                 debug!("Reached end of module");

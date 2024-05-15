@@ -54,7 +54,9 @@ const TINYWASM: &[u8] = include_bytes!("../../examples/rust/out/tinywasm.wasm");
 fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut group = c.benchmark_group("selfhosted-parse");
-        group.bench_function("tinywasm", |b| b.iter(|| tinywasm::Module::parse_bytes(black_box(TINYWASM)).expect("parse")));
+        group.bench_function("tinywasm", |b| {
+            b.iter(|| tinywasm::Module::parse_bytes(black_box(TINYWASM)).expect("parse"))
+        });
     }
 
     {

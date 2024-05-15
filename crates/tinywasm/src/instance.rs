@@ -69,7 +69,8 @@ impl ModuleInstance {
         addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
 
         let global_addrs = store.init_globals(addrs.globals, data.globals.into(), &addrs.funcs, idx)?;
-        let (elem_addrs, elem_trapped) = store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
+        let (elem_addrs, elem_trapped) =
+            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
         let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {

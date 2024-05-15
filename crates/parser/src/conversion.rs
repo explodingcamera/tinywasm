@@ -22,8 +22,11 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
 
     match element.items {
         wasmparser::ElementItems::Functions(funcs) => {
-            let items =
-                funcs.into_iter().map(|func| Ok(ElementItem::Func(func?))).collect::<Result<Vec<_>>>()?.into_boxed_slice();
+            let items = funcs
+                .into_iter()
+                .map(|func| Ok(ElementItem::Func(func?)))
+                .collect::<Result<Vec<_>>>()?
+                .into_boxed_slice();
 
             Ok(tinywasm_types::Element { kind, items, ty: ValType::RefFunc, range: element.range })
         }
@@ -72,20 +75,18 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         name: import.name.to_string().into_boxed_str(),
         kind: match import.ty {
             wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
-            wasmparser::TypeRef::Table(ty) => {
-                ImportKind::Table(TableType {
-                    element_type: convert_reftype(&ty.element_type),
-                    size_initial: ty.initial.try_into().map_err(|_| {
-                        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
-                    })?,
-                    size_max: match ty.maximum {
-                        Some(max) => Some(max.try_into().map_err(|_| {
-                            crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
-                        })?),
-                        None => None,
-                    },
-                })
-            }
+            wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
+                element_type: convert_reftype(&ty.element_type),
+                size_initial: ty.initial.try_into().map_err(|_| {
+                    crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
+                })?,
+                size_max: match ty.maximum {
+                    Some(max) => Some(max.try_into().map_err(|_| {
+                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
+                    })?),
+                    None => None,
+                },
+            }),
             wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
             wasmparser::TypeRef::Global(ty) => {
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
@@ -121,10 +122,9 @@ pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Resul
 }
 
 pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
-    let size_initial =
-        table.ty.initial.try_into().map_err(|_| {
-            crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
-        })?;
+    let size_initial = table.ty.initial.try_into().map_err(|_| {
+        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
+    })?;
 
     let size_max = match table.ty.maximum {
         Some(max) => Some(
@@ -137,7 +137,9 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
     Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial, size_max })
 }
 
-pub(crate) fn convert_module_globals(globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>) -> Result<Vec<Global>> {
+pub(crate) fn convert_module_globals(
+    globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>,
+) -> Result<Vec<Global>> {
     let globals = globals
         .into_iter()
         .map(|global| {
@@ -190,7 +192,9 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     let mut types = ty.types();
 
     if types.len() != 1 {
-        return Err(crate::ParseError::UnsupportedOperator("Expected exactly one type in the type section".to_string()));
+        return Err(crate::ParseError::UnsupportedOperator(
+            "Expected exactly one type in the type section".to_string(),
+        ));
     }
     let ty = types.next().unwrap().unwrap_func();
     let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();

@@ -1,5 +1,8 @@
 #![no_std]
-#![doc(test(no_crate_inject, attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))))]
+#![doc(test(
+    no_crate_inject,
+    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
+))]
 #![allow(unexpected_cfgs, clippy::reserve_after_initialization)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(nightly, feature(error_in_core))]

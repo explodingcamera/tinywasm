@@ -33,7 +33,9 @@ impl InterpreterRuntime {
                 Select(_valtype) => self.exec_select(stack)?,
 
                 Call(v) => skip!(self.exec_call(*v, store, stack, &mut cf, &mut module)),
-                CallIndirect(ty, table) => skip!(self.exec_call_indirect(*ty, *table, store, stack, &mut cf, &mut module)),
+                CallIndirect(ty, table) => {
+                    skip!(self.exec_call_indirect(*ty, *table, store, stack, &mut cf, &mut module))
+                }
                 If(args, el, end) => skip!(self.exec_if((*args).into(), *el, *end, stack, &mut cf, &mut module)),
                 Loop(args, end) => self.enter_block(stack, cf.instr_ptr, *end, BlockType::Loop, args, &module),
                 Block(args, end) => self.enter_block(stack, cf.instr_ptr, *end, BlockType::Block, args, &module),
@@ -48,7 +50,11 @@ impl InterpreterRuntime {
                     let start = cf.instr_ptr + 1;
                     let end = start + *len as usize;
                     if end > cf.instructions().len() {
-                        return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, cf.instructions().len())));
+                        return Err(Error::Other(format!(
+                            "br_table out of bounds: {} >= {}",
+                            end,
+                            cf.instructions().len()
+                        )));
                     }
 
                     let idx: i32 = stack.values.pop()?.into();
@@ -395,7 +401,8 @@ impl InterpreterRuntime {
 
     #[inline(always)]
     fn exec_local_tee_get(&self, a: u32, b: u32, stack: &mut Stack, cf: &mut CallFrame) {
-        let last = stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser");
+        let last =
+            stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser");
         cf.set_local(a, *last);
         stack.values.push(match a == b {
             true => *last,
@@ -404,21 +411,39 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_global_get(&self, global_index: u32, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_global_get(
+        &self,
+        global_index: u32,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let global = store.get_global_val(module.resolve_global_addr(global_index))?;
         stack.values.push(global);
         Ok(())
     }
 
     #[inline(always)]
-    fn exec_global_set(&self, global_index: u32, stack: &mut Stack, store: &mut Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_global_set(
+        &self,
+        global_index: u32,
+        stack: &mut Stack,
+        store: &mut Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let idx = module.resolve_global_addr(global_index);
         store.set_global_val(idx, stack.values.pop()?)?;
         Ok(())
     }
 
     #[inline(always)]
-    fn exec_table_get(&self, table_index: u32, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_table_get(
+        &self,
+        table_index: u32,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let table_idx = module.resolve_table_addr(table_index);
         let table = store.get_table(table_idx)?;
         let idx: u32 = stack.values.pop()?.into();
@@ -428,7 +453,13 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_table_set(&self, table_index: u32, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_table_set(
+        &self,
+        table_index: u32,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let table_idx = module.resolve_table_addr(table_index);
         let table = store.get_table(table_idx)?;
         let val = stack.values.pop()?.into();
@@ -438,7 +469,13 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_table_size(&self, table_index: u32, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_table_size(
+        &self,
+        table_index: u32,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let table_idx = module.resolve_table_addr(table_index);
         let table = store.get_table(table_idx)?;
         stack.values.push(table.borrow().size().into());
@@ -475,7 +512,14 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_memory_size(&self, addr: u32, byte: u8, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_memory_size(
+        &self,
+        addr: u32,
+        byte: u8,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         if unlikely(byte != 0) {
             return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
         }
@@ -487,7 +531,14 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_memory_grow(&self, addr: u32, byte: u8, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_memory_grow(
+        &self,
+        addr: u32,
+        byte: u8,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         if unlikely(byte != 0) {
             return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
         }
@@ -504,7 +555,14 @@ impl InterpreterRuntime {
     }
 
     #[inline(always)]
-    fn exec_memory_copy(&self, from: u32, to: u32, stack: &mut Stack, store: &Store, module: &ModuleInstance) -> Result<()> {
+    fn exec_memory_copy(
+        &self,
+        from: u32,
+        to: u32,
+        stack: &mut Stack,
+        store: &Store,
+        module: &ModuleInstance,
+    ) -> Result<()> {
         let size: i32 = stack.values.pop()?.into();
         let src: i32 = stack.values.pop()?.into();
         let dst: i32 = stack.values.pop()?.into();
@@ -620,7 +678,11 @@ impl InterpreterRuntime {
             crate::Function::Wasm(ref f) => f,
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
-                    return Err(Trap::IndirectCallTypeMismatch { actual: host_func.ty.clone(), expected: call_ty.clone() }.into());
+                    return Err(Trap::IndirectCallTypeMismatch {
+                        actual: host_func.ty.clone(),
+                        expected: call_ty.clone(),
+                    }
+                    .into());
                 }
 
                 let host_func = host_func.clone();
@@ -634,7 +696,9 @@ impl InterpreterRuntime {
         };
 
         if unlikely(wasm_func.ty != *call_ty) {
-            return Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into());
+            return Err(
+                Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into()
+            );
         }
 
         let params = stack.values.pop_n_rev(wasm_func.ty.params.len())?;

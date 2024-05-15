@@ -270,7 +270,11 @@ impl Imports {
         Ok(self)
     }
 
-    pub(crate) fn take(&mut self, store: &mut crate::Store, import: &Import) -> Option<ResolvedExtern<ExternVal, Extern>> {
+    pub(crate) fn take(
+        &mut self,
+        store: &mut crate::Store,
+        import: &Import,
+    ) -> Option<ResolvedExtern<ExternVal, Extern>> {
         let name = ExternName::from(import);
         if let Some(v) = self.values.get(&name) {
             return Some(ResolvedExtern::Extern(v.clone()));
@@ -309,7 +313,12 @@ impl Imports {
         Ok(())
     }
 
-    fn compare_memory_types(import: &Import, expected: &MemoryType, actual: &MemoryType, real_size: Option<usize>) -> Result<()> {
+    fn compare_memory_types(
+        import: &Import,
+        expected: &MemoryType,
+        actual: &MemoryType,
+        real_size: Option<usize>,
+    ) -> Result<()> {
         Self::compare_types(import, &expected.arch, &actual.arch)?;
 
         if actual.page_count_initial > expected.page_count_initial
