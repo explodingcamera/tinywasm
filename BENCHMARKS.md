@@ -22,21 +22,27 @@ All runtimes are compiled with the following settings:
 
 - `opt-level` is set to 3, `lto` is set to `thin`, `codegen-units` is set to 1.
 - No CPU-specific optimizations are used as AVX2 can reduce performance by more than 50% on some CPUs.
+- Default runtime settings are used
 
 ## Versions
 
-- `tinywasm`: `0.6.2`
+- `tinywasm`: `0.7.0`
 - `wasmi`: `0.31.2`
-- `wasmer`: `4.2.8`
+- `wasmer`: `4.3.0`
 
 ## Results
 
+> Results include the time it takes to parse/compile the WebAssembly file and execute the function.
+
 | Benchmark    | Native   | TinyWasm   | Wasmi     | Wasmer (Single Pass) |
 | ------------ | -------- | ---------- | --------- | -------------------- |
-| `fib`        | `0ms`    | ` 18.70µs` | `18.53µs` | ` 48.09µs`           |
-| `fib-rec`    | `0.27ms` | ` 16.02ms` | ` 4.96ms` | `  0.47ms`           |
-| `argon2id`   | `0.53ms` | ` 80.54ms` | `46.36ms` | `  4.82ms`           |
-| `selfhosted` | `0.05ms` | `  7.26ms` | ` 6.51ms` | `446.48ms`           |
+| `fib`        | `6.33µs` | ` 19.18µs` | `18.26µs` | ` 51.20µs`           |
+| `fib-rec`    | `0.27ms` | ` 16.09ms` | ` 5.08ms` | `  0.47ms`           |
+| `argon2id`   | `0.50ms` | ` 89.52ms` | `45.31ms` | `  4.74ms`           |
+| `selfhosted` | `0.05ms` | `  7.93ms` | ` 7.54ms` | `512.45ms`           |
+
+> Note that parsing is still pretty slow, especially for the `selfhosted` benchmark, taking up `~6ms` for TinyWasm.
+> This can be improved by using the `archive` feature, which pre-parses the WebAssembly file into tinywasm's custom bytecode format.
 
 ### Fib
 
