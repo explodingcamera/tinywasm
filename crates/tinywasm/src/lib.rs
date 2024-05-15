@@ -1,12 +1,9 @@
 #![no_std]
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
-))]
+#![doc(test(no_crate_inject, attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))))]
 #![allow(unexpected_cfgs, clippy::reserve_after_initialization)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(nightly, feature(error_in_core))]
-#![cfg_attr(not(feature = "unsafe"), deny(unsafe_code))]
+#![forbid(unsafe_code)]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
@@ -23,8 +20,6 @@
 //!  Enables the `tinywasm-parser` crate. This is enabled by default.
 //!- **`archive`**\
 //!  Enables pre-parsing of archives. This is enabled by default.
-//!- **`unsafe`**\
-//!  Uses `unsafe` code to improve performance, particularly in Memory access
 //!
 //! With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm`.
 //! By disabling `std`, you can use TinyWasm in `no_std` environments. This requires

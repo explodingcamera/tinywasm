@@ -65,18 +65,6 @@ impl TinyWasmModule {
         Ok(root.deserialize(&mut rkyv::Infallible).unwrap())
     }
 
-    #[cfg(feature = "unsafe")]
-    #[allow(unsafe_code)]
-    /// Creates a TinyWasmModule from a slice of bytes.
-    ///
-    /// # Safety
-    /// This function is only safe to call if the bytes have been created by
-    /// a trusted source. Otherwise, it may cause undefined behavior.
-    pub unsafe fn from_twasm_unchecked(wasm: &[u8]) -> Self {
-        let len = validate_magic(wasm).unwrap();
-        rkyv::archived_root::<TinyWasmModule>(&wasm[len..]).deserialize(&mut rkyv::Infallible).unwrap()
-    }
-
     /// Serializes the TinyWasmModule into a vector of bytes.
     /// AlignedVec can be deferenced as a slice of bytes and
     /// implements io::Write when the `std` feature is enabled.
@@ -99,16 +87,6 @@ mod tests {
         let wasm = TinyWasmModule::default();
         let twasm = wasm.serialize_twasm();
         let wasm2 = TinyWasmModule::from_twasm(&twasm).unwrap();
-        assert_eq!(wasm, wasm2);
-    }
-
-    #[cfg(feature = "unsafe")]
-    #[test]
-    fn test_serialize_unchecked() {
-        let wasm = TinyWasmModule::default();
-        let twasm = wasm.serialize_twasm();
-        #[allow(unsafe_code)]
-        let wasm2 = unsafe { TinyWasmModule::from_twasm_unchecked(&twasm) };
         assert_eq!(wasm, wasm2);
     }
 }

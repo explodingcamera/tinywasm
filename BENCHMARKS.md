@@ -20,7 +20,6 @@ All WebAssembly files are compiled with the following settings:
 
 All runtimes are compiled with the following settings:
 
-- `unsafe` features are enabled.
 - `opt-level` is set to 3, `lto` is set to `thin`, `codegen-units` is set to 1.
 - No CPU-specific optimizations are used as AVX2 can reduce performance by more than 50% on some CPUs.
 

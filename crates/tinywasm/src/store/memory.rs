@@ -32,6 +32,7 @@ impl MemoryInstance {
         }
     }
 
+    #[inline(never)]
     #[cold]
     fn trap_oob(&self, addr: usize, len: usize) -> Error {
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
@@ -46,20 +47,7 @@ impl MemoryInstance {
             return Err(self.trap_oob(addr, data.len()));
         }
 
-        // WebAssembly doesn't require alignment for stores
-        #[cfg(not(feature = "unsafe"))]
         self.data[addr..end].copy_from_slice(data);
-
-        #[cfg(feature = "unsafe")]
-        // SAFETY: we checked that `end` is in bounds above, this is the same as `copy_from_slice`
-        // src must is for reads of count * size_of::<T>() bytes.
-        // dst must is for writes of count * size_of::<T>() bytes.
-        // Both src and dst are properly aligned.
-        // The region of memory beginning at src does not overlap with the region of memory beginning at dst with the same size.
-        unsafe {
-            core::ptr::copy_nonoverlapping(data.as_ptr(), self.data[addr..end].as_mut_ptr(), len);
-        }
-
         Ok(())
     }
 
@@ -80,7 +68,6 @@ impl MemoryInstance {
     }
 
     // this is a workaround since we can't use generic const expressions yet (https://github.com/rust-lang/rust/issues/76560)
-    #[inline]
     pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
             return Err(self.trap_oob(addr, SIZE));
@@ -89,14 +76,10 @@ impl MemoryInstance {
         if end > self.data.len() {
             return Err(self.trap_oob(addr, SIZE));
         }
-
-        #[cfg(not(feature = "unsafe"))]
-        let val = T::from_le_bytes(self.data[addr..end].try_into().expect("slice size mismatch"));
-
-        #[cfg(feature = "unsafe")]
-        // SAFETY: we checked that `end` is in bounds above. All types that implement `Into<RawWasmValue>` are valid
-        // to load from unaligned addresses.
-        let val = unsafe { core::ptr::read_unaligned(self.data[addr..end].as_ptr() as *const T) };
+        let val = T::from_le_bytes(match self.data[addr..end].try_into() {
+            Ok(bytes) => bytes,
+            Err(_) => unreachable!("checked bounds above"),
+        });
 
         Ok(val)
     }
@@ -169,36 +152,19 @@ impl MemoryInstance {
     }
 }
 
-#[allow(unsafe_code)]
 /// A trait for types that can be loaded from memory
-///
-/// # Safety
-/// Only implemented for primitive types, unsafe to not allow it for other types.
-/// Only actually unsafe to implement if the `unsafe` feature is enabled since there might be
-/// UB for loading things things like packed structs
-pub(crate) unsafe trait MemLoadable<const T: usize>: Sized + Copy {
+pub(crate) trait MemLoadable<const T: usize>: Sized + Copy {
     /// Load a value from memory
-    #[allow(unused)]
     fn from_le_bytes(bytes: [u8; T]) -> Self;
-    /// Load a value from memory
-    #[allow(unused)]
-    fn from_be_bytes(bytes: [u8; T]) -> Self;
 }
 
 macro_rules! impl_mem_loadable_for_primitive {
     ($($type:ty, $size:expr),*) => {
         $(
-            #[allow(unused)]
-            #[allow(unsafe_code)]
-            unsafe impl MemLoadable<$size> for $type {
-                #[inline]
+            impl MemLoadable<$size> for $type {
+                #[inline(always)]
                 fn from_le_bytes(bytes: [u8; $size]) -> Self {
                     <$type>::from_le_bytes(bytes)
-                }
-
-                #[inline]
-                fn from_be_bytes(bytes: [u8; $size]) -> Self {
-                    <$type>::from_be_bytes(bytes)
                 }
             }
         )*

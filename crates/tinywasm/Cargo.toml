@@ -32,7 +32,6 @@ default=["std", "parser", "logging", "archive"]
 logging=["_log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["tinywasm-parser"]
-unsafe=["tinywasm-types/unsafe"]
 archive=["tinywasm-types/archive"]
 nightly=[]
 

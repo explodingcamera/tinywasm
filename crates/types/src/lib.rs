@@ -1,11 +1,7 @@
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
-))]
+#![doc(test(no_crate_inject, attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))))]
 #![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![no_std]
-#![cfg_attr(not(feature = "unsafe"), forbid(unsafe_code))]
-#![cfg_attr(feature = "unsafe", deny(unused_unsafe))]
+#![forbid(unsafe_code)]
 
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
