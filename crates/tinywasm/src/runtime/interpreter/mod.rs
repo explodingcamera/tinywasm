@@ -330,6 +330,7 @@ impl InterpreterRuntime {
         stack.values.push(val.into());
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn exec_i32_store_local(
         &self,
@@ -341,8 +342,7 @@ impl InterpreterRuntime {
         store: &Store,
         module: &ModuleInstance,
     ) -> Result<()> {
-        let mem_addr = module.resolve_mem_addr(mem_addr as u32);
-        let mem = store.get_mem(mem_addr)?;
+        let mem = store.get_mem(module.resolve_mem_addr(mem_addr as u32))?;
         let val = const_i32.to_le_bytes();
         let addr: u64 = cf.get_local(local).into();
         mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
