@@ -1,7 +1,7 @@
 use alloc::format;
 use alloc::string::ToString;
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
-use tinywasm_types::{BlockArgs, ElementKind, ValType};
+use tinywasm_types::{BlockArgs, ElementKind, Instruction, ValType};
 
 use super::{InterpreterRuntime, RawWasmValue, Stack};
 use crate::runtime::{BlockFrame, BlockType, CallFrame};
@@ -48,84 +48,43 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
-            match self.exec_one()? {
-                ExecResult::Return => return Ok(()),
-                ExecResult::Continue => continue,
+            match self.next() {
+                Ok(ExecResult::Return) => return Ok(()),
+                Ok(ExecResult::Continue) => continue,
+                Err(e) => {
+                    cold();
+                    return Err(e);
+                }
             };
         }
     }
 
-    pub(crate) fn process_call(&mut self) -> Result<ExecResult> {
-        let old = self.cf.block_ptr;
-        self.cf = self.stack.call_stack.pop()?;
-
-        if old > self.cf.block_ptr {
-            self.stack.blocks.truncate(old);
-        }
-
-        if self.cf.module_addr != self.module.id() {
-            self.module.swap_with(self.cf.module_addr, self.store);
-        }
-
-        Ok(ExecResult::Continue)
-    }
-
-    pub(crate) fn exec_one(&mut self) -> Result<ExecResult> {
+    #[inline(always)]
+    pub(crate) fn next(&mut self) -> Result<ExecResult> {
         use tinywasm_types::Instruction::*;
         match self.cf.fetch_instr() {
             Nop => cold(),
             Unreachable => self.exec_unreachable()?,
+
             Drop => self.stack.values.pop().map(|_| ())?,
             Select(_valtype) => self.exec_select()?,
 
-            Call(v) => skip!(self.exec_call(*v)),
-            CallIndirect(ty, table) => {
-                skip!(self.exec_call_indirect(*ty, *table))
-            }
-            If(args, el, end) => skip!(self.exec_if((*args).into(), *el, *end)),
+            Call(v) => return self.exec_call(*v),
+            CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
+
+            If(args, el, end) => return self.exec_if((*args).into(), *el, *end),
+            Else(end_offset) => self.exec_else(*end_offset)?,
             Loop(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Loop, *args),
             Block(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Block, *args),
-
             Br(v) => break_to!(*v, self),
-            BrIf(v) => {
-                if i32::from(self.stack.values.pop()?) != 0 {
-                    break_to!(*v, self);
-                }
-            }
-            BrTable(default, len) => {
-                let start = self.cf.instr_ptr + 1;
-                let end = start + *len as usize;
-                if end > self.cf.instructions().len() {
-                    return Err(Error::Other(format!(
-                        "br_table out of bounds: {} >= {}",
-                        end,
-                        self.cf.instructions().len()
-                    )));
-                }
-
-                let idx: i32 = self.stack.values.pop()?.into();
-                match self.cf.instructions()[start..end].get(idx as usize) {
-                    None => break_to!(*default, self),
-                    Some(BrLabel(to)) => break_to!(*to, self),
-                    _ => return Err(Error::Other("br_table with invalid label".to_string())),
-                }
-            }
-
-            Return => match self.stack.call_stack.is_empty() {
-                true => return Ok(ExecResult::Return),
-                false => return self.process_call(),
-            },
-
-            // We're essentially using else as a EndBlockFrame instruction for if blocks
-            Else(end_offset) => self.exec_else(*end_offset)?,
-
-            // remove the label from the label stack
+            BrIf(v) => return self.exec_br_if(*v),
+            BrTable(default, len) => return self.exec_brtable(*default, *len),
+            Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block()?,
 
             LocalGet(local_index) => self.exec_local_get(*local_index),
             LocalSet(local_index) => self.exec_local_set(*local_index)?,
             LocalTee(local_index) => self.exec_local_tee(*local_index)?,
-
             GlobalGet(global_index) => self.exec_global_get(*global_index)?,
             GlobalSet(global_index) => self.exec_global_set(*global_index)?,
 
@@ -337,9 +296,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalGetSet(a, b) => self.exec_local_get_set(*a, *b),
             I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by)?,
             I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val),
-            I32StoreLocal { local, const_i32: consti32, offset, mem_addr } => {
-                self.exec_i32_store_local(*local, *consti32, *offset, *mem_addr)?
+            I32StoreLocal { local, const_i32, offset, mem_addr } => {
+                self.exec_i32_store_local(*local, *const_i32, *offset, *mem_addr)?
             }
+
             i => {
                 cold();
                 return Err(Error::UnsupportedFeature(format!("unimplemented instruction: {:?}", i)));
@@ -363,6 +323,57 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.truncate_keep(block.stack_ptr, block.results as u32);
         self.cf.instr_ptr += end_offset as usize;
         Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_br_if(&mut self, to: u32) -> Result<ExecResult> {
+        let val: i32 = self.stack.values.pop()?.into();
+        if val != 0 {
+            break_to!(to, self);
+        }
+
+        self.cf.instr_ptr += 1;
+        Ok(ExecResult::Continue)
+    }
+
+    #[inline(always)]
+    fn exec_brtable(&mut self, default: u32, len: u32) -> Result<ExecResult> {
+        let start = self.cf.instr_ptr + 1;
+        let end = start + len as usize;
+        if end > self.cf.instructions().len() {
+            return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, self.cf.instructions().len())));
+        }
+
+        let idx: i32 = self.stack.values.pop()?.into();
+
+        match self.cf.instructions()[start..end].get(idx as usize) {
+            None => break_to!(default, self),
+            Some(Instruction::BrLabel(to)) => break_to!(*to, self),
+            _ => return Err(Error::Other("br_table with invalid label".to_string())),
+        }
+
+        self.cf.instr_ptr += 1;
+        Ok(ExecResult::Continue)
+    }
+
+    #[inline(always)]
+    fn exec_return(&mut self) -> Result<ExecResult> {
+        if self.stack.call_stack.is_empty() {
+            return Ok(ExecResult::Return);
+        }
+
+        let old = self.cf.block_ptr;
+        self.cf = self.stack.call_stack.pop()?;
+
+        if old > self.cf.block_ptr {
+            self.stack.blocks.truncate(old);
+        }
+
+        if self.cf.module_addr != self.module.id() {
+            self.module.swap_with(self.cf.module_addr, self.store);
+        }
+
+        Ok(ExecResult::Continue)
     }
 
     #[inline(always)]
@@ -598,7 +609,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    fn exec_call(&mut self, v: u32) -> Result<()> {
+    fn exec_call(&mut self, v: u32) -> Result<ExecResult> {
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v))?;
         let wasm_func = match &func_inst.func {
             crate::Function::Wasm(wasm_func) => wasm_func,
@@ -608,7 +619,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
                 self.cf.instr_ptr += 1;
-                return Ok(());
+                return Ok(ExecResult::Continue);
             }
         };
 
@@ -620,11 +631,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         if self.cf.module_addr != self.module.id() {
             self.module.swap_with(self.cf.module_addr, self.store);
         }
-        Ok(())
+        Ok(ExecResult::Continue)
     }
 
     #[inline(always)]
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<()> {
+    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ExecResult> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_addr))?;
         let table_idx: u32 = self.stack.values.pop()?.into();
 
@@ -654,7 +665,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
                 self.cf.instr_ptr += 1;
-                return Ok(());
+                return Ok(ExecResult::Continue);
             }
         };
 
@@ -672,29 +683,30 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         if self.cf.module_addr != self.module.id() {
             self.module.swap_with(self.cf.module_addr, self.store);
         }
-        Ok(())
+
+        Ok(ExecResult::Continue)
     }
 
     #[inline(always)]
-    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<()> {
+    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<ExecResult> {
         // truthy value is on the top of the stack, so enter the then block
         if i32::from(self.stack.values.pop()?) != 0 {
             self.enter_block(self.cf.instr_ptr, end_offset, BlockType::If, args);
             self.cf.instr_ptr += 1;
-            return Ok(());
+            return Ok(ExecResult::Continue);
         }
 
         // falsy value is on the top of the stack
         if else_offset == 0 {
             self.cf.instr_ptr += end_offset as usize + 1;
-            return Ok(());
+            return Ok(ExecResult::Continue);
         }
 
         let old = self.cf.instr_ptr;
         self.cf.instr_ptr += else_offset as usize;
         self.enter_block(old + else_offset as usize, end_offset - else_offset, BlockType::Else, args);
         self.cf.instr_ptr += 1;
-        Ok(())
+        Ok(ExecResult::Continue)
     }
 
     #[inline(always)]

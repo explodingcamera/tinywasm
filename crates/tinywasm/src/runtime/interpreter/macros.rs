@@ -12,11 +12,7 @@
 macro_rules! break_to {
     ($break_to_relative:expr, $self:expr) => {{
         if $self.cf.break_to($break_to_relative, &mut $self.stack.values, &mut $self.stack.blocks).is_none() {
-            if $self.stack.call_stack.is_empty() {
-                return Ok(ExecResult::Return);
-            }
-
-            return $self.process_call();
+            return $self.exec_return();
         }
     }};
 }
@@ -199,15 +195,6 @@ macro_rules! checked_int_arithmetic {
     };
 }
 
-macro_rules! skip {
-    ($code:expr) => {
-        match $code {
-            Ok(_) => return Ok(ExecResult::Continue),
-            Err(e) => return Err(e),
-        }
-    };
-}
-
 pub(super) use arithmetic;
 pub(super) use arithmetic_single;
 pub(super) use break_to;
@@ -219,4 +206,3 @@ pub(super) use conv;
 pub(super) use float_min_max;
 pub(super) use mem_load;
 pub(super) use mem_store;
-pub(super) use skip;
