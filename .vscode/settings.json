@@ -4,6 +4,5 @@
     },
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
-        "./examples/rust/Cargo.toml"
     ]
 }

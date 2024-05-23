@@ -73,6 +73,11 @@ impl ValueStack {
         self.stack.push(value);
     }
 
+    #[inline(always)]
+    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
+        self.stack.extend_from_slice(values);
+    }
+
     #[inline]
     pub(crate) fn last_mut(&mut self) -> Result<&mut RawWasmValue> {
         match self.stack.last_mut() {

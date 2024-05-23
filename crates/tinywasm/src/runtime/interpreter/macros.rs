@@ -10,24 +10,24 @@
 // This is a bit hard to see from the spec, but it's vaild to use breaks to return
 // from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
-    ($cf:ident, $stack:ident, $module:ident, $store:ident, $break_to_relative:ident) => {{
-        if $cf.break_to(*$break_to_relative, &mut $stack.values, &mut $stack.blocks).is_none() {
-            if $stack.call_stack.is_empty() {
-                return Ok(());
+    ($break_to_relative:expr, $self:expr) => {{
+        if $self.cf.break_to($break_to_relative, &mut $self.stack.values, &mut $self.stack.blocks).is_none() {
+            if $self.stack.call_stack.is_empty() {
+                return Ok(ExecResult::Return);
             }
 
-            call!($cf, $stack, $module, $store)
+            return $self.process_call();
         }
     }};
 }
 
 /// Load a value from memory
 macro_rules! mem_load {
-    ($type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
-        mem_load!($type, $type, $arg, $stack, $store, $module)
+    ($type:ty, $arg:expr, $self:expr) => {{
+        mem_load!($type, $type, $arg, $self)
     }};
 
-    ($load_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+    ($load_type:ty, $target_type:ty, $arg:expr, $self:expr) => {{
         #[inline(always)]
         fn mem_load_inner(
             store: &Store,
@@ -56,17 +56,17 @@ macro_rules! mem_load {
         }
 
         let (mem_addr, offset) = $arg;
-        mem_load_inner($store, &$module, $stack, *mem_addr, *offset)?;
+        mem_load_inner($self.store, &$self.module, $self.stack, *mem_addr, *offset)?;
     }};
 }
 
 /// Store a value to memory
 macro_rules! mem_store {
-    ($type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
-        mem_store!($type, $type, $arg, $stack, $store, $module)
+    ($type:ty, $arg:expr, $self:expr) => {{
+        mem_store!($type, $type, $arg, $self)
     }};
 
-    ($store_type:ty, $target_type:ty, $arg:expr, $stack:ident, $store:ident, $module:ident) => {{
+    ($store_type:ty, $target_type:ty, $arg:expr, $self:expr) => {{
         #[inline(always)]
         fn mem_store_inner(
             store: &Store,
@@ -83,8 +83,7 @@ macro_rules! mem_store {
             Ok(())
         }
 
-        let (mem_addr, offset) = $arg;
-        mem_store_inner($store, &$module, $stack, *mem_addr, *offset)?;
+        mem_store_inner($self.store, &$self.module, $self.stack, *$arg.0, *$arg.1)?;
     }};
 }
 
@@ -110,21 +109,21 @@ macro_rules! float_min_max {
 
 /// Convert a value on the stack
 macro_rules! conv {
-    ($from:ty, $to:ty, $stack:ident) => {
-        $stack.values.replace_top(|v| (<$from>::from(v) as $to).into())?
+    ($from:ty, $to:ty, $self:expr) => {
+        $self.stack.values.replace_top(|v| (<$from>::from(v) as $to).into())?
     };
 }
 
 /// Convert a value on the stack with error checking
 macro_rules! checked_conv_float {
     // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $stack:ident) => {
-        checked_conv_float!($from, $to, $to, $stack)
+    ($from:tt, $to:tt, $self:expr) => {
+        checked_conv_float!($from, $to, $to, $self)
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
-    ($from:tt, $intermediate:tt, $to:tt, $stack:ident) => {{
+    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
         let (min, max) = float_min_max!($from, $intermediate);
-        let a: $from = $stack.values.pop()?.into();
+        let a: $from = $self.stack.values.pop()?.into();
 
         if unlikely(a.is_nan()) {
             return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
@@ -134,14 +133,14 @@ macro_rules! checked_conv_float {
             return Err(Error::Trap(crate::Trap::IntegerOverflow));
         }
 
-        $stack.values.push((a as $intermediate as $to).into());
+        $self.stack.values.push((a as $intermediate as $to).into());
     }};
 }
 
 /// Compare two values on the stack
 macro_rules! comp {
-    ($op:tt, $to:ty, $stack:ident) => {
-        $stack.values.calculate(|a, b| {
+    ($op:tt, $to:ty, $self:ident) => {
+        $self.stack.values.calculate(|a, b| {
             ((<$to>::from(a) $op <$to>::from(b)) as i32).into()
         })?
     };
@@ -149,8 +148,8 @@ macro_rules! comp {
 
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
-    ($op:tt, $ty:ty, $stack:ident) => {
-        $stack.values.replace_top(|v| {
+    ($op:tt, $ty:ty, $self:expr) => {
+        $self.stack.values.replace_top(|v| {
             ((<$ty>::from(v) $op 0) as i32).into()
         })?
     };
@@ -158,15 +157,15 @@ macro_rules! comp_zero {
 
 /// Apply an arithmetic method to two values on the stack
 macro_rules! arithmetic {
-    ($op:ident, $to:ty, $stack:ident) => {
-        $stack.values.calculate(|a, b| {
+    ($op:ident, $to:ty, $self:expr) => {
+        $self.stack.values.calculate(|a, b| {
             (<$to>::from(a).$op(<$to>::from(b)) as $to).into()
         })?
     };
 
     // also allow operators such as +, -
-    ($op:tt, $ty:ty, $stack:ident) => {
-        $stack.values.calculate(|a, b| {
+    ($op:tt, $ty:ty, $self:expr) => {
+        $self.stack.values.calculate(|a, b| {
             ((<$ty>::from(a) $op <$ty>::from(b)) as $ty).into()
         })?
     };
@@ -174,19 +173,19 @@ macro_rules! arithmetic {
 
 /// Apply an arithmetic method to a single value on the stack
 macro_rules! arithmetic_single {
-    ($op:ident, $ty:ty, $stack:ident) => {
-        arithmetic_single!($op, $ty, $ty, $stack)
+    ($op:ident, $ty:ty, $self:expr) => {
+        arithmetic_single!($op, $ty, $ty, $self)
     };
 
-    ($op:ident, $from:ty, $to:ty, $stack:ident) => {
-        $stack.values.replace_top(|v| (<$from>::from(v).$op() as $to).into())?
+    ($op:ident, $from:ty, $to:ty, $self:expr) => {
+        $self.stack.values.replace_top(|v| (<$from>::from(v).$op() as $to).into())?
     };
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking
 macro_rules! checked_int_arithmetic {
-    ($op:ident, $to:ty, $stack:ident) => {
-        $stack.values.calculate_trap(|a, b| {
+    ($op:ident, $to:ty, $self:expr) => {
+        $self.stack.values.calculate_trap(|a, b| {
             let a: $to = a.into();
             let b: $to = b.into();
 
@@ -200,27 +199,10 @@ macro_rules! checked_int_arithmetic {
     };
 }
 
-macro_rules! call {
-    ($cf:expr, $stack:expr, $module:expr, $store:expr) => {{
-        let old = $cf.block_ptr;
-        $cf = $stack.call_stack.pop()?;
-
-        if old > $cf.block_ptr {
-            $stack.blocks.truncate(old);
-        }
-
-        if $cf.module_addr != $module.id() {
-            $module.swap_with($cf.module_addr, $store);
-        }
-
-        continue;
-    }};
-}
-
 macro_rules! skip {
     ($code:expr) => {
         match $code {
-            Ok(_) => continue,
+            Ok(_) => return Ok(ExecResult::Continue),
             Err(e) => return Err(e),
         }
     };
@@ -229,7 +211,6 @@ macro_rules! skip {
 pub(super) use arithmetic;
 pub(super) use arithmetic_single;
 pub(super) use break_to;
-pub(super) use call;
 pub(super) use checked_conv_float;
 pub(super) use checked_int_arithmetic;
 pub(super) use comp;
