@@ -54,7 +54,9 @@ impl BlockStack {
 pub(crate) struct BlockFrame {
     pub(crate) instr_ptr: usize, // position of the instruction pointer when the block was entered
     pub(crate) end_instr_offset: u32, // position of the end instruction of the block
-    pub(crate) stack_ptr: u32,   // position of the stack pointer when the block was entered
+
+    pub(crate) stack_ptr: u32,       // position of the stack pointer when the block was entered
+    pub(crate) large_stack_ptr: u32, // position of the large stack pointer when the block was entered
 
     pub(crate) results: u8,
     pub(crate) params: u8,

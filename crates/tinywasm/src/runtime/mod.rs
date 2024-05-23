@@ -4,7 +4,7 @@ mod value;
 
 use crate::Result;
 pub use stack::*;
-pub(crate) use value::RawWasmValue;
+pub use value::{LargeRawWasmValue, RawWasmValue, WasmValueRepr};
 
 #[allow(rustdoc::private_intra_doc_links)]
 /// A WebAssembly runtime.

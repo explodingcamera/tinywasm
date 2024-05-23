@@ -724,6 +724,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             instr_ptr,
             end_instr_offset,
             stack_ptr: self.stack.values.len() as u32 - params as u32,
+            large_stack_ptr: 0,
             results,
             params,
             ty,

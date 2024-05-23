@@ -9,20 +9,33 @@ use tinywasm_types::{ValType, WasmValue};
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct RawWasmValue([u8; 8]);
 
+/// A large raw wasm value, used for 128-bit values.
+///
+/// This is the internal representation of vector values.
+///
+/// See [`WasmValue`] for the public representation.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct LargeRawWasmValue([u8; 16]);
+
 impl Debug for RawWasmValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "RawWasmValue({})", 0)
     }
 }
 
-impl RawWasmValue {
-    #[inline(always)]
-    pub fn raw_value(&self) -> [u8; 8] {
-        self.0
+impl Debug for LargeRawWasmValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "LargeRawWasmValue({})", 0)
     }
+}
 
+pub trait WasmValueRepr {
+    fn attach_type(self, ty: ValType) -> WasmValue;
+}
+
+impl WasmValueRepr for RawWasmValue {
     #[inline]
-    pub fn attach_type(self, ty: ValType) -> WasmValue {
+    fn attach_type(self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.into()),
             ValType::I64 => WasmValue::I64(self.into()),
@@ -37,6 +50,13 @@ impl RawWasmValue {
                 addr => WasmValue::RefFunc(addr as u32),
             },
         }
+    }
+}
+
+impl RawWasmValue {
+    #[inline(always)]
+    pub fn raw_value(&self) -> [u8; 8] {
+        self.0
     }
 }
 

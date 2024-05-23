@@ -6,7 +6,7 @@ use super::TestSuite;
 use _log as log;
 use eyre::{eyre, Result};
 use log::{debug, error, info};
-use tinywasm::{Extern, Imports, ModuleInstance};
+use tinywasm::{runtime::WasmValueRepr, Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 

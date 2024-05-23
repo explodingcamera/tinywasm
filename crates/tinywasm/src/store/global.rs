@@ -3,7 +3,10 @@ use core::cell::Cell;
 use alloc::{format, string::ToString};
 use tinywasm_types::*;
 
-use crate::{runtime::RawWasmValue, unlikely, Error, Result};
+use crate::{
+    runtime::{RawWasmValue, WasmValueRepr},
+    unlikely, Error, Result,
+};
 
 /// A WebAssembly Global Instance
 ///

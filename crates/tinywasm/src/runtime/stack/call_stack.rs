@@ -72,7 +72,7 @@ impl CallFrame {
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,
-        values: &mut super::ValueStack,
+        values: &mut super::ValueStack<RawWasmValue>,
         blocks: &mut super::BlockStack,
     ) -> Option<()> {
         let break_to = blocks.get_relative_to(break_to_relative, self.block_ptr)?;

@@ -1,35 +1,33 @@
-use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
+use crate::{cold, runtime::WasmValueRepr, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
 pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024 * 128;
 
 #[derive(Debug)]
-pub(crate) struct ValueStack {
-    stack: Vec<RawWasmValue>,
-}
+pub(crate) struct ValueStack<T>(Vec<T>);
 
-impl Default for ValueStack {
+impl<T> Default for ValueStack<T> {
     fn default() -> Self {
-        Self { stack: Vec::with_capacity(MIN_VALUE_STACK_SIZE) }
+        Self(Vec::with_capacity(MIN_VALUE_STACK_SIZE))
     }
 }
 
-impl ValueStack {
+impl<T: From<WasmValue> + Copy + WasmValueRepr> ValueStack<T> {
     #[inline]
     pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
-        self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
+        self.0.extend(values.iter().map(|v| T::from(*v)));
     }
 
     #[inline(always)]
-    pub(crate) fn replace_top(&mut self, func: fn(RawWasmValue) -> RawWasmValue) -> Result<()> {
+    pub(crate) fn replace_top(&mut self, func: fn(T) -> T) -> Result<()> {
         let v = self.last_mut()?;
         *v = func(*v);
         Ok(())
     }
 
     #[inline(always)]
-    pub(crate) fn calculate(&mut self, func: fn(RawWasmValue, RawWasmValue) -> RawWasmValue) -> Result<()> {
+    pub(crate) fn calculate(&mut self, func: fn(T, T) -> T) -> Result<()> {
         let v2 = self.pop()?;
         let v1 = self.last_mut()?;
         *v1 = func(*v1, v2);
@@ -37,10 +35,7 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn calculate_trap(
-        &mut self,
-        func: fn(RawWasmValue, RawWasmValue) -> Result<RawWasmValue>,
-    ) -> Result<()> {
+    pub(crate) fn calculate_trap(&mut self, func: fn(T, T) -> Result<T>) -> Result<()> {
         let v2 = self.pop()?;
         let v1 = self.last_mut()?;
         *v1 = func(*v1, v2)?;
@@ -49,13 +44,13 @@ impl ValueStack {
 
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
-        self.stack.len()
+        self.0.len()
     }
 
     #[inline]
     pub(crate) fn truncate_keep(&mut self, n: u32, end_keep: u32) {
         let total_to_keep = n + end_keep;
-        let len = self.stack.len() as u32;
+        let len = self.0.len() as u32;
         assert!(len >= total_to_keep, "Total to keep should be less than or equal to self.top");
 
         if len <= total_to_keep {
@@ -65,22 +60,22 @@ impl ValueStack {
         let items_to_remove = len - total_to_keep;
         let remove_start_index = (len - items_to_remove - end_keep) as usize;
         let remove_end_index = (len - end_keep) as usize;
-        self.stack.drain(remove_start_index..remove_end_index);
+        self.0.drain(remove_start_index..remove_end_index);
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, value: RawWasmValue) {
-        self.stack.push(value);
+    pub(crate) fn push(&mut self, value: T) {
+        self.0.push(value);
     }
 
     #[inline(always)]
-    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
-        self.stack.extend_from_slice(values);
+    pub(crate) fn extend_from_slice(&mut self, values: &[T]) {
+        self.0.extend_from_slice(values);
     }
 
     #[inline]
-    pub(crate) fn last_mut(&mut self) -> Result<&mut RawWasmValue> {
-        match self.stack.last_mut() {
+    pub(crate) fn last_mut(&mut self) -> Result<&mut T> {
+        match self.0.last_mut() {
             Some(v) => Ok(v),
             None => {
                 cold();
@@ -90,8 +85,8 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn last(&self) -> Result<&RawWasmValue> {
-        match self.stack.last() {
+    pub(crate) fn last(&self) -> Result<&T> {
+        match self.0.last() {
             Some(v) => Ok(v),
             None => {
                 cold();
@@ -101,8 +96,8 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
-        match self.stack.pop() {
+    pub(crate) fn pop(&mut self) -> Result<T> {
+        match self.0.pop() {
             Some(v) => Ok(v),
             None => {
                 cold();
@@ -119,35 +114,36 @@ impl ValueStack {
     #[inline]
     pub(crate) fn break_to(&mut self, new_stack_size: u32, result_count: u8) {
         let start = new_stack_size as usize;
-        let end = self.stack.len() - result_count as usize;
-        self.stack.drain(start..end);
+        let end = self.0.len() - result_count as usize;
+        self.0.drain(start..end);
     }
 
     #[inline]
-    pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
-        let len = self.stack.len();
+    pub(crate) fn last_n(&self, n: usize) -> Result<&[T]> {
+        let len = self.0.len();
         if unlikely(len < n) {
             return Err(Error::ValueStackUnderflow);
         }
-        Ok(&self.stack[len - n..len])
+        Ok(&self.0[len - n..len])
     }
 
     #[inline]
-    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
-        if unlikely(self.stack.len() < n) {
+    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, T>> {
+        if unlikely(self.0.len() < n) {
             return Err(Error::ValueStackUnderflow);
         }
-        Ok(self.stack.drain((self.stack.len() - n)..))
+        Ok(self.0.drain((self.0.len() - n)..))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::RawWasmValue;
 
     #[test]
     fn test_value_stack() {
-        let mut stack = ValueStack::default();
+        let mut stack: ValueStack<RawWasmValue> = ValueStack::default();
         stack.push(1.into());
         stack.push(2.into());
         stack.push(3.into());
@@ -165,7 +161,7 @@ mod tests {
         macro_rules! test_macro {
             ($( $n:expr, $end_keep:expr, $expected:expr ),*) => {
             $(
-                let mut stack = ValueStack::default();
+                let mut stack: ValueStack<RawWasmValue> = ValueStack::default();
                 stack.push(1.into());
                 stack.push(2.into());
                 stack.push(3.into());
