@@ -1,10 +1,16 @@
 mod interpreter;
 mod stack;
-mod value;
+
+mod raw;
+
+#[cfg(all(nightly, feature = "simd"))]
+mod raw_simd;
 
 use crate::Result;
-pub use stack::*;
-pub use value::{LargeRawWasmValue, RawWasmValue, WasmValueRepr};
+
+pub use raw::RawWasmValue;
+pub(crate) use stack::CallFrame;
+pub(crate) use stack::Stack;
 
 #[allow(rustdoc::private_intra_doc_links)]
 /// A WebAssembly runtime.
@@ -12,7 +18,7 @@ pub use value::{LargeRawWasmValue, RawWasmValue, WasmValueRepr};
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html>
 pub trait Runtime {
     /// Execute all call-frames on the stack until the stack is empty.
-    fn exec(&self, store: &mut crate::Store, stack: &mut crate::runtime::Stack) -> Result<()>;
+    fn exec(&self, store: &mut crate::Store, stack: &mut Stack) -> Result<()>;
 }
 
 /// The main TinyWasm runtime.

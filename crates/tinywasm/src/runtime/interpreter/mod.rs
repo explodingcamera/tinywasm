@@ -3,8 +3,9 @@ use alloc::string::ToString;
 use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use tinywasm_types::{BlockArgs, ElementKind, Instruction, ValType};
 
+use super::stack::{BlockFrame, BlockType};
 use super::{InterpreterRuntime, RawWasmValue, Stack};
-use crate::runtime::{BlockFrame, BlockType, CallFrame};
+use crate::runtime::CallFrame;
 use crate::{cold, unlikely};
 use crate::{Error, FuncContext, ModuleInstance, Result, Store, Trap};
 
@@ -724,7 +725,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             instr_ptr,
             end_instr_offset,
             stack_ptr: self.stack.values.len() as u32 - params as u32,
-            large_stack_ptr: 0,
             results,
             params,
             ty,

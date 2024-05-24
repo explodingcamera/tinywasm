@@ -9,38 +9,28 @@ use tinywasm_types::{ValType, WasmValue};
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct RawWasmValue([u8; 8]);
 
-/// A large raw wasm value, used for 128-bit values.
-///
-/// This is the internal representation of vector values.
-///
-/// See [`WasmValue`] for the public representation.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub struct LargeRawWasmValue([u8; 16]);
-
 impl Debug for RawWasmValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "RawWasmValue({})", 0)
     }
 }
 
-impl Debug for LargeRawWasmValue {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "LargeRawWasmValue({})", 0)
+impl RawWasmValue {
+    #[inline(always)]
+    /// Get the raw value
+    pub fn raw_value(&self) -> [u8; 8] {
+        self.0
     }
-}
 
-pub trait WasmValueRepr {
-    fn attach_type(self, ty: ValType) -> WasmValue;
-}
-
-impl WasmValueRepr for RawWasmValue {
     #[inline]
-    fn attach_type(self, ty: ValType) -> WasmValue {
+    /// Attach a type to the raw value (does not support simd values)
+    pub fn attach_type(self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.into()),
             ValType::I64 => WasmValue::I64(self.into()),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.into())),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.into())),
+            ValType::V128 => panic!("RawWasmValue cannot be converted to V128"),
             ValType::RefExtern => match i64::from(self) {
                 v if v < 0 => WasmValue::RefNull(ValType::RefExtern),
                 addr => WasmValue::RefExtern(addr as u32),
@@ -53,13 +43,6 @@ impl WasmValueRepr for RawWasmValue {
     }
 }
 
-impl RawWasmValue {
-    #[inline(always)]
-    pub fn raw_value(&self) -> [u8; 8] {
-        self.0
-    }
-}
-
 impl From<WasmValue> for RawWasmValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
@@ -68,6 +51,7 @@ impl From<WasmValue> for RawWasmValue {
             WasmValue::I64(i) => Self::from(i),
             WasmValue::F32(i) => Self::from(i),
             WasmValue::F64(i) => Self::from(i),
+            WasmValue::V128(_) => panic!("RawWasmValue cannot be converted to V128"),
             WasmValue::RefExtern(v) => Self::from(v as i64),
             WasmValue::RefFunc(v) => Self::from(v as i64),
             WasmValue::RefNull(_) => Self::from(-1i64),

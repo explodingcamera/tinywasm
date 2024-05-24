@@ -16,4 +16,3 @@ tinywasm-types={version="0.7.0", path="../types", default-features=false}
 default=["std", "logging"]
 logging=["log"]
 std=["tinywasm-types/std", "wasmparser/std"]
-nightly=[]

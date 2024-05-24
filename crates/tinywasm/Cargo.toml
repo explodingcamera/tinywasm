@@ -33,7 +33,7 @@ logging=["_log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["tinywasm-parser"]
 archive=["tinywasm-types/archive"]
-nightly=[]
+simd=[]
 
 [[test]]
 name="test-mvp"

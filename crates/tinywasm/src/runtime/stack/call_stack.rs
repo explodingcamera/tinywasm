@@ -1,8 +1,10 @@
-use crate::runtime::{BlockType, RawWasmValue};
+use crate::runtime::RawWasmValue;
 use crate::{cold, unlikely};
 use crate::{Error, Result, Trap};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
+
+use super::BlockType;
 
 const CALL_STACK_SIZE: usize = 1024;
 
@@ -72,7 +74,7 @@ impl CallFrame {
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,
-        values: &mut super::ValueStack<RawWasmValue>,
+        values: &mut super::ValueStack,
         blocks: &mut super::BlockStack,
     ) -> Option<()> {
         let break_to = blocks.get_relative_to(break_to_relative, self.block_ptr)?;

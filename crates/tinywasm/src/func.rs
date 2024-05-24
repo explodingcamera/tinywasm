@@ -1,4 +1,4 @@
-use crate::runtime::{CallFrame, Stack, WasmValueRepr};
+use crate::runtime::{CallFrame, Stack};
 use crate::{log, runtime::RawWasmValue, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
