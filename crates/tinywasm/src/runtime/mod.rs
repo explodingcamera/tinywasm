@@ -3,7 +3,10 @@ mod stack;
 
 mod raw;
 
-#[cfg(all(nightly, feature = "simd"))]
+#[cfg(all(not(nightly), feature = "simd"))]
+compile_error!("`simd` feature requires nightly");
+
+#[cfg(feature = "simd")]
 mod raw_simd;
 
 use crate::Result;

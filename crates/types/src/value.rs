@@ -18,6 +18,7 @@ pub enum WasmValue {
     F64(f64),
     // /// A 128-bit vector
     V128(u128),
+
     RefExtern(ExternAddr),
     RefFunc(FuncAddr),
     RefNull(ValType),

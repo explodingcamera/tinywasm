@@ -295,7 +295,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             // custom instructions
             LocalGet2(a, b) => self.exec_local_get2(*a, *b),
             LocalGet3(a, b, c) => self.exec_local_get3(*a, *b, *c),
-            LocalTeeGet(a, b) => self.exec_local_tee_get(*a, *b),
+            LocalTeeGet(a, b) => self.exec_local_tee_get(*a, *b)?,
             LocalGetSet(a, b) => self.exec_local_get_set(*a, *b),
             I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by)?,
             I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val),
@@ -317,13 +317,21 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     fn exec_end_block(&mut self) -> Result<()> {
         let block = self.stack.blocks.pop()?;
         self.stack.values.truncate_keep(block.stack_ptr, block.results as u32);
+
+        #[cfg(feature = "simd")]
+        self.stack.values.truncate_keep_simd(block.simd_stack_ptr, block.simd_results as u32);
         Ok(())
     }
 
     #[inline(always)]
     fn exec_else(&mut self, end_offset: u32) -> Result<()> {
         let block = self.stack.blocks.pop()?;
+
         self.stack.values.truncate_keep(block.stack_ptr, block.results as u32);
+
+        #[cfg(feature = "simd")]
+        self.stack.values.truncate_keep_simd(block.simd_stack_ptr, block.simd_results as u32);
+
         self.cf.instr_ptr += end_offset as usize;
         Ok(())
     }
@@ -448,14 +456,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    fn exec_local_tee_get(&mut self, a: u32, b: u32) {
-        let last =
-            self.stack.values.last().expect("localtee: stack is empty. this should have been validated by the parser");
+    fn exec_local_tee_get(&mut self, a: u32, b: u32) -> Result<()> {
+        let last = self.stack.values.last()?;
         self.cf.set_local(a, *last);
         self.stack.values.push(match a == b {
             true => *last,
             false => self.cf.get_local(b),
         });
+        Ok(())
     }
 
     #[inline(always)]

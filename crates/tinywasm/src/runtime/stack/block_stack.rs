@@ -56,12 +56,16 @@ pub(crate) struct BlockFrame {
     pub(crate) end_instr_offset: u32, // position of the end instruction of the block
 
     pub(crate) stack_ptr: u32, // position of the stack pointer when the block was entered
-
-    #[cfg(all(nightly, feature = "simd"))]
-    pub(crate) simd_stack_ptr: u32, // position of the large stack pointer when the block was entered
-
     pub(crate) results: u8,
     pub(crate) params: u8,
+
+    #[cfg(feature = "simd")]
+    pub(crate) simd_stack_ptr: u32, // position of the large stack pointer when the block was entered
+    #[cfg(feature = "simd")]
+    pub(crate) simd_results: u8,
+    #[cfg(feature = "simd")]
+    pub(crate) simd_params: u8,
+
     pub(crate) ty: BlockType,
 }
 
