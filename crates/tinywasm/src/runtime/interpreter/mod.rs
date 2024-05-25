@@ -23,8 +23,7 @@ use no_std_floats::NoStdFloatExt;
 
 impl InterpreterRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
-        let mut executor = Executor::new(store, stack)?;
-        executor.run_to_completion()
+        Executor::new(store, stack)?.run_to_completion()
     }
 }
 
@@ -36,16 +35,28 @@ struct Executor<'store, 'stack> {
     module: ModuleInstance,
 }
 
+impl Iterator for Executor<'_, '_> {
+    type Item = Result<()>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.exec_next() {
+            Ok(ControlFlow::Continue(())) => Some(Ok(())),
+            Ok(ControlFlow::Break(())) => None,
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
 impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
-        let current_frame = stack.call_stack.pop()?;
+        let current_frame = stack.call_stack.pop().ok_or_else(|| Error::CallStackUnderflow)?;
         let current_module = store.get_module_instance_raw(current_frame.module_addr);
         Ok(Self { cf: current_frame, module: current_module, stack, store })
     }
 
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
-            match self.next()? {
+            match self.exec_next()? {
                 ControlFlow::Break(..) => return Ok(()),
                 ControlFlow::Continue(..) => continue,
             };
@@ -53,7 +64,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    pub(crate) fn next(&mut self) -> Result<ControlFlow<()>> {
+    pub(crate) fn exec_next(&mut self) -> Result<ControlFlow<()>> {
         use tinywasm_types::Instruction::*;
         match self.cf.fetch_instr() {
             Nop => cold(),
@@ -360,22 +371,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     #[inline(always)]
     fn exec_return(&mut self) -> Result<ControlFlow<()>> {
-        // returning from the main function is a break
-        if self.stack.call_stack.is_empty() {
-            return Ok(ControlFlow::Break(()));
-        }
-
         let old = self.cf.block_ptr;
-        self.cf = self.stack.call_stack.pop()?;
+        match self.stack.call_stack.pop() {
+            None => return Ok(ControlFlow::Break(())),
+            Some(cf) => self.cf = cf,
+        }
 
         if old > self.cf.block_ptr {
             self.stack.blocks.truncate(old);
         }
 
-        if self.cf.module_addr != self.module.id() {
-            self.module.swap_with(self.cf.module_addr, self.store);
-        }
-
+        self.module.swap_with(self.cf.module_addr, self.store);
         Ok(ControlFlow::Continue(()))
     }
 
@@ -390,7 +396,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push(val.into());
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn exec_i32_store_local(&mut self, local: u32, const_i32: i32, offset: u32, mem_addr: u8) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32))?;
@@ -660,7 +665,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 return Ok(ControlFlow::Continue(()));
             }
         };
-        return self.exec_call(wasm_func.clone(), func_inst.owner);
+        self.exec_call(wasm_func.clone(), func_inst.owner)
     }
 
     #[inline(always)]
@@ -680,11 +685,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             crate::Function::Wasm(f) => f,
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
-                    return Err(Trap::IndirectCallTypeMismatch {
+                    return Err(Error::Trap(Trap::IndirectCallTypeMismatch {
                         actual: host_func.ty.clone(),
                         expected: call_ty.clone(),
-                    }
-                    .into());
+                    }));
                 }
 
                 let host_func = host_func.clone();
@@ -701,7 +705,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
 
         cold();
-        return Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into());
+        Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into())
     }
 
     #[inline(always)]

@@ -8,7 +8,7 @@ pub(crate) use value_stack::ValueStack;
 
 /// A WebAssembly Stack
 #[derive(Debug)]
-pub struct Stack {
+pub(crate) struct Stack {
     pub(crate) values: ValueStack,
     pub(crate) blocks: BlockStack,
     pub(crate) call_stack: CallStack,

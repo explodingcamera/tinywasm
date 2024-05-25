@@ -1,6 +1,6 @@
 use crate::runtime::RawWasmValue;
-use crate::{cold, unlikely};
-use crate::{Error, Result, Trap};
+use crate::unlikely;
+use crate::{Result, Trap};
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
 
@@ -22,25 +22,14 @@ impl CallStack {
         Self { stack }
     }
 
-    #[inline]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.stack.is_empty()
-    }
-
     #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Result<CallFrame> {
-        match self.stack.pop() {
-            Some(frame) => Ok(frame),
-            None => {
-                cold();
-                Err(Error::CallStackUnderflow)
-            }
-        }
+    pub(crate) fn pop(&mut self) -> Option<CallFrame> {
+        self.stack.pop()
     }
 
     #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.stack.len() >= self.stack.capacity()) {
+        if unlikely((self.stack.len() + 1) >= CALL_STACK_SIZE) {
             return Err(Trap::CallStackOverflow.into());
         }
         self.stack.push(call_frame);
