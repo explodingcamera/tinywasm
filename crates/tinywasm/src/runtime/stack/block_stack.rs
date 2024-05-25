@@ -60,7 +60,7 @@ pub(crate) struct BlockFrame {
     pub(crate) params: u8,
 
     #[cfg(feature = "simd")]
-    pub(crate) simd_stack_ptr: u32, // position of the large stack pointer when the block was entered
+    pub(crate) simd_stack_ptr: u16, // position of the large stack pointer when the block was entered
     #[cfg(feature = "simd")]
     pub(crate) simd_results: u8,
     #[cfg(feature = "simd")]

@@ -43,7 +43,9 @@ impl ModuleInstance {
 
     #[inline]
     pub(crate) fn swap_with(&mut self, other_addr: ModuleInstanceAddr, store: &mut Store) {
-        self.swap(store.get_module_instance_raw(other_addr))
+        if other_addr != self.id() {
+            self.swap(store.get_module_instance_raw(other_addr))
+        }
     }
 
     /// Get the module instance's address

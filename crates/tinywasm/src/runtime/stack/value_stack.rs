@@ -5,9 +5,13 @@ use tinywasm_types::{ValType, WasmValue};
 use super::BlockFrame;
 
 pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024 * 128;
+// pub(crate) const MAX_VALUE_STACK_SIZE: usize = u32::MAX / 32 as usize;
 
 #[cfg(feature = "simd")]
 pub(crate) const MIN_SIMD_VALUE_STACK_SIZE: usize = 1024 * 32;
+
+// #[cfg(feature = "simd")]
+// pub(crate) const MAX_SIMD_VALUE_STACK_SIZE: usize = u16::MAX as usize;
 
 #[cfg(feature = "simd")]
 use crate::runtime::raw_simd::RawSimdWasmValue;
@@ -90,8 +94,8 @@ impl ValueStack {
 
     #[cfg(feature = "simd")]
     #[inline]
-    pub(crate) fn truncate_keep_simd(&mut self, n: u32, end_keep: u32) {
-        truncate_keep(&mut self.simd_stack, n, end_keep);
+    pub(crate) fn truncate_keep_simd(&mut self, n: u16, end_keep: u32) {
+        truncate_keep(&mut self.simd_stack, n as u32, end_keep);
     }
 
     #[inline(always)]

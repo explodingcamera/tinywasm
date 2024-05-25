@@ -1,7 +1,8 @@
 use alloc::format;
+use alloc::rc::Rc;
 use alloc::string::ToString;
-use core::ops::{BitAnd, BitOr, BitXor, Neg};
-use tinywasm_types::{BlockArgs, ElementKind, Instruction, ValType};
+use core::ops::{BitAnd, BitOr, BitXor, ControlFlow, Neg};
+use tinywasm_types::{BlockArgs, ElementKind, Instruction, ModuleInstanceAddr, ValType, WasmFunction};
 
 use super::stack::{BlockFrame, BlockType};
 use super::{InterpreterRuntime, RawWasmValue, Stack};
@@ -35,11 +36,6 @@ struct Executor<'store, 'stack> {
     module: ModuleInstance,
 }
 
-enum ExecResult {
-    Continue,
-    Return,
-}
-
 impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
         let current_frame = stack.call_stack.pop()?;
@@ -49,19 +45,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
-            match self.next() {
-                Ok(ExecResult::Return) => return Ok(()),
-                Ok(ExecResult::Continue) => continue,
-                Err(e) => {
-                    cold();
-                    return Err(e);
-                }
+            match self.next()? {
+                ControlFlow::Break(..) => return Ok(()),
+                ControlFlow::Continue(..) => continue,
             };
         }
     }
 
     #[inline(always)]
-    pub(crate) fn next(&mut self) -> Result<ExecResult> {
+    pub(crate) fn next(&mut self) -> Result<ControlFlow<()>> {
         use tinywasm_types::Instruction::*;
         match self.cf.fetch_instr() {
             Nop => cold(),
@@ -70,7 +62,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Drop => self.stack.values.pop().map(|_| ())?,
             Select(_valtype) => self.exec_select()?,
 
-            Call(v) => return self.exec_call(*v),
+            Call(v) => return self.exec_call_direct(*v),
             CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
 
             If(args, el, end) => return self.exec_if((*args).into(), *el, *end),
@@ -310,7 +302,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         self.cf.instr_ptr += 1;
-        Ok(ExecResult::Continue)
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
@@ -337,18 +329,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    fn exec_br_if(&mut self, to: u32) -> Result<ExecResult> {
+    fn exec_br_if(&mut self, to: u32) -> Result<ControlFlow<()>> {
         let val: i32 = self.stack.values.pop()?.into();
         if val != 0 {
             break_to!(to, self);
         }
-
         self.cf.instr_ptr += 1;
-        Ok(ExecResult::Continue)
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
-    fn exec_brtable(&mut self, default: u32, len: u32) -> Result<ExecResult> {
+    fn exec_brtable(&mut self, default: u32, len: u32) -> Result<ControlFlow<()>> {
         let start = self.cf.instr_ptr + 1;
         let end = start + len as usize;
         if end > self.cf.instructions().len() {
@@ -364,13 +355,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
 
         self.cf.instr_ptr += 1;
-        Ok(ExecResult::Continue)
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
-    fn exec_return(&mut self) -> Result<ExecResult> {
+    fn exec_return(&mut self) -> Result<ControlFlow<()>> {
+        // returning from the main function is a break
         if self.stack.call_stack.is_empty() {
-            return Ok(ExecResult::Return);
+            return Ok(ControlFlow::Break(()));
         }
 
         let old = self.cf.block_ptr;
@@ -384,7 +376,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             self.module.swap_with(self.cf.module_addr, self.store);
         }
 
-        Ok(ExecResult::Continue)
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
@@ -645,7 +637,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    fn exec_call(&mut self, v: u32) -> Result<ExecResult> {
+    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<ControlFlow<()>> {
+        let params = self.stack.values.pop_n_rev(wasm_func.ty.params.len())?;
+        let new_call_frame = CallFrame::new(wasm_func, owner, params, self.stack.blocks.len() as u32);
+        self.cf.instr_ptr += 1; // skip the call instruction
+        self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
+        self.module.swap_with(self.cf.module_addr, self.store);
+        Ok(ControlFlow::Continue(()))
+    }
+
+    #[inline(always)]
+    fn exec_call_direct(&mut self, v: u32) -> Result<ControlFlow<()>> {
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v))?;
         let wasm_func = match &func_inst.func {
             crate::Function::Wasm(wasm_func) => wasm_func,
@@ -655,38 +657,27 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
                 self.cf.instr_ptr += 1;
-                return Ok(ExecResult::Continue);
+                return Ok(ControlFlow::Continue(()));
             }
         };
-
-        let params = self.stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-        let new_call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, self.stack.blocks.len() as u32);
-
-        self.cf.instr_ptr += 1; // skip the call instruction
-        self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-        if self.cf.module_addr != self.module.id() {
-            self.module.swap_with(self.cf.module_addr, self.store);
-        }
-        Ok(ExecResult::Continue)
+        return self.exec_call(wasm_func.clone(), func_inst.owner);
     }
 
     #[inline(always)]
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ExecResult> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_addr))?;
-        let table_idx: u32 = self.stack.values.pop()?.into();
-
+    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ControlFlow<()>> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
+            let table = self.store.get_table(self.module.resolve_table_addr(table_addr))?;
+            let table_idx: u32 = self.stack.values.pop()?.into();
             let table = table.borrow();
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
             table.get(table_idx)?.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize })?
         };
 
-        let func_inst = self.store.get_func(func_ref)?.clone();
+        let func_inst = self.store.get_func(func_ref)?;
         let call_ty = self.module.func_ty(type_addr);
-
-        let wasm_func = match func_inst.func {
-            crate::Function::Wasm(ref f) => f,
+        let wasm_func = match &func_inst.func {
+            crate::Function::Wasm(f) => f,
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
                     return Err(Trap::IndirectCallTypeMismatch {
@@ -701,48 +692,38 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
                 self.cf.instr_ptr += 1;
-                return Ok(ExecResult::Continue);
+                return Ok(ControlFlow::Continue(()));
             }
         };
 
-        if unlikely(wasm_func.ty != *call_ty) {
-            return Err(
-                Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into()
-            );
+        if wasm_func.ty == *call_ty {
+            return self.exec_call(wasm_func.clone(), func_inst.owner);
         }
 
-        let params = self.stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-        let new_call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, self.stack.blocks.len() as u32);
-
-        self.cf.instr_ptr += 1; // skip the call instruction
-        self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-        if self.cf.module_addr != self.module.id() {
-            self.module.swap_with(self.cf.module_addr, self.store);
-        }
-
-        Ok(ExecResult::Continue)
+        cold();
+        return Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into());
     }
 
     #[inline(always)]
-    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<ExecResult> {
+    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<ControlFlow<()>> {
         // truthy value is on the top of the stack, so enter the then block
         if i32::from(self.stack.values.pop()?) != 0 {
             self.enter_block(self.cf.instr_ptr, end_offset, BlockType::If, args);
             self.cf.instr_ptr += 1;
-            return Ok(ExecResult::Continue);
+            return Ok(ControlFlow::Continue(()));
         }
 
         // falsy value is on the top of the stack
         if else_offset == 0 {
             self.cf.instr_ptr += end_offset as usize + 1;
-            return Ok(ExecResult::Continue);
+            return Ok(ControlFlow::Continue(()));
         }
 
         let old = self.cf.instr_ptr;
         self.cf.instr_ptr += else_offset as usize;
         self.enter_block(old + else_offset as usize, end_offset - else_offset, BlockType::Else, args);
         self.cf.instr_ptr += 1;
-        Ok(ExecResult::Continue)
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
@@ -790,7 +771,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 instr_ptr,
                 end_instr_offset,
                 stack_ptr: self.stack.values.len() as u32 - params as u32,
-                simd_stack_ptr: self.stack.values.simd_len() as u32 - simd_params as u32,
+                simd_stack_ptr: self.stack.values.simd_len() as u16 - simd_params as u16,
                 results,
                 simd_params,
                 simd_results,

@@ -33,16 +33,12 @@ macro_rules! mem_load {
             offset: u64,
         ) -> Result<()> {
             let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
-            let addr: usize = match offset.checked_add(stack.values.pop()?.into()).map(|a| a.try_into()) {
-                Some(Ok(a)) => a,
-                _ => {
-                    cold();
-                    return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                        offset: offset as usize,
-                        len: core::mem::size_of::<$load_type>(),
-                        max: mem.borrow().max_pages(),
-                    }));
-                }
+            let Some(Ok(addr)) = offset.checked_add(stack.values.pop()?.into()).map(|a| a.try_into()) else {
+                return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
+                    offset: offset as usize,
+                    len: core::mem::size_of::<$load_type>(),
+                    max: mem.borrow().max_pages(),
+                }));
             };
 
             const LEN: usize = core::mem::size_of::<$load_type>();
