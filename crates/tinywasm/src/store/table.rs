@@ -20,6 +20,12 @@ impl TableInstance {
         Self { elements: vec![TableElement::Uninitialized; kind.size_initial as usize], kind, _owner: owner }
     }
 
+    #[inline(never)]
+    #[cold]
+    fn trap_oob(&self, addr: usize, len: usize) -> Error {
+        Error::Trap(crate::Trap::TableOutOfBounds { offset: addr, len, max: self.elements.len() })
+    }
+
     pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue> {
         let val = self.get(addr)?.addr();
 
@@ -32,6 +38,47 @@ impl TableInstance {
 
     pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement> {
         self.elements.get(addr as usize).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr as usize }))
+    }
+
+    pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<()> {
+        let end = dst.checked_add(src.len()).ok_or_else(|| self.trap_oob(dst, src.len()))?;
+
+        if end > self.elements.len() {
+            return Err(self.trap_oob(dst, src.len()));
+        }
+
+        self.elements[dst..end].copy_from_slice(src);
+        Ok(())
+    }
+
+    pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[TableElement]> {
+        let Some(end) = addr.checked_add(len) else {
+            return Err(self.trap_oob(addr, len));
+        };
+
+        if end > self.elements.len() || end < addr {
+            return Err(self.trap_oob(addr, len));
+        }
+
+        Ok(&self.elements[addr..end])
+    }
+
+    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<()> {
+        // Calculate the end of the source slice
+        let src_end = src.checked_add(len).ok_or_else(|| self.trap_oob(src, len))?;
+        if src_end > self.elements.len() {
+            return Err(self.trap_oob(src, len));
+        }
+
+        // Calculate the end of the destination slice
+        let dst_end = dst.checked_add(len).ok_or_else(|| self.trap_oob(dst, len))?;
+        if dst_end > self.elements.len() {
+            return Err(self.trap_oob(dst, len));
+        }
+
+        // Perform the copy
+        self.elements.copy_within(src..src_end, dst);
+        Ok(())
     }
 
     pub(crate) fn set(&mut self, table_idx: TableAddr, value: Addr) -> Result<()> {

@@ -534,12 +534,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
     define_primitive_operands! {
         visit_memory_fill, Instruction::MemoryFill, u32,
-        visit_data_drop, Instruction::DataDrop, u32
-    }
-
-    #[inline(always)]
-    fn visit_elem_drop(&mut self, _elem_index: u32) -> Self::Output {
-        self.unsupported("elem_drop")
+        visit_data_drop, Instruction::DataDrop, u32,
+        visit_elem_drop, Instruction::ElemDrop, u32
     }
 
     #[inline(always)]

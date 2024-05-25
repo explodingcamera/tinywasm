@@ -147,6 +147,12 @@ impl Store {
         self.data.elements.get(addr as usize).ok_or_else(|| Self::not_found_error("element"))
     }
 
+    /// Get the element at the actual index in the store
+    #[inline]
+    pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> Result<&mut ElementInstance> {
+        self.data.elements.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("element"))
+    }
+
     /// Get the global at the actual index in the store
     #[inline]
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&GlobalInstance> {

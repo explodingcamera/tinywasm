@@ -102,6 +102,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             MemoryFill(addr) => self.exec_memory_fill(*addr)?,
             MemoryInit(data_idx, mem_idx) => self.exec_memory_init(*data_idx, *mem_idx)?,
             DataDrop(data_index) => self.exec_data_drop(*data_index)?,
+            ElemDrop(elem_index) => self.exec_elem_drop(*elem_index)?,
+            TableCopy { from, to } => self.exec_table_copy(*from, *to)?,
 
             I32Store { mem_addr, offset } => mem_store!(i32, (mem_addr, offset), self),
             I64Store { mem_addr, offset } => mem_store!(i64, (mem_addr, offset), self),
@@ -606,6 +608,31 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     fn exec_data_drop(&mut self, data_index: u32) -> Result<()> {
         self.store.get_data_mut(self.module.resolve_data_addr(data_index))?.drop();
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_elem_drop(&mut self, elem_index: u32) -> Result<()> {
+        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index))?.drop();
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
+        let size: i32 = self.stack.values.pop()?.into();
+        let src: i32 = self.stack.values.pop()?.into();
+        let dst: i32 = self.stack.values.pop()?.into();
+
+        if from == to {
+            let mut table_from = self.store.get_table(self.module.resolve_table_addr(from))?.borrow_mut();
+            // copy within the same memory
+            table_from.copy_within(dst as usize, src as usize, size as usize)?;
+        } else {
+            // copy between two memories
+            let table_from = self.store.get_table(self.module.resolve_table_addr(from))?.borrow();
+            let mut table_to = self.store.get_table(self.module.resolve_table_addr(to))?.borrow_mut();
+            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)?;
+        }
         Ok(())
     }
 

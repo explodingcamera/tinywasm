@@ -211,6 +211,7 @@ pub enum Instruction {
     MemoryCopy(MemAddr, MemAddr),
     MemoryFill(MemAddr),
     DataDrop(DataAddr),
+    ElemDrop(ElemAddr),
 }
 
 #[cfg(test)]

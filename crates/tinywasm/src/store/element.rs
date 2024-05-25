@@ -16,4 +16,8 @@ impl ElementInstance {
     pub(crate) fn new(kind: ElementKind, owner: ModuleInstanceAddr, items: Option<Vec<TableElement>>) -> Self {
         Self { kind, _owner: owner, items }
     }
+
+    pub(crate) fn drop(&mut self) {
+        self.items.is_some().then(|| self.items.take());
+    }
 }
