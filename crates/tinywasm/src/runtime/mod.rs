@@ -3,7 +3,7 @@ mod stack;
 
 mod raw;
 
-#[cfg(all(not(nightly), feature = "simd"))]
+#[cfg(all(not(feature = "nightly"), feature = "simd"))]
 compile_error!("`simd` feature requires nightly");
 
 #[cfg(feature = "simd")]

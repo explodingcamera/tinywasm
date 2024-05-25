@@ -237,7 +237,7 @@ impl Display for Trap {
     }
 }
 
-#[cfg(any(feature = "std", all(not(feature = "std"), nightly)))]
+#[cfg(any(feature = "std", all(not(feature = "std"), feature = "nightly")))]
 impl crate::std::error::Error for Error {}
 
 #[cfg(feature = "parser")]

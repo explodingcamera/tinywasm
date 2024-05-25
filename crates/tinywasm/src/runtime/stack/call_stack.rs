@@ -84,7 +84,7 @@ impl CallFrame {
                 self.instr_ptr = break_to.instr_ptr;
 
                 // We also want to push the params to the stack
-                values.break_to_params(&break_to);
+                values.break_to_params(break_to);
 
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
@@ -97,7 +97,7 @@ impl CallFrame {
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack
-                values.break_to_results(&break_to);
+                values.break_to_results(break_to);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;

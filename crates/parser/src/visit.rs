@@ -86,8 +86,8 @@ macro_rules! define_mem_operands {
     ($($name:ident, $instr:ident),*) => {
         $(
             #[inline(always)]
-            fn $name(&mut self, mem_arg: wasmparser::MemArg) -> Self::Output {
-                let arg = convert_memarg(mem_arg);
+            fn $name(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+                let arg = convert_memarg(memarg);
                 self.instructions.push(Instruction::$instr {
                     offset: arg.offset,
                     mem_addr: arg.mem_addr,

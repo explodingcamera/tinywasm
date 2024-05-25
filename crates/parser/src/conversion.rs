@@ -225,8 +225,8 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         wasmparser::ValType::I64 => ValType::I64,
         wasmparser::ValType::F32 => ValType::F32,
         wasmparser::ValType::F64 => ValType::F64,
+        wasmparser::ValType::V128 => ValType::V128,
         wasmparser::ValType::Ref(r) => convert_reftype(r),
-        wasmparser::ValType::V128 => unimplemented!("128-bit values are not supported yet"),
     }
 }
 

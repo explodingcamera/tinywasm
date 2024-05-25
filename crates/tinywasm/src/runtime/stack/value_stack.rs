@@ -9,6 +9,9 @@ pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024 * 128;
 #[cfg(feature = "simd")]
 pub(crate) const MIN_SIMD_VALUE_STACK_SIZE: usize = 1024 * 32;
 
+#[cfg(feature = "simd")]
+use crate::runtime::raw_simd::RawSimdWasmValue;
+
 #[derive(Debug)]
 pub(crate) struct ValueStack {
     stack: Vec<RawWasmValue>,
@@ -37,7 +40,7 @@ impl ValueStack {
         #[cfg(feature = "simd")]
         {
             values.iter().for_each(|v| match v {
-                WasmValue::V128(v) => self.simd_stack.push(*v),
+                WasmValue::V128(v) => self.simd_stack.push(RawSimdWasmValue::from(*v)),
                 v => self.stack.push(RawWasmValue::from(*v)),
             });
         }
@@ -72,6 +75,12 @@ impl ValueStack {
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.stack.len()
+    }
+
+    #[cfg(feature = "simd")]
+    #[inline(always)]
+    pub(crate) fn simd_len(&self) -> usize {
+        self.simd_stack.len()
     }
 
     #[inline]
@@ -138,7 +147,7 @@ impl ValueStack {
             let mut values = Vec::with_capacity(types.len());
             for ty in types {
                 match ty {
-                    ValType::V128 => values.push(WasmValue::V128(self.simd_stack.pop().unwrap())),
+                    ValType::V128 => values.push(WasmValue::V128(self.simd_stack.pop().unwrap().into())),
                     ty => values.push(self.pop()?.attach_type(*ty)),
                 }
             }

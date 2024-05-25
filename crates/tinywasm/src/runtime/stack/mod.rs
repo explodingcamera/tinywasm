@@ -2,9 +2,6 @@ mod block_stack;
 mod call_stack;
 mod value_stack;
 
-#[cfg(nightly)]
-mod simd_value_stack;
-
 pub(crate) use block_stack::{BlockFrame, BlockStack, BlockType};
 pub(crate) use call_stack::{CallFrame, CallStack};
 pub(crate) use value_stack::ValueStack;

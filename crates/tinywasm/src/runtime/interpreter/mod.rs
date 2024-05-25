@@ -747,22 +747,56 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     #[inline(always)]
     fn enter_block(&mut self, instr_ptr: usize, end_instr_offset: u32, ty: BlockType, args: BlockArgs) {
-        let (params, results) = match args {
-            BlockArgs::Empty => (0, 0),
-            BlockArgs::Type(_) => (0, 1),
-            BlockArgs::FuncType(t) => {
-                let ty = self.module.func_ty(t);
-                (ty.params.len() as u8, ty.results.len() as u8)
-            }
+        #[cfg(not(feature = "simd"))]
+        {
+            let (params, results) = match args {
+                BlockArgs::Empty => (0, 0),
+                BlockArgs::Type(_) => (0, 1),
+                BlockArgs::FuncType(t) => {
+                    let ty = self.module.func_ty(t);
+                    (ty.params.len() as u8, ty.results.len() as u8)
+                }
+            };
+
+            self.stack.blocks.push(BlockFrame {
+                instr_ptr,
+                end_instr_offset,
+                stack_ptr: self.stack.values.len() as u32 - params as u32,
+                results,
+                params,
+                ty,
+            });
         };
 
-        self.stack.blocks.push(BlockFrame {
-            instr_ptr,
-            end_instr_offset,
-            stack_ptr: self.stack.values.len() as u32 - params as u32,
-            results,
-            params,
-            ty,
-        });
+        #[cfg(feature = "simd")]
+        {
+            let (params, results, simd_params, simd_results) = match args {
+                BlockArgs::Empty => (0, 0, 0, 0),
+                BlockArgs::Type(t) => match t {
+                    ValType::V128 => (0, 0, 0, 1),
+                    _ => (0, 1, 0, 0),
+                },
+                BlockArgs::FuncType(t) => {
+                    let ty = self.module.func_ty(t);
+                    let simd_params = ty.params.iter().filter(|t| t.is_simd()).count() as u8;
+                    let params = ty.params.len() as u8 - simd_params;
+                    let simd_results = ty.results.iter().filter(|t| t.is_simd()).count() as u8;
+                    let results = ty.results.len() as u8 - simd_results;
+                    (params, results, simd_params, simd_results)
+                }
+            };
+
+            self.stack.blocks.push(BlockFrame {
+                instr_ptr,
+                end_instr_offset,
+                stack_ptr: self.stack.values.len() as u32 - params as u32,
+                simd_stack_ptr: self.stack.values.simd_len() as u32 - simd_params as u32,
+                results,
+                simd_params,
+                simd_results,
+                params,
+                ty,
+            });
+        };
     }
 }

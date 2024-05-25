@@ -142,6 +142,11 @@ impl ValType {
         WasmValue::default_for(*self)
     }
 
+    #[inline]
+    pub fn is_simd(&self) -> bool {
+        matches!(self, ValType::V128)
+    }
+
     pub(crate) fn to_byte(self) -> u8 {
         match self {
             ValType::I32 => 0x7F,
