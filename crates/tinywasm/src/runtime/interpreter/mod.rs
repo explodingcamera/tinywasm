@@ -96,6 +96,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Const(val) => self.exec_const(*val),
             F32Const(val) => self.exec_const(*val),
             F64Const(val) => self.exec_const(*val),
+            RefFunc(func_idx) => self.exec_const(*func_idx),
+            RefNull(_) => self.exec_const(-1i64),
+            RefIsNull => self.exec_ref_is_null()?,
 
             MemorySize(addr, byte) => self.exec_memory_size(*addr, *byte)?,
             MemoryGrow(addr, byte) => self.exec_memory_grow(*addr, *byte)?,
@@ -285,6 +288,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             TableSet(table_idx) => self.exec_table_set(*table_idx)?,
             TableSize(table_idx) => self.exec_table_size(*table_idx)?,
             TableInit(table_idx, elem_idx) => self.exec_table_init(*elem_idx, *table_idx)?,
+            TableGrow(table_idx) => self.exec_table_grow(*table_idx)?,
+            TableFill(table_idx) => self.exec_table_fill(*table_idx)?,
 
             I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, self),
             I32TruncSatF32U => arithmetic_single!(trunc, f32, u32, self),
@@ -389,6 +394,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[cold]
     fn exec_unreachable(&self) -> Result<()> {
         Err(Error::Trap(Trap::Unreachable))
+    }
+
+    #[inline(always)]
+    fn exec_ref_is_null(&mut self) -> Result<()> {
+        self.stack.values.replace_top(|val| ((i32::from(val) == -1) as i32).into())
     }
 
     #[inline(always)]
@@ -532,6 +542,24 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         table.borrow_mut().init(self.module.func_addrs(), dst, &items[offset as usize..(offset + size) as usize])?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    // todo: this is just a placeholder, need to check the spec
+    fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
+        let table_idx = self.module.resolve_table_addr(table_index);
+        let table = self.store.get_table(table_idx)?;
+        let delta: i32 = self.stack.values.pop()?.into();
+        let prev_size = table.borrow().size() as i32;
+        table.borrow_mut().grow_to_fit((prev_size + delta) as usize)?;
+        self.stack.values.push(prev_size.into());
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
+        // TODO: implement
         Ok(())
     }
 
