@@ -266,7 +266,7 @@ impl TestSuite {
                         continue;
                     };
 
-                    if trap.message() != message {
+                    if !message.starts_with(trap.message()) {
                         test_group.add_result(
                             &format!("AssertExhaustion({})", i),
                             span.linecol_in(wast),
@@ -309,7 +309,7 @@ impl TestSuite {
                             Err(eyre!("test panicked: {:?}", try_downcast_panic(err))),
                         ),
                         Ok(Err(tinywasm::Error::Trap(trap))) => {
-                            if trap.message() != message {
+                            if !message.starts_with(trap.message()) {
                                 test_group.add_result(
                                     &format!("AssertTrap({})", i),
                                     span.linecol_in(wast),

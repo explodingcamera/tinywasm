@@ -32,6 +32,11 @@ impl MemoryInstance {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
     #[inline(never)]
     #[cold]
     fn trap_oob(&self, addr: usize, len: usize) -> Error {
