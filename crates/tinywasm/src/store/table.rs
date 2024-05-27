@@ -1,4 +1,4 @@
-use crate::{log, unlikely};
+use crate::log;
 use crate::{Error, Result, Trap};
 use alloc::{vec, vec::Vec};
 use tinywasm_types::*;
@@ -36,8 +36,22 @@ impl TableInstance {
         })
     }
 
+    pub(crate) fn fill(&mut self, func_addrs: &[u32], addr: usize, len: usize, val: TableElement) -> Result<()> {
+        let val = val.map(|addr| self.resolve_func_ref(func_addrs, addr));
+        let end = addr.checked_add(len).ok_or_else(|| self.trap_oob(addr, len))?;
+        if end > self.elements.len() {
+            return Err(self.trap_oob(addr, len));
+        }
+
+        self.elements[addr..end].fill(val);
+        Ok(())
+    }
+
     pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement> {
-        self.elements.get(addr as usize).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr as usize }))
+        // self.elements.get(addr as usize).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr as usize }))
+        self.elements.get(addr as usize).ok_or_else(|| {
+            Error::Trap(Trap::TableOutOfBounds { offset: addr as usize, len: 1, max: self.elements.len() })
+        })
     }
 
     pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<()> {
@@ -81,19 +95,28 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn set(&mut self, table_idx: TableAddr, value: Addr) -> Result<()> {
-        self.grow_to_fit(table_idx as usize + 1)
-            .map(|_| self.elements[table_idx as usize] = TableElement::Initialized(value))
+    pub(crate) fn set(&mut self, table_idx: TableAddr, value: TableElement) -> Result<()> {
+        if table_idx as usize >= self.elements.len() {
+            return Err(self.trap_oob(table_idx as usize, 1));
+        }
+
+        self.elements[table_idx as usize] = value;
+        Ok(())
     }
 
-    pub(crate) fn grow_to_fit(&mut self, new_size: usize) -> Result<()> {
-        if new_size > self.elements.len() {
-            if unlikely(new_size > self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize) {
-                return Err(crate::Trap::TableOutOfBounds { offset: new_size, len: 1, max: self.elements.len() }.into());
-            }
+    pub(crate) fn grow(&mut self, n: i32, init: TableElement) -> Result<()> {
+        let len = n + self.elements.len() as i32;
+        let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as i32;
 
-            self.elements.resize(new_size, TableElement::Uninitialized);
+        if len > max {
+            return Err(Error::Trap(crate::Trap::TableOutOfBounds {
+                offset: len as usize,
+                len: 1,
+                max: self.elements.len(),
+            }));
         }
+
+        self.elements.resize(len as usize, init);
         Ok(())
     }
 
@@ -186,15 +209,21 @@ mod tests {
         let kind = dummy_table_type();
         let mut table_instance = TableInstance::new(kind, 0);
 
-        table_instance.set(0, 0).expect("Setting table element failed");
+        table_instance.set(0, TableElement::Initialized(0)).expect("Setting table element failed");
+        table_instance.set(1, TableElement::Uninitialized).expect("Setting table element failed");
 
         match table_instance.get_wasm_val(0) {
             Ok(WasmValue::RefFunc(_)) => {}
             _ => assert!(false, "get_wasm_val failed to return the correct WasmValue"),
         }
 
+        match table_instance.get_wasm_val(1) {
+            Ok(WasmValue::RefNull(ValType::RefFunc)) => {}
+            _ => assert!(false, "get_wasm_val failed to return the correct WasmValue"),
+        }
+
         match table_instance.get_wasm_val(999) {
-            Err(Error::Trap(Trap::UndefinedElement { .. })) => {}
+            Err(Error::Trap(Trap::TableOutOfBounds { .. })) => {}
             _ => assert!(false, "get_wasm_val failed to handle undefined element correctly"),
         }
     }
@@ -204,7 +233,7 @@ mod tests {
         let kind = dummy_table_type();
         let mut table_instance = TableInstance::new(kind, 0);
 
-        let result = table_instance.set(0, 1);
+        let result = table_instance.set(0, TableElement::Initialized(1));
         assert!(result.is_ok(), "Setting table element failed");
 
         let elem = table_instance.get(0);
@@ -219,7 +248,7 @@ mod tests {
         let kind = dummy_table_type();
         let mut table_instance = TableInstance::new(kind, 0);
 
-        let result = table_instance.set(15, 1);
+        let result = table_instance.set(15, TableElement::Initialized(1));
         assert!(result.is_ok(), "Table grow on set failed");
 
         let size = table_instance.size();

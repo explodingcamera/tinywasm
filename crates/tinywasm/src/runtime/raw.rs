@@ -31,14 +31,20 @@ impl RawWasmValue {
             ValType::F32 => WasmValue::F32(f32::from_bits(self.into())),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.into())),
             ValType::V128 => panic!("RawWasmValue cannot be converted to V128"),
-            ValType::RefExtern => match i64::from(self) {
-                v if v < 0 => WasmValue::RefNull(ValType::RefExtern),
-                addr => WasmValue::RefExtern(addr as u32),
-            },
-            ValType::RefFunc => match i64::from(self) {
-                v if v < 0 => WasmValue::RefNull(ValType::RefFunc),
-                addr => WasmValue::RefFunc(addr as u32),
-            },
+            ValType::RefExtern => {
+                self.as_reference().map(WasmValue::RefExtern).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
+            }
+            ValType::RefFunc => {
+                self.as_reference().map(WasmValue::RefFunc).unwrap_or(WasmValue::RefNull(ValType::RefFunc))
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn as_reference(&self) -> Option<u32> {
+        match i64::from(*self) {
+            v if v < 0 => None,
+            addr => Some(addr as u32),
         }
     }
 }

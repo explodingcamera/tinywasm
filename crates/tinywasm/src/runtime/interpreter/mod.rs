@@ -507,9 +507,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     fn exec_table_set(&mut self, table_index: u32) -> Result<()> {
         let table_idx = self.module.resolve_table_addr(table_index);
         let table = self.store.get_table(table_idx)?;
-        let val = self.stack.values.pop()?.into();
+        let val = self.stack.values.pop()?.as_reference();
         let idx = self.stack.values.pop()?.into();
-        table.borrow_mut().set(idx, val)?;
+        table.borrow_mut().set(idx, val.into())?;
+
         Ok(())
     }
 
@@ -557,18 +558,42 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     // todo: this is just a placeholder, need to check the spec
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
-        let table_idx = self.module.resolve_table_addr(table_index);
-        let table = self.store.get_table(table_idx)?;
-        let delta: i32 = self.stack.values.pop()?.into();
-        let prev_size = table.borrow().size();
-        table.borrow_mut().grow_to_fit((prev_size + delta) as usize)?;
-        self.stack.values.push(prev_size.into());
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let sz = table.borrow().size();
+
+        let n: i32 = self.stack.values.pop()?.into();
+        let val = self.stack.values.pop()?.as_reference();
+
+        match table.borrow_mut().grow(n, val.into()) {
+            Ok(_) => self.stack.values.push(sz.into()),
+            Err(_) => self.stack.values.push((-1_i32).into()),
+        }
+
         Ok(())
     }
 
     #[inline(always)]
-    fn exec_table_fill(&mut self, _table_index: u32) -> Result<()> {
-        // TODO: implement
+    fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+
+        let n: i32 = self.stack.values.pop()?.into();
+        let val = self.stack.values.pop()?.as_reference();
+        let i: i32 = self.stack.values.pop()?.into();
+
+        if unlikely(i + n > table.borrow().size()) {
+            return Err(Trap::TableOutOfBounds {
+                offset: i as usize,
+                len: n as usize,
+                max: table.borrow().size() as usize,
+            }
+            .into());
+        }
+
+        if n == 0 {
+            return Ok(());
+        }
+
+        table.borrow_mut().fill(self.module.func_addrs(), i as usize, n as usize, val.into())?;
         Ok(())
     }
 
@@ -742,7 +767,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             let table_idx: u32 = self.stack.values.pop()?.into();
             let table = table.borrow();
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
-            table.get(table_idx)?.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize })?
+            table
+                .get(table_idx)
+                .map_err(|_| Error::Trap(Trap::UndefinedElement { index: table_idx as usize }))?
+                .addr()
+                .ok_or(Trap::UninitializedElement { index: table_idx as usize })?
         };
 
         let func_inst = self.store.get_func(func_ref)?;
