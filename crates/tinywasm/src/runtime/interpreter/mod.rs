@@ -64,13 +64,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    pub(crate) fn exec_next(&mut self) -> Result<ControlFlow<()>> {
+    fn exec_next(&mut self) -> Result<ControlFlow<()>> {
         use tinywasm_types::Instruction::*;
         match self.cf.fetch_instr() {
-            Nop => cold(),
+            Nop => self.exec_noop(),
             Unreachable => self.exec_unreachable()?,
 
-            Drop => self.stack.values.pop().map(|_| ())?,
+            Drop => self.exec_drop()?,
             Select(_valtype) => self.exec_select()?,
 
             Call(v) => return self.exec_call_direct(*v),
@@ -80,7 +80,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Else(end_offset) => self.exec_else(*end_offset)?,
             Loop(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Loop, *args),
             Block(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Block, *args),
-            Br(v) => break_to!(*v, self),
+            Br(v) => return self.exec_br(*v),
             BrIf(v) => return self.exec_br_if(*v),
             BrTable(default, len) => return self.exec_brtable(*default, *len),
             Return => return self.exec_return(),
@@ -310,7 +310,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I32StoreLocal { local, const_i32, offset, mem_addr } => {
                 self.exec_i32_store_local(*local, *const_i32, *offset, *mem_addr)?
             }
-
             i => {
                 cold();
                 return Err(Error::UnsupportedFeature(format!("unimplemented instruction: {:?}", i)));
@@ -342,6 +341,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         self.cf.instr_ptr += end_offset as usize;
         Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
+        break_to!(to, self);
+        self.cf.instr_ptr += 1;
+        Ok(ControlFlow::Continue(()))
     }
 
     #[inline(always)]
@@ -395,6 +401,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     fn exec_unreachable(&self) -> Result<()> {
         Err(Error::Trap(Trap::Unreachable))
     }
+
+    #[inline(always)]
+    fn exec_noop(&self) {}
 
     #[inline(always)]
     fn exec_ref_is_null(&mut self) -> Result<()> {
@@ -551,15 +560,21 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let table_idx = self.module.resolve_table_addr(table_index);
         let table = self.store.get_table(table_idx)?;
         let delta: i32 = self.stack.values.pop()?.into();
-        let prev_size = table.borrow().size() as i32;
+        let prev_size = table.borrow().size();
         table.borrow_mut().grow_to_fit((prev_size + delta) as usize)?;
         self.stack.values.push(prev_size.into());
         Ok(())
     }
 
     #[inline(always)]
-    fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
+    fn exec_table_fill(&mut self, _table_index: u32) -> Result<()> {
         // TODO: implement
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_drop(&mut self) -> Result<()> {
+        self.stack.values.pop()?;
         Ok(())
     }
 
@@ -695,7 +710,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<ControlFlow<()>> {
         let params = self.stack.values.pop_n_rev(wasm_func.ty.params.len())?;
-        let new_call_frame = CallFrame::new(wasm_func, owner, params, self.stack.blocks.len() as u32);
+        let new_call_frame = CallFrame::new(wasm_func, owner, &params, self.stack.blocks.len() as u32);
         self.cf.instr_ptr += 1; // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr, self.store);

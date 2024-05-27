@@ -1,5 +1,5 @@
-use crate::{cold, runtime::RawWasmValue, unlikely, Error, Result};
-use alloc::vec::Vec;
+use crate::{boxvec::BoxVec, cold, runtime::RawWasmValue, unlikely, Error, Result};
+use alloc::{borrow::Cow, vec::Vec};
 use tinywasm_types::{ValType, WasmValue};
 
 use super::BlockFrame;
@@ -18,19 +18,19 @@ use crate::runtime::raw_simd::RawSimdWasmValue;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
-    stack: Vec<RawWasmValue>,
+    pub(crate) stack: BoxVec<RawWasmValue>,
 
     #[cfg(feature = "simd")]
-    simd_stack: Vec<RawSimdWasmValue>,
+    simd_stack: BoxVec<RawSimdWasmValue>,
 }
 
 impl Default for ValueStack {
     fn default() -> Self {
         Self {
-            stack: Vec::with_capacity(MIN_VALUE_STACK_SIZE),
+            stack: BoxVec::with_capacity(MIN_VALUE_STACK_SIZE),
 
             #[cfg(feature = "simd")]
-            simd_stack: Vec::with_capacity(MIN_SIMD_VALUE_STACK_SIZE),
+            simd_stack: BoxVec::with_capacity(MIN_SIMD_VALUE_STACK_SIZE),
         }
     }
 }
@@ -59,9 +59,20 @@ impl ValueStack {
 
     #[inline(always)]
     pub(crate) fn calculate(&mut self, func: fn(RawWasmValue, RawWasmValue) -> RawWasmValue) -> Result<()> {
-        let v2 = self.pop()?;
-        let v1 = self.last_mut()?;
-        *v1 = func(*v1, v2);
+        if self.stack.end < 2 {
+            cold(); // cold in here instead of the stack makes a huge performance difference
+            return Err(Error::ValueStackUnderflow);
+        }
+
+        assert!(
+            self.stack.end >= 2 && self.stack.end <= self.stack.data.len(),
+            "invalid stack state (should be impossible)"
+        );
+
+        self.stack.data[self.stack.end - 2] =
+            func(self.stack.data[self.stack.end - 2], self.stack.data[self.stack.end - 1]);
+
+        self.stack.end -= 1;
         Ok(())
     }
 
@@ -113,7 +124,7 @@ impl ValueStack {
         match self.stack.last_mut() {
             Some(v) => Ok(v),
             None => {
-                cold();
+                cold(); // cold in here instead of the stack makes a huge performance difference
                 Err(Error::ValueStackUnderflow)
             }
         }
@@ -124,7 +135,7 @@ impl ValueStack {
         match self.stack.last() {
             Some(v) => Ok(v),
             None => {
-                cold();
+                cold(); // cold in here instead of the stack makes a huge performance difference
                 Err(Error::ValueStackUnderflow)
             }
         }
@@ -135,7 +146,7 @@ impl ValueStack {
         match self.stack.pop() {
             Some(v) => Ok(v),
             None => {
-                cold();
+                cold(); // cold in here instead of the stack makes a huge performance difference
                 Err(Error::ValueStackUnderflow)
             }
         }
@@ -165,10 +176,9 @@ impl ValueStack {
         self.stack.drain(bf.stack_ptr as usize..end);
 
         #[cfg(feature = "simd")]
-        {
-            let end = self.simd_stack.len() - bf.simd_results as usize;
-            self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
-        }
+        let end = self.simd_stack.len() - bf.simd_results as usize;
+        #[cfg(feature = "simd")]
+        self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
     }
 
     #[inline]
@@ -177,10 +187,9 @@ impl ValueStack {
         self.stack.drain(bf.stack_ptr as usize..end);
 
         #[cfg(feature = "simd")]
-        {
-            let end = self.simd_stack.len() - bf.simd_params as usize;
-            self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
-        }
+        let end = self.simd_stack.len() - bf.simd_params as usize;
+        #[cfg(feature = "simd")]
+        self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
     }
 
     #[inline]
@@ -193,7 +202,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<alloc::vec::Drain<'_, RawWasmValue>> {
+    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<Cow<'_, [RawWasmValue]>> {
         if unlikely(self.stack.len() < n) {
             return Err(Error::ValueStackUnderflow);
         }
@@ -202,7 +211,7 @@ impl ValueStack {
 }
 
 #[inline(always)]
-fn truncate_keep<T>(data: &mut Vec<T>, n: u32, end_keep: u32) {
+fn truncate_keep<T: Copy + Default>(data: &mut BoxVec<T>, n: u32, end_keep: u32) {
     let total_to_keep = n + end_keep;
     let len = data.len() as u32;
     assert!(len >= total_to_keep, "RawWasmValueotal to keep should be less than or equal to self.top");

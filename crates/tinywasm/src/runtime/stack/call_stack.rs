@@ -103,7 +103,7 @@ impl CallFrame {
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
-        params: impl ExactSizeIterator<Item = RawWasmValue>,
+        params: &[RawWasmValue],
         block_ptr: u32,
     ) -> Self {
         let locals = {

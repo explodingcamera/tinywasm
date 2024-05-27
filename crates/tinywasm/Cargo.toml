@@ -34,7 +34,7 @@ std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["tinywasm-parser"]
 archive=["tinywasm-types/archive"]
 simd=[]
-nightly=[]
+nightly=["tinywasm-parser?/nightly"]
 
 [[test]]
 name="test-mvp"
