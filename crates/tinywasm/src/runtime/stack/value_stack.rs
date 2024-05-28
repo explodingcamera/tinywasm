@@ -68,7 +68,6 @@ impl ValueStack {
             self.stack.end >= 2 && self.stack.end <= self.stack.data.len(),
             "invalid stack state (should be impossible)"
         );
-
         self.stack.data[self.stack.end - 2] =
             func(self.stack.data[self.stack.end - 2], self.stack.data[self.stack.end - 1]);
 

@@ -1,14 +1,16 @@
 use crate::{cold, unlikely, Error, Result};
 use alloc::vec::Vec;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct BlockStack(Vec<BlockFrame>);
 
-impl BlockStack {
-    pub(crate) fn new() -> Self {
+impl Default for BlockStack {
+    fn default() -> Self {
         Self(Vec::with_capacity(128))
     }
+}
 
+impl BlockStack {
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
@@ -50,7 +52,7 @@ impl BlockStack {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) struct BlockFrame {
     pub(crate) instr_ptr: usize, // position of the instruction pointer when the block was entered
     pub(crate) end_instr_offset: u32, // position of the end instruction of the block
@@ -69,10 +71,7 @@ pub(crate) struct BlockFrame {
     pub(crate) ty: BlockType,
 }
 
-impl BlockFrame {}
-
-#[derive(Debug, Copy, Clone)]
-#[allow(dead_code)]
+#[derive(Debug)]
 pub(crate) enum BlockType {
     Loop,
     If,

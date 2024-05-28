@@ -92,7 +92,7 @@ impl Parser {
             return Err(ParseError::EndNotReached);
         }
 
-        reader.to_module()
+        reader.into_module()
     }
 
     #[cfg(feature = "std")]
@@ -132,7 +132,7 @@ impl Parser {
                     reader.process_payload(payload, &mut validator)?;
                     buffer.drain(..consumed);
                     if eof || reader.end_reached {
-                        return reader.to_module();
+                        return reader.into_module();
                     }
                 }
             };
@@ -144,6 +144,6 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader) -> Result<Self> {
-        reader.to_module()
+        reader.into_module()
     }
 }

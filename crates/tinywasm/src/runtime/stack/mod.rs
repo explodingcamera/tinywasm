@@ -16,6 +16,6 @@ pub(crate) struct Stack {
 
 impl Stack {
     pub(crate) fn new(call_frame: CallFrame) -> Self {
-        Self { values: ValueStack::default(), blocks: BlockStack::new(), call_stack: CallStack::new(call_frame) }
+        Self { values: ValueStack::default(), blocks: BlockStack::default(), call_stack: CallStack::new(call_frame) }
     }
 }

@@ -37,7 +37,3 @@ opt-level=3
 lto="thin"
 codegen-units=1
 debug=true
-
-[patch.crates-io]
-# https://github.com/servo/pathfinder/pull/548 & https://github.com/servo/pathfinder/issues/558
-pathfinder_simd={git="https://github.com/servo/pathfinder", rev="30419d07660dc11a21e42ef4a7fa329600cff152"}

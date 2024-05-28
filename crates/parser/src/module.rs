@@ -179,14 +179,12 @@ impl ModuleReader {
     }
 
     #[inline]
-    pub(crate) fn to_module(self) -> Result<TinyWasmModule> {
+    pub(crate) fn into_module(self) -> Result<TinyWasmModule> {
         if !self.end_reached {
             return Err(ParseError::EndNotReached);
         }
 
-        let local_function_count = self.code.len();
-
-        if self.code_type_addrs.len() != local_function_count {
+        if self.code_type_addrs.len() != self.code.len() {
             return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
         }
 
@@ -199,13 +197,14 @@ impl ModuleReader {
                 locals,
                 ty: self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
 
         let globals = self.globals;
         let table_types = self.table_types;
 
         Ok(TinyWasmModule {
-            funcs: funcs.into_boxed_slice(),
+            funcs,
             func_types: self.func_types.into_boxed_slice(),
             globals: globals.into_boxed_slice(),
             table_types: table_types.into_boxed_slice(),

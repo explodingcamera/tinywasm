@@ -307,7 +307,7 @@ pub enum ElementKind {
     Declared,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub enum ElementItem {
     Func(FuncAddr),

@@ -37,7 +37,7 @@ impl CallStack {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: usize,
     pub(crate) block_ptr: u32,
