@@ -31,10 +31,9 @@ mod conversion;
 mod error;
 mod module;
 mod visit;
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 pub use error::*;
 use module::ModuleReader;
-use tinywasm_types::WasmFunction;
 use wasmparser::{Validator, WasmFeaturesInflated};
 
 pub use tinywasm_types::TinyWasmModule;
@@ -93,7 +92,7 @@ impl Parser {
             return Err(ParseError::EndNotReached);
         }
 
-        reader.try_into()
+        reader.to_module()
     }
 
     #[cfg(feature = "std")]
@@ -133,7 +132,7 @@ impl Parser {
                     reader.process_payload(payload, &mut validator)?;
                     buffer.drain(..consumed);
                     if eof || reader.end_reached {
-                        return reader.try_into();
+                        return reader.to_module();
                     }
                 }
             };
@@ -145,42 +144,6 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader) -> Result<Self> {
-        if !reader.end_reached {
-            return Err(ParseError::EndNotReached);
-        }
-
-        let code_type_addrs = reader.code_type_addrs;
-        let local_function_count = reader.code.len();
-
-        if code_type_addrs.len() != local_function_count {
-            return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
-        }
-
-        let funcs = reader
-            .code
-            .into_iter()
-            .zip(code_type_addrs)
-            .map(|((instructions, locals), ty_idx)| WasmFunction {
-                instructions,
-                locals,
-                ty: reader.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
-            })
-            .collect::<Vec<_>>();
-
-        let globals = reader.globals;
-        let table_types = reader.table_types;
-
-        Ok(TinyWasmModule {
-            funcs: funcs.into_boxed_slice(),
-            func_types: reader.func_types.into_boxed_slice(),
-            globals: globals.into_boxed_slice(),
-            table_types: table_types.into_boxed_slice(),
-            imports: reader.imports.into_boxed_slice(),
-            start_func: reader.start_func,
-            data: reader.data.into_boxed_slice(),
-            exports: reader.exports.into_boxed_slice(),
-            elements: reader.elements.into_boxed_slice(),
-            memory_types: reader.memory_types.into_boxed_slice(),
-        })
+        reader.to_module()
     }
 }

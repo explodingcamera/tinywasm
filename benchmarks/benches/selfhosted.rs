@@ -60,11 +60,11 @@ fn criterion_benchmark(c: &mut Criterion) {
     }
 
     {
-        let mut group = c.benchmark_group("selfhosted");
-        group.bench_function("native", |b| b.iter(run_native));
-        group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(TINYWASM)));
-        group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
-        group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
+        // let mut group = c.benchmark_group("selfhosted");
+        // group.bench_function("native", |b| b.iter(run_native));
+        // group.bench_function("tinywasm", |b| b.iter(|| run_tinywasm(TINYWASM)));
+        // group.bench_function("wasmi", |b| b.iter(|| run_wasmi(TINYWASM)));
+        // group.bench_function("wasmer", |b| b.iter(|| run_wasmer(TINYWASM)));
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::{module::Code, visit::process_operators};
+use crate::{module::Code, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
@@ -174,17 +174,20 @@ pub(crate) fn convert_module_code(
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
 
-    let mut locals = Vec::with_capacity(count as usize);
-    for (i, local) in locals_reader.into_iter().enumerate() {
-        let local = local?;
-        validator.define_locals(pos + i, local.0, local.1)?;
-        for _ in 0..local.0 {
-            locals.push(convert_valtype(&local.1));
+    let locals = {
+        let mut locals = Vec::new();
+        locals.reserve_exact(count as usize);
+        for (i, local) in locals_reader.into_iter().enumerate() {
+            let local = local?;
+            validator.define_locals(pos + i, local.0, local.1)?;
+            for _ in 0..local.0 {
+                locals.push(convert_valtype(&local.1));
+            }
         }
-    }
+        locals.into_boxed_slice()
+    };
 
-    let body = process_operators(Some(validator), func)?;
-    let locals = locals.into_boxed_slice();
+    let body = process_operators_and_validate(validator, func)?;
     Ok((body, locals))
 }
 
@@ -196,6 +199,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
             "Expected exactly one type in the type section".to_string(),
         ));
     }
+
     let ty = types.next().unwrap().unwrap_func();
     let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
     let results = ty.results().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
@@ -228,10 +232,6 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         wasmparser::ValType::V128 => ValType::V128,
         wasmparser::ValType::Ref(r) => convert_reftype(r),
     }
-}
-
-pub(crate) fn convert_memarg(memarg: wasmparser::MemArg) -> MemoryArg {
-    MemoryArg { offset: memarg.offset, mem_addr: memarg.memory }
 }
 
 pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstInstruction> {

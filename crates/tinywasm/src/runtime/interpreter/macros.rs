@@ -17,68 +17,6 @@ macro_rules! break_to {
     }};
 }
 
-/// Load a value from memory
-macro_rules! mem_load {
-    ($type:ty, $arg:expr, $self:expr) => {{
-        mem_load!($type, $type, $arg, $self)
-    }};
-
-    ($load_type:ty, $target_type:ty, $arg:expr, $self:expr) => {{
-        #[inline(always)]
-        fn mem_load_inner(
-            store: &Store,
-            module: &crate::ModuleInstance,
-            stack: &mut crate::runtime::Stack,
-            mem_addr: tinywasm_types::MemAddr,
-            offset: u64,
-        ) -> Result<()> {
-            let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
-            let Some(Ok(addr)) = offset.checked_add(stack.values.pop()?.into()).map(|a| a.try_into()) else {
-                return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                    offset: offset as usize,
-                    len: core::mem::size_of::<$load_type>(),
-                    max: mem.borrow().max_pages(),
-                }));
-            };
-
-            const LEN: usize = core::mem::size_of::<$load_type>();
-            let val = mem.borrow().load_as::<LEN, $load_type>(addr)?;
-            stack.values.push((val as $target_type).into());
-            Ok(())
-        }
-
-        let (mem_addr, offset) = $arg;
-        mem_load_inner($self.store, &$self.module, $self.stack, *mem_addr, *offset)?;
-    }};
-}
-
-/// Store a value to memory
-macro_rules! mem_store {
-    ($type:ty, $arg:expr, $self:expr) => {{
-        mem_store!($type, $type, $arg, $self)
-    }};
-
-    ($store_type:ty, $target_type:ty, $arg:expr, $self:expr) => {{
-        #[inline(always)]
-        fn mem_store_inner(
-            store: &Store,
-            module: &crate::ModuleInstance,
-            stack: &mut crate::runtime::Stack,
-            mem_addr: tinywasm_types::MemAddr,
-            offset: u64,
-        ) -> Result<()> {
-            let mem = store.get_mem(module.resolve_mem_addr(mem_addr))?;
-            let val: $store_type = stack.values.pop()?.into();
-            let val = val.to_le_bytes();
-            let addr: u64 = stack.values.pop()?.into();
-            mem.borrow_mut().store((offset + addr) as usize, val.len(), &val)?;
-            Ok(())
-        }
-
-        mem_store_inner($self.store, &$self.module, $self.stack, *$arg.0, *$arg.1)?;
-    }};
-}
-
 /// Doing the actual conversion from float to int is a bit tricky, because
 /// we need to check for overflow. This macro generates the min/max values
 /// for a specific conversion, which are then used in the actual conversion.
@@ -200,5 +138,3 @@ pub(super) use comp;
 pub(super) use comp_zero;
 pub(super) use conv;
 pub(super) use float_min_max;
-pub(super) use mem_load;
-pub(super) use mem_store;

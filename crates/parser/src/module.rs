@@ -1,7 +1,11 @@
 use crate::log::debug;
 use crate::{conversion, ParseError, Result};
+use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
-use tinywasm_types::{Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, ValType};
+use tinywasm_types::{
+    Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule, ValType,
+    WasmFunction,
+};
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
 pub(crate) type Code = (Box<[Instruction]>, Box<[ValType]>);
@@ -172,5 +176,45 @@ impl ModuleReader {
         };
 
         Ok(())
+    }
+
+    #[inline]
+    pub(crate) fn to_module(self) -> Result<TinyWasmModule> {
+        if !self.end_reached {
+            return Err(ParseError::EndNotReached);
+        }
+
+        let local_function_count = self.code.len();
+
+        if self.code_type_addrs.len() != local_function_count {
+            return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
+        }
+
+        let funcs = self
+            .code
+            .into_iter()
+            .zip(self.code_type_addrs)
+            .map(|((instructions, locals), ty_idx)| WasmFunction {
+                instructions,
+                locals,
+                ty: self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
+            })
+            .collect::<Vec<_>>();
+
+        let globals = self.globals;
+        let table_types = self.table_types;
+
+        Ok(TinyWasmModule {
+            funcs: funcs.into_boxed_slice(),
+            func_types: self.func_types.into_boxed_slice(),
+            globals: globals.into_boxed_slice(),
+            table_types: table_types.into_boxed_slice(),
+            imports: self.imports.into_boxed_slice(),
+            start_func: self.start_func,
+            data: self.data.into_boxed_slice(),
+            exports: self.exports.into_boxed_slice(),
+            elements: self.elements.into_boxed_slice(),
+            memory_types: self.memory_types.into_boxed_slice(),
+        })
     }
 }

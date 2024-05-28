@@ -125,7 +125,7 @@ impl ModuleInstance {
 
     #[inline]
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
-        self.0.types.get(addr as usize).expect("No func type for func, this is a bug")
+        &self.0.types[addr as usize]
     }
 
     #[inline]

@@ -1,5 +1,5 @@
 use crate::unlikely;
-use alloc::{borrow::Cow, boxed::Box, vec};
+use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 use core::ops::RangeBounds;
 
 // A Vec-like type that doesn't deallocate memory when popping elements.
@@ -12,7 +12,10 @@ pub(crate) struct BoxVec<T> {
 impl<T: Copy + Default> BoxVec<T> {
     #[inline(always)]
     pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self { data: vec![T::default(); capacity].into_boxed_slice(), end: 0 }
+        let mut data = Vec::new();
+        data.reserve_exact(capacity);
+        data.resize_with(capacity, T::default);
+        Self { data: data.into_boxed_slice(), end: 0 }
     }
 
     #[inline(always)]
@@ -63,6 +66,19 @@ impl<T: Copy + Default> BoxVec<T> {
             None
         } else {
             Some(&self.data[self.end - 1])
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn pop_n(&mut self, n: usize) -> Option<&[T]> {
+        assert!(self.end <= self.data.len(), "invalid stack state (should be impossible)");
+        if unlikely(self.end < n) {
+            None
+        } else {
+            let start = self.end - n;
+            let end = self.end;
+            self.end = start;
+            Some(&self.data[start..end])
         }
     }
 

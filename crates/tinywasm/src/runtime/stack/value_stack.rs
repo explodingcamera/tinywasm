@@ -1,5 +1,5 @@
 use crate::{boxvec::BoxVec, cold, runtime::RawWasmValue, unlikely, Error, Result};
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
 use super::BlockFrame;
@@ -202,11 +202,14 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn pop_n_rev(&mut self, n: usize) -> Result<Cow<'_, [RawWasmValue]>> {
-        if unlikely(self.stack.len() < n) {
-            return Err(Error::ValueStackUnderflow);
+    pub(crate) fn pop_n(&mut self, n: usize) -> Result<&[RawWasmValue]> {
+        match self.stack.pop_n(n) {
+            Some(v) => Ok(v),
+            None => {
+                cold();
+                Err(Error::ValueStackUnderflow)
+            }
         }
-        Ok(self.stack.drain((self.stack.len() - n)..))
     }
 }
 

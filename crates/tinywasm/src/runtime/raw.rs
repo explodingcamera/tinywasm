@@ -7,7 +7,7 @@ use tinywasm_types::{ValType, WasmValue};
 ///
 /// See [`WasmValue`] for the public representation.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub struct RawWasmValue([u8; 8]);
+pub struct RawWasmValue(pub [u8; 8]);
 
 impl Debug for RawWasmValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -15,21 +15,34 @@ impl Debug for RawWasmValue {
     }
 }
 
-impl RawWasmValue {
-    #[inline(always)]
-    /// Get the raw value
-    pub fn raw_value(&self) -> [u8; 8] {
-        self.0
-    }
+pub(crate) trait ToMemBytes<const N: usize> {
+    fn to_mem_bytes(self) -> [u8; N];
+}
 
+macro_rules! impl_to_mem_bytes {
+    ($( $ty:ty, $n:expr ),*) => {
+        $(
+            impl ToMemBytes<$n> for $ty {
+                #[inline]
+                fn to_mem_bytes(self) -> [u8; $n] {
+                    self.to_ne_bytes()
+                }
+            }
+        )*
+    };
+}
+
+impl_to_mem_bytes! {u8, 1, u16, 2, u32, 4, u64, 8, i8, 1, i16, 2, i32, 4, i64, 8, f32, 4, f64, 8}
+
+impl RawWasmValue {
     #[inline]
     /// Attach a type to the raw value (does not support simd values)
     pub fn attach_type(self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.into()),
             ValType::I64 => WasmValue::I64(self.into()),
-            ValType::F32 => WasmValue::F32(f32::from_bits(self.into())),
-            ValType::F64 => WasmValue::F64(f64::from_bits(self.into())),
+            ValType::F32 => WasmValue::F32(self.into()),
+            ValType::F64 => WasmValue::F64(self.into()),
             ValType::V128 => panic!("RawWasmValue cannot be converted to V128"),
             ValType::RefExtern => {
                 self.as_reference().map(WasmValue::RefExtern).unwrap_or(WasmValue::RefNull(ValType::RefExtern))
@@ -88,14 +101,15 @@ macro_rules! impl_from_raw_wasm_value {
 }
 
 // This all looks like a lot of extra steps, but the compiler will optimize it all away.
-impl_from_raw_wasm_value!(i32, |x| x as u64, |x: [u8; 8]| i32::from_ne_bytes(x[0..4].try_into().unwrap()));
-impl_from_raw_wasm_value!(i64, |x| x as u64, |x: [u8; 8]| i64::from_ne_bytes(x[0..8].try_into().unwrap()));
-impl_from_raw_wasm_value!(u8, |x| x as u64, |x: [u8; 8]| u8::from_ne_bytes(x[0..1].try_into().unwrap()));
+impl_from_raw_wasm_value!(i16, |x| x as u64, |x: [u8; 8]| i16::from_ne_bytes(x[0..2].try_into().unwrap()));
 impl_from_raw_wasm_value!(u16, |x| x as u64, |x: [u8; 8]| u16::from_ne_bytes(x[0..2].try_into().unwrap()));
+impl_from_raw_wasm_value!(i32, |x| x as u64, |x: [u8; 8]| i32::from_ne_bytes(x[0..4].try_into().unwrap()));
 impl_from_raw_wasm_value!(u32, |x| x as u64, |x: [u8; 8]| u32::from_ne_bytes(x[0..4].try_into().unwrap()));
+impl_from_raw_wasm_value!(i64, |x| x as u64, |x: [u8; 8]| i64::from_ne_bytes(x[0..8].try_into().unwrap()));
 impl_from_raw_wasm_value!(u64, |x| x, |x: [u8; 8]| u64::from_ne_bytes(x[0..8].try_into().unwrap()));
 impl_from_raw_wasm_value!(i8, |x| x as u64, |x: [u8; 8]| i8::from_ne_bytes(x[0..1].try_into().unwrap()));
-impl_from_raw_wasm_value!(i16, |x| x as u64, |x: [u8; 8]| i16::from_ne_bytes(x[0..2].try_into().unwrap()));
+impl_from_raw_wasm_value!(u8, |x| x as u64, |x: [u8; 8]| u8::from_ne_bytes(x[0..1].try_into().unwrap()));
+
 impl_from_raw_wasm_value!(f32, |x| f32::to_bits(x) as u64, |x: [u8; 8]| f32::from_ne_bytes(
     x[0..4].try_into().unwrap()
 ));

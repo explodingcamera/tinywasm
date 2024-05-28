@@ -1,10 +1,10 @@
+use super::BlockType;
 use crate::runtime::RawWasmValue;
 use crate::unlikely;
 use crate::{Result, Trap};
+
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
-
-use super::BlockType;
 
 const CALL_STACK_SIZE: usize = 1024;
 
