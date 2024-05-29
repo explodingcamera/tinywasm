@@ -83,6 +83,18 @@ impl<T: Copy + Default> BoxVec<T> {
     }
 
     #[inline(always)]
+    pub(crate) fn extend(&mut self, iter: impl Iterator<Item = T>) {
+        let (lower, _) = iter.size_hint();
+        let upper = lower;
+        let new_end = self.end + upper;
+        assert!(new_end <= self.data.len(), "stack overflow");
+        for (i, value) in iter.enumerate() {
+            self.data[self.end + i] = value;
+        }
+        self.end = new_end;
+    }
+
+    #[inline(always)]
     pub(crate) fn drain(&mut self, range: impl RangeBounds<usize>) -> Cow<'_, [T]> {
         let start = match range.start_bound() {
             core::ops::Bound::Included(&start) => start,

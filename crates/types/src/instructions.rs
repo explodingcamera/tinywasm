@@ -85,18 +85,16 @@ pub enum ConstInstruction {
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
-#[non_exhaustive]
 pub enum Instruction {
     // > Custom Instructions
     BrLabel(LabelAddr),
     // LocalGet + I32Const + I32Add
-    // One of the most common patterns in the Rust compiler output
     I32LocalGetConstAdd(LocalAddr, i32),
-    // LocalGet + I32Const + I32Store => I32LocalGetConstStore + I32Const
-    // Also common, helps us skip the stack entirely.
-    // Has to be followed by an I32Const instruction
-    I32StoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
-    // I64Xor + I64Const + I64RotL
+    // LocalGet + I32Const + I32Store
+    I32ConstStoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
+    // LocalGet + LocalGet + I32Store
+    I32StoreLocal { local_a: LocalAddr, local_b: LocalAddr, offset: u32, mem_addr: u8 },
+    // I64Xor + I64Const + I64RotL 
     // Commonly used by a few crypto libraries
     I64XorConstRotl(i64),
     // LocalTee + LocalGet

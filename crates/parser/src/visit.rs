@@ -126,9 +126,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_global_set, Instruction::GlobalSet, u32,
         visit_i32_const, Instruction::I32Const, i32,
         visit_i64_const, Instruction::I64Const, i64,
-        visit_call, Instruction::Call, u32,
-        visit_local_set, Instruction::LocalSet, u32,
-        visit_local_tee, Instruction::LocalTee, u32
+        visit_call, Instruction::Call, u32
     }
 
     define_primitive_operands! {
@@ -319,10 +317,19 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         }
 
         match self.instructions[self.instructions.len() - 2..] {
+            [_, Instruction::LocalGet2(a, b)] => {
+                self.instructions.pop();
+                self.instructions.push(Instruction::I32StoreLocal {
+                    local_a: a,
+                    local_b: b,
+                    offset: arg.offset as u32,
+                    mem_addr: arg.mem_addr as u8,
+                })
+            }
             [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
                 self.instructions.pop();
                 self.instructions.pop();
-                self.instructions.push(Instruction::I32StoreLocal {
+                self.instructions.push(Instruction::I32ConstStoreLocal {
                     local: a,
                     const_i32: b,
                     offset: arg.offset as u32,
@@ -334,10 +341,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        if self.instructions.is_empty() {
+        let Some(instruction) = self.instructions.last_mut() else {
             return self.instructions.push(Instruction::LocalGet(idx));
-        }
-        let instruction = self.instructions.last_mut().unwrap();
+        };
+
         match instruction {
             Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
             Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
@@ -346,31 +353,46 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         };
     }
 
-    fn visit_i64_rotl(&mut self) -> Self::Output {
-        if self.instructions.len() < 2 {
-            return self.instructions.push(Instruction::I64Rotl);
-        }
+    fn visit_local_set(&mut self, idx: u32) -> Self::Output {
+        let Some(instruction) = self.instructions.last_mut() else {
+            return self.instructions.push(Instruction::LocalSet(idx));
+        };
+        match instruction {
+            Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
+            _ => self.instructions.push(Instruction::LocalSet(idx)),
+        };
+    }
 
-        match self.instructions[self.instructions.len() - 2..] {
-            [Instruction::I64Xor, Instruction::I64Const(a)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I64XorConstRotl(a))
-            }
-            _ => self.instructions.push(Instruction::I64Rotl),
-        }
+    fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
+        self.instructions.push(Instruction::LocalTee(idx))
+    }
+
+    fn visit_i64_rotl(&mut self) -> Self::Output {
+        let Some([Instruction::I64Xor, Instruction::I64Const(a)]) = self.instructions.last_chunk::<2>() else {
+            return self.instructions.push(Instruction::I64Rotl);
+        };
+        let a = *a;
+        self.instructions.pop();
+        self.instructions.pop();
+        self.instructions.push(Instruction::I64XorConstRotl(a))
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        if self.instructions.len() < 2 {
+        let Some(last) = self.instructions.last_chunk::<2>() else {
             return self.instructions.push(Instruction::I32Add);
-        }
+        };
 
-        match self.instructions[self.instructions.len() - 2..] {
+        match *last {
             [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
                 self.instructions.pop();
                 self.instructions.pop();
                 self.instructions.push(Instruction::I32LocalGetConstAdd(a, b))
+            }
+            [Instruction::LocalGet2(a, b), Instruction::I32Const(c)] => {
+                self.instructions.pop();
+                self.instructions.pop();
+                self.instructions.push(Instruction::LocalGet(a));
+                self.instructions.push(Instruction::I32LocalGetConstAdd(b, c))
             }
             _ => self.instructions.push(Instruction::I32Add),
         }

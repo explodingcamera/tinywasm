@@ -4,14 +4,10 @@ use tinywasm_types::{ValType, WasmValue};
 
 use super::BlockFrame;
 
-pub(crate) const MIN_VALUE_STACK_SIZE: usize = 1024 * 128;
-// pub(crate) const MAX_VALUE_STACK_SIZE: usize = u32::MAX / 32 as usize;
+pub(crate) const VALUE_STACK_SIZE: usize = 1024 * 128;
 
 #[cfg(feature = "simd")]
-pub(crate) const MIN_SIMD_VALUE_STACK_SIZE: usize = 1024 * 32;
-
-// #[cfg(feature = "simd")]
-// pub(crate) const MAX_SIMD_VALUE_STACK_SIZE: usize = u16::MAX as usize;
+pub(crate) const SIMD_VALUE_STACK_SIZE: usize = 1024 * 32;
 
 #[cfg(feature = "simd")]
 use crate::runtime::raw_simd::RawSimdWasmValue;
@@ -27,10 +23,10 @@ pub(crate) struct ValueStack {
 impl Default for ValueStack {
     fn default() -> Self {
         Self {
-            stack: BoxVec::with_capacity(MIN_VALUE_STACK_SIZE),
+            stack: BoxVec::with_capacity(VALUE_STACK_SIZE),
 
             #[cfg(feature = "simd")]
-            simd_stack: BoxVec::with_capacity(MIN_SIMD_VALUE_STACK_SIZE),
+            simd_stack: BoxVec::with_capacity(SIMD_VALUE_STACK_SIZE),
         }
     }
 }
@@ -58,20 +54,17 @@ impl ValueStack {
     }
 
     #[inline(always)]
+    pub(crate) fn replace_top_trap(&mut self, func: fn(RawWasmValue) -> Result<RawWasmValue>) -> Result<()> {
+        let v = self.last_mut()?;
+        *v = func(*v)?;
+        Ok(())
+    }
+
+    #[inline(always)]
     pub(crate) fn calculate(&mut self, func: fn(RawWasmValue, RawWasmValue) -> RawWasmValue) -> Result<()> {
-        if self.stack.end < 2 {
-            cold(); // cold in here instead of the stack makes a huge performance difference
-            return Err(Error::ValueStackUnderflow);
-        }
-
-        assert!(
-            self.stack.end >= 2 && self.stack.end <= self.stack.data.len(),
-            "invalid stack state (should be impossible)"
-        );
-        self.stack.data[self.stack.end - 2] =
-            func(self.stack.data[self.stack.end - 2], self.stack.data[self.stack.end - 1]);
-
-        self.stack.end -= 1;
+        let v2 = self.pop()?;
+        let v1 = self.last_mut()?;
+        *v1 = func(*v1, v2);
         Ok(())
     }
 
@@ -154,7 +147,7 @@ impl ValueStack {
     #[inline]
     pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
         #[cfg(not(feature = "simd"))]
-        return Ok(self.pop_n_rev(types.len())?.zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect());
+        return Ok(self.pop_n(types.len())?.iter().zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect());
 
         #[cfg(feature = "simd")]
         {

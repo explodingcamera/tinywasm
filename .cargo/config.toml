@@ -8,7 +8,7 @@ test-wast-release="test --package tinywasm --test test-wast --release -- --enabl
 generate-charts="run --package scripts --bin generate-charts --release"
 benchmark="bench -p benchmarks --bench"
 
-# # enable for linux perf
-# [target.x86_64-unknown-linux-gnu]
-# linker="/usr/bin/clang"
-# rustflags=["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+# enable for linux perf
+[target.x86_64-unknown-linux-gnu]
+linker="/usr/bin/clang"
+rustflags=["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]

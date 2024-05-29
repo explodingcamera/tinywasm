@@ -4,7 +4,7 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [profile.wasm]
-opt-level="s"
+opt-level=3
 lto="thin"
 codegen-units=1
 panic="abort"

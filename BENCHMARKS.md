@@ -42,7 +42,7 @@ All runtimes are compiled with the following settings:
 | `selfhosted` | `0.05ms` | `  7.93ms` | ` 7.54ms` | `512.45ms`           |
 
 > Note that parsing is still pretty slow, especially for the `selfhosted` benchmark, taking up `~6ms` for TinyWasm.
-> This can be improved by using the `archive` feature, which pre-parses the WebAssembly file into tinywasm's custom bytecode format.
+> This can be improved by using the `archive` feature, which pre-compiles the WebAssembly file into tinywasm's internal bytecode format.
 
 ### Fib
 

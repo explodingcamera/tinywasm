@@ -112,55 +112,55 @@ impl Store {
     }
 
     /// Get the function at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_func(&self, addr: FuncAddr) -> Result<&FunctionInstance> {
         self.data.funcs.get(addr as usize).ok_or_else(|| Self::not_found_error("function"))
     }
 
     /// Get the memory at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&RefCell<MemoryInstance>> {
         self.data.memories.get(addr as usize).ok_or_else(|| Self::not_found_error("memory"))
     }
 
     /// Get the table at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&RefCell<TableInstance>> {
         self.data.tables.get(addr as usize).ok_or_else(|| Self::not_found_error("table"))
     }
 
     /// Get the data at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_data(&self, addr: DataAddr) -> Result<&DataInstance> {
         self.data.datas.get(addr as usize).ok_or_else(|| Self::not_found_error("data"))
     }
 
     /// Get the data at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> Result<&mut DataInstance> {
         self.data.datas.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("data"))
     }
 
     /// Get the element at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_elem(&self, addr: ElemAddr) -> Result<&ElementInstance> {
         self.data.elements.get(addr as usize).ok_or_else(|| Self::not_found_error("element"))
     }
 
     /// Get the element at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> Result<&mut ElementInstance> {
         self.data.elements.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("element"))
     }
 
     /// Get the global at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&GlobalInstance> {
         self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"))
     }
 
     /// Get the global at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub fn get_global_val(&self, addr: MemAddr) -> Result<RawWasmValue> {
         self.data
             .globals
@@ -170,7 +170,7 @@ impl Store {
     }
 
     /// Set the global at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: RawWasmValue) -> Result<()> {
         let global = self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"));
         global.map(|global| global.value.set(value))

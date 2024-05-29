@@ -15,7 +15,7 @@ for bin in "${bins[@]}"; do
     RUSTFLAGS="-C target-feature=$features -C panic=abort" cargo build --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin "$bin"
 
     cp "$out_dir/$bin.wasm" "$dest_dir/"
-    wasm-opt "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.wasm" -O3 --enable-bulk-memory --enable-reference-types --enable-mutable-globals
+    wasm-opt "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.opt.wasm" -O3 --enable-bulk-memory --enable-reference-types --enable-mutable-globals
 
     if [[ ! " ${exclude_wat[@]} " =~ " $bin " ]]; then
         wasm2wat "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.wat"

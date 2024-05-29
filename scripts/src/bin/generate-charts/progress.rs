@@ -72,6 +72,5 @@ pub fn create_progress_chart(name: &str, csv_path: &Path, output_path: &Path) ->
     )?;
 
     root_area.present()?;
-
     Ok(())
 }

@@ -15,25 +15,6 @@ impl Debug for RawWasmValue {
     }
 }
 
-pub(crate) trait ToMemBytes<const N: usize> {
-    fn to_mem_bytes(self) -> [u8; N];
-}
-
-macro_rules! impl_to_mem_bytes {
-    ($( $ty:ty, $n:expr ),*) => {
-        $(
-            impl ToMemBytes<$n> for $ty {
-                #[inline]
-                fn to_mem_bytes(self) -> [u8; $n] {
-                    self.to_ne_bytes()
-                }
-            }
-        )*
-    };
-}
-
-impl_to_mem_bytes! {u8, 1, u16, 2, u32, 4, u64, 8, i8, 1, i16, 2, i32, 4, i64, 8, f32, 4, f64, 8}
-
 impl RawWasmValue {
     #[inline]
     /// Attach a type to the raw value (does not support simd values)

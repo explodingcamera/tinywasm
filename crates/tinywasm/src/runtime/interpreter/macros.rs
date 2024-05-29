@@ -1,20 +1,14 @@
-//! More generic macros for various instructions
-//!
-//! These macros are used to generate the actual instruction implementations.
-//! In some basic tests this generated better assembly than using generic functions, even when inlined.
-//! (Something to revisit in the future)
-
 // Break to a block at the given index (relative to the current frame)
 // If there is no block at the given index, return or call the parent function
 //
 // This is a bit hard to see from the spec, but it's vaild to use breaks to return
 // from a function, so we need to check if the label stack is empty
 macro_rules! break_to {
-    ($break_to_relative:expr, $self:expr) => {{
+    ($break_to_relative:expr, $self:expr) => {
         if $self.cf.break_to($break_to_relative, &mut $self.stack.values, &mut $self.stack.blocks).is_none() {
             return $self.exec_return();
         }
-    }};
+    };
 }
 
 /// Doing the actual conversion from float to int is a bit tricky, because
@@ -51,20 +45,19 @@ macro_rules! checked_conv_float {
         checked_conv_float!($from, $to, $to, $self)
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
-    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
-        let (min, max) = float_min_max!($from, $intermediate);
-        let a: $from = $self.stack.values.pop()?.into();
-
-        if unlikely(a.is_nan()) {
-            return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
-        }
-
-        if unlikely(a <= min || a >= max) {
-            return Err(Error::Trap(crate::Trap::IntegerOverflow));
-        }
-
-        $self.stack.values.push((a as $intermediate as $to).into());
-    }};
+    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
+        $self.stack.values.replace_top_trap(|v| {
+            let (min, max) = float_min_max!($from, $intermediate);
+            let a: $from = v.into();
+            if unlikely(a.is_nan()) {
+                return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
+            }
+            if unlikely(a <= min || a >= max) {
+                return Err(Error::Trap(crate::Trap::IntegerOverflow));
+            }
+            Ok((a as $intermediate as $to).into())
+        })?
+    };
 }
 
 /// Compare two values on the stack
@@ -79,9 +72,7 @@ macro_rules! comp {
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
     ($op:tt, $ty:ty, $self:expr) => {
-        $self.stack.values.replace_top(|v| {
-            ((<$ty>::from(v) $op 0) as i32).into()
-        })?
+        $self.stack.values.replace_top(|v| ((<$ty>::from(v) $op 0) as i32).into())?
     };
 }
 

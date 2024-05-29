@@ -2,11 +2,10 @@ use alloc::{format, rc::Rc, string::ToString};
 use core::ops::{BitAnd, BitOr, BitXor, ControlFlow, Neg};
 use tinywasm_types::{BlockArgs, ElementKind, Instruction, ModuleInstanceAddr, ValType, WasmFunction};
 
-use super::raw::ToMemBytes;
 use super::stack::{BlockFrame, BlockType};
 use super::{InterpreterRuntime, RawWasmValue, Stack};
 use crate::runtime::CallFrame;
-use crate::{cold, unlikely, Error, FuncContext, MemLoadable, ModuleInstance, Result, Store, Trap};
+use crate::{cold, unlikely, Error, FuncContext, MemLoadable, MemStorable, ModuleInstance, Result, Store, Trap};
 
 mod macros;
 mod traits;
@@ -36,10 +35,11 @@ struct Executor<'store, 'stack> {
 impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
         let current_frame = stack.call_stack.pop().ok_or_else(|| Error::CallStackUnderflow)?;
-        let current_module = store.get_module_instance_raw(current_frame.module_addr);
+        let current_module = store.get_module_instance_raw(current_frame.module_addr());
         Ok(Self { cf: current_frame, module: current_module, stack, store })
     }
 
+    #[inline]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
             match self.exec_next()? {
@@ -58,16 +58,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
             Drop => self.exec_drop()?,
             Select(_valtype) => self.exec_select()?,
-            Call(v) => return self.exec_call_direct(*v),
-            CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
+            Call(v) => self.exec_call_direct(*v)?,
+            CallIndirect(ty, table) => self.exec_call_indirect(*ty, *table)?,
 
-            If(args, el, end) => return self.exec_if((*args).into(), *el, *end),
+            If(args, el, end) => self.exec_if((*args).into(), *el, *end)?,
             Else(end_offset) => self.exec_else(*end_offset)?,
-            Loop(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Loop, *args),
-            Block(args, end) => self.enter_block(self.cf.instr_ptr, *end, BlockType::Block, *args),
+            Loop(args, end) => self.enter_block(self.cf.instr_ptr(), *end, BlockType::Loop, *args),
+            Block(args, end) => self.enter_block(self.cf.instr_ptr(), *end, BlockType::Block, *args),
             Br(v) => return self.exec_br(*v),
             BrIf(v) => return self.exec_br_if(*v),
             BrTable(default, len) => return self.exec_brtable(*default, *len),
+            BrLabel(_) => {}
             Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block()?,
 
@@ -292,13 +293,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalGetSet(a, b) => self.exec_local_get_set(*a, *b),
             I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by)?,
             I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val),
-            I32StoreLocal { local, const_i32, offset, mem_addr } => {
-                self.exec_i32_store_local(*local, *const_i32, *offset, *mem_addr)?
+            I32ConstStoreLocal { local, const_i32, offset, mem_addr } => {
+                self.exec_i32_const_store_local(*local, *const_i32, *offset, *mem_addr)?
             }
-
-            i => {
-                cold();
-                return Err(Error::UnsupportedFeature(format!("unimplemented instruction: {:?}", i)));
+            I32StoreLocal { local_a, local_b, offset, mem_addr } => {
+                self.exec_i32_store_local(*local_a, *local_b, *offset, *mem_addr)?
             }
         };
 
@@ -326,16 +325,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
         Ok(())
     }
-    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<ControlFlow<()>> {
+    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<()> {
         let params = self.stack.values.pop_n(wasm_func.ty.params.len())?;
         let new_call_frame = CallFrame::new(wasm_func, owner, params, self.stack.blocks.len() as u32);
         self.cf.instr_ptr += 1; // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-        self.module.swap_with(self.cf.module_addr, self.store);
-        Ok(ControlFlow::Continue(()))
+        self.module.swap_with(self.cf.module_addr(), self.store);
+        self.cf.instr_ptr -= 1;
+        Ok(())
     }
-    fn exec_call_direct(&mut self, v: u32) -> Result<ControlFlow<()>> {
-        let func_inst = self.store.get_func(self.module.resolve_func_addr(v))?;
+    fn exec_call_direct(&mut self, v: u32) -> Result<()> {
+        let func_inst = self.store.get_func(self.module.resolve_func_addr(v)?)?;
         let wasm_func = match &func_inst.func {
             crate::Function::Wasm(wasm_func) => wasm_func,
             crate::Function::Host(host_func) => {
@@ -343,16 +343,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
-                self.cf.instr_ptr += 1;
-                return Ok(ControlFlow::Continue(()));
+                return Ok(());
             }
         };
         self.exec_call(wasm_func.clone(), func_inst.owner)
     }
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ControlFlow<()>> {
+    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<()> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
-            let table = self.store.get_table(self.module.resolve_table_addr(table_addr))?;
+            let table = self.store.get_table(self.module.resolve_table_addr(table_addr)?)?;
             let table_idx: u32 = self.stack.values.pop()?.into();
             let table = table.borrow();
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
@@ -379,8 +378,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_typed(&res);
-                self.cf.instr_ptr += 1;
-                return Ok(ControlFlow::Continue(()));
+                return Ok(());
             }
         };
 
@@ -392,29 +390,27 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into())
     }
 
-    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<ControlFlow<()>> {
+    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<()> {
         // truthy value is on the top of the stack, so enter the then block
         if i32::from(self.stack.values.pop()?) != 0 {
-            self.enter_block(self.cf.instr_ptr, end_offset, BlockType::If, args);
-            self.cf.instr_ptr += 1;
-            return Ok(ControlFlow::Continue(()));
+            self.enter_block(self.cf.instr_ptr(), end_offset, BlockType::If, args);
+            return Ok(());
         }
 
         // falsy value is on the top of the stack
         if else_offset == 0 {
-            self.cf.instr_ptr += end_offset as usize + 1;
-            return Ok(ControlFlow::Continue(()));
+            *self.cf.instr_ptr_mut() += end_offset as usize;
+            return Ok(());
         }
 
-        let old = self.cf.instr_ptr;
-        self.cf.instr_ptr += else_offset as usize;
+        let old = self.cf.instr_ptr();
+        *self.cf.instr_ptr_mut() += else_offset as usize;
         self.enter_block(old + else_offset as usize, end_offset - else_offset, BlockType::Else, args);
-        self.cf.instr_ptr += 1;
-        Ok(ControlFlow::Continue(()))
+        Ok(())
     }
     fn exec_else(&mut self, end_offset: u32) -> Result<()> {
         self.exec_end_block()?;
-        self.cf.instr_ptr += end_offset as usize;
+        *self.cf.instr_ptr_mut() += end_offset as usize;
         Ok(())
     }
     fn enter_block(&mut self, instr_ptr: usize, end_instr_offset: u32, ty: BlockType, args: BlockArgs) {
@@ -472,7 +468,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
         break_to!(to, self);
-        self.cf.instr_ptr += 1;
+        self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
     }
     fn exec_br_if(&mut self, to: u32) -> Result<ControlFlow<()>> {
@@ -480,11 +476,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         if val != 0 {
             break_to!(to, self);
         }
-        self.cf.instr_ptr += 1;
+        self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
     }
     fn exec_brtable(&mut self, default: u32, len: u32) -> Result<ControlFlow<()>> {
-        let start = self.cf.instr_ptr + 1;
+        let start = self.cf.instr_ptr() + 1;
         let end = start + len as usize;
         if end > self.cf.instructions().len() {
             return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, self.cf.instructions().len())));
@@ -497,21 +493,21 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             _ => return Err(Error::Other("br_table with invalid label".to_string())),
         }
 
-        self.cf.instr_ptr += 1;
+        self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
     }
     fn exec_return(&mut self) -> Result<ControlFlow<()>> {
-        let old = self.cf.block_ptr;
+        let old = self.cf.block_ptr();
         match self.stack.call_stack.pop() {
             None => return Ok(ControlFlow::Break(())),
             Some(cf) => self.cf = cf,
         }
 
-        if old > self.cf.block_ptr {
+        if old > self.cf.block_ptr() {
             self.stack.blocks.truncate(old);
         }
 
-        self.module.swap_with(self.cf.module_addr, self.store);
+        self.module.swap_with(self.cf.module_addr(), self.store);
         Ok(ControlFlow::Continue(()))
     }
     fn exec_end_block(&mut self) -> Result<()> {
@@ -532,11 +528,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.last().map(|val| self.cf.set_local(local_index, *val))
     }
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
-        self.stack.values.push(self.store.get_global_val(self.module.resolve_global_addr(global_index))?);
+        self.stack.values.push(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
         Ok(())
     }
     fn exec_global_set(&mut self, global_index: u32) -> Result<()> {
-        self.store.set_global_val(self.module.resolve_global_addr(global_index), self.stack.values.pop()?)
+        self.store.set_global_val(self.module.resolve_global_addr(global_index)?, self.stack.values.pop()?)
     }
 
     fn exec_const(&mut self, val: impl Into<RawWasmValue>) {
@@ -551,7 +547,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
         }
 
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr))?;
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
         self.stack.values.push((mem.borrow().page_count() as i32).into());
         Ok(())
     }
@@ -560,7 +556,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
         }
 
-        let mut mem = self.store.get_mem(self.module.resolve_mem_addr(addr))?.borrow_mut();
+        let mut mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?.borrow_mut();
         let prev_size = mem.page_count() as i32;
         let pages_delta = self.stack.values.last_mut()?;
         *pages_delta = match mem.grow(i32::from(*pages_delta)) {
@@ -577,13 +573,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let dst: i32 = self.stack.values.pop()?.into();
 
         if from == to {
-            let mut mem_from = self.store.get_mem(self.module.resolve_mem_addr(from))?.borrow_mut();
+            let mut mem_from = self.store.get_mem(self.module.resolve_mem_addr(from)?)?.borrow_mut();
             // copy within the same memory
             mem_from.copy_within(dst as usize, src as usize, size as usize)?;
         } else {
             // copy between two memories
-            let mem_from = self.store.get_mem(self.module.resolve_mem_addr(from))?.borrow();
-            let mut mem_to = self.store.get_mem(self.module.resolve_mem_addr(to))?.borrow_mut();
+            let mem_from = self.store.get_mem(self.module.resolve_mem_addr(from)?)?.borrow();
+            let mut mem_to = self.store.get_mem(self.module.resolve_mem_addr(to)?)?.borrow_mut();
             mem_to.copy_from_slice(dst as usize, mem_from.load(src as usize, size as usize)?)?;
         }
         Ok(())
@@ -593,7 +589,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let val: i32 = self.stack.values.pop()?.into();
         let dst: i32 = self.stack.values.pop()?.into();
 
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr))?;
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
         mem.borrow_mut().fill(dst as usize, size as usize, val as u8)?;
         Ok(())
     }
@@ -602,8 +598,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let offset: i32 = self.stack.values.pop()?.into(); // s
         let dst: i32 = self.stack.values.pop()?.into(); // d
 
-        let data = self.store.get_data(self.module.resolve_data_addr(data_index))?;
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_index))?;
+        let data = self.store.get_data(self.module.resolve_data_addr(data_index)?)?;
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_index)?)?;
 
         let data_len = data.data.as_ref().map(|d| d.len()).unwrap_or(0);
 
@@ -624,10 +620,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_data_drop(&mut self, data_index: u32) -> Result<()> {
-        self.store.get_data_mut(self.module.resolve_data_addr(data_index)).map(|d| d.drop())
+        self.store.get_data_mut(self.module.resolve_data_addr(data_index)?).map(|d| d.drop())
     }
     fn exec_elem_drop(&mut self, elem_index: u32) -> Result<()> {
-        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)).map(|e| e.drop())
+        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)?).map(|e| e.drop())
     }
     fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
         let size: i32 = self.stack.values.pop()?.into();
@@ -635,13 +631,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let dst: i32 = self.stack.values.pop()?.into();
 
         if from == to {
-            let mut table_from = self.store.get_table(self.module.resolve_table_addr(from))?.borrow_mut();
+            let mut table_from = self.store.get_table(self.module.resolve_table_addr(from)?)?.borrow_mut();
             // copy within the same memory
             table_from.copy_within(dst as usize, src as usize, size as usize)?;
         } else {
             // copy between two memories
-            let table_from = self.store.get_table(self.module.resolve_table_addr(from))?.borrow();
-            let mut table_to = self.store.get_table(self.module.resolve_table_addr(to))?.borrow_mut();
+            let table_from = self.store.get_table(self.module.resolve_table_addr(from)?)?.borrow();
+            let mut table_to = self.store.get_table(self.module.resolve_table_addr(to)?)?.borrow_mut();
             table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)?;
         }
         Ok(())
@@ -653,9 +649,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
     ) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr))?;
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
         let val: u64 = self.stack.values.pop()?.into();
         let Some(Ok(addr)) = offset.checked_add(val).map(|a| a.try_into()) else {
+            cold();
             return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: offset as usize,
                 len: LOAD_SIZE,
@@ -667,12 +664,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push(cast(val).into());
         Ok(())
     }
-    fn exec_mem_store<T: From<RawWasmValue> + ToMemBytes<N>, const N: usize>(
+    fn exec_mem_store<T: From<RawWasmValue> + MemStorable<N>, const N: usize>(
         &mut self,
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
     ) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr))?;
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
         let val: T = self.stack.values.pop()?.into();
         let val = val.to_mem_bytes();
         let addr: u64 = self.stack.values.pop()?.into();
@@ -681,14 +678,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     fn exec_table_get(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let idx: u32 = self.stack.values.pop()?.into();
         let v = table.borrow().get_wasm_val(idx)?;
         self.stack.values.push(v.into());
         Ok(())
     }
     fn exec_table_set(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let val = self.stack.values.pop()?.as_reference();
         let idx = self.stack.values.pop()?.into();
         table.borrow_mut().set(idx, val.into())?;
@@ -696,14 +693,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_table_size(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         self.stack.values.push(table.borrow().size().into());
         Ok(())
     }
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let table_len = table.borrow().size();
-        let elem = self.store.get_elem(self.module.resolve_elem_addr(elem_index))?;
+        let elem = self.store.get_elem(self.module.resolve_elem_addr(elem_index)?)?;
         let elem_len = elem.items.as_ref().map(|items| items.len()).unwrap_or(0);
 
         let size: i32 = self.stack.values.pop()?.into(); // n
@@ -732,7 +729,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     // todo: this is just a placeholder, need to check the spec
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let sz = table.borrow().size();
 
         let n: i32 = self.stack.values.pop()?.into();
@@ -746,7 +743,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index))?;
+        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
 
         let n: i32 = self.stack.values.pop()?.into();
         let val = self.stack.values.pop()?.as_reference();
@@ -769,11 +766,18 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     // custom instructions
-
-    fn exec_i32_store_local(&mut self, local: u32, const_i32: i32, offset: u32, mem_addr: u8) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32))?;
-        let val = const_i32.to_le_bytes();
+    fn exec_i32_const_store_local(&mut self, local: u32, const_i32: i32, offset: u32, mem_addr: u8) -> Result<()> {
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32)?)?;
+        let val = const_i32.to_mem_bytes();
         let addr: u64 = self.cf.get_local(local).into();
+        mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
+        Ok(())
+    }
+    fn exec_i32_store_local(&mut self, local_a: u32, local_b: u32, offset: u32, mem_addr: u8) -> Result<()> {
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32)?)?;
+        let addr: u64 = self.cf.get_local(local_a).into();
+        let val: i32 = self.cf.get_local(local_b).into();
+        let val = val.to_mem_bytes();
         mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
         Ok(())
     }

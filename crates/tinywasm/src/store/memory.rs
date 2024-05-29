@@ -81,12 +81,11 @@ impl MemoryInstance {
         if end > self.data.len() {
             return Err(self.trap_oob(addr, SIZE));
         }
-        let val = T::from_le_bytes(match self.data[addr..end].try_into() {
+
+        Ok(T::from_le_bytes(match self.data[addr..end].try_into() {
             Ok(bytes) => bytes,
             Err(_) => unreachable!("checked bounds above"),
-        });
-
-        Ok(val)
+        }))
     }
 
     #[inline]
@@ -99,8 +98,7 @@ impl MemoryInstance {
         if end > self.data.len() {
             return Err(self.trap_oob(addr, len));
         }
-
-        self.data[addr..end].fill(val);
+        self.data[addr..end].fill_with(|| val);
         Ok(())
     }
 
@@ -132,15 +130,13 @@ impl MemoryInstance {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn grow(&mut self, pages_delta: i32) -> Option<i32> {
         let current_pages = self.page_count();
         let new_pages = current_pages as i64 + pages_delta as i64;
+        debug_assert!(new_pages <= i32::MAX as i64, "page count should never be greater than i32::MAX");
 
-        if new_pages < 0 || new_pages > MAX_PAGES as i64 {
-            return None;
-        }
-
-        if new_pages as usize > self.max_pages() {
+        if new_pages < 0 || new_pages > MAX_PAGES as i64 || new_pages as usize > self.max_pages() {
             return None;
         }
 
@@ -150,20 +146,26 @@ impl MemoryInstance {
         }
 
         // Zero initialize the new pages
-        self.data.resize(new_size, 0);
+        self.data.reserve_exact(new_size);
+        self.data.resize_with(new_size, Default::default);
         self.page_count = new_pages as usize;
-        debug_assert!(current_pages <= i32::MAX as usize, "page count should never be greater than i32::MAX");
         Some(current_pages as i32)
     }
 }
 
-/// A trait for types that can be loaded from memory
-pub(crate) trait MemLoadable<const T: usize>: Sized + Copy {
-    /// Load a value from memory
-    fn from_le_bytes(bytes: [u8; T]) -> Self;
+/// A trait for types that can be stored in memory
+pub(crate) trait MemStorable<const N: usize> {
+    /// Store a value in memory
+    fn to_mem_bytes(self) -> [u8; N];
 }
 
-macro_rules! impl_mem_loadable_for_primitive {
+/// A trait for types that can be loaded from memory
+pub(crate) trait MemLoadable<const N: usize>: Sized + Copy {
+    /// Load a value from memory
+    fn from_le_bytes(bytes: [u8; N]) -> Self;
+}
+
+macro_rules! impl_mem_traits {
     ($($type:ty, $size:expr),*) => {
         $(
             impl MemLoadable<$size> for $type {
@@ -172,13 +174,18 @@ macro_rules! impl_mem_loadable_for_primitive {
                     <$type>::from_le_bytes(bytes)
                 }
             }
+
+            impl MemStorable<$size> for $type {
+                #[inline(always)]
+                fn to_mem_bytes(self) -> [u8; $size] {
+                    self.to_ne_bytes()
+                }
+            }
         )*
     }
 }
 
-impl_mem_loadable_for_primitive!(
-    u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8, u128, 16, i128, 16
-);
+impl_mem_traits!(u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8, u128, 16, i128, 16);
 
 #[cfg(test)]
 mod memory_instance_tests {

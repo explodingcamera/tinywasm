@@ -3,10 +3,11 @@ use crate::runtime::RawWasmValue;
 use crate::unlikely;
 use crate::{Result, Trap};
 
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use alloc::boxed::Box;
+use alloc::{rc::Rc, vec, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
 
-const CALL_STACK_SIZE: usize = 1024;
+pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -16,10 +17,7 @@ pub(crate) struct CallStack {
 impl CallStack {
     #[inline]
     pub(crate) fn new(initial_frame: CallFrame) -> Self {
-        let mut stack = Vec::new();
-        stack.reserve_exact(CALL_STACK_SIZE);
-        stack.push(initial_frame);
-        Self { stack }
+        Self { stack: vec![initial_frame] }
     }
 
     #[inline(always)]
@@ -29,7 +27,7 @@ impl CallStack {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely((self.stack.len() + 1) >= CALL_STACK_SIZE) {
+        if unlikely((self.stack.len() + 1) >= MAX_CALL_STACK_SIZE) {
             return Err(Trap::CallStackOverflow.into());
         }
         self.stack.push(call_frame);
@@ -47,6 +45,31 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
+    #[inline(always)]
+    pub(crate) fn instr_ptr(&self) -> usize {
+        self.instr_ptr
+    }
+
+    #[inline(always)]
+    pub(crate) fn instr_ptr_mut(&mut self) -> &mut usize {
+        &mut self.instr_ptr
+    }
+
+    #[inline(always)]
+    pub(crate) fn incr_instr_ptr(&mut self) {
+        self.instr_ptr += 1;
+    }
+
+    #[inline(always)]
+    pub(crate) fn module_addr(&self) -> ModuleInstanceAddr {
+        self.module_addr
+    }
+
+    #[inline(always)]
+    pub(crate) fn block_ptr(&self) -> u32 {
+        self.block_ptr
+    }
+
     #[inline(always)]
     pub(crate) fn fetch_instr(&self) -> &Instruction {
         match self.func_instance.instructions.get(self.instr_ptr) {
@@ -115,7 +138,7 @@ impl CallFrame {
             locals.into_boxed_slice()
         };
 
-        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, locals, block_ptr }
+        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
     }
 
     #[inline(always)]
