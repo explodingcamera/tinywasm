@@ -10,7 +10,7 @@ use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Debug, Clone)]
-pub struct ModuleInstance(Rc<ModuleInstanceInner>);
+pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 
 #[allow(dead_code)]
 #[derive(Debug)]

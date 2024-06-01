@@ -121,14 +121,14 @@ jobs:
           path: examples/rust/out
 
       - name: Run all tests (for the default workspace members)
-        uses: houseabsolute/actions-rust-cross@v0.0.12
+        uses: houseabsolute/actions-rust-cross@v0.0.13
         with:
           command: test
           target: armv7-unknown-linux-gnueabihf
           toolchain: nightly
 
       - name: Run MVP testsuite
-        uses: houseabsolute/actions-rust-cross@v0.0.12
+        uses: houseabsolute/actions-rust-cross@v0.0.13
         with:
           command: test
           args: "-p tinywasm --test test-mvp --release -- --enable"

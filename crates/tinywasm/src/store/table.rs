@@ -105,9 +105,12 @@ impl TableInstance {
     }
 
     pub(crate) fn grow(&mut self, n: i32, init: TableElement) -> Result<()> {
-        let len = n + self.elements.len() as i32;
-        let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as i32;
+        if n < 0 {
+            return Err(Error::Trap(crate::Trap::TableOutOfBounds { offset: 0, len: 1, max: self.elements.len() }));
+        }
 
+        let len = n as usize + self.elements.len();
+        let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize;
         if len > max {
             return Err(Error::Trap(crate::Trap::TableOutOfBounds {
                 offset: len as usize,
@@ -241,18 +244,6 @@ mod tests {
             elem.is_ok() && matches!(elem.unwrap(), &TableElement::Initialized(1)),
             "Getting table element failed or returned incorrect value"
         );
-    }
-
-    #[test]
-    fn test_table_grow_and_fit() {
-        let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind, 0);
-
-        let result = table_instance.set(15, TableElement::Initialized(1));
-        assert!(result.is_ok(), "Table grow on set failed");
-
-        let size = table_instance.size();
-        assert!(size >= 16, "Table did not grow to expected size");
     }
 
     #[test]

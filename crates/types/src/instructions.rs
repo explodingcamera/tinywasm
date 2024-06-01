@@ -196,7 +196,7 @@ pub enum Instruction {
     I64TruncSatF32S, I64TruncSatF32U, I64TruncSatF64S, I64TruncSatF64U,
 
     // > Table Instructions
-    TableInit(TableAddr, ElemAddr),
+    TableInit(ElemAddr, TableAddr),
     TableGet(TableAddr),
     TableSet(TableAddr),
     TableCopy { from: TableAddr, to: TableAddr },

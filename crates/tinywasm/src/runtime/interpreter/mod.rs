@@ -273,7 +273,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             TableGet(table_idx) => self.exec_table_get(*table_idx)?,
             TableSet(table_idx) => self.exec_table_set(*table_idx)?,
             TableSize(table_idx) => self.exec_table_size(*table_idx)?,
-            TableInit(table_idx, elem_idx) => self.exec_table_init(*elem_idx, *table_idx)?,
+            TableInit(elem_idx, table_idx) => self.exec_table_init(*elem_idx, *table_idx)?,
             TableGrow(table_idx) => self.exec_table_grow(*table_idx)?,
             TableFill(table_idx) => self.exec_table_fill(*table_idx)?,
 
@@ -715,9 +715,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Ok(());
         }
 
-        // TODO, not sure how to handle passive elements, but this makes the test pass
-        if let ElementKind::Passive = elem.kind {
-            return Ok(());
+        if let ElementKind::Active { .. } = elem.kind {
+            return Err(Error::Other("table.init with active element".to_string()));
         }
 
         let Some(items) = elem.items.as_ref() else {
@@ -727,7 +726,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         table.borrow_mut().init(self.module.func_addrs(), dst, &items[offset as usize..(offset + size) as usize])?;
         Ok(())
     }
-    // todo: this is just a placeholder, need to check the spec
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let sz = table.borrow().size();
