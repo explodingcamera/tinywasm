@@ -112,14 +112,10 @@ impl TableInstance {
         let len = n as usize + self.elements.len();
         let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize;
         if len > max {
-            return Err(Error::Trap(crate::Trap::TableOutOfBounds {
-                offset: len as usize,
-                len: 1,
-                max: self.elements.len(),
-            }));
+            return Err(Error::Trap(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() }));
         }
 
-        self.elements.resize(len as usize, init);
+        self.elements.resize(len, init);
         Ok(())
     }
 

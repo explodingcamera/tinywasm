@@ -86,8 +86,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             RefNull(_) => self.exec_const(-1i64),
             RefIsNull => self.exec_ref_is_null()?,
 
-            MemorySize(addr, byte) => self.exec_memory_size(*addr, *byte)?,
-            MemoryGrow(addr, byte) => self.exec_memory_grow(*addr, *byte)?,
+            MemorySize(addr) => self.exec_memory_size(*addr)?,
+            MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
 
             // Bulk memory operations
             MemoryCopy(from, to) => self.exec_memory_copy(*from, *to)?,
@@ -542,20 +542,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.replace_top(|val| ((i32::from(val) == -1) as i32).into())
     }
 
-    fn exec_memory_size(&mut self, addr: u32, byte: u8) -> Result<()> {
-        if unlikely(byte != 0) {
-            return Err(Error::UnsupportedFeature("memory.size with byte != 0".to_string()));
-        }
-
+    fn exec_memory_size(&mut self, addr: u32) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
         self.stack.values.push((mem.borrow().page_count() as i32).into());
         Ok(())
     }
-    fn exec_memory_grow(&mut self, addr: u32, byte: u8) -> Result<()> {
-        if unlikely(byte != 0) {
-            return Err(Error::UnsupportedFeature("memory.grow with byte != 0".to_string()));
-        }
-
+    fn exec_memory_grow(&mut self, addr: u32) -> Result<()> {
         let mut mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?.borrow_mut();
         let prev_size = mem.page_count() as i32;
         let pages_delta = self.stack.values.last_mut()?;
@@ -563,7 +555,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Some(_) => prev_size.into(),
             None => (-1).into(),
         };
-
         Ok(())
     }
 

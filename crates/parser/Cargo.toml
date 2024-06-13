@@ -8,7 +8,7 @@ authors.workspace=true
 repository.workspace=true
 
 [dependencies]
-wasmparser={version="0.209", default-features=false, features=["validate"]}
+wasmparser={version="0.210", default-features=false, features=["validate"]}
 log={version="0.4", optional=true}
 tinywasm-types={version="0.7.0", path="../types", default-features=false}
 

@@ -156,8 +156,8 @@ pub enum Instruction {
     I64Store8 { offset: u64, mem_addr: MemAddr },
     I64Store16 { offset: u64, mem_addr: MemAddr },
     I64Store32 { offset: u64, mem_addr: MemAddr },
-    MemorySize(MemAddr, u8),
-    MemoryGrow(MemAddr, u8),
+    MemorySize(MemAddr),
+    MemoryGrow(MemAddr),
 
     // > Constants
     I32Const(i32),

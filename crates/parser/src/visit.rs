@@ -126,12 +126,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_global_set, Instruction::GlobalSet, u32,
         visit_i32_const, Instruction::I32Const, i32,
         visit_i64_const, Instruction::I64Const, i64,
-        visit_call, Instruction::Call, u32
-    }
-
-    define_primitive_operands! {
-        visit_memory_size, Instruction::MemorySize, u32, u8,
-        visit_memory_grow, Instruction::MemoryGrow, u32, u8
+        visit_call, Instruction::Call, u32,
+        visit_memory_size, Instruction::MemorySize, u32,
+        visit_memory_grow, Instruction::MemoryGrow, u32
     }
 
     define_mem_operands! {
@@ -482,7 +479,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         self.instructions.extend(([Instruction::BrTable(def, instrs.len() as u32)].into_iter()).chain(instrs));
     }
 
-    fn visit_call_indirect(&mut self, ty: u32, table: u32, _table_byte: u8) -> Self::Output {
+    fn visit_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
         self.instructions.push(Instruction::CallIndirect(ty, table))
     }
 
