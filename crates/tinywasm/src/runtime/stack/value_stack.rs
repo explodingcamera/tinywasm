@@ -1,269 +1,209 @@
-use crate::{boxvec::BoxVec, cold, runtime::RawWasmValue, unlikely, Error, Result};
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
-use super::BlockFrame;
+use crate::{Error, Result};
 
 pub(crate) const VALUE_STACK_SIZE: usize = 1024 * 128;
 
-#[cfg(feature = "simd")]
-pub(crate) const SIMD_VALUE_STACK_SIZE: usize = 1024 * 32;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub(crate) struct RawWasmValue<const N: usize = 16>(pub(crate) [u8; N]);
 
-#[cfg(feature = "simd")]
-use crate::runtime::raw_simd::RawSimdWasmValue;
+impl<const N: usize> From<&[u8]> for RawWasmValue<N> {
+    fn from(bytes: &[u8]) -> Self {
+        assert!(bytes.len() != N, "Invalid byte length");
+        let mut value = [0; N];
+        value.copy_from_slice(bytes);
+        Self(value)
+    }
+}
+
+pub(crate) fn wasmvalue_to_bytes(value: WasmValue, mut cb: impl FnMut(&[u8])) {
+    match value {
+        WasmValue::I32(v) => cb(&v.to_le_bytes()),
+        WasmValue::I64(v) => cb(&v.to_le_bytes()),
+        WasmValue::F32(v) => cb(&v.to_le_bytes()),
+        WasmValue::F64(v) => cb(&v.to_le_bytes()),
+        WasmValue::V128(v) => cb(&v.to_le_bytes()),
+        WasmValue::RefExtern(v) => cb(&(v as i64).to_le_bytes()),
+        WasmValue::RefFunc(v) => cb(&(v as i64).to_le_bytes()),
+        WasmValue::RefNull(_) => cb(&(-1i64).to_le_bytes()),
+    }
+}
+
+pub(crate) fn wasmvalue_to_localvalue(value: WasmValue) -> [u8; 16] {
+    let mut res = [0; 16];
+    match value {
+        WasmValue::I32(v) => res.copy_from_slice(&v.to_le_bytes()),
+        WasmValue::I64(v) => res.copy_from_slice(&v.to_le_bytes()),
+        WasmValue::F32(v) => res.copy_from_slice(&v.to_le_bytes()),
+        WasmValue::F64(v) => res.copy_from_slice(&v.to_le_bytes()),
+        WasmValue::V128(v) => res.copy_from_slice(&v.to_le_bytes()),
+        WasmValue::RefExtern(v) => res.copy_from_slice(&(v as i64).to_le_bytes()),
+        WasmValue::RefFunc(v) => res.copy_from_slice(&(v as i64).to_le_bytes()),
+        WasmValue::RefNull(_) => res.copy_from_slice(&(-1i64).to_le_bytes()),
+    }
+    res
+}
+
+pub(crate) fn bytes_to_localvalues(bytes: &[u8], tys: &[ValType]) -> Vec<[u8; 16]> {
+    let mut values = Vec::with_capacity(tys.len());
+    let mut offset = 0;
+    for ty in tys {
+        match ty.size() {
+            4 | 8 | 16 => {
+                let mut value = [0; 16];
+                value[..ty.size()].copy_from_slice(&bytes[offset..offset + ty.size()]);
+                values.push(value);
+            }
+            _ => unreachable!(),
+        }
+        offset += 16;
+    }
+    values
+}
+
+pub(crate) fn bytes_to_wasmvalues(bytes: &[u8], tys: &[ValType]) -> Vec<WasmValue> {
+    let mut values = Vec::with_capacity(tys.len());
+    let mut offset = 0;
+    for ty in tys {
+        let (value, new_offset) = match ty {
+            ValType::I32 => (WasmValue::I32(i32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())), 4),
+            ValType::I64 => (WasmValue::I64(i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())), 8),
+            ValType::F32 => (WasmValue::F32(f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())), 4),
+            ValType::F64 => (WasmValue::F64(f64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap())), 8),
+            ValType::V128 => (WasmValue::V128(u128::from_le_bytes(bytes[offset..offset + 16].try_into().unwrap())), 16),
+            ValType::RefExtern => {
+                let v = i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+                (WasmValue::RefExtern(v as u32), 8)
+            }
+            ValType::RefFunc => {
+                let v = i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+                (WasmValue::RefFunc(v as u32), 8)
+            }
+        };
+        values.push(value);
+        offset += new_offset;
+    }
+    values
+}
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
-    pub(crate) stack: BoxVec<RawWasmValue>,
-
-    #[cfg(feature = "simd")]
-    simd_stack: BoxVec<RawSimdWasmValue>,
-}
-
-impl Default for ValueStack {
-    fn default() -> Self {
-        Self {
-            stack: BoxVec::with_capacity(VALUE_STACK_SIZE),
-
-            #[cfg(feature = "simd")]
-            simd_stack: BoxVec::with_capacity(SIMD_VALUE_STACK_SIZE),
-        }
-    }
+    pub(crate) stack: Vec<u8>,
 }
 
 impl ValueStack {
-    #[inline]
-    pub(crate) fn extend_from_typed(&mut self, values: &[WasmValue]) {
-        #[cfg(not(feature = "simd"))]
-        self.stack.extend(values.iter().map(|v| RawWasmValue::from(*v)));
-
-        #[cfg(feature = "simd")]
-        {
-            values.iter().for_each(|v| match v {
-                WasmValue::V128(v) => self.simd_stack.push(RawSimdWasmValue::from(*v)),
-                v => self.stack.push(RawWasmValue::from(*v)),
-            });
-        }
+    pub(crate) fn new() -> Self {
+        Self { stack: Vec::with_capacity(VALUE_STACK_SIZE) }
     }
 
-    #[inline(always)]
-    pub(crate) fn replace_top(&mut self, func: fn(RawWasmValue) -> RawWasmValue) -> Result<()> {
-        let v = self.last_mut()?;
-        *v = func(*v);
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn replace_top_trap(&mut self, func: fn(RawWasmValue) -> Result<RawWasmValue>) -> Result<()> {
-        let v = self.last_mut()?;
-        *v = func(*v)?;
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn calculate(&mut self, func: fn(RawWasmValue, RawWasmValue) -> RawWasmValue) -> Result<()> {
-        let v2 = self.pop()?;
-        let v1 = self.last_mut()?;
-        *v1 = func(*v1, v2);
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn calculate_trap(
-        &mut self,
-        func: fn(RawWasmValue, RawWasmValue) -> Result<RawWasmValue>,
-    ) -> Result<()> {
-        let v2 = self.pop()?;
-        let v1 = self.last_mut()?;
-        *v1 = func(*v1, v2)?;
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) fn height(&self) -> usize {
         self.stack.len()
     }
 
-    #[cfg(feature = "simd")]
-    #[inline(always)]
-    pub(crate) fn simd_len(&self) -> usize {
-        self.simd_stack.len()
+    pub(crate) fn replace_top<const N: usize>(&mut self, func: fn(RawWasmValue<N>) -> RawWasmValue<N>) -> Result<()> {
+        let value = func(self.pop::<N>()?);
+        self.push(value);
+        Ok(())
     }
 
-    #[inline]
-    pub(crate) fn truncate_keep(&mut self, n: u32, end_keep: u32) {
-        truncate_keep(&mut self.stack, n, end_keep);
+    pub(crate) fn replace_top_trap<const N: usize>(
+        &mut self,
+        func: fn(RawWasmValue<N>) -> Result<RawWasmValue<N>>,
+    ) -> Result<()> {
+        let value = func(self.pop::<N>()?)?;
+        self.push(value);
+        Ok(())
     }
 
-    #[cfg(feature = "simd")]
-    #[inline]
-    pub(crate) fn truncate_keep_simd(&mut self, n: u16, end_keep: u32) {
-        truncate_keep(&mut self.simd_stack, n as u32, end_keep);
+    pub(crate) fn calculate<const N: usize>(
+        &mut self,
+        func: fn(RawWasmValue<N>, RawWasmValue<N>) -> RawWasmValue<N>,
+    ) -> Result<()> {
+        let v2 = self.pop::<N>()?;
+        let v1 = self.pop::<N>()?;
+        self.push(func(v1, v2));
+        Ok(())
     }
 
-    #[inline(always)]
-    pub(crate) fn push(&mut self, value: RawWasmValue) {
-        self.stack.push(value);
+    pub(crate) fn calculate_trap<const N: usize>(
+        &mut self,
+        func: fn(RawWasmValue<N>, RawWasmValue<N>) -> Result<RawWasmValue<N>>,
+    ) -> Result<()> {
+        let v2 = self.pop::<N>()?;
+        let v1 = self.pop::<N>()?;
+        self.push(func(v1, v2)?);
+        Ok(())
     }
 
-    #[inline(always)]
-    pub(crate) fn extend_from_slice(&mut self, values: &[RawWasmValue]) {
-        self.stack.extend_from_slice(values);
-    }
-
-    #[inline]
-    pub(crate) fn last_mut(&mut self) -> Result<&mut RawWasmValue> {
-        match self.stack.last_mut() {
-            Some(v) => Ok(v),
-            None => {
-                cold(); // cold in here instead of the stack makes a huge performance difference
-                Err(Error::ValueStackUnderflow)
-            }
+    pub(crate) fn drop(&mut self, len: usize) -> Result<()> {
+        if len > self.stack.len() {
+            return Err(Error::ValueStackUnderflow).into();
         }
+        self.stack.truncate(self.stack.len() - len);
+        Ok(())
     }
 
-    #[inline]
-    pub(crate) fn last(&self) -> Result<&RawWasmValue> {
-        match self.stack.last() {
-            Some(v) => Ok(v),
-            None => {
-                cold(); // cold in here instead of the stack makes a huge performance difference
-                Err(Error::ValueStackUnderflow)
-            }
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.stack.truncate(len);
+    }
+
+    /// Truncate the stack to `len`, but still keep `keep` elements at the end.
+    pub(crate) fn truncate_keep<const N: usize>(&mut self, len: usize, keep: usize) {
+        let total_to_keep = len + keep;
+        let len = self.height();
+        assert!(len >= total_to_keep, "RawWasmValueotal to keep should be less than or equal to self.top");
+
+        if len <= total_to_keep {
+            return; // No need to truncate if the current size is already less than or equal to total_to_keep
         }
+
+        let items_to_remove = len - total_to_keep;
+        let remove_start_index = (len - items_to_remove - keep) as usize;
+        let remove_end_index = (len - keep) as usize;
+        self.stack.drain(remove_start_index..remove_end_index);
     }
 
-    #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Result<RawWasmValue> {
-        match self.stack.pop() {
-            Some(v) => Ok(v),
-            None => {
-                cold(); // cold in here instead of the stack makes a huge performance difference
-                Err(Error::ValueStackUnderflow)
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn pop_params(&mut self, types: &[ValType]) -> Result<Vec<WasmValue>> {
-        #[cfg(not(feature = "simd"))]
-        return Ok(self.pop_n(types.len())?.iter().zip(types.iter()).map(|(v, ty)| v.attach_type(*ty)).collect());
-
-        #[cfg(feature = "simd")]
-        {
-            let mut values = Vec::with_capacity(types.len());
-            for ty in types {
-                match ty {
-                    ValType::V128 => values.push(WasmValue::V128(self.simd_stack.pop().unwrap().into())),
-                    ty => values.push(self.pop()?.attach_type(*ty)),
-                }
-            }
-            Ok(values)
-        }
-    }
-
-    #[inline]
-    pub(crate) fn break_to_results(&mut self, bf: &BlockFrame) {
-        let end = self.stack.len() - bf.results as usize;
-        self.stack.drain(bf.stack_ptr as usize..end);
-
-        #[cfg(feature = "simd")]
-        let end = self.simd_stack.len() - bf.simd_results as usize;
-        #[cfg(feature = "simd")]
-        self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
-    }
-
-    #[inline]
-    pub(crate) fn break_to_params(&mut self, bf: &BlockFrame) {
-        let end = self.stack.len() - bf.params as usize;
-        self.stack.drain(bf.stack_ptr as usize..end);
-
-        #[cfg(feature = "simd")]
-        let end = self.simd_stack.len() - bf.simd_params as usize;
-        #[cfg(feature = "simd")]
-        self.simd_stack.drain(bf.simd_stack_ptr as usize..end);
-    }
-
-    #[inline]
-    pub(crate) fn last_n(&self, n: usize) -> Result<&[RawWasmValue]> {
+    pub(crate) fn last<const N: usize>(&self) -> Result<RawWasmValue<N>> {
         let len = self.stack.len();
-        if unlikely(len < n) {
+        if len < N {
             return Err(Error::ValueStackUnderflow);
         }
-        Ok(&self.stack[len - n..len])
+        Ok(RawWasmValue::from(&self.stack[len - N..]))
     }
 
-    #[inline]
-    pub(crate) fn pop_n(&mut self, n: usize) -> Result<&[RawWasmValue]> {
-        match self.stack.pop_n(n) {
-            Some(v) => Ok(v),
-            None => {
-                cold();
-                Err(Error::ValueStackUnderflow)
-            }
-        }
-    }
-}
-
-#[inline(always)]
-fn truncate_keep<T: Copy + Default>(data: &mut BoxVec<T>, n: u32, end_keep: u32) {
-    let total_to_keep = n + end_keep;
-    let len = data.len() as u32;
-    assert!(len >= total_to_keep, "RawWasmValueotal to keep should be less than or equal to self.top");
-
-    if len <= total_to_keep {
-        return; // No need to truncate if the current size is already less than or equal to total_to_keep
-    }
-
-    let items_to_remove = len - total_to_keep;
-    let remove_start_index = (len - items_to_remove - end_keep) as usize;
-    let remove_end_index = (len - end_keep) as usize;
-    data.drain(remove_start_index..remove_end_index);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_value_stack() {
-        let mut stack = ValueStack::default();
-        stack.push(1.into());
-        stack.push(2.into());
-        stack.push(3.into());
-        assert_eq!(stack.len(), 3);
-        assert_eq!(i32::from(stack.pop().unwrap()), 3);
-        assert_eq!(stack.len(), 2);
-        assert_eq!(i32::from(stack.pop().unwrap()), 2);
-        assert_eq!(stack.len(), 1);
-        assert_eq!(i32::from(stack.pop().unwrap()), 1);
-        assert_eq!(stack.len(), 0);
-    }
-
-    #[test]
-    fn test_truncate_keep() {
-        macro_rules! test_macro {
-            ($( $n:expr, $end_keep:expr, $expected:expr ),*) => {
-            $(
-                let mut stack = ValueStack::default();
-                stack.push(1.into());
-                stack.push(2.into());
-                stack.push(3.into());
-                stack.push(4.into());
-                stack.push(5.into());
-                stack.truncate_keep($n, $end_keep);
-                assert_eq!(stack.len(), $expected);
-            )*
-            };
+    pub(crate) fn pop<const N: usize>(&mut self) -> Result<RawWasmValue<N>> {
+        let len = self.stack.len();
+        if len < N {
+            return Err(Error::ValueStackUnderflow);
         }
 
-        test_macro! {
-            0, 0, 0,
-            1, 0, 1,
-            0, 1, 1,
-            1, 1, 2,
-            2, 1, 3,
-            2, 2, 4
-        }
+        let mut bytes = [0; N];
+        bytes.copy_from_slice(&self.stack[len - N..]);
+        self.stack.truncate(len - N);
+        Ok(RawWasmValue(bytes))
+    }
+
+    pub(crate) fn push<const N: usize>(&mut self, value: RawWasmValue<N>) {
+        self.stack.extend_from_slice(&value.0);
+    }
+
+    pub(crate) fn pop_n_typed(&mut self, tys: &[ValType]) -> Vec<WasmValue> {
+        let len: usize = tys.iter().map(|ty| ty.size()).sum();
+        let values = bytes_to_wasmvalues(&self.stack[self.stack.len() - len..], tys);
+        self.stack.truncate(self.stack.len() - len);
+        values
+    }
+
+    pub(crate) fn pop_locals(&mut self, locals: &[ValType]) -> Vec<[u8; 16]> {
+        let len: usize = locals.iter().map(|ty| ty.size()).sum();
+        let values = bytes_to_localvalues(&self.stack[self.stack.len() - len..], locals);
+        self.stack.truncate(self.stack.len() - len);
+        values
+    }
+
+    pub(crate) fn push_typed(&mut self, values: &[WasmValue]) {
+        values.iter().for_each(|v| wasmvalue_to_bytes(*v, |bytes| self.stack.extend_from_slice(bytes)));
     }
 }

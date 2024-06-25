@@ -4,45 +4,42 @@ use crate::conversion::{convert_heaptype, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{Instruction, MemoryArg};
-use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
+use wasmparser::{FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, WasmModuleResources};
 
-struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
+struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {$(
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-            self.0.$visit($($($arg.clone()),*)?)?;
+            self.1.validator_visitor(self.0).$visit($($($arg.clone()),*)?)?;
             self.1.$visit($($($arg),*)?);
             Ok(())
         }
     )*};
 }
 
-impl<'a, T, U> VisitOperator<'a> for ValidateThenVisit<'_, T, U>
-where
-    T: VisitOperator<'a, Output = wasmparser::Result<()>>,
-    U: VisitOperator<'a, Output = ()>,
-{
+impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> {
     type Output = Result<()>;
     wasmparser::for_each_operator!(validate_then_visit);
 }
 
 pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
-    validator: &mut FuncValidator<R>,
+    validator: FuncValidator<R>,
     body: FunctionBody<'_>,
-) -> Result<Box<[Instruction]>> {
+) -> Result<(Box<[Instruction]>, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
-    let mut builder = FunctionBuilder::new(remaining);
+    let mut builder = FunctionBuilder::new(remaining, validator);
+
     while !reader.eof() {
-        let validate = validator.visitor(reader.original_position());
-        reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))??;
+        reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
     }
-    validator.finish(reader.original_position())?;
+
+    builder.validator_finish(reader.original_position())?;
     if !builder.errors.is_empty() {
         return Err(builder.errors.remove(0));
     }
 
-    Ok(builder.instructions.into_boxed_slice())
+    Ok((builder.instructions.into_boxed_slice(), builder.validator.into_allocations()))
 }
 
 macro_rules! define_operands {
@@ -77,15 +74,30 @@ macro_rules! define_mem_operands {
     )*};
 }
 
-pub(crate) struct FunctionBuilder {
+pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
+    validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
     label_ptrs: Vec<usize>,
     errors: Vec<crate::ParseError>,
 }
 
-impl FunctionBuilder {
-    pub(crate) fn new(instr_capacity: usize) -> Self {
+impl<R: WasmModuleResources> FunctionBuilder<R> {
+    pub(crate) fn validator_visitor<'this>(
+        &'this mut self,
+        offset: usize,
+    ) -> impl VisitOperator<Output = Result<(), wasmparser::BinaryReaderError>> + 'this {
+        self.validator.visitor(offset)
+    }
+
+    pub(crate) fn validator_finish(&mut self, offset: usize) -> Result<(), wasmparser::BinaryReaderError> {
+        self.validator.finish(offset)
+    }
+}
+
+impl<R: WasmModuleResources> FunctionBuilder<R> {
+    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>) -> Self {
         Self {
+            validator,
             instructions: Vec::with_capacity(instr_capacity),
             label_ptrs: Vec::with_capacity(256),
             errors: Vec::new(),
@@ -115,7 +127,7 @@ macro_rules! impl_visit_operator {
     };
 }
 
-impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
+impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
     type Output = ();
     wasmparser::for_each_operator!(impl_visit_operator);
 
@@ -161,7 +173,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_unreachable, Instruction::Unreachable,
         visit_nop, Instruction::Nop,
         visit_return, Instruction::Return,
-        visit_drop, Instruction::Drop,
         visit_select, Instruction::Select(None),
         visit_i32_eqz, Instruction::I32Eqz,
         visit_i32_eq, Instruction::I32Eq,
@@ -303,6 +314,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_trunc_sat_f32_u, Instruction::I64TruncSatF32U,
         visit_i64_trunc_sat_f64_s, Instruction::I64TruncSatF64S,
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
+    }
+
+    fn visit_drop(&mut self) -> Self::Output {
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => {
+                let t = convert_valtype(&t);
+                self.instructions.push(Instruction::Drop(t))
+            }
+            _ => unreachable!("this should have been caught by the validator"),
+        }
     }
 
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {

@@ -135,9 +135,10 @@ impl ModuleReader {
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");
                 let v = validator.code_section_entry(&function)?;
-                let mut func_validator = v.into_validator(self.func_validator_allocations.take().unwrap_or_default());
-                self.code.push(conversion::convert_module_code(function, &mut func_validator)?);
-                self.func_validator_allocations = Some(func_validator.into_allocations());
+                let func_validator = v.into_validator(self.func_validator_allocations.take().unwrap_or_default());
+                let (code, allocations) = conversion::convert_module_code(function, func_validator)?;
+                self.code.push(code);
+                self.func_validator_allocations = Some(allocations);
             }
             ImportSection(reader) => {
                 if !self.imports.is_empty() {

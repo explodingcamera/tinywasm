@@ -2,7 +2,7 @@ use crate::Result;
 use crate::{module::Code, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
+use wasmparser::{FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
 
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
@@ -168,8 +168,8 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    validator: &mut FuncValidator<ValidatorResources>,
-) -> Result<Code> {
+    mut validator: FuncValidator<ValidatorResources>,
+) -> Result<(Code, FuncValidatorAllocations)> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
@@ -187,8 +187,8 @@ pub(crate) fn convert_module_code(
         locals.into_boxed_slice()
     };
 
-    let body = process_operators_and_validate(validator, func)?;
-    Ok((body, locals))
+    let (body, allocations) = process_operators_and_validate(validator, func)?;
+    Ok(((body, locals), allocations))
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {

@@ -118,10 +118,10 @@ pub enum Instruction {
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
-
+ 
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
-    Drop,
+    Drop(ValType),
     Select(Option<ValType>),
 
     // > Variable Instructions

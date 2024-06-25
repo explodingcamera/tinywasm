@@ -1,11 +1,11 @@
+use super::value_stack::{wasmvalue_to_localvalue, RawWasmValue};
 use super::BlockType;
-use crate::runtime::RawWasmValue;
 use crate::unlikely;
 use crate::{Result, Trap};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};
-use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction};
+use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmValue};
 
 pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
@@ -41,7 +41,7 @@ pub(crate) struct CallFrame {
     pub(crate) block_ptr: u32,
     pub(crate) func_instance: Rc<WasmFunction>,
     pub(crate) module_addr: ModuleInstanceAddr,
-    pub(crate) locals: Box<[RawWasmValue]>,
+    pub(crate) locals: Box<[[u8; 16]]>,
 }
 
 impl CallFrame {
@@ -126,7 +126,18 @@ impl CallFrame {
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
-        params: &[RawWasmValue],
+        params: &[WasmValue],
+        block_ptr: u32,
+    ) -> Self {
+        let locals = params.iter().map(|v| wasmvalue_to_localvalue(*v)).collect::<Vec<_>>();
+        Self::new_raw(wasm_func_inst, owner, &locals, block_ptr)
+    }
+
+    #[inline(always)]
+    pub(crate) fn new_raw(
+        wasm_func_inst: Rc<WasmFunction>,
+        owner: ModuleInstanceAddr,
+        params: &[[u8; 16]],
         block_ptr: u32,
     ) -> Self {
         let locals = {
@@ -134,7 +145,7 @@ impl CallFrame {
             let mut locals = Vec::new();
             locals.reserve_exact(total_size);
             locals.extend(params);
-            locals.resize_with(total_size, RawWasmValue::default);
+            locals.resize_with(total_size, Default::default);
             locals.into_boxed_slice()
         };
 
@@ -142,13 +153,21 @@ impl CallFrame {
     }
 
     #[inline(always)]
-    pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: RawWasmValue) {
-        self.locals[local_index as usize] = value;
+    pub(crate) fn set_local<const N: usize>(&mut self, local_index: LocalAddr, value: RawWasmValue<N>) {
+        match N {
+            4 | 8 | 16 => {
+                self.locals[local_index as usize].copy_from_slice(&value.0);
+            }
+            _ => unreachable!("Invalid RawWasmValue size"),
+        }
     }
 
     #[inline(always)]
-    pub(crate) fn get_local(&self, local_index: LocalAddr) -> RawWasmValue {
-        self.locals[local_index as usize]
+    pub(crate) fn get_local<const N: usize>(&self, local_index: LocalAddr) -> RawWasmValue<N> {
+        match N {
+            4 | 8 | 16 => RawWasmValue::from(&self.locals[local_index as usize][..N]),
+            _ => unreachable!("Invalid RawWasmValue size"),
+        }
     }
 
     #[inline(always)]

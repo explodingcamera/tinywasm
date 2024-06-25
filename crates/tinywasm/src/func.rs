@@ -1,5 +1,5 @@
 use crate::runtime::{CallFrame, Stack};
-use crate::{log, runtime::RawWasmValue, unlikely, Function};
+use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use tinywasm_types::{FuncType, ModuleInstanceAddr, ValType, WasmValue};
@@ -59,8 +59,7 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let call_frame_params = params.iter().map(|v| RawWasmValue::from(*v)).collect::<Vec<_>>();
-        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, &call_frame_params, 0);
+        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, &params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
@@ -74,13 +73,13 @@ impl FuncHandle {
         let result_m = func_ty.results.len();
 
         // 1. Assert: m values are on the top of the stack (Ensured by validation)
-        assert!(stack.values.len() >= result_m);
+        // assert!(stack.values.len() >= result_m);
 
         // 2. Pop m values from the stack
-        let res = stack.values.last_n(result_m)?;
+        let res = stack.values.pop_n_typed(&func_ty.results);
 
         // The values are returned as the results of the invocation.
-        Ok(res.iter().zip(func_ty.results.iter()).map(|(v, ty)| v.attach_type(*ty)).collect())
+        Ok(res)
     }
 }
 

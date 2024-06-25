@@ -161,7 +161,7 @@ impl Store {
 
     /// Get the global at the actual index in the store
     #[inline(always)]
-    pub fn get_global_val(&self, addr: MemAddr) -> Result<RawWasmValue> {
+    pub(crate) fn get_global_val(&self, addr: MemAddr) -> Result<RawWasmValue> {
         self.data
             .globals
             .get(addr as usize)

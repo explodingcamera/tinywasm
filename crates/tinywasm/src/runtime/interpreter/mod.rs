@@ -1,15 +1,15 @@
 use alloc::{format, rc::Rc, string::ToString};
-use core::ops::{BitAnd, BitOr, BitXor, ControlFlow, Neg};
+use core::ops::ControlFlow;
 use tinywasm_types::{BlockArgs, ElementKind, Instruction, ModuleInstanceAddr, ValType, WasmFunction};
 
 use super::stack::{BlockFrame, BlockType};
-use super::{InterpreterRuntime, RawWasmValue, Stack};
+use super::{InterpreterRuntime, Stack};
 use crate::runtime::CallFrame;
 use crate::{cold, unlikely, Error, FuncContext, MemLoadable, MemStorable, ModuleInstance, Result, Store, Trap};
 
 mod macros;
 mod traits;
-use {macros::*, traits::*};
+use macros::*;
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
@@ -55,8 +55,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         match self.cf.fetch_instr() {
             Nop => self.exec_noop(),
             Unreachable => self.exec_unreachable()?,
-
-            Drop => self.exec_drop()?,
+            Drop(t) => self.exec_drop(t.size())?,
             Select(_valtype) => self.exec_select()?,
             Call(v) => self.exec_call_direct(*v)?,
             CallIndirect(ty, table) => self.exec_call_indirect(*ty, *table)?,
@@ -122,140 +121,140 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Load32S { mem_addr, offset } => self.exec_mem_load::<i32, 4, _>(|v| v as i64, *mem_addr, *offset)?,
             I64Load32U { mem_addr, offset } => self.exec_mem_load::<u32, 4, _>(|v| v as i64, *mem_addr, *offset)?,
 
-            I64Eqz => comp_zero!(==, i64, self),
-            I32Eqz => comp_zero!(==, i32, self),
+            // I64Eqz => comp_zero!(==, i64, self),
+            // I32Eqz => comp_zero!(==, i32, self),
 
-            I32Eq => comp!(==, i32, self),
-            I64Eq => comp!(==, i64, self),
-            F32Eq => comp!(==, f32, self),
-            F64Eq => comp!(==, f64, self),
+            // I32Eq => comp!(==, i32, self),
+            // I64Eq => comp!(==, i64, self),
+            // F32Eq => comp!(==, f32, self),
+            // F64Eq => comp!(==, f64, self),
 
-            I32Ne => comp!(!=, i32, self),
-            I64Ne => comp!(!=, i64, self),
-            F32Ne => comp!(!=, f32, self),
-            F64Ne => comp!(!=, f64, self),
+            // I32Ne => comp!(!=, i32, self),
+            // I64Ne => comp!(!=, i64, self),
+            // F32Ne => comp!(!=, f32, self),
+            // F64Ne => comp!(!=, f64, self),
 
-            I32LtS => comp!(<, i32, self),
-            I64LtS => comp!(<, i64, self),
-            I32LtU => comp!(<, u32, self),
-            I64LtU => comp!(<, u64, self),
-            F32Lt => comp!(<, f32, self),
-            F64Lt => comp!(<, f64, self),
+            // I32LtS => comp!(<, i32, self),
+            // I64LtS => comp!(<, i64, self),
+            // I32LtU => comp!(<, u32, self),
+            // I64LtU => comp!(<, u64, self),
+            // F32Lt => comp!(<, f32, self),
+            // F64Lt => comp!(<, f64, self),
 
-            I32LeS => comp!(<=, i32, self),
-            I64LeS => comp!(<=, i64, self),
-            I32LeU => comp!(<=, u32, self),
-            I64LeU => comp!(<=, u64, self),
-            F32Le => comp!(<=, f32, self),
-            F64Le => comp!(<=, f64, self),
+            // I32LeS => comp!(<=, i32, self),
+            // I64LeS => comp!(<=, i64, self),
+            // I32LeU => comp!(<=, u32, self),
+            // I64LeU => comp!(<=, u64, self),
+            // F32Le => comp!(<=, f32, self),
+            // F64Le => comp!(<=, f64, self),
 
-            I32GeS => comp!(>=, i32, self),
-            I64GeS => comp!(>=, i64, self),
-            I32GeU => comp!(>=, u32, self),
-            I64GeU => comp!(>=, u64, self),
-            F32Ge => comp!(>=, f32, self),
-            F64Ge => comp!(>=, f64, self),
+            // I32GeS => comp!(>=, i32, self),
+            // I64GeS => comp!(>=, i64, self),
+            // I32GeU => comp!(>=, u32, self),
+            // I64GeU => comp!(>=, u64, self),
+            // F32Ge => comp!(>=, f32, self),
+            // F64Ge => comp!(>=, f64, self),
 
-            I32GtS => comp!(>, i32, self),
-            I64GtS => comp!(>, i64, self),
-            I32GtU => comp!(>, u32, self),
-            I64GtU => comp!(>, u64, self),
-            F32Gt => comp!(>, f32, self),
-            F64Gt => comp!(>, f64, self),
+            // I32GtS => comp!(>, i32, self),
+            // I64GtS => comp!(>, i64, self),
+            // I32GtU => comp!(>, u32, self),
+            // I64GtU => comp!(>, u64, self),
+            // F32Gt => comp!(>, f32, self),
+            // F64Gt => comp!(>, f64, self),
 
-            I64Add => arithmetic!(wrapping_add, i64, self),
-            I32Add => arithmetic!(wrapping_add, i32, self),
-            F32Add => arithmetic!(+, f32, self),
-            F64Add => arithmetic!(+, f64, self),
+            // I64Add => arithmetic!(wrapping_add, i64, self),
+            // I32Add => arithmetic!(wrapping_add, i32, self),
+            // F32Add => arithmetic!(+, f32, self),
+            // F64Add => arithmetic!(+, f64, self),
 
-            I32Sub => arithmetic!(wrapping_sub, i32, self),
-            I64Sub => arithmetic!(wrapping_sub, i64, self),
-            F32Sub => arithmetic!(-, f32, self),
-            F64Sub => arithmetic!(-, f64, self),
+            // I32Sub => arithmetic!(wrapping_sub, i32, self),
+            // I64Sub => arithmetic!(wrapping_sub, i64, self),
+            // F32Sub => arithmetic!(-, f32, self),
+            // F64Sub => arithmetic!(-, f64, self),
 
-            F32Div => arithmetic!(/, f32, self),
-            F64Div => arithmetic!(/, f64, self),
+            // F32Div => arithmetic!(/, f32, self),
+            // F64Div => arithmetic!(/, f64, self),
 
-            I32Mul => arithmetic!(wrapping_mul, i32, self),
-            I64Mul => arithmetic!(wrapping_mul, i64, self),
-            F32Mul => arithmetic!(*, f32, self),
-            F64Mul => arithmetic!(*, f64, self),
+            // I32Mul => arithmetic!(wrapping_mul, i32, self),
+            // I64Mul => arithmetic!(wrapping_mul, i64, self),
+            // F32Mul => arithmetic!(*, f32, self),
+            // F64Mul => arithmetic!(*, f64, self),
 
-            // these can trap
-            I32DivS => checked_int_arithmetic!(checked_div, i32, self),
-            I64DivS => checked_int_arithmetic!(checked_div, i64, self),
-            I32DivU => checked_int_arithmetic!(checked_div, u32, self),
-            I64DivU => checked_int_arithmetic!(checked_div, u64, self),
+            // // these can trap
+            // I32DivS => checked_int_arithmetic!(checked_div, i32, self),
+            // I64DivS => checked_int_arithmetic!(checked_div, i64, self),
+            // I32DivU => checked_int_arithmetic!(checked_div, u32, self),
+            // I64DivU => checked_int_arithmetic!(checked_div, u64, self),
 
-            I32RemS => checked_int_arithmetic!(checked_wrapping_rem, i32, self),
-            I64RemS => checked_int_arithmetic!(checked_wrapping_rem, i64, self),
-            I32RemU => checked_int_arithmetic!(checked_wrapping_rem, u32, self),
-            I64RemU => checked_int_arithmetic!(checked_wrapping_rem, u64, self),
+            // I32RemS => checked_int_arithmetic!(checked_wrapping_rem, i32, self),
+            // I64RemS => checked_int_arithmetic!(checked_wrapping_rem, i64, self),
+            // I32RemU => checked_int_arithmetic!(checked_wrapping_rem, u32, self),
+            // I64RemU => checked_int_arithmetic!(checked_wrapping_rem, u64, self),
 
-            I32And => arithmetic!(bitand, i32, self),
-            I64And => arithmetic!(bitand, i64, self),
-            I32Or => arithmetic!(bitor, i32, self),
-            I64Or => arithmetic!(bitor, i64, self),
-            I32Xor => arithmetic!(bitxor, i32, self),
-            I64Xor => arithmetic!(bitxor, i64, self),
-            I32Shl => arithmetic!(wasm_shl, i32, self),
-            I64Shl => arithmetic!(wasm_shl, i64, self),
-            I32ShrS => arithmetic!(wasm_shr, i32, self),
-            I64ShrS => arithmetic!(wasm_shr, i64, self),
-            I32ShrU => arithmetic!(wasm_shr, u32, self),
-            I64ShrU => arithmetic!(wasm_shr, u64, self),
-            I32Rotl => arithmetic!(wasm_rotl, i32, self),
-            I64Rotl => arithmetic!(wasm_rotl, i64, self),
-            I32Rotr => arithmetic!(wasm_rotr, i32, self),
-            I64Rotr => arithmetic!(wasm_rotr, i64, self),
+            // I32And => arithmetic!(bitand, i32, self),
+            // I64And => arithmetic!(bitand, i64, self),
+            // I32Or => arithmetic!(bitor, i32, self),
+            // I64Or => arithmetic!(bitor, i64, self),
+            // I32Xor => arithmetic!(bitxor, i32, self),
+            // I64Xor => arithmetic!(bitxor, i64, self),
+            // I32Shl => arithmetic!(wasm_shl, i32, self),
+            // I64Shl => arithmetic!(wasm_shl, i64, self),
+            // I32ShrS => arithmetic!(wasm_shr, i32, self),
+            // I64ShrS => arithmetic!(wasm_shr, i64, self),
+            // I32ShrU => arithmetic!(wasm_shr, u32, self),
+            // I64ShrU => arithmetic!(wasm_shr, u64, self),
+            // I32Rotl => arithmetic!(wasm_rotl, i32, self),
+            // I64Rotl => arithmetic!(wasm_rotl, i64, self),
+            // I32Rotr => arithmetic!(wasm_rotr, i32, self),
+            // I64Rotr => arithmetic!(wasm_rotr, i64, self),
 
-            I32Clz => arithmetic_single!(leading_zeros, i32, self),
-            I64Clz => arithmetic_single!(leading_zeros, i64, self),
-            I32Ctz => arithmetic_single!(trailing_zeros, i32, self),
-            I64Ctz => arithmetic_single!(trailing_zeros, i64, self),
-            I32Popcnt => arithmetic_single!(count_ones, i32, self),
-            I64Popcnt => arithmetic_single!(count_ones, i64, self),
+            // I32Clz => arithmetic_single!(leading_zeros, i32, self),
+            // I64Clz => arithmetic_single!(leading_zeros, i64, self),
+            // I32Ctz => arithmetic_single!(trailing_zeros, i32, self),
+            // I64Ctz => arithmetic_single!(trailing_zeros, i64, self),
+            // I32Popcnt => arithmetic_single!(count_ones, i32, self),
+            // I64Popcnt => arithmetic_single!(count_ones, i64, self),
 
-            F32ConvertI32S => conv!(i32, f32, self),
-            F32ConvertI64S => conv!(i64, f32, self),
-            F64ConvertI32S => conv!(i32, f64, self),
-            F64ConvertI64S => conv!(i64, f64, self),
-            F32ConvertI32U => conv!(u32, f32, self),
-            F32ConvertI64U => conv!(u64, f32, self),
-            F64ConvertI32U => conv!(u32, f64, self),
-            F64ConvertI64U => conv!(u64, f64, self),
-            I32Extend8S => conv!(i8, i32, self),
-            I32Extend16S => conv!(i16, i32, self),
-            I64Extend8S => conv!(i8, i64, self),
-            I64Extend16S => conv!(i16, i64, self),
-            I64Extend32S => conv!(i32, i64, self),
-            I64ExtendI32U => conv!(u32, i64, self),
-            I64ExtendI32S => conv!(i32, i64, self),
-            I32WrapI64 => conv!(i64, i32, self),
+            // F32ConvertI32S => conv!(i32, f32, self),
+            // F32ConvertI64S => conv!(i64, f32, self),
+            // F64ConvertI32S => conv!(i32, f64, self),
+            // F64ConvertI64S => conv!(i64, f64, self),
+            // F32ConvertI32U => conv!(u32, f32, self),
+            // F32ConvertI64U => conv!(u64, f32, self),
+            // F64ConvertI32U => conv!(u32, f64, self),
+            // F64ConvertI64U => conv!(u64, f64, self),
+            // I32Extend8S => conv!(i8, i32, self),
+            // I32Extend16S => conv!(i16, i32, self),
+            // I64Extend8S => conv!(i8, i64, self),
+            // I64Extend16S => conv!(i16, i64, self),
+            // I64Extend32S => conv!(i32, i64, self),
+            // I64ExtendI32U => conv!(u32, i64, self),
+            // I64ExtendI32S => conv!(i32, i64, self),
+            // I32WrapI64 => conv!(i64, i32, self),
 
-            F32DemoteF64 => conv!(f64, f32, self),
-            F64PromoteF32 => conv!(f32, f64, self),
+            // F32DemoteF64 => conv!(f64, f32, self),
+            // F64PromoteF32 => conv!(f32, f64, self),
 
-            F32Abs => arithmetic_single!(abs, f32, self),
-            F64Abs => arithmetic_single!(abs, f64, self),
-            F32Neg => arithmetic_single!(neg, f32, self),
-            F64Neg => arithmetic_single!(neg, f64, self),
-            F32Ceil => arithmetic_single!(ceil, f32, self),
-            F64Ceil => arithmetic_single!(ceil, f64, self),
-            F32Floor => arithmetic_single!(floor, f32, self),
-            F64Floor => arithmetic_single!(floor, f64, self),
-            F32Trunc => arithmetic_single!(trunc, f32, self),
-            F64Trunc => arithmetic_single!(trunc, f64, self),
-            F32Nearest => arithmetic_single!(tw_nearest, f32, self),
-            F64Nearest => arithmetic_single!(tw_nearest, f64, self),
-            F32Sqrt => arithmetic_single!(sqrt, f32, self),
-            F64Sqrt => arithmetic_single!(sqrt, f64, self),
-            F32Min => arithmetic!(tw_minimum, f32, self),
-            F64Min => arithmetic!(tw_minimum, f64, self),
-            F32Max => arithmetic!(tw_maximum, f32, self),
-            F64Max => arithmetic!(tw_maximum, f64, self),
-            F32Copysign => arithmetic!(copysign, f32, self),
-            F64Copysign => arithmetic!(copysign, f64, self),
+            // F32Abs => arithmetic_single!(abs, f32, self),
+            // F64Abs => arithmetic_single!(abs, f64, self),
+            // F32Neg => arithmetic_single!(neg, f32, self),
+            // F64Neg => arithmetic_single!(neg, f64, self),
+            // F32Ceil => arithmetic_single!(ceil, f32, self),
+            // F64Ceil => arithmetic_single!(ceil, f64, self),
+            // F32Floor => arithmetic_single!(floor, f32, self),
+            // F64Floor => arithmetic_single!(floor, f64, self),
+            // F32Trunc => arithmetic_single!(trunc, f32, self),
+            // F64Trunc => arithmetic_single!(trunc, f64, self),
+            // F32Nearest => arithmetic_single!(tw_nearest, f32, self),
+            // F64Nearest => arithmetic_single!(tw_nearest, f64, self),
+            // F32Sqrt => arithmetic_single!(sqrt, f32, self),
+            // F64Sqrt => arithmetic_single!(sqrt, f64, self),
+            // F32Min => arithmetic!(tw_minimum, f32, self),
+            // F64Min => arithmetic!(tw_minimum, f64, self),
+            // F32Max => arithmetic!(tw_maximum, f32, self),
+            // F64Max => arithmetic!(tw_maximum, f64, self),
+            // F32Copysign => arithmetic!(copysign, f32, self),
+            // F64Copysign => arithmetic!(copysign, f64, self),
 
             // no-op instructions since types are erased at runtime
             I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
@@ -277,14 +276,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             TableGrow(table_idx) => self.exec_table_grow(*table_idx)?,
             TableFill(table_idx) => self.exec_table_fill(*table_idx)?,
 
-            I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, self),
-            I32TruncSatF32U => arithmetic_single!(trunc, f32, u32, self),
-            I32TruncSatF64S => arithmetic_single!(trunc, f64, i32, self),
-            I32TruncSatF64U => arithmetic_single!(trunc, f64, u32, self),
-            I64TruncSatF32S => arithmetic_single!(trunc, f32, i64, self),
-            I64TruncSatF32U => arithmetic_single!(trunc, f32, u64, self),
-            I64TruncSatF64S => arithmetic_single!(trunc, f64, i64, self),
-            I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, self),
+            // I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, self),
+            // I32TruncSatF32U => arithmetic_single!(trunc, f32, u32, self),
+            // I32TruncSatF64S => arithmetic_single!(trunc, f64, i32, self),
+            // I32TruncSatF64U => arithmetic_single!(trunc, f64, u32, self),
+            // I64TruncSatF32S => arithmetic_single!(trunc, f32, i64, self),
+            // I64TruncSatF32U => arithmetic_single!(trunc, f32, u64, self),
+            // I64TruncSatF64S => arithmetic_single!(trunc, f64, i64, self),
+            // I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, self),
 
             // custom instructions
             LocalGet2(a, b) => self.exec_local_get2(*a, *b),
@@ -311,9 +310,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Err(Error::Trap(Trap::Unreachable))
     }
 
-    fn exec_drop(&mut self) -> Result<()> {
-        self.stack.values.pop()?;
-        Ok(())
+    fn exec_drop(&mut self, size: usize) -> Result<()> {
+        self.stack.values.drop(size)
     }
     fn exec_select(&mut self) -> Result<()> {
         let cond: i32 = self.stack.values.pop()?.into();
@@ -326,8 +324,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<()> {
-        let params = self.stack.values.pop_n(wasm_func.ty.params.len())?;
-        let new_call_frame = CallFrame::new(wasm_func, owner, params, self.stack.blocks.len() as u32);
+        let params = self.stack.values.pop_locals(&wasm_func.ty.params);
+        let new_call_frame = CallFrame::new_raw(wasm_func, owner, &params, self.stack.blocks.len() as u32);
         self.cf.instr_ptr += 1; // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr(), self.store);
@@ -539,7 +537,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push(val.into());
     }
     fn exec_ref_is_null(&mut self) -> Result<()> {
-        self.stack.values.replace_top(|val| ((i32::from(val) == -1) as i32).into())
+        self.stack.values.replace_top::<8>(|val| ((i32::from(val) == -1) as i32).into())
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<()> {
