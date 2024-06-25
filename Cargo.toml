@@ -12,6 +12,7 @@ inherits="release"
 
 [workspace.package]
 version="0.7.0"
+rust-version="1.79"
 edition="2021"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
@@ -20,7 +21,8 @@ repository="https://github.com/explodingcamera/tinywasm"
 [package]
 name="tinywasm-root"
 publish=false
-edition="2021"
+edition.workspace=true
+rust-version.workspace=true
 
 [[example]]
 name="wasm-rust"

@@ -2,7 +2,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{eyre, Result};
 use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
-use wast::QuoteWat;
+use wast::{core::AbstractHeapType, QuoteWat};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicInfo>().or(None).map(|p| p.to_string()).clone();
@@ -104,28 +104,36 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         I64(i) => WasmValue::I64(i),
         RefExtern(v) => WasmValue::RefExtern(v),
         RefNull(t) => match t {
-            wast::core::HeapType::Func => WasmValue::RefNull(ValType::RefFunc),
-            wast::core::HeapType::Extern => WasmValue::RefNull(ValType::RefExtern),
+            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => {
+                WasmValue::RefNull(ValType::RefFunc)
+            }
+            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern } => {
+                WasmValue::RefNull(ValType::RefExtern)
+            }
             _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
         },
         v => return Err(eyre!("unsupported arg type: {:?}", v)),
     })
 }
 
-fn wastret2tinywasmvalue(arg: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
-    let wast::WastRet::Core(arg) = arg else {
+fn wastret2tinywasmvalue(ret: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
+    let wast::WastRet::Core(ret) = ret else {
         return Err(eyre!("unsupported arg type"));
     };
 
     use wast::core::WastRetCore::*;
-    Ok(match arg {
+    Ok(match ret {
         F32(f) => nanpattern2tinywasmvalue(f)?,
         F64(f) => nanpattern2tinywasmvalue(f)?,
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         RefNull(t) => match t {
-            Some(wast::core::HeapType::Func) => WasmValue::RefNull(ValType::RefFunc),
-            Some(wast::core::HeapType::Extern) => WasmValue::RefNull(ValType::RefExtern),
+            Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func }) => {
+                WasmValue::RefNull(ValType::RefFunc)
+            }
+            Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern }) => {
+                WasmValue::RefNull(ValType::RefExtern)
+            }
             _ => return Err(eyre!("unsupported arg type: refnull: {:?}", t)),
         },
         RefExtern(v) => match v {

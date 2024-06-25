@@ -256,8 +256,10 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
 
 pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> ValType {
     match heap {
-        wasmparser::HeapType::Func => ValType::RefFunc,
-        wasmparser::HeapType::Extern => ValType::RefExtern,
+        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Func } => ValType::RefFunc,
+        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Extern } => {
+            ValType::RefExtern
+        }
         _ => unimplemented!("Unsupported heap type: {:?}", heap),
     }
 }

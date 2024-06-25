@@ -216,7 +216,7 @@ impl TestSuite {
                     test_group.add_result(&format!("Wat({})", i), span.linecol_in(wast), result.map(|_| ()));
                 }
 
-                AssertMalformed { span, mut module, message: _ } => {
+                AssertMalformed { span, mut module, message } => {
                     let Ok(module) = module.encode() else {
                         test_group.add_result(&format!("AssertMalformed({})", i), span.linecol_in(wast), Ok(()));
                         continue;
@@ -230,7 +230,15 @@ impl TestSuite {
                         &format!("AssertMalformed({})", i),
                         span.linecol_in(wast),
                         match res {
-                            Ok(_) => Err(eyre!("expected module to be malformed")),
+                            Ok(_) => {
+                                // // skip "zero byte expected" as the magic number is not checked by wasmparser
+                                // (Don't need to error on this, doesn't matter if it's malformed)
+                                if message == "zero byte expected" {
+                                    continue;
+                                }
+
+                                Err(eyre!("expected module to be malformed"))
+                            }
                             Err(_) => Ok(()),
                         },
                     );

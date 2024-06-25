@@ -6,9 +6,10 @@ edition.workspace=true
 license.workspace=true
 authors.workspace=true
 repository.workspace=true
+rust-version.workspace=true
 
 [dependencies]
-wasmparser={version="0.210", default-features=false, features=["validate"]}
+wasmparser={version="0.211", default-features=false, features=["validate"]}
 log={version="0.4", optional=true}
 tinywasm-types={version="0.7.0", path="../types", default-features=false}
 

@@ -2,12 +2,13 @@
 name="benchmarks"
 publish=false
 edition.workspace=true
+rust-version.workspace=true
 
 [dependencies]
 criterion={version="0.5"}
 tinywasm={path="../crates/tinywasm"}
 wat={version="1"}
-wasmi={version="0.32", features=["std"]}
+wasmi={version="0.33", features=["std"]}
 wasmer={version="4.3", features=["cranelift", "singlepass"]}
 argon2={version="0.5"}
 
