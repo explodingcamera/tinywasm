@@ -41,12 +41,12 @@ macro_rules! conv {
 /// Convert a value on the stack with error checking
 macro_rules! checked_conv_float {
     // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $self:expr) => {
-        checked_conv_float!($from, $to, $to, $self)
+    ($size:expr, $from:tt, $to:tt, $self:expr) => {
+        checked_conv_float!($size, $from, $to, $to, $self)
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
-    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
-        $self.stack.values.replace_top_trap(|v| {
+    ($size:expr, $from:tt, $intermediate:tt, $to:tt, $self:expr) => {
+        $self.stack.values.replace_top_trap::<$size>(|v| {
             let (min, max) = float_min_max!($from, $intermediate);
             let a: $from = v.into();
             if unlikely(a.is_nan()) {
@@ -62,8 +62,8 @@ macro_rules! checked_conv_float {
 
 /// Compare two values on the stack
 macro_rules! comp {
-    ($op:tt, $to:ty, $self:ident) => {
-        $self.stack.values.calculate(|a, b| {
+    ($op:tt, $size:expr, $to:ty, $self:ident) => {
+        $self.stack.values.calculate::<$size>(|a, b| {
             ((<$to>::from(a) $op <$to>::from(b)) as i32).into()
         })?
     };
@@ -71,22 +71,22 @@ macro_rules! comp {
 
 /// Compare a value on the stack to zero
 macro_rules! comp_zero {
-    ($op:tt, $ty:ty, $self:expr) => {
-        $self.stack.values.replace_top(|v| ((<$ty>::from(v) $op 0) as i32).into())?
+    ($op:tt, $size:expr, $ty:ty, $self:expr) => {
+        $self.stack.values.replace_top::<$size>(|v| ((<$ty>::from(v) $op 0) as i32).into())?
     };
 }
 
 /// Apply an arithmetic method to two values on the stack
 macro_rules! arithmetic {
-    ($op:ident, $to:ty, $self:expr) => {
-        $self.stack.values.calculate(|a, b| {
+    ($op:ident, $size:expr, $to:ty, $self:expr) => {
+        $self.stack.values.calculate::<$size>(|a, b| {
             (<$to>::from(a).$op(<$to>::from(b)) as $to).into()
         })?
     };
 
     // also allow operators such as +, -
-    ($op:tt, $ty:ty, $self:expr) => {
-        $self.stack.values.calculate(|a, b| {
+    ($op:tt, $size:expr, $ty:ty, $self:expr) => {
+        $self.stack.values.calculate::<$size>(|a, b| {
             ((<$ty>::from(a) $op <$ty>::from(b)) as $ty).into()
         })?
     };
@@ -94,19 +94,19 @@ macro_rules! arithmetic {
 
 /// Apply an arithmetic method to a single value on the stack
 macro_rules! arithmetic_single {
-    ($op:ident, $ty:ty, $self:expr) => {
-        arithmetic_single!($op, $ty, $ty, $self)
+    ($op:ident, $size:expr, $ty:ty, $self:expr) => {
+        arithmetic_single!($op, $size, $ty, $ty, $self)
     };
 
-    ($op:ident, $from:ty, $to:ty, $self:expr) => {
-        $self.stack.values.replace_top(|v| (<$from>::from(v).$op() as $to).into())?
+    ($op:ident, $size:expr, $from:ty, $to:ty, $self:expr) => {
+        $self.stack.values.replace_top::<$size>(|v| (<$from>::from(v).$op() as $to).into())?
     };
 }
 
 /// Apply an arithmetic operation to two values on the stack with error checking
 macro_rules! checked_int_arithmetic {
-    ($op:ident, $to:ty, $self:expr) => {
-        $self.stack.values.calculate_trap(|a, b| {
+    ($op:ident, $size:expr, $to:ty, $self:expr) => {
+        $self.stack.values.calculate_trap::<$size>(|a, b| {
             let a: $to = a.into();
             let b: $to = b.into();
 
@@ -120,12 +120,4 @@ macro_rules! checked_int_arithmetic {
     };
 }
 
-pub(super) use arithmetic;
-pub(super) use arithmetic_single;
 pub(super) use break_to;
-pub(super) use checked_conv_float;
-pub(super) use checked_int_arithmetic;
-pub(super) use comp;
-pub(super) use comp_zero;
-pub(super) use conv;
-pub(super) use float_min_max;

@@ -121,8 +121,15 @@ pub enum Instruction {
  
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
-    Drop(ValType),
-    Select(Option<ValType>),
+    Drop32,
+    Drop64,
+    Drop128,
+    DropRef,
+
+    Select32,
+    Select64,
+    Select128,
+    SelectRef,
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>

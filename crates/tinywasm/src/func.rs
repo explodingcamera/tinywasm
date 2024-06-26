@@ -59,7 +59,7 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, &params, 0);
+        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
@@ -70,13 +70,13 @@ impl FuncHandle {
         runtime.exec(store, &mut stack)?;
 
         // Once the function returns:
-        let result_m = func_ty.results.len();
+        // let result_m = func_ty.results.len();
 
         // 1. Assert: m values are on the top of the stack (Ensured by validation)
         // assert!(stack.values.len() >= result_m);
 
         // 2. Pop m values from the stack
-        let res = stack.values.pop_n_typed(&func_ty.results);
+        let res = stack.values.pop_many(&func_ty.results)?;
 
         // The values are returned as the results of the invocation.
         Ok(res)

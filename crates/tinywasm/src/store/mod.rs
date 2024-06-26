@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
-use crate::runtime::{self, InterpreterRuntime, RawWasmValue};
+use crate::runtime::{self, InterpreterRuntime, TinyWasmValue};
 use crate::{Error, Function, ModuleInstance, Result, Trap};
 
 mod data;
@@ -160,8 +160,8 @@ impl Store {
     }
 
     /// Get the global at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn get_global_val(&self, addr: MemAddr) -> Result<RawWasmValue> {
+    #[doc(hidden)]
+    pub fn get_global_val(&self, addr: MemAddr) -> Result<TinyWasmValue> {
         self.data
             .globals
             .get(addr as usize)
@@ -170,8 +170,8 @@ impl Store {
     }
 
     /// Set the global at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: RawWasmValue) -> Result<()> {
+    #[doc(hidden)]
+    pub fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) -> Result<()> {
         let global = self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"));
         global.map(|global| global.value.set(value))
     }
@@ -251,7 +251,7 @@ impl Store {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
-                let val: i64 = self.data.globals[addr as usize].value.get().into();
+                let val = self.data.globals[addr as usize].value.get().unwrap_64() as i64;
 
                 // check if the global is actually a null reference
                 match val < 0 {
@@ -368,7 +368,7 @@ impl Store {
         Ok((data_addrs.into_boxed_slice(), None))
     }
 
-    pub(crate) fn add_global(&mut self, ty: GlobalType, value: RawWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
+    pub(crate) fn add_global(&mut self, ty: GlobalType, value: TinyWasmValue, idx: ModuleInstanceAddr) -> Result<Addr> {
         self.data.globals.push(GlobalInstance::new(ty, value, idx));
         Ok(self.data.globals.len() as Addr - 1)
     }
@@ -396,7 +396,7 @@ impl Store {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
             I32Const(i) => *i,
-            GlobalGet(addr) => i32::from(self.data.globals[*addr as usize].value.get()),
+            GlobalGet(addr) => self.data.globals[*addr as usize].value.get().unwrap_32() as i32,
             _ => return Err(Error::Other("expected i32".to_string())),
         };
         Ok(val)
@@ -408,13 +408,13 @@ impl Store {
         const_instr: &tinywasm_types::ConstInstruction,
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
-    ) -> Result<RawWasmValue> {
+    ) -> Result<TinyWasmValue> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
-            F32Const(f) => RawWasmValue::from(*f),
-            F64Const(f) => RawWasmValue::from(*f),
-            I32Const(i) => RawWasmValue::from(*i),
-            I64Const(i) => RawWasmValue::from(*i),
+            F32Const(f) => (*f).into(),
+            F64Const(f) => (*f).into(),
+            I32Const(i) => (*i).into(),
+            I64Const(i) => (*i).into(),
             GlobalGet(addr) => {
                 let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
@@ -424,10 +424,10 @@ impl Store {
                     self.data.globals.get(*addr as usize).expect("global not found. This should be unreachable");
                 global.value.get()
             }
-            RefNull(t) => RawWasmValue::from(t.default_value()),
-            RefFunc(idx) => RawWasmValue::from(*module_func_addrs.get(*idx as usize).ok_or_else(|| {
+            RefNull(t) => t.default_value().into(),
+            RefFunc(idx) => TinyWasmValue::ValueRef(Some(*module_func_addrs.get(*idx as usize).ok_or_else(|| {
                 Error::Other(format!("function {} not found. This should have been caught by the validator", idx))
-            })?),
+            })?)),
         };
         Ok(val)
     }

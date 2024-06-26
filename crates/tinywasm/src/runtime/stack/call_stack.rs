@@ -1,4 +1,4 @@
-use super::value_stack::{wasmvalue_to_localvalue, RawWasmValue};
+use super::values::TinyWasmValue;
 use super::BlockType;
 use crate::unlikely;
 use crate::{Result, Trap};
@@ -41,7 +41,7 @@ pub(crate) struct CallFrame {
     pub(crate) block_ptr: u32,
     pub(crate) func_instance: Rc<WasmFunction>,
     pub(crate) module_addr: ModuleInstanceAddr,
-    pub(crate) locals: Box<[[u8; 16]]>,
+    pub(crate) locals: Box<[TinyWasmValue]>,
 }
 
 impl CallFrame {
@@ -96,7 +96,7 @@ impl CallFrame {
                 self.instr_ptr = break_to.instr_ptr;
 
                 // We also want to push the params to the stack
-                values.break_to_params(break_to);
+                values.truncate_keep(&break_to.stack_ptr, &break_to.params);
 
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
@@ -109,7 +109,7 @@ impl CallFrame {
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack
-                values.break_to_results(break_to);
+                values.truncate_keep(&break_to.stack_ptr, &break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;
@@ -129,15 +129,14 @@ impl CallFrame {
         params: &[WasmValue],
         block_ptr: u32,
     ) -> Self {
-        let locals = params.iter().map(|v| wasmvalue_to_localvalue(*v)).collect::<Vec<_>>();
-        Self::new_raw(wasm_func_inst, owner, &locals, block_ptr)
+        Self::new_raw(wasm_func_inst, owner, params.iter().map(|v| v.into()), block_ptr)
     }
 
     #[inline(always)]
     pub(crate) fn new_raw(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
-        params: &[[u8; 16]],
+        params: impl ExactSizeIterator<Item = TinyWasmValue>,
         block_ptr: u32,
     ) -> Self {
         let locals = {
@@ -153,21 +152,13 @@ impl CallFrame {
     }
 
     #[inline(always)]
-    pub(crate) fn set_local<const N: usize>(&mut self, local_index: LocalAddr, value: RawWasmValue<N>) {
-        match N {
-            4 | 8 | 16 => {
-                self.locals[local_index as usize].copy_from_slice(&value.0);
-            }
-            _ => unreachable!("Invalid RawWasmValue size"),
-        }
+    pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: TinyWasmValue) {
+        self.locals[local_index as usize] = value;
     }
 
     #[inline(always)]
-    pub(crate) fn get_local<const N: usize>(&self, local_index: LocalAddr) -> RawWasmValue<N> {
-        match N {
-            4 | 8 | 16 => RawWasmValue::from(&self.locals[local_index as usize][..N]),
-            _ => unreachable!("Invalid RawWasmValue size"),
-        }
+    pub(crate) fn get_local(&self, local_index: LocalAddr) -> TinyWasmValue {
+        self.locals[local_index as usize]
     }
 
     #[inline(always)]

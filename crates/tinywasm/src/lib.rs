@@ -100,7 +100,6 @@ pub use module::Module;
 pub use reference::*;
 pub use store::*;
 
-mod boxvec;
 mod func;
 mod imports;
 mod instance;

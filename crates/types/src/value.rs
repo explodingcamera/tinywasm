@@ -147,18 +147,6 @@ impl ValType {
         matches!(self, ValType::V128)
     }
 
-    pub const fn size(&self) -> usize {
-        match self {
-            ValType::I32 => 4,
-            ValType::I64 => 8,
-            ValType::F32 => 4,
-            ValType::F64 => 8,
-            ValType::V128 => 16,
-            ValType::RefFunc => 8,
-            ValType::RefExtern => 8,
-        }
-    }
-
     pub(crate) fn to_byte(self) -> u8 {
         match self {
             ValType::I32 => 0x7F,

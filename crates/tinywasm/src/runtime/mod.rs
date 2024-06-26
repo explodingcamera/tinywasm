@@ -1,7 +1,11 @@
 mod interpreter;
-mod stack;
+pub(crate) mod stack;
 
-pub(crate) use stack::{CallFrame, RawWasmValue, Stack};
+#[doc(hidden)]
+pub use stack::values;
+pub use stack::values::*;
+
+pub(crate) use stack::{CallFrame, Stack};
 
 /// The main TinyWasm runtime.
 ///

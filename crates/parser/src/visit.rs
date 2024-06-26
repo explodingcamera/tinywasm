@@ -82,10 +82,10 @@ pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
 }
 
 impl<R: WasmModuleResources> FunctionBuilder<R> {
-    pub(crate) fn validator_visitor<'this>(
-        &'this mut self,
+    pub(crate) fn validator_visitor(
+        &mut self,
         offset: usize,
-    ) -> impl VisitOperator<Output = Result<(), wasmparser::BinaryReaderError>> + 'this {
+    ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> {
         self.validator.visitor(offset)
     }
 
@@ -173,7 +173,6 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_unreachable, Instruction::Unreachable,
         visit_nop, Instruction::Nop,
         visit_return, Instruction::Return,
-        visit_select, Instruction::Select(None),
         visit_i32_eqz, Instruction::I32Eqz,
         visit_i32_eq, Instruction::I32Eq,
         visit_i32_ne, Instruction::I32Ne,
@@ -318,14 +317,24 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_drop(&mut self) -> Self::Output {
         match self.validator.get_operand_type(0) {
-            Some(Some(t)) => {
-                let t = convert_valtype(&t);
-                self.instructions.push(Instruction::Drop(t))
-            }
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::Drop32,
+                tinywasm_types::ValType::F32 => Instruction::Drop32,
+                tinywasm_types::ValType::I64 => Instruction::Drop64,
+                tinywasm_types::ValType::F64 => Instruction::Drop64,
+                tinywasm_types::ValType::V128 => Instruction::Drop128,
+                tinywasm_types::ValType::RefExtern => Instruction::DropRef,
+                tinywasm_types::ValType::RefFunc => Instruction::DropRef,
+            }),
             _ => unreachable!("this should have been caught by the validator"),
         }
     }
-
+    fn visit_select(&mut self) -> Self::Output {
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.visit_typed_select(t),
+            _ => unreachable!("Unknow type for select"),
+        }
+    }
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
         let arg = MemoryArg { offset: memarg.offset, mem_addr: memarg.memory };
         let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
@@ -539,7 +548,15 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
-        self.instructions.push(Instruction::Select(Some(convert_valtype(&ty))))
+        self.instructions.push(match convert_valtype(&ty) {
+            tinywasm_types::ValType::I32 => Instruction::Select32,
+            tinywasm_types::ValType::F32 => Instruction::Select32,
+            tinywasm_types::ValType::I64 => Instruction::Select64,
+            tinywasm_types::ValType::F64 => Instruction::Select64,
+            tinywasm_types::ValType::V128 => Instruction::Select128,
+            tinywasm_types::ValType::RefExtern => Instruction::SelectRef,
+            tinywasm_types::ValType::RefFunc => Instruction::SelectRef,
+        })
     }
 
     define_primitive_operands! {
