@@ -1,8 +1,9 @@
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
 use tinywasm_types::{BlockArgs, ElementKind, Instruction, ModuleInstanceAddr, ValType, WasmFunction};
+use traits::{TinywasmFloatExt, WasmIntOps};
 
-use super::stack::{BlockFrame, BlockType, StackHeight};
+use super::stack::{values::StackHeight, BlockFrame, BlockType};
 use super::{values::*, InterpreterRuntime, Stack};
 use crate::runtime::CallFrame;
 use crate::{cold, unlikely, Error, FuncContext, MemLoadable, MemStorable, ModuleInstance, Result, Store, Trap};
@@ -56,15 +57,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Nop => self.exec_noop(),
             Unreachable => self.exec_unreachable()?,
 
-            Drop32 => self.stack.values.drop::<VALUE32>()?,
-            Drop64 => self.stack.values.drop::<VALUE64>()?,
-            Drop128 => self.stack.values.drop::<VALUE128>()?,
-            DropRef => self.stack.values.drop::<VALUEREF>()?,
+            Drop32 => self.stack.values.drop::<Value32>()?,
+            Drop64 => self.stack.values.drop::<Value64>()?,
+            Drop128 => self.stack.values.drop::<Value128>()?,
+            DropRef => self.stack.values.drop::<ValueRef>()?,
 
-            Select32 => self.stack.values.select::<VALUE32>()?,
-            Select64 => self.stack.values.select::<VALUE64>()?,
-            Select128 => self.stack.values.select::<VALUE128>()?,
-            SelectRef => self.stack.values.select::<VALUEREF>()?,
+            Select32 => self.stack.values.select::<Value32>()?,
+            Select64 => self.stack.values.select::<Value64>()?,
+            Select128 => self.stack.values.select::<Value128>()?,
+            SelectRef => self.stack.values.select::<ValueRef>()?,
 
             Call(v) => self.exec_call_direct(*v)?,
             CallIndirect(ty, table) => self.exec_call_indirect(*ty, *table)?,
@@ -86,12 +87,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             GlobalGet(global_index) => self.exec_global_get(*global_index)?,
             GlobalSet(global_index) => self.exec_global_set(*global_index)?,
 
-            I32Const(val) => self.stack.values.push_32(*val),
-            I64Const(val) => self.stack.values.push_64(*val),
-            F32Const(val) => self.stack.values.push_32(val.to_bits() as i32),
-            F64Const(val) => self.stack.values.push_64(val.to_bits() as i64),
-            RefFunc(func_idx) => self.stack.values.push_ref(Some(*func_idx)), // do we need to resolve the function index?
-            RefNull(_) => self.stack.values.push_ref(None),
+            I32Const(val) => self.stack.values.push(*val),
+            I64Const(val) => self.stack.values.push(*val),
+            F32Const(val) => self.stack.values.push::<i32>(val.to_bits() as i32),
+            F64Const(val) => self.stack.values.push(val.to_bits() as i64),
+            RefFunc(func_idx) => self.stack.values.push(Some(*func_idx)), // do we need to resolve the function index?
+            RefNull(_) => self.stack.values.push(None),
             RefIsNull => self.exec_ref_is_null()?,
 
             MemorySize(addr) => self.exec_memory_size(*addr)?,
@@ -106,41 +107,41 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             TableCopy { from, to } => self.exec_table_copy(*from, *to)?,
 
             I32Store { mem_addr, offset } => {
-                let v = self.stack.values.pop_32()?;
+                let v = self.stack.values.pop::<i32>()?;
                 self.exec_mem_store::<i32, 4>(v, *mem_addr, *offset)?
             }
             I64Store { mem_addr, offset } => {
-                let v = self.stack.values.pop_64()?;
+                let v = self.stack.values.pop::<i64>()?;
                 self.exec_mem_store::<i64, 8>(v, *mem_addr, *offset)?
             }
             F32Store { mem_addr, offset } => {
-                let v = f32::from_bits(self.stack.values.pop_32()? as u32);
+                let v = self.stack.values.pop::<f32>()?;
                 self.exec_mem_store::<f32, 4>(v, *mem_addr, *offset)?
             }
             F64Store { mem_addr, offset } => {
-                let v = f64::from_bits(self.stack.values.pop_64()? as u64);
+                let v = self.stack.values.pop::<f64>()?;
                 self.exec_mem_store::<f64, 8>(v, *mem_addr, *offset)?
             }
 
             // TODO: this prob. needs specific conversion functions that truncate the underlying bits
             I32Store8 { mem_addr, offset } => {
-                let v = self.stack.values.pop_32()? as i8;
+                let v = self.stack.values.pop::<i32>()? as i8;
                 self.exec_mem_store::<i8, 1>(v, *mem_addr, *offset)?
             }
             I32Store16 { mem_addr, offset } => {
-                let v = self.stack.values.pop_32()? as i16;
+                let v = self.stack.values.pop::<i32>()? as i16;
                 self.exec_mem_store::<i16, 2>(v, *mem_addr, *offset)?
             }
             I64Store8 { mem_addr, offset } => {
-                let v = self.stack.values.pop_64()? as i8;
+                let v = self.stack.values.pop::<i64>()? as i8;
                 self.exec_mem_store::<i8, 1>(v, *mem_addr, *offset)?
             }
             I64Store16 { mem_addr, offset } => {
-                let v = self.stack.values.pop_64()? as i16;
+                let v = self.stack.values.pop::<i64>()? as i16;
                 self.exec_mem_store::<i16, 2>(v, *mem_addr, *offset)?
             }
             I64Store32 { mem_addr, offset } => {
-                let v = self.stack.values.pop_64()? as i32;
+                let v = self.stack.values.pop::<i64>()? as i32;
                 self.exec_mem_store::<i32, 4>(v, *mem_addr, *offset)?
             }
 
@@ -159,145 +160,185 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Load32S { mem_addr, offset } => self.exec_mem_load::<i32, 4, _>(|v| v as i64, *mem_addr, *offset)?,
             I64Load32U { mem_addr, offset } => self.exec_mem_load::<u32, 4, _>(|v| v as i64, *mem_addr, *offset)?,
 
-            // I64Eqz => comp_zero!(==, 8, i64, self),
-            // I32Eqz => comp_zero!(==, i32, self),
+            I64Eqz => self.stack.values.replace_top::<i64, _>(|v| Ok((v == 0) as i32))?,
+            I32Eqz => self.stack.values.replace_top::<i32, _>(|v| Ok((v == 0) as i32))?,
+            I32Eq => self.stack.values.calculate::<i32, _>(|a, b| Ok((a == b) as i32))?,
+            I64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok((a == b) as i32))?,
+            F32Eq => self.stack.values.calculate::<f32, _>(|a, b| Ok((a == b) as i32))?,
+            F64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok((a == b) as i32))?,
 
-            // I32Eq => comp!(==, i32, self),
-            // I64Eq => comp!(==, i64, self),
-            // F32Eq => comp!(==, f32, self),
-            // F64Eq => comp!(==, f64, self),
+            I32Ne => self.stack.values.calculate::<i32, _>(|a, b| Ok((a != b) as i32))?,
+            I64Ne => self.stack.values.calculate::<i64, _>(|a, b| Ok((a != b) as i64))?,
+            F32Ne => self.stack.values.calculate::<f32, _>(|a, b| Ok((a != b) as i32))?,
+            F64Ne => self.stack.values.calculate::<f64, _>(|a, b| Ok((a != b) as i32))?,
 
-            // I32Ne => comp!(!=, i32, self),
-            // I64Ne => comp!(!=, i64, self),
-            // F32Ne => comp!(!=, f32, self),
-            // F64Ne => comp!(!=, f64, self),
+            I32LtS => self.stack.values.calculate::<i32, _>(|a, b| Ok((a < b) as i32))?,
+            I64LtS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a < b) as i64))?,
+            I32LtU => self.stack.values.calculate::<i32, _>(|a, b| Ok((a < b) as i32))?,
+            I64LtU => self.stack.values.calculate::<i64, _>(|a, b| Ok((a < b) as i64))?,
+            F32Lt => self.stack.values.calculate::<f32, _>(|a, b| Ok((a < b) as i32))?,
+            F64Lt => self.stack.values.calculate::<f64, _>(|a, b| Ok((a < b) as i32))?,
 
-            // I32LtS => comp!(<, i32, self),
-            // I64LtS => comp!(<, i64, self),
-            // I32LtU => comp!(<, u32, self),
-            // I64LtU => comp!(<, u64, self),
-            // F32Lt => comp!(<, f32, self),
-            // F64Lt => comp!(<, f64, self),
+            I32LeS => self.stack.values.calculate::<i32, _>(|a, b| Ok((a <= b) as i32))?,
+            I64LeS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a <= b) as i64))?,
+            I32LeU => self.stack.values.calculate::<i32, _>(|a, b| Ok((a <= b) as i32))?,
+            I64LeU => self.stack.values.calculate::<i64, _>(|a, b| Ok((a <= b) as i64))?,
+            F32Le => self.stack.values.calculate::<f32, _>(|a, b| Ok((a <= b) as i32))?,
+            F64Le => self.stack.values.calculate::<f64, _>(|a, b| Ok((a <= b) as i32))?,
 
-            // I32LeS => comp!(<=, i32, self),
-            // I64LeS => comp!(<=, i64, self),
-            // I32LeU => comp!(<=, u32, self),
-            // I64LeU => comp!(<=, u64, self),
-            // F32Le => comp!(<=, f32, self),
-            // F64Le => comp!(<=, f64, self),
+            I32GeS => self.stack.values.calculate::<i32, _>(|a, b| Ok((a >= b) as i32))?,
+            I64GeS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a >= b) as i64))?,
+            I32GeU => self.stack.values.calculate::<i32, _>(|a, b| Ok((a >= b) as i32))?,
+            I64GeU => self.stack.values.calculate::<i64, _>(|a, b| Ok((a >= b) as i64))?,
+            F32Ge => self.stack.values.calculate::<f32, _>(|a, b| Ok((a >= b) as i32))?,
+            F64Ge => self.stack.values.calculate::<f64, _>(|a, b| Ok((a >= b) as i32))?,
 
-            // I32GeS => comp!(>=, i32, self),
-            // I64GeS => comp!(>=, i64, self),
-            // I32GeU => comp!(>=, u32, self),
-            // I64GeU => comp!(>=, u64, self),
-            // F32Ge => comp!(>=, f32, self),
-            // F64Ge => comp!(>=, f64, self),
+            I32GtS => self.stack.values.calculate::<i32, _>(|a, b| Ok((a > b) as i32))?,
+            I64GtS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a > b) as i64))?,
+            I32GtU => self.stack.values.calculate::<i32, _>(|a, b| Ok((a > b) as i32))?,
+            I64GtU => self.stack.values.calculate::<i64, _>(|a, b| Ok((a > b) as i64))?,
+            F32Gt => self.stack.values.calculate::<f32, _>(|a, b| Ok((a > b) as i32))?,
+            F64Gt => self.stack.values.calculate::<f64, _>(|a, b| Ok((a > b) as i32))?,
 
-            // I32GtS => comp!(>, i32, self),
-            // I64GtS => comp!(>, i64, self),
-            // I32GtU => comp!(>, u32, self),
-            // I64GtU => comp!(>, u64, self),
-            // F32Gt => comp!(>, f32, self),
-            // F64Gt => comp!(>, f64, self),
+            I32Add => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wrapping_add(b)))?,
+            I64Add => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wrapping_add(b)))?,
+            F32Add => self.stack.values.calculate::<f32, _>(|a, b| Ok(a + b))?,
+            F64Add => self.stack.values.calculate::<f64, _>(|a, b| Ok(a + b))?,
 
-            // I64Add => arithmetic!(wrapping_add, i64, self),
-            // I32Add => arithmetic!(wrapping_add, i32, self),
-            // F32Add => arithmetic!(+, f32, self),
-            // F64Add => arithmetic!(+, f64, self),
+            I32Sub => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wrapping_sub(b)))?,
+            I64Sub => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wrapping_sub(b)))?,
+            F32Sub => self.stack.values.calculate::<f32, _>(|a, b| Ok(a - b))?,
+            F64Sub => self.stack.values.calculate::<f64, _>(|a, b| Ok(a - b))?,
 
-            // I32Sub => arithmetic!(wrapping_sub, i32, self),
-            // I64Sub => arithmetic!(wrapping_sub, i64, self),
-            // F32Sub => arithmetic!(-, f32, self),
-            // F64Sub => arithmetic!(-, f64, self),
+            F32Div => self.stack.values.calculate::<f32, _>(|a, b| Ok(a / b))?,
+            F64Div => self.stack.values.calculate::<f64, _>(|a, b| Ok(a / b))?,
 
-            // F32Div => arithmetic!(/, f32, self),
-            // F64Div => arithmetic!(/, f64, self),
-
-            // I32Mul => arithmetic!(wrapping_mul, i32, self),
-            // I64Mul => arithmetic!(wrapping_mul, i64, self),
-            // F32Mul => arithmetic!(*, f32, self),
-            // F64Mul => arithmetic!(*, f64, self),
+            I32Mul => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wrapping_mul(b)))?,
+            I64Mul => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wrapping_mul(b)))?,
+            F32Mul => self.stack.values.calculate::<f32, _>(|a, b| Ok(a * b))?,
+            F64Mul => self.stack.values.calculate::<f64, _>(|a, b| Ok(a * b))?,
 
             // // these can trap
-            // I32DivS => checked_int_arithmetic!(checked_div, i32, self),
-            // I64DivS => checked_int_arithmetic!(checked_div, i64, self),
-            // I32DivU => checked_int_arithmetic!(checked_div, u32, self),
-            // I64DivU => checked_int_arithmetic!(checked_div, u64, self),
+            I32DivS => self.stack.values.calculate::<i32, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_div(b))
+            })?,
+            I64DivS => self.stack.values.calculate::<i64, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_div(b))
+            })?,
+            I32DivU => self.stack.values.calculate::<u32, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_div(b))
+            })?,
+            I64DivU => self.stack.values.calculate::<u64, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_div(b))
+            })?,
 
-            // I32RemS => checked_int_arithmetic!(checked_wrapping_rem, i32, self),
-            // I64RemS => checked_int_arithmetic!(checked_wrapping_rem, i64, self),
-            // I32RemU => checked_int_arithmetic!(checked_wrapping_rem, u32, self),
-            // I64RemU => checked_int_arithmetic!(checked_wrapping_rem, u64, self),
+            I32RemS => self.stack.values.calculate::<i32, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_rem(b))
+            })?,
+            I64RemS => self.stack.values.calculate::<i64, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_rem(b))
+            })?,
+            I32RemU => self.stack.values.calculate::<u32, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_rem(b))
+            })?,
+            I64RemU => self.stack.values.calculate::<u64, _>(|a, b| {
+                if unlikely(b == 0) {
+                    return Err(Error::Trap(Trap::DivisionByZero));
+                }
+                Ok(a.wrapping_rem(b))
+            })?,
 
-            // I32And => arithmetic!(bitand, i32, self),
-            // I64And => arithmetic!(bitand, i64, self),
-            // I32Or => arithmetic!(bitor, i32, self),
-            // I64Or => arithmetic!(bitor, i64, self),
-            // I32Xor => arithmetic!(bitxor, i32, self),
-            // I64Xor => arithmetic!(bitxor, i64, self),
-            // I32Shl => arithmetic!(wasm_shl, i32, self),
-            // I64Shl => arithmetic!(wasm_shl, i64, self),
-            // I32ShrS => arithmetic!(wasm_shr, i32, self),
-            // I64ShrS => arithmetic!(wasm_shr, i64, self),
-            // I32ShrU => arithmetic!(wasm_shr, u32, self),
-            // I64ShrU => arithmetic!(wasm_shr, u64, self),
-            // I32Rotl => arithmetic!(wasm_rotl, i32, self),
-            // I64Rotl => arithmetic!(wasm_rotl, i64, self),
-            // I32Rotr => arithmetic!(wasm_rotr, i32, self),
-            // I64Rotr => arithmetic!(wasm_rotr, i64, self),
+            I32And => self.stack.values.calculate::<i32, _>(|a, b| Ok(a & b))?,
+            I64And => self.stack.values.calculate::<i64, _>(|a, b| Ok(a & b))?,
+            I32Or => self.stack.values.calculate::<i32, _>(|a, b| Ok(a | b))?,
+            I64Or => self.stack.values.calculate::<i64, _>(|a, b| Ok(a | b))?,
+            I32Xor => self.stack.values.calculate::<i32, _>(|a, b| Ok(a ^ b))?,
+            I64Xor => self.stack.values.calculate::<i64, _>(|a, b| Ok(a ^ b))?,
+            I32Shl => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wasm_shl(b)))?,
+            I64Shl => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wasm_shl(b)))?,
+            I32ShrS => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wasm_shr(b)))?,
+            I64ShrS => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wasm_shr(b)))?,
+            I32ShrU => self.stack.values.calculate::<u32, _>(|a, b| Ok(a.wasm_shr(b)))?,
+            I64ShrU => self.stack.values.calculate::<u64, _>(|a, b| Ok(a.wasm_shr(b)))?,
+            I32Rotl => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wasm_rotl(b)))?,
+            I64Rotl => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wasm_rotl(b)))?,
+            I32Rotr => self.stack.values.calculate::<i32, _>(|a, b| Ok(a.wasm_rotr(b)))?,
+            I64Rotr => self.stack.values.calculate::<i64, _>(|a, b| Ok(a.wasm_rotr(b)))?,
 
-            // I32Clz => arithmetic_single!(leading_zeros, i32, self),
-            // I64Clz => arithmetic_single!(leading_zeros, i64, self),
-            // I32Ctz => arithmetic_single!(trailing_zeros, i32, self),
-            // I64Ctz => arithmetic_single!(trailing_zeros, i64, self),
-            // I32Popcnt => arithmetic_single!(count_ones, i32, self),
-            // I64Popcnt => arithmetic_single!(count_ones, i64, self),
+            I32Clz => self.stack.values.replace_top::<i32, _>(|v| Ok(v.leading_zeros() as i32))?,
+            I64Clz => self.stack.values.replace_top::<i64, _>(|v| Ok(v.leading_zeros() as i64))?,
+            I32Ctz => self.stack.values.replace_top::<i32, _>(|v| Ok(v.trailing_zeros() as i32))?,
+            I64Ctz => self.stack.values.replace_top::<i64, _>(|v| Ok(v.trailing_zeros() as i64))?,
+            I32Popcnt => self.stack.values.replace_top::<i32, _>(|v| Ok(v.count_ones() as i32))?,
+            I64Popcnt => self.stack.values.replace_top::<i64, _>(|v| Ok(v.count_ones() as i64))?,
 
-            // F32ConvertI32S => conv!(i32, f32, self),
-            // F32ConvertI64S => conv!(i64, f32, self),
-            // F64ConvertI32S => conv!(i32, f64, self),
-            // F64ConvertI64S => conv!(i64, f64, self),
-            // F32ConvertI32U => conv!(u32, f32, self),
-            // F32ConvertI64U => conv!(u64, f32, self),
-            // F64ConvertI32U => conv!(u32, f64, self),
-            // F64ConvertI64U => conv!(u64, f64, self),
-            // I32Extend8S => conv!(i8, i32, self),
-            // I32Extend16S => conv!(i16, i32, self),
-            // I64Extend8S => conv!(i8, i64, self),
-            // I64Extend16S => conv!(i16, i64, self),
-            // I64Extend32S => conv!(i32, i64, self),
-            // I64ExtendI32U => conv!(u32, i64, self),
-            // I64ExtendI32S => conv!(i32, i64, self),
-            // I32WrapI64 => conv!(i64, i32, self),
+            F32ConvertI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as f32))?,
+            F32ConvertI64S => self.stack.values.replace_top::<i64, _>(|v| Ok(v as f32))?,
+            F64ConvertI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as f64))?,
+            F64ConvertI64S => self.stack.values.replace_top::<i64, _>(|v| Ok(v as f64))?,
+            F32ConvertI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as f32))?,
+            F32ConvertI64U => self.stack.values.replace_top::<u64, _>(|v| Ok(v as f32))?,
+            F64ConvertI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as f64))?,
+            F64ConvertI64U => self.stack.values.replace_top::<u64, _>(|v| Ok(v as f64))?,
 
-            // F32DemoteF64 => conv!(f64, f32, self),
-            // F64PromoteF32 => conv!(f32, f64, self),
+            I32Extend8S => self.stack.values.replace_top::<i32, _>(|v| Ok((v as i8) as i32))?,
+            I32Extend16S => self.stack.values.replace_top::<i32, _>(|v| Ok((v as i16) as i32))?,
+            I64Extend8S => self.stack.values.replace_top::<i64, _>(|v| Ok((v as i8) as i64))?,
+            I64Extend16S => self.stack.values.replace_top::<i64, _>(|v| Ok((v as i16) as i64))?,
+            I64Extend32S => self.stack.values.replace_top::<i64, _>(|v| Ok((v as i32) as i64))?,
+            I64ExtendI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as i64))?,
+            I64ExtendI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as i64))?,
+            I32WrapI64 => self.stack.values.replace_top::<i64, _>(|v| Ok(v as i32))?,
 
-            // F32Abs => arithmetic_single!(abs, f32, self),
-            // F64Abs => arithmetic_single!(abs, f64, self),
-            // F32Neg => arithmetic_single!(neg, f32, self),
-            // F64Neg => arithmetic_single!(neg, f64, self),
-            // F32Ceil => arithmetic_single!(ceil, f32, self),
-            // F64Ceil => arithmetic_single!(ceil, f64, self),
-            // F32Floor => arithmetic_single!(floor, f32, self),
-            // F64Floor => arithmetic_single!(floor, f64, self),
-            // F32Trunc => arithmetic_single!(trunc, f32, self),
-            // F64Trunc => arithmetic_single!(trunc, f64, self),
-            // F32Nearest => arithmetic_single!(tw_nearest, f32, self),
-            // F64Nearest => arithmetic_single!(tw_nearest, f64, self),
-            // F32Sqrt => arithmetic_single!(sqrt, f32, self),
-            // F64Sqrt => arithmetic_single!(sqrt, f64, self),
-            // F32Min => arithmetic!(tw_minimum, f32, self),
-            // F64Min => arithmetic!(tw_minimum, f64, self),
-            // F32Max => arithmetic!(tw_maximum, f32, self),
-            // F64Max => arithmetic!(tw_maximum, f64, self),
-            // F32Copysign => arithmetic!(copysign, f32, self),
-            // F64Copysign => arithmetic!(copysign, f64, self),
+            F32DemoteF64 => self.stack.values.replace_top::<f64, _>(|v| Ok(v as f32))?,
+            F64PromoteF32 => self.stack.values.replace_top::<f32, _>(|v| Ok(v as f64))?,
+
+            F32Abs => self.stack.values.replace_top::<f32, _>(|v| Ok(v.abs()))?,
+            F64Abs => self.stack.values.replace_top::<f64, _>(|v| Ok(v.abs()))?,
+            F32Neg => self.stack.values.replace_top::<f32, _>(|v| Ok(-v))?,
+            F64Neg => self.stack.values.replace_top::<f64, _>(|v| Ok(-v))?,
+            F32Ceil => self.stack.values.replace_top::<f32, _>(|v| Ok(v.ceil()))?,
+            F64Ceil => self.stack.values.replace_top::<f64, _>(|v| Ok(v.ceil()))?,
+            F32Floor => self.stack.values.replace_top::<f32, _>(|v| Ok(v.floor()))?,
+            F64Floor => self.stack.values.replace_top::<f64, _>(|v| Ok(v.floor()))?,
+            F32Trunc => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc()))?,
+            F64Trunc => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc()))?,
+            F32Nearest => self.stack.values.replace_top::<f32, _>(|v| Ok(v.tw_nearest()))?,
+            F64Nearest => self.stack.values.replace_top::<f64, _>(|v| Ok(v.tw_nearest()))?,
+            F32Sqrt => self.stack.values.replace_top::<f32, _>(|v| Ok(v.sqrt()))?,
+            F64Sqrt => self.stack.values.replace_top::<f64, _>(|v| Ok(v.sqrt()))?,
+            F32Min => self.stack.values.calculate::<f32, _>(|a, b| Ok(a.tw_minimum(b)))?,
+            F64Min => self.stack.values.calculate::<f64, _>(|a, b| Ok(a.tw_minimum(b)))?,
+            F32Max => self.stack.values.calculate::<f32, _>(|a, b| Ok(a.tw_maximum(b)))?,
+            F64Max => self.stack.values.calculate::<f64, _>(|a, b| Ok(a.tw_maximum(b)))?,
+            F32Copysign => self.stack.values.calculate::<f32, _>(|a, b| Ok(a.copysign(b)))?,
+            F64Copysign => self.stack.values.calculate::<f64, _>(|a, b| Ok(a.copysign(b)))?,
 
             // no-op instructions since types are erased at runtime
             I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
 
-            // unsigned versions of these are a bit broken atm
+            // WIP
             // I32TruncF32S => checked_conv_float!(4, f32, i32, self),
             // I32TruncF64S => checked_conv_float!(8, f64, i32, self),
             // I32TruncF32U => checked_conv_float!(4, f32, u32, i32, self),
@@ -313,14 +354,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             TableGrow(table_idx) => self.exec_table_grow(*table_idx)?,
             TableFill(table_idx) => self.exec_table_fill(*table_idx)?,
 
-            // I32TruncSatF32S => arithmetic_single!(trunc, f32, i32, self),
-            // I32TruncSatF32U => arithmetic_single!(trunc, f32, u32, self),
-            // I32TruncSatF64S => arithmetic_single!(trunc, f64, i32, self),
-            // I32TruncSatF64U => arithmetic_single!(trunc, f64, u32, self),
-            // I64TruncSatF32S => arithmetic_single!(trunc, f32, i64, self),
-            // I64TruncSatF32U => arithmetic_single!(trunc, f32, u64, self),
-            // I64TruncSatF64S => arithmetic_single!(trunc, f64, i64, self),
-            // I64TruncSatF64U => arithmetic_single!(trunc, f64, u64, self),
+            I32TruncSatF32S => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc() as i32))?,
+            I32TruncSatF32U => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc() as u32))?,
+            I32TruncSatF64S => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as i32))?,
+            I32TruncSatF64U => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as u32))?,
+            I64TruncSatF32S => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc() as i64))?,
+            I64TruncSatF32U => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc() as u64))?,
+            I64TruncSatF64S => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as i64))?,
+            I64TruncSatF64U => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as u64))?,
 
             // custom instructions
             LocalGet2(a, b) => self.exec_local_get2(*a, *b),
@@ -375,7 +416,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr)?)?;
-            let table_idx: u32 = self.stack.values.pop_32()? as u32;
+            let table_idx: u32 = self.stack.values.pop::<i32>()? as u32;
             let table = table.borrow();
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
             table
@@ -415,7 +456,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<()> {
         // truthy value is on the top of the stack, so enter the then block
-        if self.stack.values.pop_32()? != 0 {
+        if self.stack.values.pop::<i32>()? != 0 {
             self.enter_block(self.cf.instr_ptr(), end_offset, BlockType::If, args);
             return Ok(());
         }
@@ -461,7 +502,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(ControlFlow::Continue(()))
     }
     fn exec_br_if(&mut self, to: u32) -> Result<ControlFlow<()>> {
-        if self.stack.values.pop_32()? != 0 {
+        if self.stack.values.pop::<i32>()? != 0 {
             break_to!(to, self);
         }
         self.cf.incr_instr_ptr();
@@ -474,7 +515,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Error::Other(format!("br_table out of bounds: {} >= {}", end, self.cf.instructions().len())));
         }
 
-        let idx = self.stack.values.pop_32()?;
+        let idx = self.stack.values.pop::<i32>()?;
         match self.cf.instructions()[start..end].get(idx as usize) {
             None => break_to!(default, self),
             Some(Instruction::BrLabel(to)) => break_to!(*to, self),
@@ -505,7 +546,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     fn exec_local_get(&mut self, local_index: u32) {
-        self.stack.values.push(self.cf.get_local(local_index));
+        self.stack.values.push_dyn(self.cf.get_local(local_index));
     }
     fn exec_local_set(&mut self, local_index: u32) -> Result<()> {
         todo!("needs to be updated");
@@ -516,7 +557,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         // self.stack.values.last().map(|val| self.cf.set_local(local_index, *val))
     }
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
-        self.stack.values.push(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
+        self.stack.values.push_dyn(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
         Ok(())
     }
     fn exec_global_set(&mut self, global_index: u32) -> Result<()> {
@@ -524,21 +565,21 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         // self.store.set_global_val(self.module.resolve_global_addr(global_index)?, self.stack.values.pop_raw()?)
     }
     fn exec_ref_is_null(&mut self) -> Result<()> {
-        let is_null = self.stack.values.pop_ref()?.is_none() as i32;
-        self.stack.values.push_32(is_null);
+        let is_null = self.stack.values.pop::<ValueRef>()?.is_none() as i32;
+        self.stack.values.push::<i32>(is_null);
         Ok(())
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
-        self.stack.values.push_32(mem.borrow().page_count() as i32);
+        self.stack.values.push::<i32>(mem.borrow().page_count() as i32);
         Ok(())
     }
     fn exec_memory_grow(&mut self, addr: u32) -> Result<()> {
         let mut mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?.borrow_mut();
         let prev_size = mem.page_count() as i32;
-        let pages_delta = self.stack.values.pop_32()?;
-        self.stack.values.push_32(match mem.grow(pages_delta) {
+        let pages_delta = self.stack.values.pop::<i32>()?;
+        self.stack.values.push::<i32>(match mem.grow(pages_delta) {
             Some(_) => prev_size,
             None => -1,
         });
@@ -546,9 +587,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     fn exec_memory_copy(&mut self, from: u32, to: u32) -> Result<()> {
-        let size = self.stack.values.pop_32()?;
-        let src = self.stack.values.pop_32()?;
-        let dst = self.stack.values.pop_32()?;
+        let size = self.stack.values.pop::<i32>()?;
+        let src = self.stack.values.pop::<i32>()?;
+        let dst = self.stack.values.pop::<i32>()?;
 
         if from == to {
             let mut mem_from = self.store.get_mem(self.module.resolve_mem_addr(from)?)?.borrow_mut();
@@ -563,18 +604,18 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_memory_fill(&mut self, addr: u32) -> Result<()> {
-        let size = self.stack.values.pop_32()?;
-        let val = self.stack.values.pop_32()?;
-        let dst = self.stack.values.pop_32()?;
+        let size = self.stack.values.pop::<i32>()?;
+        let val = self.stack.values.pop::<i32>()?;
+        let dst = self.stack.values.pop::<i32>()?;
 
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
         mem.borrow_mut().fill(dst as usize, size as usize, val as u8)?;
         Ok(())
     }
     fn exec_memory_init(&mut self, data_index: u32, mem_index: u32) -> Result<()> {
-        let size = self.stack.values.pop_32()?; // n
-        let offset = self.stack.values.pop_32()?; // s
-        let dst = self.stack.values.pop_32()?; // d
+        let size = self.stack.values.pop::<i32>()?; // n
+        let offset = self.stack.values.pop::<i32>()?; // s
+        let dst = self.stack.values.pop::<i32>()?; // d
 
         let data = self.store.get_data(self.module.resolve_data_addr(data_index)?)?;
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_index)?)?;
@@ -604,9 +645,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)?).map(|e| e.drop())
     }
     fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop_32()?;
-        let src: i32 = self.stack.values.pop_32()?;
-        let dst: i32 = self.stack.values.pop_32()?;
+        let size: i32 = self.stack.values.pop::<i32>()?;
+        let src: i32 = self.stack.values.pop::<i32>()?;
+        let dst: i32 = self.stack.values.pop::<i32>()?;
 
         if from == to {
             let mut table_from = self.store.get_table(self.module.resolve_table_addr(from)?)?.borrow_mut();
@@ -628,7 +669,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
     ) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
-        let val: u64 = self.stack.values.pop_64()? as u64;
+        let val: u64 = self.stack.values.pop::<i64>()? as u64;
         let Some(Ok(addr)) = offset.checked_add(val).map(|a| a.try_into()) else {
             cold();
             return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
@@ -639,7 +680,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         let val = mem.borrow().load_as::<LOAD_SIZE, LOAD>(addr)?;
-        self.stack.values.push(cast(val).into());
+        self.stack.values.push_dyn(cast(val).into());
         Ok(())
     }
     fn exec_mem_store<T: MemStorable<N>, const N: usize>(
@@ -650,28 +691,28 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     ) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
         let val = val.to_mem_bytes();
-        let addr: i64 = self.stack.values.pop_64()?;
+        let addr: i64 = self.stack.values.pop::<i64>()?;
         mem.borrow_mut().store((offset + addr as u64) as usize, val.len(), &val)?;
         Ok(())
     }
 
     fn exec_table_get(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        let idx: i32 = self.stack.values.pop_32()?;
+        let idx: i32 = self.stack.values.pop::<i32>()?;
         let v = table.borrow().get_wasm_val(idx as u32)?;
-        self.stack.values.push(v.into());
+        self.stack.values.push_dyn(v.into());
         Ok(())
     }
     fn exec_table_set(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        let val = self.stack.values.pop_ref()?;
-        let idx = self.stack.values.pop_32()? as u32;
+        let val = self.stack.values.pop::<ValueRef>()?;
+        let idx = self.stack.values.pop::<i32>()? as u32;
         table.borrow_mut().set(idx, val.into())?;
         Ok(())
     }
     fn exec_table_size(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        self.stack.values.push(table.borrow().size().into());
+        self.stack.values.push_dyn(table.borrow().size().into());
         Ok(())
     }
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<()> {
@@ -680,9 +721,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let elem = self.store.get_elem(self.module.resolve_elem_addr(elem_index)?)?;
         let elem_len = elem.items.as_ref().map(|items| items.len()).unwrap_or(0);
 
-        let size: i32 = self.stack.values.pop_32()?; // n
-        let offset: i32 = self.stack.values.pop_32()?; // s
-        let dst: i32 = self.stack.values.pop_32()?; // d
+        let size: i32 = self.stack.values.pop::<i32>()?; // n
+        let offset: i32 = self.stack.values.pop::<i32>()?; // s
+        let dst: i32 = self.stack.values.pop::<i32>()?; // d
 
         if unlikely(((size + offset) as usize > elem_len) || ((dst + size) > table_len)) {
             return Err(Trap::TableOutOfBounds { offset: offset as usize, len: size as usize, max: elem_len }.into());
@@ -707,12 +748,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let sz = table.borrow().size();
 
-        let n = self.stack.values.pop_32()?;
-        let val = self.stack.values.pop_ref()?;
+        let n = self.stack.values.pop::<i32>()?;
+        let val = self.stack.values.pop::<ValueRef>()?;
 
         match table.borrow_mut().grow(n, val.into()) {
-            Ok(_) => self.stack.values.push(sz.into()),
-            Err(_) => self.stack.values.push((-1_i32).into()),
+            Ok(_) => self.stack.values.push_dyn(sz.into()),
+            Err(_) => self.stack.values.push_dyn((-1_i32).into()),
         }
 
         Ok(())
@@ -720,9 +761,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
 
-        let n = self.stack.values.pop_32()?;
-        let val = self.stack.values.pop_ref()?;
-        let i = self.stack.values.pop_32()?;
+        let n = self.stack.values.pop::<i32>()?;
+        let val = self.stack.values.pop::<ValueRef>()?;
+        let i = self.stack.values.pop::<i32>()?;
 
         if unlikely(i + n > table.borrow().size()) {
             return Err(Error::Trap(Trap::TableOutOfBounds {
@@ -758,12 +799,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_i32_local_get_const_add(&mut self, local: u32, val: i32) {
         let local: i32 = self.cf.get_local(local).unwrap_32() as i32;
-        self.stack.values.push((local + val).into());
+        self.stack.values.push_dyn((local + val).into());
     }
     fn exec_i64_xor_const_rotl(&mut self, rotate_by: i64) -> Result<()> {
-        let val = self.stack.values.pop_64()?;
-        let mask = self.stack.values.pop_64()?;
-        self.stack.values.push_64((val ^ mask).rotate_left(rotate_by as u32));
+        let val = self.stack.values.pop::<i64>()?;
+        let mask = self.stack.values.pop::<i64>()?;
+        self.stack.values.push((val ^ mask).rotate_left(rotate_by as u32));
         Ok(())
     }
     fn exec_local_get2(&mut self, a: u32, b: u32) {

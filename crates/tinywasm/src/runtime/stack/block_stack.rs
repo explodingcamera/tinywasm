@@ -1,7 +1,7 @@
 use crate::{cold, unlikely, Error, Result};
 use alloc::vec::Vec;
 
-use super::value_stack::{StackHeight, StackLocation};
+use super::values::{StackHeight, StackLocation};
 
 #[derive(Debug)]
 pub(crate) struct BlockStack(Vec<BlockFrame>);

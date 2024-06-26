@@ -5,7 +5,7 @@ pub mod values;
 
 pub(crate) use block_stack::{BlockFrame, BlockStack, BlockType};
 pub(crate) use call_stack::{CallFrame, CallStack};
-pub(crate) use value_stack::{StackHeight, ValueStack};
+pub(crate) use value_stack::ValueStack;
 
 /// A WebAssembly Stack
 #[derive(Debug)]
