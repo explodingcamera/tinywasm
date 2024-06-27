@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
 use super::values::*;
-use crate::{Error, Result};
+use crate::Result;
 pub(crate) const STACK_32_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_64_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_128_SIZE: usize = 1024 * 128;
@@ -35,19 +35,23 @@ impl ValueStack {
         }
     }
 
-    pub(crate) fn pop<T: StackValue>(&mut self) -> Result<T> {
-        T::pop(self)
+    pub(crate) fn peek<T: InternalValue>(&self) -> Result<T> {
+        T::stack_peek(self)
     }
 
-    pub(crate) fn push<T: StackValue>(&mut self, value: T) {
-        T::push(self, value)
+    pub(crate) fn pop<T: InternalValue>(&mut self) -> Result<T> {
+        T::stack_pop(self)
     }
 
-    pub(crate) fn drop<T: StackValue>(&mut self) -> Result<()> {
-        T::pop(self).map(|_| ())
+    pub(crate) fn push<T: InternalValue>(&mut self, value: T) {
+        T::stack_push(self, value)
     }
 
-    pub(crate) fn select<T: StackValue>(&mut self) -> Result<()> {
+    pub(crate) fn drop<T: InternalValue>(&mut self) -> Result<()> {
+        T::stack_pop(self).map(|_| ())
+    }
+
+    pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
         let cond: i32 = self.pop()?;
         let val2: T = self.pop()?;
         if cond == 0 {
@@ -57,16 +61,16 @@ impl ValueStack {
         Ok(())
     }
 
-    pub(crate) fn calculate<T: StackValue, U: StackValue>(&mut self, func: fn(T, T) -> Result<U>) -> Result<()> {
-        let v2 = T::pop(self)?;
-        let v1 = T::pop(self)?;
-        U::push(self, func(v1, v2)?);
+    pub(crate) fn calculate<T: InternalValue, U: InternalValue>(&mut self, func: fn(T, T) -> Result<U>) -> Result<()> {
+        let v2 = T::stack_pop(self)?;
+        let v1 = T::stack_pop(self)?;
+        U::stack_push(self, func(v1, v2)?);
         Ok(())
     }
 
-    pub(crate) fn replace_top<T: StackValue, U: StackValue>(&mut self, func: fn(T) -> Result<U>) -> Result<()> {
-        let v1 = T::pop(self)?;
-        U::push(self, func(v1)?);
+    pub(crate) fn replace_top<T: InternalValue, U: InternalValue>(&mut self, func: fn(T) -> Result<U>) -> Result<()> {
+        let v1 = T::stack_pop(self)?;
+        U::stack_push(self, func(v1)?);
         Ok(())
     }
 
@@ -143,114 +147,5 @@ impl ValueStack {
         for value in values.iter() {
             self.push_dyn(value.into())
         }
-    }
-}
-
-mod sealed {
-    #[allow(unreachable_pub)]
-    pub trait Sealed {}
-}
-
-impl sealed::Sealed for i32 {}
-impl sealed::Sealed for f32 {}
-impl sealed::Sealed for i64 {}
-impl sealed::Sealed for u64 {}
-impl sealed::Sealed for f64 {}
-impl sealed::Sealed for u32 {}
-impl sealed::Sealed for Value128 {}
-impl sealed::Sealed for ValueRef {}
-
-pub(crate) trait StackValue: sealed::Sealed {
-    fn push(stack: &mut ValueStack, value: Self);
-    fn pop(stack: &mut ValueStack) -> Result<Self>
-    where
-        Self: Sized;
-}
-
-impl StackValue for i32 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_32.push(value as u32);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_32.pop().ok_or(Error::ValueStackUnderflow).map(|v| v as i32)
-    }
-}
-
-impl StackValue for f32 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_32.push(value.to_bits());
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_32.pop().ok_or(Error::ValueStackUnderflow).map(f32::from_bits)
-    }
-}
-
-impl StackValue for i64 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_64.push(value as u64);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_64.pop().ok_or(Error::ValueStackUnderflow).map(|v| v as i64)
-    }
-}
-
-impl StackValue for u64 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_64.push(value);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_64.pop().ok_or(Error::ValueStackUnderflow)
-    }
-}
-
-impl StackValue for f64 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_64.push(value.to_bits());
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_64.pop().ok_or(Error::ValueStackUnderflow).map(f64::from_bits)
-    }
-}
-
-impl StackValue for u32 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_32.push(value);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_32.pop().ok_or(Error::ValueStackUnderflow)
-    }
-}
-
-impl StackValue for Value128 {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_128.push(value);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_128.pop().ok_or(Error::ValueStackUnderflow)
-    }
-}
-
-impl StackValue for ValueRef {
-    #[inline]
-    fn push(stack: &mut ValueStack, value: Self) {
-        stack.stack_ref.push(value);
-    }
-    #[inline]
-    fn pop(stack: &mut ValueStack) -> Result<Self> {
-        stack.stack_ref.pop().ok_or(Error::ValueStackUnderflow)
     }
 }

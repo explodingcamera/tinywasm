@@ -1,4 +1,4 @@
-use super::values::TinyWasmValue;
+use super::values::{InternalValue, TinyWasmValue, Value128, Value32, Value64, ValueRef};
 use super::BlockType;
 use crate::unlikely;
 use crate::{Result, Trap};
@@ -41,7 +41,25 @@ pub(crate) struct CallFrame {
     pub(crate) block_ptr: u32,
     pub(crate) func_instance: Rc<WasmFunction>,
     pub(crate) module_addr: ModuleInstanceAddr,
-    pub(crate) locals: Box<[TinyWasmValue]>,
+    pub(crate) locals: Locals,
+}
+
+#[derive(Debug)]
+pub(crate) struct Locals {
+    pub(crate) locals_32: Box<[Value32]>,
+    pub(crate) locals_64: Box<[Value64]>,
+    pub(crate) locals_128: Box<[Value128]>,
+    pub(crate) locals_ref: Box<[ValueRef]>,
+}
+
+impl Locals {
+    pub(crate) fn get<T: InternalValue>(&self, local_index: LocalAddr) -> Result<T> {
+        T::local_get(self, local_index)
+    }
+
+    pub(crate) fn set<T: InternalValue>(&mut self, local_index: LocalAddr, value: T) -> Result<()> {
+        T::local_set(self, local_index, value)
+    }
 }
 
 impl CallFrame {
@@ -140,25 +158,34 @@ impl CallFrame {
         block_ptr: u32,
     ) -> Self {
         let locals = {
-            let total_size = wasm_func_inst.locals.len() + params.len();
-            let mut locals = Vec::new();
-            locals.reserve_exact(total_size);
-            locals.extend(params);
-            locals.resize_with(total_size, Default::default);
-            locals.into_boxed_slice()
+            let mut locals_32 = Vec::new();
+            let mut locals_64 = Vec::new();
+            let mut locals_128 = Vec::new();
+            let mut locals_ref = Vec::new();
+
+            for p in params {
+                match p {
+                    TinyWasmValue::Value32(v) => locals_32.push(v),
+                    TinyWasmValue::Value64(v) => locals_64.push(v),
+                    TinyWasmValue::Value128(v) => locals_128.push(v),
+                    TinyWasmValue::ValueRef(v) => locals_ref.push(v),
+                }
+            }
+
+            locals_32.resize_with(wasm_func_inst.locals.local_32 as usize, Default::default);
+            locals_64.resize_with(wasm_func_inst.locals.local_64 as usize, Default::default);
+            locals_128.resize_with(wasm_func_inst.locals.local_128 as usize, Default::default);
+            locals_ref.resize_with(wasm_func_inst.locals.local_ref as usize, Default::default);
+
+            Locals {
+                locals_32: locals_32.into_boxed_slice(),
+                locals_64: locals_64.into_boxed_slice(),
+                locals_128: locals_128.into_boxed_slice(),
+                locals_ref: locals_ref.into_boxed_slice(),
+            }
         };
 
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
-    }
-
-    #[inline(always)]
-    pub(crate) fn set_local(&mut self, local_index: LocalAddr, value: TinyWasmValue) {
-        self.locals[local_index as usize] = value;
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_local(&self, local_index: LocalAddr) -> TinyWasmValue {
-        self.locals[local_index as usize]
     }
 
     #[inline(always)]

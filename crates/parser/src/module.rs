@@ -3,12 +3,12 @@ use crate::{conversion, ParseError, Result};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{
-    Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule, ValType,
+    Data, Element, Export, FuncType, Global, Import, Instruction, LocalCounts, MemoryType, TableType, TinyWasmModule,
     WasmFunction,
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
-pub(crate) type Code = (Box<[Instruction]>, Box<[ValType]>);
+pub(crate) type Code = (Box<[Instruction]>, LocalCounts);
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {

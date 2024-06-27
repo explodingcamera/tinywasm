@@ -1,16 +1,4 @@
-use alloc::{format, rc::Rc, string::ToString};
-use core::ops::ControlFlow;
-use tinywasm_types::{BlockArgs, ElementKind, Instruction, ModuleInstanceAddr, ValType, WasmFunction};
-use traits::{TinywasmFloatExt, WasmIntOps};
-
-use super::stack::{values::StackHeight, BlockFrame, BlockType};
-use super::{values::*, InterpreterRuntime, Stack};
-use crate::runtime::CallFrame;
-use crate::{cold, unlikely, Error, FuncContext, MemLoadable, MemStorable, ModuleInstance, Result, Store, Trap};
-
-mod macros;
-mod traits;
-use macros::*;
+mod num_helpers;
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
@@ -18,6 +6,16 @@ mod no_std_floats;
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
 use no_std_floats::NoStdFloatExt;
+
+use alloc::{format, rc::Rc, string::ToString};
+use core::ops::ControlFlow;
+use num_helpers::*;
+use tinywasm_types::*;
+
+use super::stack::{values::StackHeight, BlockFrame, BlockType};
+use super::{values::*, InterpreterRuntime, Stack};
+use crate::runtime::CallFrame;
+use crate::*;
 
 impl InterpreterRuntime {
     pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
@@ -81,9 +79,29 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block()?,
 
-            LocalGet(local_index) => self.exec_local_get(*local_index),
-            LocalSet(local_index) => self.exec_local_set(*local_index)?,
-            LocalTee(local_index) => self.exec_local_tee(*local_index)?,
+            LocalGet32(local_index) => {
+                self.cf.locals.get::<Value32>(*local_index).map(|v| self.stack.values.push(v))?
+            }
+            LocalGet64(local_index) => {
+                self.cf.locals.get::<Value64>(*local_index).map(|v| self.stack.values.push(v))?
+            }
+            LocalGet128(local_index) => {
+                self.cf.locals.get::<Value128>(*local_index).map(|v| self.stack.values.push(v))?
+            }
+            LocalGetRef(local_index) => {
+                self.cf.locals.get::<ValueRef>(*local_index).map(|v| self.stack.values.push(v))?
+            }
+
+            LocalSet32(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value32>()?)?,
+            LocalSet64(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value64>()?)?,
+            LocalSet128(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value128>()?)?,
+            LocalSetRef(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<ValueRef>()?)?,
+
+            LocalTee32(local_index) => self.cf.locals.set(*local_index, self.stack.values.peek::<Value32>()?)?,
+            LocalTee64(local_index) => self.cf.locals.set(*local_index, self.stack.values.peek::<Value64>()?)?,
+            LocalTee128(local_index) => self.cf.locals.set(*local_index, self.stack.values.peek::<Value128>()?)?,
+            LocalTeeRef(local_index) => self.cf.locals.set(*local_index, self.stack.values.peek::<ValueRef>()?)?,
+
             GlobalGet(global_index) => self.exec_global_get(*global_index)?,
             GlobalSet(global_index) => self.exec_global_set(*global_index)?,
 
@@ -218,55 +236,55 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F32Mul => self.stack.values.calculate::<f32, _>(|a, b| Ok(a * b))?,
             F64Mul => self.stack.values.calculate::<f64, _>(|a, b| Ok(a * b))?,
 
-            // // these can trap
+            // these can trap
             I32DivS => self.stack.values.calculate::<i32, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_div(b))
+                a.checked_div(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I64DivS => self.stack.values.calculate::<i64, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_div(b))
+                a.checked_div(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I32DivU => self.stack.values.calculate::<u32, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_div(b))
+                a.checked_div(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I64DivU => self.stack.values.calculate::<u64, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_div(b))
+                a.checked_div(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
 
             I32RemS => self.stack.values.calculate::<i32, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_rem(b))
+                a.checked_wrapping_rem(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I64RemS => self.stack.values.calculate::<i64, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_rem(b))
+                a.checked_wrapping_rem(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I32RemU => self.stack.values.calculate::<u32, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_rem(b))
+                a.checked_wrapping_rem(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
             I64RemU => self.stack.values.calculate::<u64, _>(|a, b| {
                 if unlikely(b == 0) {
                     return Err(Error::Trap(Trap::DivisionByZero));
                 }
-                Ok(a.wrapping_rem(b))
+                a.checked_wrapping_rem(b).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
             })?,
 
             I32And => self.stack.values.calculate::<i32, _>(|a, b| Ok(a & b))?,
@@ -338,15 +356,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             // no-op instructions since types are erased at runtime
             I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
 
-            // WIP
-            // I32TruncF32S => checked_conv_float!(4, f32, i32, self),
-            // I32TruncF64S => checked_conv_float!(8, f64, i32, self),
-            // I32TruncF32U => checked_conv_float!(4, f32, u32, i32, self),
-            // I32TruncF64U => checked_conv_float!(8, f64, u32, i32, self),
-            // I64TruncF32S => checked_conv_float!(4, f32, i64, self),
-            // I64TruncF64S => checked_conv_float!(8, f64, i64, self),
-            // I64TruncF32U => checked_conv_float!(4, f32, u64, i64, self),
-            // I64TruncF64U => checked_conv_float!(8, f64, u64, i64, self),
+            I32TruncF32S => checked_conv_float!(f32, i32, self),
+            I32TruncF64S => checked_conv_float!(f64, i32, self),
+            I32TruncF32U => checked_conv_float!(f32, u32, i32, self),
+            I32TruncF64U => checked_conv_float!(f64, u32, i32, self),
+            I64TruncF32S => checked_conv_float!(f32, i64, self),
+            I64TruncF64S => checked_conv_float!(f64, i64, self),
+            I64TruncF32U => checked_conv_float!(f32, u64, i64, self),
+            I64TruncF64U => checked_conv_float!(f64, u64, i64, self),
+
             TableGet(table_idx) => self.exec_table_get(*table_idx)?,
             TableSet(table_idx) => self.exec_table_set(*table_idx)?,
             TableSize(table_idx) => self.exec_table_size(*table_idx)?,
@@ -362,21 +380,19 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64TruncSatF32U => self.stack.values.replace_top::<f32, _>(|v| Ok(v.trunc() as u64))?,
             I64TruncSatF64S => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as i64))?,
             I64TruncSatF64U => self.stack.values.replace_top::<f64, _>(|v| Ok(v.trunc() as u64))?,
-
             // custom instructions
-            LocalGet2(a, b) => self.exec_local_get2(*a, *b),
-            LocalGet3(a, b, c) => self.exec_local_get3(*a, *b, *c),
-            LocalTeeGet(a, b) => self.exec_local_tee_get(*a, *b)?,
-            LocalGetSet(a, b) => self.exec_local_get_set(*a, *b),
-            I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by)?,
-            I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val),
-            I32ConstStoreLocal { local, const_i32, offset, mem_addr } => {
-                self.exec_i32_const_store_local(*local, *const_i32, *offset, *mem_addr)?
-            }
-            I32StoreLocal { local_a, local_b, offset, mem_addr } => {
-                self.exec_i32_store_local(*local_a, *local_b, *offset, *mem_addr)?
-            }
-            instr => todo!("instruction not implemented: {:?}", instr),
+            // LocalGet2(a, b) => self.exec_local_get2(*a, *b),
+            // LocalGet3(a, b, c) => self.exec_local_get3(*a, *b, *c),
+            // LocalTeeGet(a, b) => self.exec_local_tee_get(*a, *b)?,
+            // LocalGetSet(a, b) => self.exec_local_get_set(*a, *b),
+            // I64XorConstRotl(rotate_by) => self.exec_i64_xor_const_rotl(*rotate_by)?,
+            // I32LocalGetConstAdd(local, val) => self.exec_i32_local_get_const_add(*local, *val),
+            // I32ConstStoreLocal { local, const_i32, offset, mem_addr } => {
+            //     self.exec_i32_const_store_local(*local, *const_i32, *offset, *mem_addr)?
+            // }
+            // I32StoreLocal { local_a, local_b, offset, mem_addr } => {
+            //     self.exec_i32_store_local(*local_a, *local_b, *offset, *mem_addr)?
+            // }
         };
 
         self.cf.instr_ptr += 1;
@@ -497,13 +513,18 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         });
     }
     fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
-        break_to!(to, self);
+        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+            return self.exec_return();
+        }
+
         self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
     }
     fn exec_br_if(&mut self, to: u32) -> Result<ControlFlow<()>> {
-        if self.stack.values.pop::<i32>()? != 0 {
-            break_to!(to, self);
+        if self.stack.values.pop::<i32>()? != 0
+            && self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none()
+        {
+            return self.exec_return();
         }
         self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
@@ -516,10 +537,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
 
         let idx = self.stack.values.pop::<i32>()?;
-        match self.cf.instructions()[start..end].get(idx as usize) {
-            None => break_to!(default, self),
-            Some(Instruction::BrLabel(to)) => break_to!(*to, self),
+        let to = match self.cf.instructions()[start..end].get(idx as usize) {
+            None => default,
+            Some(Instruction::BrLabel(to)) => *to,
             _ => return Err(Error::Other("br_table with invalid label".to_string())),
+        };
+
+        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+            return self.exec_return();
         }
 
         self.cf.incr_instr_ptr();
@@ -545,22 +570,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
 
-    fn exec_local_get(&mut self, local_index: u32) {
-        self.stack.values.push_dyn(self.cf.get_local(local_index));
-    }
-    fn exec_local_set(&mut self, local_index: u32) -> Result<()> {
-        todo!("needs to be updated");
-        // self.stack.values.pop().map(|val| self.cf.set_local(local_index, val))
-    }
-    fn exec_local_tee(&mut self, local_index: u32) -> Result<()> {
-        todo!("needs to be updated");
-        // self.stack.values.last().map(|val| self.cf.set_local(local_index, *val))
-    }
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
         self.stack.values.push_dyn(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
         Ok(())
     }
-    fn exec_global_set(&mut self, global_index: u32) -> Result<()> {
+    fn exec_global_set(&mut self, _global_index: u32) -> Result<()> {
         todo!("needs to be updated");
         // self.store.set_global_val(self.module.resolve_global_addr(global_index)?, self.stack.values.pop_raw()?)
     }
@@ -779,53 +793,5 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         table.borrow_mut().fill(self.module.func_addrs(), i as usize, n as usize, val.into())?;
         Ok(())
-    }
-
-    // custom instructions
-    fn exec_i32_const_store_local(&mut self, local: u32, const_i32: i32, offset: u32, mem_addr: u8) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32)?)?;
-        let val = const_i32.to_mem_bytes();
-        let addr = self.cf.get_local(local).unwrap_64();
-        mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
-        Ok(())
-    }
-    fn exec_i32_store_local(&mut self, local_a: u32, local_b: u32, offset: u32, mem_addr: u8) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr as u32)?)?;
-        let addr: u64 = self.cf.get_local(local_a).unwrap_64();
-        let val: i32 = self.cf.get_local(local_b).unwrap_32() as i32;
-        let val = val.to_mem_bytes();
-        mem.borrow_mut().store((offset as u64 + addr) as usize, val.len(), &val)?;
-        Ok(())
-    }
-    fn exec_i32_local_get_const_add(&mut self, local: u32, val: i32) {
-        let local: i32 = self.cf.get_local(local).unwrap_32() as i32;
-        self.stack.values.push_dyn((local + val).into());
-    }
-    fn exec_i64_xor_const_rotl(&mut self, rotate_by: i64) -> Result<()> {
-        let val = self.stack.values.pop::<i64>()?;
-        let mask = self.stack.values.pop::<i64>()?;
-        self.stack.values.push((val ^ mask).rotate_left(rotate_by as u32));
-        Ok(())
-    }
-    fn exec_local_get2(&mut self, a: u32, b: u32) {
-        todo!("needs to be updated");
-        // self.stack.values.extend_from_slice(&[self.cf.get_local(a), self.cf.get_local(b)]);
-    }
-    fn exec_local_get3(&mut self, a: u32, b: u32, c: u32) {
-        todo!("needs to be updated");
-        // self.stack.values.extend_from_slice(&[self.cf.get_local(a), self.cf.get_local(b), self.cf.get_local(c)]);
-    }
-    fn exec_local_get_set(&mut self, a: u32, b: u32) {
-        self.cf.set_local(b, self.cf.get_local(a))
-    }
-    fn exec_local_tee_get(&mut self, a: u32, b: u32) -> Result<()> {
-        todo!("needs to be updated");
-        // let last = self.stack.values.last()?;
-        // self.cf.set_local(a, *last);
-        // self.stack.values.push(match a == b {
-        //     true => *last,
-        //     false => self.cf.get_local(b),
-        // });
-        // Ok(())
     }
 }

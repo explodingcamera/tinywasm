@@ -25,10 +25,11 @@ impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> 
 pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     validator: FuncValidator<R>,
     body: FunctionBody<'_>,
+    local_addr_map: Vec<u32>,
 ) -> Result<(Box<[Instruction]>, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
-    let mut builder = FunctionBuilder::new(remaining, validator);
+    let mut builder = FunctionBuilder::new(remaining, validator, local_addr_map);
 
     while !reader.eof() {
         reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
@@ -78,6 +79,7 @@ pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
     label_ptrs: Vec<usize>,
+    local_addr_map: Vec<u32>,
     errors: Vec<crate::ParseError>,
 }
 
@@ -95,9 +97,10 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 }
 
 impl<R: WasmModuleResources> FunctionBuilder<R> {
-    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>) -> Self {
+    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
         Self {
             validator,
+            local_addr_map,
             instructions: Vec::with_capacity(instr_capacity),
             label_ptrs: Vec::with_capacity(256),
             errors: Vec::new(),
@@ -338,91 +341,63 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
         let arg = MemoryArg { offset: memarg.offset, mem_addr: memarg.memory };
         let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
-
-        if self.instructions.len() < 3 || arg.mem_addr > 0xFF || arg.offset > 0xFFFF_FFFF {
-            return self.instructions.push(i32store);
-        }
-
-        match self.instructions[self.instructions.len() - 2..] {
-            [_, Instruction::LocalGet2(a, b)] => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32StoreLocal {
-                    local_a: a,
-                    local_b: b,
-                    offset: arg.offset as u32,
-                    mem_addr: arg.mem_addr as u8,
-                })
-            }
-            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32ConstStoreLocal {
-                    local: a,
-                    const_i32: b,
-                    offset: arg.offset as u32,
-                    mem_addr: arg.mem_addr as u8,
-                })
-            }
-            _ => self.instructions.push(i32store),
-        }
+        self.instructions.push(i32store)
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        let Some(instruction) = self.instructions.last_mut() else {
-            return self.instructions.push(Instruction::LocalGet(idx));
-        };
-
-        match instruction {
-            Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
-            Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-            Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
-            _ => self.instructions.push(Instruction::LocalGet(idx)),
-        };
+        let idx = self.local_addr_map[idx as usize];
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalGet32(idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalGet32(idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalGet64(idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalGet64(idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalGet128(idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(idx),
+            }),
+            _ => unreachable!("this should have been caught by the validator"),
+        }
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        let Some(instruction) = self.instructions.last_mut() else {
-            return self.instructions.push(Instruction::LocalSet(idx));
-        };
-        match instruction {
-            Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-            _ => self.instructions.push(Instruction::LocalSet(idx)),
-        };
+        let idx = self.local_addr_map[idx as usize];
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalSet32(idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalSet32(idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalSet64(idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalSet64(idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalSet128(idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(idx),
+            }),
+            _ => unreachable!("this should have been caught by the validator"),
+        }
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
-        self.instructions.push(Instruction::LocalTee(idx))
+        let idx = self.local_addr_map[idx as usize];
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalTee32(idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalTee32(idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalTee64(idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalTee64(idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalTee128(idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(idx),
+            }),
+            _ => unreachable!("this should have been caught by the validator"),
+        }
     }
 
     fn visit_i64_rotl(&mut self) -> Self::Output {
-        let Some([Instruction::I64Xor, Instruction::I64Const(a)]) = self.instructions.last_chunk::<2>() else {
-            return self.instructions.push(Instruction::I64Rotl);
-        };
-        let a = *a;
-        self.instructions.pop();
-        self.instructions.pop();
-        self.instructions.push(Instruction::I64XorConstRotl(a))
+        self.instructions.push(Instruction::I64Rotl)
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        let Some(last) = self.instructions.last_chunk::<2>() else {
-            return self.instructions.push(Instruction::I32Add);
-        };
-
-        match *last {
-            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32LocalGetConstAdd(a, b))
-            }
-            [Instruction::LocalGet2(a, b), Instruction::I32Const(c)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalGet(a));
-                self.instructions.push(Instruction::I32LocalGetConstAdd(b, c))
-            }
-            _ => self.instructions.push(Instruction::I32Add),
-        }
+        self.instructions.push(Instruction::I32Add)
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
