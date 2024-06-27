@@ -149,7 +149,10 @@ pub enum Instruction {
     LocalTeeRef(LocalAddr),
 
     GlobalGet(GlobalAddr),
-    GlobalSet(GlobalAddr),
+    GlobalSet32(GlobalAddr),
+    GlobalSet64(GlobalAddr),
+    GlobalSet128(GlobalAddr),
+    GlobalSetRef(GlobalAddr),
 
     // > Memory Instructions
     I32Load { offset: u64, mem_addr: MemAddr },

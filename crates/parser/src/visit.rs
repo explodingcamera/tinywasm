@@ -10,8 +10,8 @@ struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuil
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {$(
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-            self.1.validator_visitor(self.0).$visit($($($arg.clone()),*)?)?;
-            self.1.$visit($($($arg),*)?);
+            self.1.$visit($($($arg.clone()),*)?);
+            self.1.validator_visitor(self.0).$visit($($($arg),*)?)?;
             Ok(())
         }
     )*};
@@ -138,7 +138,6 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_br, Instruction::Br, u32,
         visit_br_if, Instruction::BrIf, u32,
         visit_global_get, Instruction::GlobalGet, u32,
-        visit_global_set, Instruction::GlobalSet, u32,
         visit_i32_const, Instruction::I32Const, i32,
         visit_i64_const, Instruction::I64Const, i64,
         visit_call, Instruction::Call, u32,
@@ -318,6 +317,21 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
     }
 
+    fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::GlobalSet32(global_index),
+                tinywasm_types::ValType::F32 => Instruction::GlobalSet32(global_index),
+                tinywasm_types::ValType::I64 => Instruction::GlobalSet64(global_index),
+                tinywasm_types::ValType::F64 => Instruction::GlobalSet64(global_index),
+                tinywasm_types::ValType::V128 => Instruction::GlobalSet128(global_index),
+                tinywasm_types::ValType::RefExtern => Instruction::GlobalSetRef(global_index),
+                tinywasm_types::ValType::RefFunc => Instruction::GlobalSetRef(global_index),
+            }),
+            _ => self.visit_unreachable(),
+        }
+    }
+
     fn visit_drop(&mut self) -> Self::Output {
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
@@ -329,13 +343,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 tinywasm_types::ValType::RefExtern => Instruction::DropRef,
                 tinywasm_types::ValType::RefFunc => Instruction::DropRef,
             }),
-            _ => unreachable!("this should have been caught by the validator"),
+            _ => self.visit_unreachable(),
         }
     }
     fn visit_select(&mut self) -> Self::Output {
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.visit_typed_select(t),
-            _ => unreachable!("Unknow type for select"),
+            _ => self.visit_unreachable(),
         }
     }
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
@@ -346,8 +360,8 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let idx = self.local_addr_map[idx as usize];
-        match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+        match self.validator.get_local_type(idx) {
+            Some(t) => self.instructions.push(match convert_valtype(&t) {
                 tinywasm_types::ValType::I32 => Instruction::LocalGet32(idx),
                 tinywasm_types::ValType::F32 => Instruction::LocalGet32(idx),
                 tinywasm_types::ValType::I64 => Instruction::LocalGet64(idx),
@@ -356,7 +370,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(idx),
                 tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(idx),
             }),
-            _ => unreachable!("this should have been caught by the validator"),
+            _ => self.visit_unreachable(),
         }
     }
 
@@ -372,7 +386,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(idx),
                 tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(idx),
             }),
-            _ => unreachable!("this should have been caught by the validator"),
+            _ => self.visit_unreachable(),
         }
     }
 
@@ -388,7 +402,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(idx),
                 tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(idx),
             }),
-            _ => unreachable!("this should have been caught by the validator"),
+            _ => self.visit_unreachable(),
         }
     }
 
@@ -479,7 +493,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             .targets()
             .map(|t| t.map(Instruction::BrLabel))
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
-            .expect("BrTable targets are invalid, this should have been caught by the validator");
+            .expect("visit_br_table: BrTable targets are invalid, this should have been caught by the validator");
 
         self.instructions.extend(([Instruction::BrTable(def, instrs.len() as u32)].into_iter()).chain(instrs));
     }

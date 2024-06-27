@@ -10,11 +10,6 @@ pub type Value64 = u64;
 pub type Value128 = u128;
 pub type ValueRef = Option<u32>;
 
-pub const VALUE32: u8 = 0;
-pub const VALUE64: u8 = 1;
-pub const VALUE128: u8 = 2;
-pub const VALUEREF: u8 = 3;
-
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StackLocation {
     pub(crate) s32: u32,
@@ -170,9 +165,33 @@ impl From<i32> for TinyWasmValue {
     }
 }
 
+impl From<u32> for TinyWasmValue {
+    fn from(value: u32) -> Self {
+        TinyWasmValue::Value32(value)
+    }
+}
+
 impl From<i64> for TinyWasmValue {
     fn from(value: i64) -> Self {
         TinyWasmValue::Value64(value as u64)
+    }
+}
+
+impl From<u64> for TinyWasmValue {
+    fn from(value: u64) -> Self {
+        TinyWasmValue::Value64(value)
+    }
+}
+
+impl From<Value128> for TinyWasmValue {
+    fn from(value: Value128) -> Self {
+        TinyWasmValue::Value128(value)
+    }
+}
+
+impl From<ValueRef> for TinyWasmValue {
+    fn from(value: ValueRef) -> Self {
+        TinyWasmValue::ValueRef(value)
     }
 }
 

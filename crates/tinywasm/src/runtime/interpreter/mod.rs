@@ -65,8 +65,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Select128 => self.stack.values.select::<Value128>()?,
             SelectRef => self.stack.values.select::<ValueRef>()?,
 
-            Call(v) => self.exec_call_direct(*v)?,
-            CallIndirect(ty, table) => self.exec_call_indirect(*ty, *table)?,
+            Call(v) => return self.exec_call_direct(*v),
+            CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
 
             If(args, el, end) => self.exec_if((*args).into(), *el, *end)?,
             Else(end_offset) => self.exec_else(*end_offset)?,
@@ -103,7 +103,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalTeeRef(local_index) => self.cf.locals.set(*local_index, self.stack.values.peek::<ValueRef>()?)?,
 
             GlobalGet(global_index) => self.exec_global_get(*global_index)?,
-            GlobalSet(global_index) => self.exec_global_set(*global_index)?,
+            GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index)?,
+            GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index)?,
+            GlobalSet128(global_index) => self.exec_global_set::<Value128>(*global_index)?,
+            GlobalSetRef(global_index) => self.exec_global_set::<ValueRef>(*global_index)?,
 
             I32Const(val) => self.stack.values.push(*val),
             I64Const(val) => self.stack.values.push(*val),
@@ -405,16 +408,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Err(Error::Trap(Trap::Unreachable))
     }
 
-    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<()> {
+    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<ControlFlow<()>> {
         let params = self.stack.values.pop_many_raw(&wasm_func.ty.params)?;
         let new_call_frame = CallFrame::new_raw(wasm_func, owner, params.into_iter(), self.stack.blocks.len() as u32);
         self.cf.instr_ptr += 1; // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr(), self.store);
-        self.cf.instr_ptr -= 1;
-        Ok(())
+        return Ok(ControlFlow::Continue(()));
     }
-    fn exec_call_direct(&mut self, v: u32) -> Result<()> {
+    fn exec_call_direct(&mut self, v: u32) -> Result<ControlFlow<()>> {
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v)?)?;
         let wasm_func = match &func_inst.func {
             crate::Function::Wasm(wasm_func) => wasm_func,
@@ -423,12 +425,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_many(&host_func.ty.params)?;
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
-                return Ok(());
+                return Ok(ControlFlow::Continue(()));
             }
         };
         self.exec_call(wasm_func.clone(), func_inst.owner)
     }
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<()> {
+    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ControlFlow<()>> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr)?)?;
@@ -458,7 +460,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_many(&host_func.ty.params)?;
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
-                return Ok(());
+                self.cf.instr_ptr += 1;
+                return Ok(ControlFlow::Continue(()));
             }
         };
 
@@ -574,9 +577,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push_dyn(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
         Ok(())
     }
-    fn exec_global_set(&mut self, _global_index: u32) -> Result<()> {
-        todo!("needs to be updated");
-        // self.store.set_global_val(self.module.resolve_global_addr(global_index)?, self.stack.values.pop_raw()?)
+    fn exec_global_set<T: InternalValue>(&mut self, global_index: u32) -> Result<()>
+    where
+        TinyWasmValue: From<T>,
+    {
+        self.store.set_global_val(self.module.resolve_global_addr(global_index)?, self.stack.values.pop::<T>()?.into())
     }
     fn exec_ref_is_null(&mut self) -> Result<()> {
         let is_null = self.stack.values.pop::<ValueRef>()?.is_none() as i32;
