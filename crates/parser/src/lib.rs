@@ -62,6 +62,7 @@ impl Parser {
             component_model: false,
             component_model_nested_names: false,
             component_model_values: false,
+            component_model_more_flags: false,
             exceptions: false,
             extended_const: false,
             gc: false,

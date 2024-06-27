@@ -87,21 +87,20 @@ pub enum ConstInstruction {
 #[rustfmt::skip]
 pub enum Instruction {
     // > Custom Instructions
-    BrLabel(LabelAddr),
-    // LocalGet + I32Const + I32Add
-    I32LocalGetConstAdd(LocalAddr, i32),
-    // LocalGet + I32Const + I32Store
-    I32ConstStoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
-    // LocalGet + LocalGet + I32Store
-    I32StoreLocal { local_a: LocalAddr, local_b: LocalAddr, offset: u32, mem_addr: u8 },
-    // I64Xor + I64Const + I64RotL 
-    // Commonly used by a few crypto libraries
-    I64XorConstRotl(i64),
-    // LocalTee + LocalGet
-    LocalTeeGet(LocalAddr, LocalAddr),
-    LocalGet2(LocalAddr, LocalAddr),
-    LocalGet3(LocalAddr, LocalAddr, LocalAddr),
-    LocalGetSet(LocalAddr, LocalAddr),
+    // // LocalGet + I32Const + I32Add
+    // I32LocalGetConstAdd(LocalAddr, i32),
+    // // LocalGet + I32Const + I32Store
+    // I32ConstStoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
+    // // LocalGet + LocalGet + I32Store
+    // I32StoreLocal { local_a: LocalAddr, local_b: LocalAddr, offset: u32, mem_addr: u8 },
+    // // I64Xor + I64Const + I64RotL 
+    // // Commonly used by a few crypto libraries
+    // I64XorConstRotl(i64),
+    // // LocalTee + LocalGet
+    // LocalTeeGet(LocalAddr, LocalAddr),
+    // LocalGet2(LocalAddr, LocalAddr),
+    // LocalGet3(LocalAddr, LocalAddr, LocalAddr),
+    // LocalGetSet(LocalAddr, LocalAddr),
 
     // > Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
@@ -115,22 +114,45 @@ pub enum Instruction {
     Br(LabelAddr),
     BrIf(LabelAddr),
     BrTable(BrTableDefault, BrTableLen), // has to be followed by multiple BrLabel instructions
+    BrLabel(LabelAddr),
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
-
+ 
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
-    Drop,
-    Select(Option<ValType>),
+    Drop32,
+    Drop64,
+    Drop128,
+    DropRef,
+
+    Select32,
+    Select64,
+    Select128,
+    SelectRef,
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    LocalGet(LocalAddr),
-    LocalSet(LocalAddr),
-    LocalTee(LocalAddr),
+    LocalGet32(LocalAddr),
+    LocalGet64(LocalAddr),
+    LocalGet128(LocalAddr),
+    LocalGetRef(LocalAddr),
+
+    LocalSet32(LocalAddr),
+    LocalSet64(LocalAddr),
+    LocalSet128(LocalAddr),
+    LocalSetRef(LocalAddr),
+
+    LocalTee32(LocalAddr),
+    LocalTee64(LocalAddr),
+    LocalTee128(LocalAddr),
+    LocalTeeRef(LocalAddr),
+
     GlobalGet(GlobalAddr),
-    GlobalSet(GlobalAddr),
+    GlobalSet32(GlobalAddr),
+    GlobalSet64(GlobalAddr),
+    GlobalSet128(GlobalAddr),
+    GlobalSetRef(GlobalAddr),
 
     // > Memory Instructions
     I32Load { offset: u64, mem_addr: MemAddr },

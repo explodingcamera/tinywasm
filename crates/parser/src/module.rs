@@ -3,12 +3,12 @@ use crate::{conversion, ParseError, Result};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{
-    Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule, ValType,
+    Data, Element, Export, FuncType, Global, Import, Instruction, LocalCounts, MemoryType, TableType, TinyWasmModule,
     WasmFunction,
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
-pub(crate) type Code = (Box<[Instruction]>, Box<[ValType]>);
+pub(crate) type Code = (Box<[Instruction]>, LocalCounts);
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {
@@ -135,9 +135,10 @@ impl ModuleReader {
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");
                 let v = validator.code_section_entry(&function)?;
-                let mut func_validator = v.into_validator(self.func_validator_allocations.take().unwrap_or_default());
-                self.code.push(conversion::convert_module_code(function, &mut func_validator)?);
-                self.func_validator_allocations = Some(func_validator.into_allocations());
+                let func_validator = v.into_validator(self.func_validator_allocations.take().unwrap_or_default());
+                let (code, allocations) = conversion::convert_module_code(function, func_validator)?;
+                self.code.push(code);
+                self.func_validator_allocations = Some(allocations);
             }
             ImportSection(reader) => {
                 if !self.imports.is_empty() {

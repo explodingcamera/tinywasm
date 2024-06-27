@@ -19,9 +19,19 @@ tinywasm-parser={version="0.7.0", path="../parser", default-features=false, opti
 tinywasm-types={version="0.7.0", path="../types", default-features=false}
 libm={version="0.2", default-features=false}
 
+# maybe?
+# arrayvec={version="0.7"}          instead of the custom implementation
+# bumpalo={version="3.16"}
+# wide=                             for simd
+# vec1=                             might be useful? fast .last() and .first() access
+# https://github.com/lumol-org/soa-derive       could be useful for the memory layout of Stacks
+
+#https://alic.dev/blog/dense-enums
+# https://docs.rs/tagged-pointer/latest/tagged_pointer/
+
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}
-wast={version="211.0"}
+wast={version="212.0"}
 owo-colors={version="4.0"}
 eyre={version="0.6"}
 serde_json={version="1.0"}

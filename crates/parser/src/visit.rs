@@ -4,45 +4,43 @@ use crate::conversion::{convert_heaptype, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{Instruction, MemoryArg};
-use wasmparser::{FuncValidator, FunctionBody, VisitOperator, WasmModuleResources};
+use wasmparser::{FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, WasmModuleResources};
 
-struct ValidateThenVisit<'a, T, U>(T, &'a mut U);
+struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
 macro_rules! validate_then_visit {
     ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {$(
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-            self.0.$visit($($($arg.clone()),*)?)?;
-            self.1.$visit($($($arg),*)?);
+            self.1.$visit($($($arg.clone()),*)?);
+            self.1.validator_visitor(self.0).$visit($($($arg),*)?)?;
             Ok(())
         }
     )*};
 }
 
-impl<'a, T, U> VisitOperator<'a> for ValidateThenVisit<'_, T, U>
-where
-    T: VisitOperator<'a, Output = wasmparser::Result<()>>,
-    U: VisitOperator<'a, Output = ()>,
-{
+impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> {
     type Output = Result<()>;
     wasmparser::for_each_operator!(validate_then_visit);
 }
 
 pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
-    validator: &mut FuncValidator<R>,
+    validator: FuncValidator<R>,
     body: FunctionBody<'_>,
-) -> Result<Box<[Instruction]>> {
+    local_addr_map: Vec<u32>,
+) -> Result<(Box<[Instruction]>, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
-    let mut builder = FunctionBuilder::new(remaining);
+    let mut builder = FunctionBuilder::new(remaining, validator, local_addr_map);
+
     while !reader.eof() {
-        let validate = validator.visitor(reader.original_position());
-        reader.visit_operator(&mut ValidateThenVisit(validate, &mut builder))??;
+        reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
     }
-    validator.finish(reader.original_position())?;
+
+    builder.validator_finish(reader.original_position())?;
     if !builder.errors.is_empty() {
         return Err(builder.errors.remove(0));
     }
 
-    Ok(builder.instructions.into_boxed_slice())
+    Ok((builder.instructions.into_boxed_slice(), builder.validator.into_allocations()))
 }
 
 macro_rules! define_operands {
@@ -77,15 +75,32 @@ macro_rules! define_mem_operands {
     )*};
 }
 
-pub(crate) struct FunctionBuilder {
+pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
+    validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
     label_ptrs: Vec<usize>,
+    local_addr_map: Vec<u32>,
     errors: Vec<crate::ParseError>,
 }
 
-impl FunctionBuilder {
-    pub(crate) fn new(instr_capacity: usize) -> Self {
+impl<R: WasmModuleResources> FunctionBuilder<R> {
+    pub(crate) fn validator_visitor(
+        &mut self,
+        offset: usize,
+    ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> {
+        self.validator.visitor(offset)
+    }
+
+    pub(crate) fn validator_finish(&mut self, offset: usize) -> Result<(), wasmparser::BinaryReaderError> {
+        self.validator.finish(offset)
+    }
+}
+
+impl<R: WasmModuleResources> FunctionBuilder<R> {
+    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
         Self {
+            validator,
+            local_addr_map,
             instructions: Vec::with_capacity(instr_capacity),
             label_ptrs: Vec::with_capacity(256),
             errors: Vec::new(),
@@ -115,7 +130,7 @@ macro_rules! impl_visit_operator {
     };
 }
 
-impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
+impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
     type Output = ();
     wasmparser::for_each_operator!(impl_visit_operator);
 
@@ -123,7 +138,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_br, Instruction::Br, u32,
         visit_br_if, Instruction::BrIf, u32,
         visit_global_get, Instruction::GlobalGet, u32,
-        visit_global_set, Instruction::GlobalSet, u32,
         visit_i32_const, Instruction::I32Const, i32,
         visit_i64_const, Instruction::I64Const, i64,
         visit_call, Instruction::Call, u32,
@@ -161,8 +175,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_unreachable, Instruction::Unreachable,
         visit_nop, Instruction::Nop,
         visit_return, Instruction::Return,
-        visit_drop, Instruction::Drop,
-        visit_select, Instruction::Select(None),
         visit_i32_eqz, Instruction::I32Eqz,
         visit_i32_eq, Instruction::I32Eq,
         visit_i32_ne, Instruction::I32Ne,
@@ -305,94 +317,101 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
     }
 
+    fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::GlobalSet32(global_index),
+                tinywasm_types::ValType::F32 => Instruction::GlobalSet32(global_index),
+                tinywasm_types::ValType::I64 => Instruction::GlobalSet64(global_index),
+                tinywasm_types::ValType::F64 => Instruction::GlobalSet64(global_index),
+                tinywasm_types::ValType::V128 => Instruction::GlobalSet128(global_index),
+                tinywasm_types::ValType::RefExtern => Instruction::GlobalSetRef(global_index),
+                tinywasm_types::ValType::RefFunc => Instruction::GlobalSetRef(global_index),
+            }),
+            _ => self.visit_unreachable(),
+        }
+    }
+
+    fn visit_drop(&mut self) -> Self::Output {
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::Drop32,
+                tinywasm_types::ValType::F32 => Instruction::Drop32,
+                tinywasm_types::ValType::I64 => Instruction::Drop64,
+                tinywasm_types::ValType::F64 => Instruction::Drop64,
+                tinywasm_types::ValType::V128 => Instruction::Drop128,
+                tinywasm_types::ValType::RefExtern => Instruction::DropRef,
+                tinywasm_types::ValType::RefFunc => Instruction::DropRef,
+            }),
+            _ => self.visit_unreachable(),
+        }
+    }
+    fn visit_select(&mut self) -> Self::Output {
+        match self.validator.get_operand_type(1) {
+            Some(Some(t)) => self.visit_typed_select(t),
+            _ => self.visit_unreachable(),
+        }
+    }
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
         let arg = MemoryArg { offset: memarg.offset, mem_addr: memarg.memory };
         let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
-
-        if self.instructions.len() < 3 || arg.mem_addr > 0xFF || arg.offset > 0xFFFF_FFFF {
-            return self.instructions.push(i32store);
-        }
-
-        match self.instructions[self.instructions.len() - 2..] {
-            [_, Instruction::LocalGet2(a, b)] => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32StoreLocal {
-                    local_a: a,
-                    local_b: b,
-                    offset: arg.offset as u32,
-                    mem_addr: arg.mem_addr as u8,
-                })
-            }
-            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32ConstStoreLocal {
-                    local: a,
-                    const_i32: b,
-                    offset: arg.offset as u32,
-                    mem_addr: arg.mem_addr as u8,
-                })
-            }
-            _ => self.instructions.push(i32store),
-        }
+        self.instructions.push(i32store)
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        let Some(instruction) = self.instructions.last_mut() else {
-            return self.instructions.push(Instruction::LocalGet(idx));
-        };
-
-        match instruction {
-            Instruction::LocalGet(a) => *instruction = Instruction::LocalGet2(*a, idx),
-            Instruction::LocalGet2(a, b) => *instruction = Instruction::LocalGet3(*a, *b, idx),
-            Instruction::LocalTee(a) => *instruction = Instruction::LocalTeeGet(*a, idx),
-            _ => self.instructions.push(Instruction::LocalGet(idx)),
-        };
+        let resolved_idx = self.local_addr_map[idx as usize];
+        match self.validator.get_local_type(idx) {
+            Some(t) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalGet32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalGet32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalGet64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalGet64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalGet128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(resolved_idx),
+            }),
+            _ => self.visit_unreachable(),
+        }
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        let Some(instruction) = self.instructions.last_mut() else {
-            return self.instructions.push(Instruction::LocalSet(idx));
-        };
-        match instruction {
-            Instruction::LocalGet(a) => *instruction = Instruction::LocalGetSet(*a, idx),
-            _ => self.instructions.push(Instruction::LocalSet(idx)),
-        };
+        let resolved_idx = self.local_addr_map[idx as usize];
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalSet32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalSet32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalSet64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalSet64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalSet128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(resolved_idx),
+            }),
+            _ => self.visit_unreachable(),
+        }
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
-        self.instructions.push(Instruction::LocalTee(idx))
+        let resolved_idx = self.local_addr_map[idx as usize];
+        match self.validator.get_operand_type(0) {
+            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
+                tinywasm_types::ValType::I32 => Instruction::LocalTee32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalTee32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalTee64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalTee64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalTee128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(resolved_idx),
+            }),
+            _ => self.visit_unreachable(),
+        }
     }
 
     fn visit_i64_rotl(&mut self) -> Self::Output {
-        let Some([Instruction::I64Xor, Instruction::I64Const(a)]) = self.instructions.last_chunk::<2>() else {
-            return self.instructions.push(Instruction::I64Rotl);
-        };
-        let a = *a;
-        self.instructions.pop();
-        self.instructions.pop();
-        self.instructions.push(Instruction::I64XorConstRotl(a))
+        self.instructions.push(Instruction::I64Rotl)
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        let Some(last) = self.instructions.last_chunk::<2>() else {
-            return self.instructions.push(Instruction::I32Add);
-        };
-
-        match *last {
-            [Instruction::LocalGet(a), Instruction::I32Const(b)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32LocalGetConstAdd(a, b))
-            }
-            [Instruction::LocalGet2(a, b), Instruction::I32Const(c)] => {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalGet(a));
-                self.instructions.push(Instruction::I32LocalGetConstAdd(b, c))
-            }
-            _ => self.instructions.push(Instruction::I32Add),
-        }
+        self.instructions.push(Instruction::I32Add)
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
@@ -474,7 +493,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
             .targets()
             .map(|t| t.map(Instruction::BrLabel))
             .collect::<Result<Vec<Instruction>, wasmparser::BinaryReaderError>>()
-            .expect("BrTable targets are invalid, this should have been caught by the validator");
+            .expect("visit_br_table: BrTable targets are invalid, this should have been caught by the validator");
 
         self.instructions.extend(([Instruction::BrTable(def, instrs.len() as u32)].into_iter()).chain(instrs));
     }
@@ -518,7 +537,15 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder {
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
-        self.instructions.push(Instruction::Select(Some(convert_valtype(&ty))))
+        self.instructions.push(match convert_valtype(&ty) {
+            tinywasm_types::ValType::I32 => Instruction::Select32,
+            tinywasm_types::ValType::F32 => Instruction::Select32,
+            tinywasm_types::ValType::I64 => Instruction::Select64,
+            tinywasm_types::ValType::F64 => Instruction::Select64,
+            tinywasm_types::ValType::V128 => Instruction::Select128,
+            tinywasm_types::ValType::RefExtern => Instruction::SelectRef,
+            tinywasm_types::ValType::RefFunc => Instruction::SelectRef,
+        })
     }
 
     define_primitive_operands! {

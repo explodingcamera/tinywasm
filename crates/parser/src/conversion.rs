@@ -2,7 +2,7 @@ use crate::Result;
 use crate::{module::Code, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{FuncValidator, OperatorsReader, ValidatorResources};
+use wasmparser::{FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
 
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
@@ -168,27 +168,45 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    validator: &mut FuncValidator<ValidatorResources>,
-) -> Result<Code> {
+    mut validator: FuncValidator<ValidatorResources>,
+) -> Result<(Code, FuncValidatorAllocations)> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
 
-    let locals = {
-        let mut locals = Vec::new();
-        locals.reserve_exact(count as usize);
-        for (i, local) in locals_reader.into_iter().enumerate() {
-            let local = local?;
-            validator.define_locals(pos + i, local.0, local.1)?;
-            for _ in 0..local.0 {
-                locals.push(convert_valtype(&local.1));
-            }
-        }
-        locals.into_boxed_slice()
-    };
+    // maps a local's address to the index in the type's locals array
+    let mut local_addr_map = Vec::with_capacity(count as usize);
+    let mut local_counts = LocalCounts::default();
 
-    let body = process_operators_and_validate(validator, func)?;
-    Ok((body, locals))
+    for (i, local) in locals_reader.into_iter().enumerate() {
+        let local = local?;
+        validator.define_locals(pos + i, local.0, local.1)?;
+    }
+
+    for i in 0..validator.len_locals() {
+        match validator.get_local_type(i) {
+            Some(wasmparser::ValType::I32) | Some(wasmparser::ValType::F32) => {
+                local_addr_map.push(local_counts.local_32);
+                local_counts.local_32 += 1;
+            }
+            Some(wasmparser::ValType::I64) | Some(wasmparser::ValType::F64) => {
+                local_addr_map.push(local_counts.local_64);
+                local_counts.local_64 += 1;
+            }
+            Some(wasmparser::ValType::V128) => {
+                local_addr_map.push(local_counts.local_128);
+                local_counts.local_128 += 1;
+            }
+            Some(wasmparser::ValType::Ref(_)) => {
+                local_addr_map.push(local_counts.local_ref);
+                local_counts.local_ref += 1;
+            }
+            None => return Err(crate::ParseError::UnsupportedOperator("Unknown local type".to_string())),
+        }
+    }
+
+    let (body, allocations) = process_operators_and_validate(validator, func, local_addr_map)?;
+    Ok(((body, local_counts), allocations))
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {

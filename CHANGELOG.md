@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [UNRELEASED]
+
+### Changed
+
+- Improved support for WebAssembly 2.0 features
+- Simplify and optimize the interpreter loop
+- Use a seperate stack and locals for 32, 64 and 128 bit values and references (#21)
+- Updated to latest wasmparser version
+
 ## [0.7.0] - 2024-05-15
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.6.0...v0.7.0

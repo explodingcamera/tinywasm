@@ -3,20 +3,20 @@ use core::cell::Cell;
 use alloc::{format, string::ToString};
 use tinywasm_types::*;
 
-use crate::{runtime::RawWasmValue, unlikely, Error, Result};
+use crate::{runtime::TinyWasmValue, unlikely, Error, Result};
 
 /// A WebAssembly Global Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
 #[derive(Debug)]
 pub(crate) struct GlobalInstance {
-    pub(crate) value: Cell<RawWasmValue>,
+    pub(crate) value: Cell<TinyWasmValue>,
     pub(crate) ty: GlobalType,
     pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl GlobalInstance {
-    pub(crate) fn new(ty: GlobalType, value: RawWasmValue, owner: ModuleInstanceAddr) -> Self {
+    pub(crate) fn new(ty: GlobalType, value: TinyWasmValue, owner: ModuleInstanceAddr) -> Self {
         Self { ty, value: value.into(), _owner: owner }
     }
 
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn test_global_instance_get_set() {
         let global_type = GlobalType { ty: ValType::I32, mutable: true };
-        let initial_value = RawWasmValue::from(10i32);
+        let initial_value = TinyWasmValue::from(10i32);
         let owner = 0;
 
         let mut global_instance = GlobalInstance::new(global_type, initial_value, owner);
