@@ -51,6 +51,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     fn exec_next(&mut self) -> Result<ControlFlow<()>> {
         use tinywasm_types::Instruction::*;
+        crate::log::info!("inst: {:?}", self.cf.fetch_instr());
         match self.cf.fetch_instr() {
             Nop => self.exec_noop(),
             Unreachable => self.exec_unreachable()?,
@@ -186,7 +187,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I32Eq => self.stack.values.calculate::<i32, _>(|a, b| Ok((a == b) as i32))?,
             I64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok((a == b) as i32))?,
             F32Eq => self.stack.values.calculate::<f32, _>(|a, b| Ok((a == b) as i32))?,
-            F64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok((a == b) as i32))?,
+            F64Eq => self.stack.values.calculate::<f64, _>(|a, b| Ok((a == b) as i32))?,
 
             I32Ne => self.stack.values.calculate::<i32, _>(|a, b| Ok((a != b) as i32))?,
             I64Ne => self.stack.values.calculate::<i64, _>(|a, b| Ok((a != b) as i32))?,
@@ -423,7 +424,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             crate::Function::Wasm(wasm_func) => wasm_func,
             crate::Function::Host(host_func) => {
                 let func = &host_func.clone();
-                let params = self.stack.values.pop_many(&host_func.ty.params)?;
+                let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
                 self.cf.instr_ptr += 1;
@@ -460,7 +461,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 }
 
                 let host_func = host_func.clone();
-                let params = self.stack.values.pop_many(&host_func.ty.params)?;
+                let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
                 self.cf.instr_ptr += 1;
@@ -509,6 +510,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
         };
 
+        crate::log::info!("entering block {:?} with params {:?} and results {:?}", ty, params, results);
+        crate::log::info!("current stackptr: {:?}", self.stack.values.height());
+
         self.stack.blocks.push(BlockFrame {
             instr_ptr,
             end_instr_offset,
@@ -519,9 +523,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         });
     }
     fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
+        crate::log::info!("breaking to block {:?}", to);
         if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
             return self.exec_return();
         }
+        crate::log::info!("breaking to block end");
 
         self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
@@ -572,6 +578,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_end_block(&mut self) -> Result<()> {
         let block = self.stack.blocks.pop()?;
+
+        crate::log::info!("ending block {:?} with results {:?}", block.stack_ptr, block.results);
+        crate::log::info!("current stackptr: {:?}", self.stack.values.height());
+
         self.stack.values.truncate_keep(&block.stack_ptr, &block.results);
         Ok(())
     }

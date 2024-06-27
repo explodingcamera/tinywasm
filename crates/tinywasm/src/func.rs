@@ -76,7 +76,8 @@ impl FuncHandle {
         // assert!(stack.values.len() >= result_m);
 
         // 2. Pop m values from the stack
-        let res = stack.values.pop_many(&func_ty.results)?;
+        let res = stack.values.pop_results(&func_ty.results)?;
+        crate::log::info!("Function returned: {:?}", res);
 
         // The values are returned as the results of the invocation.
         Ok(res)

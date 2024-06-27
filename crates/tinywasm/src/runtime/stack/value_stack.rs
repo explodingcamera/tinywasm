@@ -86,12 +86,15 @@ impl ValueStack {
         }
     }
 
-    pub(crate) fn pop_many(&mut self, val_types: &[ValType]) -> Result<Vec<WasmValue>> {
-        let mut values = Vec::with_capacity(val_types.len());
-        for val_type in val_types.iter() {
-            values.push(self.pop_wasmvalue(*val_type)?);
-        }
-        Ok(values)
+    pub(crate) fn pop_params(&mut self, val_types: &[ValType]) -> Result<Vec<WasmValue>> {
+        val_types.iter().map(|val_type| self.pop_wasmvalue(*val_type)).collect::<Result<Vec<_>>>()
+    }
+
+    pub(crate) fn pop_results(&mut self, val_types: &[ValType]) -> Result<Vec<WasmValue>> {
+        val_types.iter().rev().map(|val_type| self.pop_wasmvalue(*val_type)).collect::<Result<Vec<_>>>().map(|mut v| {
+            v.reverse();
+            v
+        })
     }
 
     pub(crate) fn pop_many_raw(&mut self, val_types: &[ValType]) -> Result<Vec<TinyWasmValue>> {
@@ -100,14 +103,6 @@ impl ValueStack {
             values.push(self.pop_dyn(*val_type)?);
         }
         Ok(values)
-    }
-
-    #[inline]
-    pub(crate) fn truncate_block(&mut self, to: &StackLocation, keep: &StackHeight) {
-        self.stack_32.drain(to.s32 as usize..(self.stack_32.len() as usize - keep.s32 as usize));
-        self.stack_64.drain(to.s64 as usize..(self.stack_64.len() as usize - keep.s64 as usize));
-        self.stack_128.drain(to.s128 as usize..(self.stack_128.len() as usize - keep.s128 as usize));
-        self.stack_ref.drain(to.sref as usize..(self.stack_ref.len() as usize - keep.sref as usize));
     }
 
     pub(crate) fn truncate_keep(&mut self, to: &StackLocation, keep: &StackHeight) {
@@ -154,16 +149,13 @@ impl ValueStack {
 fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
     let total_to_keep = n + end_keep;
     let len = data.len() as u32;
-    assert!(len >= total_to_keep, "total to keep should be less than or equal to self.top");
+    crate::log::error!("truncate_keep: len: {}, total_to_keep: {}, end_keep: {}", len, total_to_keep, end_keep);
 
-    if len <= total_to_keep {
+    if len <= n {
         return; // No need to truncate if the current size is already less than or equal to total_to_keep
     }
 
-    let items_to_remove = len - total_to_keep;
-    let remove_start_index = (len - items_to_remove - end_keep) as usize;
-    let remove_end_index = (len - end_keep) as usize;
-    data.drain(remove_start_index..remove_end_index);
+    data.drain((n as usize)..(len - end_keep) as usize);
 }
 
 #[cfg(test)]

@@ -251,13 +251,7 @@ impl Store {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
                     Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
                 })?;
-                let val = self.data.globals[addr as usize].value.get().unwrap_64() as i64;
-
-                // check if the global is actually a null reference
-                match val < 0 {
-                    true => None,
-                    false => Some(val as u32),
-                }
+                self.data.globals[addr as usize].value.get().unwrap_ref()
             }
             _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))),
         };
