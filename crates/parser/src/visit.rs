@@ -347,7 +347,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         }
     }
     fn visit_select(&mut self) -> Self::Output {
-        match self.validator.get_operand_type(0) {
+        match self.validator.get_operand_type(1) {
             Some(Some(t)) => self.visit_typed_select(t),
             _ => self.visit_unreachable(),
         }
@@ -375,32 +375,32 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        let idx = self.local_addr_map[idx as usize];
+        let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalSet32(idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalSet32(idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalSet64(idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalSet64(idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalSet128(idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(idx),
+                tinywasm_types::ValType::I32 => Instruction::LocalSet32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalSet32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalSet64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalSet64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalSet128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
-        let idx = self.local_addr_map[idx as usize];
+        let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalTee32(idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalTee32(idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalTee64(idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalTee64(idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalTee128(idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(idx),
+                tinywasm_types::ValType::I32 => Instruction::LocalTee32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalTee32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalTee64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalTee64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalTee128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }

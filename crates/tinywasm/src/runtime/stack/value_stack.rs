@@ -88,7 +88,7 @@ impl ValueStack {
 
     pub(crate) fn pop_many(&mut self, val_types: &[ValType]) -> Result<Vec<WasmValue>> {
         let mut values = Vec::with_capacity(val_types.len());
-        for val_type in val_types.iter().rev() {
+        for val_type in val_types.iter() {
             values.push(self.pop_wasmvalue(*val_type)?);
         }
         Ok(values)
@@ -96,17 +96,25 @@ impl ValueStack {
 
     pub(crate) fn pop_many_raw(&mut self, val_types: &[ValType]) -> Result<Vec<TinyWasmValue>> {
         let mut values = Vec::with_capacity(val_types.len());
-        for val_type in val_types.iter().rev() {
+        for val_type in val_types.iter() {
             values.push(self.pop_dyn(*val_type)?);
         }
         Ok(values)
     }
 
-    pub(crate) fn truncate_keep(&mut self, height: &StackLocation, keep: &StackHeight) {
-        truncate_keep(&mut self.stack_32, height.s32, keep.s32);
-        truncate_keep(&mut self.stack_64, height.s64, keep.s64);
-        truncate_keep(&mut self.stack_128, height.s128, keep.s128);
-        truncate_keep(&mut self.stack_ref, height.sref, keep.sref);
+    #[inline]
+    pub(crate) fn truncate_block(&mut self, to: &StackLocation, keep: &StackHeight) {
+        self.stack_32.drain(to.s32 as usize..(self.stack_32.len() as usize - keep.s32 as usize));
+        self.stack_64.drain(to.s64 as usize..(self.stack_64.len() as usize - keep.s64 as usize));
+        self.stack_128.drain(to.s128 as usize..(self.stack_128.len() as usize - keep.s128 as usize));
+        self.stack_ref.drain(to.sref as usize..(self.stack_ref.len() as usize - keep.sref as usize));
+    }
+
+    pub(crate) fn truncate_keep(&mut self, to: &StackLocation, keep: &StackHeight) {
+        truncate_keep(&mut self.stack_32, to.s32, keep.s32);
+        truncate_keep(&mut self.stack_64, to.s64, keep.s64);
+        truncate_keep(&mut self.stack_128, to.s128, keep.s128);
+        truncate_keep(&mut self.stack_ref, to.sref, keep.sref);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) {

@@ -114,7 +114,7 @@ impl CallFrame {
                 self.instr_ptr = break_to.instr_ptr;
 
                 // We also want to push the params to the stack
-                values.truncate_keep(&break_to.stack_ptr, &break_to.params);
+                values.truncate_block(&break_to.stack_ptr, &break_to.params);
 
                 // check if we're breaking to the loop
                 if break_to_relative != 0 {
@@ -127,7 +127,7 @@ impl CallFrame {
             BlockType::Block | BlockType::If | BlockType::Else => {
                 // this is a block, so we want to jump to the next instruction after the block ends
                 // We also want to push the block's results to the stack
-                values.truncate_keep(&break_to.stack_ptr, &break_to.results);
+                values.truncate_block(&break_to.stack_ptr, &break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
                 self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;
@@ -184,8 +184,6 @@ impl CallFrame {
                 locals_ref: locals_ref.into_boxed_slice(),
             }
         };
-
-        crate::log::info!("Locals: {:?}", locals);
 
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
     }
