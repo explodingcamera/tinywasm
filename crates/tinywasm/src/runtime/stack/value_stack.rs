@@ -102,18 +102,11 @@ impl ValueStack {
         Ok(values)
     }
 
-    pub(crate) fn truncate(&mut self, height: &StackLocation) {
-        self.stack_32.truncate(height.s32 as usize);
-        self.stack_64.truncate(height.s64 as usize);
-        self.stack_128.truncate(height.s128 as usize);
-        self.stack_ref.truncate(height.sref as usize);
-    }
-
     pub(crate) fn truncate_keep(&mut self, height: &StackLocation, keep: &StackHeight) {
-        self.stack_32.drain(height.s32 as usize..(self.stack_128.len() - keep.s32 as usize));
-        self.stack_64.drain(height.s64 as usize..(self.stack_64.len() - keep.s64 as usize));
-        self.stack_128.drain(height.s128 as usize..(self.stack_128.len() - keep.s128 as usize));
-        self.stack_ref.drain(height.sref as usize..(self.stack_ref.len() - keep.sref as usize));
+        truncate_keep(&mut self.stack_32, height.s32, keep.s32);
+        truncate_keep(&mut self.stack_64, height.s64, keep.s64);
+        truncate_keep(&mut self.stack_128, height.s128, keep.s128);
+        truncate_keep(&mut self.stack_ref, height.sref, keep.sref);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) {
@@ -146,6 +139,48 @@ impl ValueStack {
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
         for value in values.iter() {
             self.push_dyn(value.into())
+        }
+    }
+}
+
+fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
+    let total_to_keep = n + end_keep;
+    let len = data.len() as u32;
+    assert!(len >= total_to_keep, "total to keep should be less than or equal to self.top");
+
+    if len <= total_to_keep {
+        return; // No need to truncate if the current size is already less than or equal to total_to_keep
+    }
+
+    let items_to_remove = len - total_to_keep;
+    let remove_start_index = (len - items_to_remove - end_keep) as usize;
+    let remove_end_index = (len - end_keep) as usize;
+    data.drain(remove_start_index..remove_end_index);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_keep() {
+        macro_rules! test_macro {
+            ($( $n:expr, $end_keep:expr, $expected:expr ),*) => {
+            $(
+                let mut stack = alloc::vec![1,2,3,4,5];
+                truncate_keep(&mut stack, $n, $end_keep);
+                assert_eq!(stack.len(), $expected);
+            )*
+            };
+        }
+
+        test_macro! {
+            0, 0, 0,
+            1, 0, 1,
+            0, 1, 1,
+            1, 1, 2,
+            2, 1, 3,
+            2, 2, 4
         }
     }
 }

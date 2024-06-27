@@ -185,6 +185,8 @@ impl CallFrame {
             }
         };
 
+        crate::log::info!("Locals: {:?}", locals);
+
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
     }
 

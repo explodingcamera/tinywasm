@@ -359,16 +359,16 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        let idx = self.local_addr_map[idx as usize];
+        let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_local_type(idx) {
             Some(t) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalGet32(idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalGet32(idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalGet64(idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalGet64(idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalGet128(idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(idx),
+                tinywasm_types::ValType::I32 => Instruction::LocalGet32(resolved_idx),
+                tinywasm_types::ValType::F32 => Instruction::LocalGet32(resolved_idx),
+                tinywasm_types::ValType::I64 => Instruction::LocalGet64(resolved_idx),
+                tinywasm_types::ValType::F64 => Instruction::LocalGet64(resolved_idx),
+                tinywasm_types::ValType::V128 => Instruction::LocalGet128(resolved_idx),
+                tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(resolved_idx),
+                tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }

@@ -80,9 +80,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             EndBlockFrame => self.exec_end_block()?,
 
             LocalGet32(local_index) => {
+                crate::log::info!("LocalGet32");
                 self.cf.locals.get::<Value32>(*local_index).map(|v| self.stack.values.push(v))?
             }
             LocalGet64(local_index) => {
+                crate::log::info!("LocalGet64");
                 self.cf.locals.get::<Value64>(*local_index).map(|v| self.stack.values.push(v))?
             }
             LocalGet128(local_index) => {
@@ -92,8 +94,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 self.cf.locals.get::<ValueRef>(*local_index).map(|v| self.stack.values.push(v))?
             }
 
-            LocalSet32(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value32>()?)?,
-            LocalSet64(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value64>()?)?,
+            LocalSet32(local_index) => {
+                crate::log::info!("LocalSet32");
+                self.cf.locals.set(*local_index, self.stack.values.pop::<Value32>()?)?
+            }
+            LocalSet64(local_index) => {
+                crate::log::info!("LocalSet64");
+                self.cf.locals.set(*local_index, self.stack.values.pop::<Value64>()?)?
+            }
             LocalSet128(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value128>()?)?,
             LocalSetRef(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<ValueRef>()?)?,
 
@@ -136,11 +144,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 self.exec_mem_store::<i64, 8>(v, *mem_addr, *offset)?
             }
             F32Store { mem_addr, offset } => {
+                crate::log::info!("F32Store");
                 let v = self.stack.values.pop::<f32>()?;
+                crate::log::info!("F32Storeend");
                 self.exec_mem_store::<f32, 4>(v, *mem_addr, *offset)?
             }
             F64Store { mem_addr, offset } => {
+                crate::log::info!("f64_1");
+                crate::log::info!("{:?}", self.stack.values.height());
                 let v = self.stack.values.pop::<f64>()?;
+                crate::log::info!("f64_2");
                 self.exec_mem_store::<f64, 8>(v, *mem_addr, *offset)?
             }
 
@@ -414,7 +427,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.cf.instr_ptr += 1; // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr(), self.store);
-        return Ok(ControlFlow::Continue(()));
+        Ok(ControlFlow::Continue(()))
     }
     fn exec_call_direct(&mut self, v: u32) -> Result<ControlFlow<()>> {
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v)?)?;
@@ -497,6 +510,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn enter_block(&mut self, instr_ptr: usize, end_instr_offset: u32, ty: BlockType, args: BlockArgs) {
+        crate::log::info!("enter_block");
+
         let (params, results) = match args {
             BlockArgs::Empty => (StackHeight::default(), StackHeight::default()),
             BlockArgs::Type(t) => (StackHeight::default(), t.into()),
@@ -505,6 +520,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 ((&*ty.params).into(), (&*ty.results).into())
             }
         };
+        crate::log::info!("enter_block2");
 
         self.stack.blocks.push(BlockFrame {
             instr_ptr,
@@ -514,6 +530,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             params,
             ty,
         });
+
+        crate::log::info!("enter_block3");
     }
     fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
         if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
@@ -554,6 +572,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(ControlFlow::Continue(()))
     }
     fn exec_return(&mut self) -> Result<ControlFlow<()>> {
+        crate::log::info!("exec_return");
         let old = self.cf.block_ptr();
         match self.stack.call_stack.pop() {
             None => return Ok(ControlFlow::Break(())),
@@ -569,6 +588,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_end_block(&mut self) -> Result<()> {
         let block = self.stack.blocks.pop()?;
+        crate::log::info!("exec_end_block: {:?}", block);
         self.stack.values.truncate_keep(&block.stack_ptr, &block.results);
         Ok(())
     }
@@ -681,14 +701,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
 
-    fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: Into<TinyWasmValue>>(
+    fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
         cast: fn(LOAD) -> TARGET,
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
     ) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
-        let val: u64 = self.stack.values.pop::<i64>()? as u64;
+        let val = self.stack.values.pop::<i32>()? as u64;
         let Some(Ok(addr)) = offset.checked_add(val).map(|a| a.try_into()) else {
             cold();
             return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
@@ -697,9 +717,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 max: mem.borrow().max_pages(),
             }));
         };
-
         let val = mem.borrow().load_as::<LOAD_SIZE, LOAD>(addr)?;
-        self.stack.values.push_dyn(cast(val).into());
+        self.stack.values.push(cast(val));
         Ok(())
     }
     fn exec_mem_store<T: MemStorable<N>, const N: usize>(
@@ -708,10 +727,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
     ) -> Result<()> {
+        crate::log::info!("exec_mem_store");
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
         let val = val.to_mem_bytes();
-        let addr: i64 = self.stack.values.pop::<i64>()?;
-        mem.borrow_mut().store((offset + addr as u64) as usize, val.len(), &val)?;
+        let addr = self.stack.values.pop::<i32>()? as u64;
+        mem.borrow_mut().store((offset + addr) as usize, val.len(), &val)?;
+        crate::log::info!("exec_mem_store_end");
         Ok(())
     }
 
