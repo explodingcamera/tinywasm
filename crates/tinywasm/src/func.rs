@@ -77,7 +77,6 @@ impl FuncHandle {
 
         // 2. Pop m values from the stack
         let res = stack.values.pop_results(&func_ty.results)?;
-        crate::log::info!("Function returned: {:?}", res);
 
         // The values are returned as the results of the invocation.
         Ok(res)

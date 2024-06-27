@@ -104,9 +104,7 @@ impl CallFrame {
         values: &mut super::ValueStack,
         blocks: &mut super::BlockStack,
     ) -> Option<()> {
-        crate::log::info!("1");
         let break_to = blocks.get_relative_to(break_to_relative, self.block_ptr)?;
-        crate::log::info!("2");
 
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr

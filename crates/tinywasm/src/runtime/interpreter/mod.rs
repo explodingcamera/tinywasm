@@ -51,7 +51,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     fn exec_next(&mut self) -> Result<ControlFlow<()>> {
         use tinywasm_types::Instruction::*;
-        crate::log::info!("inst: {:?}", self.cf.fetch_instr());
         match self.cf.fetch_instr() {
             Nop => self.exec_noop(),
             Unreachable => self.exec_unreachable()?,
@@ -144,8 +143,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let v = self.stack.values.pop::<f64>()?;
                 self.exec_mem_store::<f64, 8>(v, *mem_addr, *offset)?
             }
-
-            // TODO: this prob. needs specific conversion functions that truncate the underlying bits
             I32Store8 { mem_addr, offset } => {
                 let v = self.stack.values.pop::<i32>()? as i8;
                 self.exec_mem_store::<i8, 1>(v, *mem_addr, *offset)?
@@ -399,7 +396,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             // }
         };
 
-        self.cf.instr_ptr += 1;
+        self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
     }
 
@@ -413,7 +410,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let params = self.stack.values.pop_many_raw(&wasm_func.ty.params)?;
         let new_call_frame =
             CallFrame::new_raw(wasm_func, owner, params.into_iter().rev(), self.stack.blocks.len() as u32);
-        self.cf.instr_ptr += 1; // skip the call instruction
+        self.cf.incr_instr_ptr(); // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr(), self.store);
         Ok(ControlFlow::Continue(()))
@@ -427,7 +424,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.instr_ptr += 1;
+                self.cf.incr_instr_ptr();
                 return Ok(ControlFlow::Continue(()));
             }
         };
@@ -464,7 +461,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 let params = self.stack.values.pop_params(&host_func.ty.params)?;
                 let res = (host_func.func)(FuncContext { store: self.store, module_addr: self.module.id() }, &params)?;
                 self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.instr_ptr += 1;
+                self.cf.incr_instr_ptr();
                 return Ok(ControlFlow::Continue(()));
             }
         };
@@ -510,9 +507,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
         };
 
-        crate::log::info!("entering block {:?} with params {:?} and results {:?}", ty, params, results);
-        crate::log::info!("current stackptr: {:?}", self.stack.values.height());
-
         self.stack.blocks.push(BlockFrame {
             instr_ptr,
             end_instr_offset,
@@ -523,11 +517,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         });
     }
     fn exec_br(&mut self, to: u32) -> Result<ControlFlow<()>> {
-        crate::log::info!("breaking to block {:?}", to);
         if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
             return self.exec_return();
         }
-        crate::log::info!("breaking to block end");
 
         self.cf.incr_instr_ptr();
         Ok(ControlFlow::Continue(()))
@@ -578,10 +570,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_end_block(&mut self) -> Result<()> {
         let block = self.stack.blocks.pop()?;
-
-        crate::log::info!("ending block {:?} with results {:?}", block.stack_ptr, block.results);
-        crate::log::info!("current stackptr: {:?}", self.stack.values.height());
-
         self.stack.values.truncate_keep(&block.stack_ptr, &block.results);
         Ok(())
     }

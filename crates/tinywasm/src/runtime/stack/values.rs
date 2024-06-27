@@ -195,6 +195,8 @@ impl From<ValueRef> for TinyWasmValue {
     }
 }
 
+// TODO: this can be made a bit more maintainable by using a macro
+
 mod sealed {
     #[allow(unreachable_pub)]
     pub trait Sealed {}
@@ -208,8 +210,6 @@ impl sealed::Sealed for f64 {}
 impl sealed::Sealed for u32 {}
 impl sealed::Sealed for Value128 {}
 impl sealed::Sealed for ValueRef {}
-
-// TODO: this can be made a bit more maintainable by using a macro
 
 pub(crate) trait InternalValue: sealed::Sealed {
     fn stack_push(stack: &mut ValueStack, value: Self);
