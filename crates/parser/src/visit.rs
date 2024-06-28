@@ -1,6 +1,6 @@
 use crate::{conversion::convert_blocktype, Result};
 
-use crate::conversion::{convert_heaptype, convert_valtype};
+use crate::conversion::convert_heaptype;
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{Instruction, MemoryArg};
@@ -319,14 +319,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
         match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::GlobalSet32(global_index),
-                tinywasm_types::ValType::F32 => Instruction::GlobalSet32(global_index),
-                tinywasm_types::ValType::I64 => Instruction::GlobalSet64(global_index),
-                tinywasm_types::ValType::F64 => Instruction::GlobalSet64(global_index),
-                tinywasm_types::ValType::V128 => Instruction::GlobalSet128(global_index),
-                tinywasm_types::ValType::RefExtern => Instruction::GlobalSetRef(global_index),
-                tinywasm_types::ValType::RefFunc => Instruction::GlobalSetRef(global_index),
+            Some(Some(t)) => self.instructions.push(match t {
+                wasmparser::ValType::I32 => Instruction::GlobalSet32(global_index),
+                wasmparser::ValType::F32 => Instruction::GlobalSet32(global_index),
+                wasmparser::ValType::I64 => Instruction::GlobalSet64(global_index),
+                wasmparser::ValType::F64 => Instruction::GlobalSet64(global_index),
+                wasmparser::ValType::V128 => Instruction::GlobalSet128(global_index),
+                wasmparser::ValType::Ref(_) => Instruction::GlobalSetRef(global_index),
             }),
             _ => self.visit_unreachable(),
         }
@@ -334,14 +333,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_drop(&mut self) -> Self::Output {
         match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::Drop32,
-                tinywasm_types::ValType::F32 => Instruction::Drop32,
-                tinywasm_types::ValType::I64 => Instruction::Drop64,
-                tinywasm_types::ValType::F64 => Instruction::Drop64,
-                tinywasm_types::ValType::V128 => Instruction::Drop128,
-                tinywasm_types::ValType::RefExtern => Instruction::DropRef,
-                tinywasm_types::ValType::RefFunc => Instruction::DropRef,
+            Some(Some(t)) => self.instructions.push(match t {
+                wasmparser::ValType::I32 => Instruction::Drop32,
+                wasmparser::ValType::F32 => Instruction::Drop32,
+                wasmparser::ValType::I64 => Instruction::Drop64,
+                wasmparser::ValType::F64 => Instruction::Drop64,
+                wasmparser::ValType::V128 => Instruction::Drop128,
+                wasmparser::ValType::Ref(_) => Instruction::DropRef,
             }),
             _ => self.visit_unreachable(),
         }
@@ -361,14 +359,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_local_type(idx) {
-            Some(t) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalGet32(resolved_idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalGet32(resolved_idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalGet64(resolved_idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalGet64(resolved_idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalGet128(resolved_idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalGetRef(resolved_idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalGetRef(resolved_idx),
+            Some(t) => self.instructions.push(match t {
+                wasmparser::ValType::I32 => Instruction::LocalGet32(resolved_idx),
+                wasmparser::ValType::F32 => Instruction::LocalGet32(resolved_idx),
+                wasmparser::ValType::I64 => Instruction::LocalGet64(resolved_idx),
+                wasmparser::ValType::F64 => Instruction::LocalGet64(resolved_idx),
+                wasmparser::ValType::V128 => Instruction::LocalGet128(resolved_idx),
+                wasmparser::ValType::Ref(_) => Instruction::LocalGetRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }
@@ -377,14 +374,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalSet32(resolved_idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalSet32(resolved_idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalSet64(resolved_idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalSet64(resolved_idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalSet128(resolved_idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalSetRef(resolved_idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalSetRef(resolved_idx),
+            Some(Some(t)) => self.instructions.push(match t {
+                wasmparser::ValType::I32 => Instruction::LocalSet32(resolved_idx),
+                wasmparser::ValType::F32 => Instruction::LocalSet32(resolved_idx),
+                wasmparser::ValType::I64 => Instruction::LocalSet64(resolved_idx),
+                wasmparser::ValType::F64 => Instruction::LocalSet64(resolved_idx),
+                wasmparser::ValType::V128 => Instruction::LocalSet128(resolved_idx),
+                wasmparser::ValType::Ref(_) => Instruction::LocalSetRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }
@@ -393,14 +389,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match convert_valtype(&t) {
-                tinywasm_types::ValType::I32 => Instruction::LocalTee32(resolved_idx),
-                tinywasm_types::ValType::F32 => Instruction::LocalTee32(resolved_idx),
-                tinywasm_types::ValType::I64 => Instruction::LocalTee64(resolved_idx),
-                tinywasm_types::ValType::F64 => Instruction::LocalTee64(resolved_idx),
-                tinywasm_types::ValType::V128 => Instruction::LocalTee128(resolved_idx),
-                tinywasm_types::ValType::RefExtern => Instruction::LocalTeeRef(resolved_idx),
-                tinywasm_types::ValType::RefFunc => Instruction::LocalTeeRef(resolved_idx),
+            Some(Some(t)) => self.instructions.push(match t {
+                wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
+                wasmparser::ValType::F32 => Instruction::LocalTee32(resolved_idx),
+                wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
+                wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
+                wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
+                wasmparser::ValType::Ref(_) => Instruction::LocalTeeRef(resolved_idx),
             }),
             _ => self.visit_unreachable(),
         }
@@ -537,14 +532,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
-        self.instructions.push(match convert_valtype(&ty) {
-            tinywasm_types::ValType::I32 => Instruction::Select32,
-            tinywasm_types::ValType::F32 => Instruction::Select32,
-            tinywasm_types::ValType::I64 => Instruction::Select64,
-            tinywasm_types::ValType::F64 => Instruction::Select64,
-            tinywasm_types::ValType::V128 => Instruction::Select128,
-            tinywasm_types::ValType::RefExtern => Instruction::SelectRef,
-            tinywasm_types::ValType::RefFunc => Instruction::SelectRef,
+        self.instructions.push(match ty {
+            wasmparser::ValType::I32 => Instruction::Select32,
+            wasmparser::ValType::F32 => Instruction::Select32,
+            wasmparser::ValType::I64 => Instruction::Select64,
+            wasmparser::ValType::F64 => Instruction::Select64,
+            wasmparser::ValType::V128 => Instruction::Select128,
+            wasmparser::ValType::Ref(_) => Instruction::SelectRef,
         })
     }
 

@@ -57,8 +57,8 @@ impl Parser {
             reference_types: true,
             sign_extension: true,
             saturating_float_to_int: true,
+            function_references: true,
 
-            function_references: false,
             component_model: false,
             component_model_nested_names: false,
             component_model_values: false,

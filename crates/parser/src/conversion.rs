@@ -237,7 +237,7 @@ pub(crate) fn convert_reftype(reftype: &wasmparser::RefType) -> ValType {
     match reftype {
         _ if reftype.is_func_ref() => ValType::RefFunc,
         _ if reftype.is_extern_ref() => ValType::RefExtern,
-        _ => unimplemented!("Unsupported reference type: {:?}", reftype),
+        _ => unimplemented!("Unsupported reference type: {:?}, {:?}", reftype, reftype.heap_type()),
     }
 }
 
