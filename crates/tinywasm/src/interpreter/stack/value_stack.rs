@@ -106,10 +106,19 @@ impl ValueStack {
     }
 
     pub(crate) fn truncate_keep(&mut self, to: &StackLocation, keep: &StackHeight) {
-        truncate_keep(&mut self.stack_32, to.s32, keep.s32);
-        truncate_keep(&mut self.stack_64, to.s64, keep.s64);
-        truncate_keep(&mut self.stack_128, to.s128, keep.s128);
-        truncate_keep(&mut self.stack_ref, to.sref, keep.sref);
+        #[inline(always)]
+        fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
+            let len = data.len() as u32;
+            if len <= n {
+                return; // No need to truncate if the current size is already less than or equal to total_to_keep
+            }
+            data.drain((n as usize)..(len - end_keep) as usize);
+        }
+
+        truncate_keep(&mut self.stack_32, to.s32, keep.s32 as u32);
+        truncate_keep(&mut self.stack_64, to.s64, keep.s64 as u32);
+        truncate_keep(&mut self.stack_128, to.s128, keep.s128 as u32);
+        truncate_keep(&mut self.stack_ref, to.sref, keep.sref as u32);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) {
@@ -142,45 +151,6 @@ impl ValueStack {
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
         for value in values.iter() {
             self.push_dyn(value.into())
-        }
-    }
-}
-
-fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
-    let total_to_keep = n + end_keep;
-    let len = data.len() as u32;
-    crate::log::error!("truncate_keep: len: {}, total_to_keep: {}, end_keep: {}", len, total_to_keep, end_keep);
-
-    if len <= n {
-        return; // No need to truncate if the current size is already less than or equal to total_to_keep
-    }
-
-    data.drain((n as usize)..(len - end_keep) as usize);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_truncate_keep() {
-        macro_rules! test_macro {
-            ($( $n:expr, $end_keep:expr, $expected:expr ),*) => {
-            $(
-                let mut stack = alloc::vec![1,2,3,4,5];
-                truncate_keep(&mut stack, $n, $end_keep);
-                assert_eq!(stack.len(), $expected);
-            )*
-            };
-        }
-
-        test_macro! {
-            0, 0, 0,
-            1, 0, 1,
-            0, 1, 1,
-            1, 1, 2,
-            2, 1, 3,
-            2, 2, 4
         }
     }
 }

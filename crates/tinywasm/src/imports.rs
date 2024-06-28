@@ -348,7 +348,7 @@ impl Imports {
     ) -> Result<ResolvedImports> {
         let mut imports = ResolvedImports::new();
 
-        for import in module.data.imports.iter() {
+        for import in module.0.imports.iter() {
             let val = self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))?;
 
             match val {
@@ -368,7 +368,7 @@ impl Imports {
                     }
                     (Extern::Function(extern_func), ImportKind::Function(ty)) => {
                         let import_func_type = module
-                            .data
+                            .0
                             .func_types
                             .get(*ty as usize)
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
@@ -409,7 +409,7 @@ impl Imports {
                         (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
                             let func = store.get_func(func_addr)?;
                             let import_func_type = module
-                                .data
+                                .0
                                 .func_types
                                 .get(*ty as usize)
                                 .ok_or_else(|| LinkingError::incompatible_import_type(import))?;

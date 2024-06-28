@@ -1,24 +1,21 @@
 use crate::{Imports, ModuleInstance, Result, Store};
 use tinywasm_types::TinyWasmModule;
 
-#[derive(Debug)]
 /// A WebAssembly Module
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
-#[derive(Clone)]
-pub struct Module {
-    pub(crate) data: TinyWasmModule,
-}
+#[derive(Debug, Clone)]
+pub struct Module(pub(crate) TinyWasmModule);
 
 impl From<&TinyWasmModule> for Module {
     fn from(data: &TinyWasmModule) -> Self {
-        Self { data: data.clone() }
+        Self(data.clone())
     }
 }
 
 impl From<TinyWasmModule> for Module {
     fn from(data: TinyWasmModule) -> Self {
-        Self { data }
+        Self(data)
     }
 }
 

@@ -57,11 +57,7 @@ impl TinyWasmModule {
     /// Creates a TinyWasmModule from a slice of bytes.
     pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
         let len = validate_magic(wasm)?;
-        let root = check_archived_root::<Self>(&wasm[len..]).map_err(|_e| {
-            crate::log::error!("Invalid archive: {}", _e);
-            TwasmError::InvalidArchive
-        })?;
-
+        let root = check_archived_root::<Self>(&wasm[len..]).map_err(|_e| TwasmError::InvalidArchive)?;
         Ok(root.deserialize(&mut rkyv::Infallible).unwrap())
     }
 

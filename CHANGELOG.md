@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved support for WebAssembly 2.0 features
 - Simplify and optimize the interpreter loop
 - Use a seperate stack and locals for 32, 64 and 128 bit values and references (#21)
-- Updated to latest wasmparser version
+- Updated to latest `wasmparser` version
 
 ## [0.7.0] - 2024-05-15
 

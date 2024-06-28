@@ -1,50 +1,6 @@
 use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
 use crate::{DataAddr, ElemAddr, MemAddr};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
-pub enum BlockArgs {
-    Empty,
-    Type(ValType),
-    FuncType(u32),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
-/// A packed representation of BlockArgs
-/// This is needed to keep the size of the Instruction enum small.
-/// Sadly, using #[repr(u8)] on BlockArgs itself is not possible because of the FuncType variant.
-pub struct BlockArgsPacked([u8; 5]); // Modifying this directly can cause runtime errors, but no UB
-
-impl From<BlockArgs> for BlockArgsPacked {
-    fn from(args: BlockArgs) -> Self {
-        let mut packed = [0; 5];
-        match args {
-            BlockArgs::Empty => packed[0] = 0,
-            BlockArgs::Type(t) => {
-                packed[0] = 1;
-                packed[1] = t.to_byte();
-            }
-            BlockArgs::FuncType(t) => {
-                packed[0] = 2;
-                packed[1..].copy_from_slice(&t.to_le_bytes());
-            }
-        }
-        Self(packed)
-    }
-}
-
-impl From<BlockArgsPacked> for BlockArgs {
-    fn from(packed: BlockArgsPacked) -> Self {
-        match packed.0[0] {
-            0 => BlockArgs::Empty,
-            1 => BlockArgs::Type(ValType::from_byte(packed.0[1]).unwrap()),
-            2 => BlockArgs::FuncType(u32::from_le_bytes(packed.0[1..].try_into().unwrap())),
-            _ => unreachable!(),
-        }
-    }
-}
-
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
@@ -106,9 +62,19 @@ pub enum Instruction {
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
-    Block(BlockArgs, EndOffset),
-    Loop(BlockArgs, EndOffset),
-    If(BlockArgsPacked, ElseOffset, EndOffset), // If else offset is 0 if there is no else block
+    
+    Block(EndOffset),
+    BlockWithType(ValType, EndOffset),
+    BlockWithFuncType(TypeAddr, EndOffset),
+
+    Loop(EndOffset),
+    LoopWithType(ValType, EndOffset),
+    LoopWithFuncType(TypeAddr, EndOffset),
+
+    If(ElseOffset, EndOffset),
+    IfWithType(ValType, ElseOffset, EndOffset),
+    IfWithFuncType(TypeAddr, ElseOffset, EndOffset),
+
     Else(EndOffset),
     EndBlockFrame,
     Br(LabelAddr),
@@ -232,45 +198,4 @@ pub enum Instruction {
     MemoryFill(MemAddr),
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
-}
-
-#[cfg(test)]
-mod test_blockargs_packed {
-    use super::*;
-
-    #[test]
-    fn test_empty() {
-        let packed: BlockArgsPacked = BlockArgs::Empty.into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::Empty);
-    }
-
-    #[test]
-    fn test_val_type_i32() {
-        let packed: BlockArgsPacked = BlockArgs::Type(ValType::I32).into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::I32));
-    }
-
-    #[test]
-    fn test_val_type_i64() {
-        let packed: BlockArgsPacked = BlockArgs::Type(ValType::I64).into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::I64));
-    }
-
-    #[test]
-    fn test_val_type_f32() {
-        let packed: BlockArgsPacked = BlockArgs::Type(ValType::F32).into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::F32));
-    }
-
-    #[test]
-    fn test_val_type_f64() {
-        let packed: BlockArgsPacked = BlockArgs::Type(ValType::F64).into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::Type(ValType::F64));
-    }
-
-    #[test]
-    fn test_func_type() {
-        let packed: BlockArgsPacked = BlockArgs::FuncType(0x12345678).into();
-        assert_eq!(BlockArgs::from(packed), BlockArgs::FuncType(0x12345678));
-    }
 }

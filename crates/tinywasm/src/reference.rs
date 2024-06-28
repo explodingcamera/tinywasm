@@ -1,45 +1,40 @@
-use core::cell::{Ref, RefCell, RefMut};
+use core::cell::{Ref, RefMut};
 use core::ffi::CStr;
 
 use alloc::ffi::CString;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::{GlobalInstance, MemoryInstance, Result};
-use tinywasm_types::WasmValue;
+use crate::{MemoryInstance, Result};
 
 // This module essentially contains the public APIs to interact with the data stored in the store
 
 /// A reference to a memory instance
 #[derive(Debug)]
-pub struct MemoryRef<'a> {
-    pub(crate) instance: Ref<'a, MemoryInstance>,
-}
+pub struct MemoryRef<'a>(pub(crate) Ref<'a, MemoryInstance>);
 
 /// A borrowed reference to a memory instance
 #[derive(Debug)]
-pub struct MemoryRefMut<'a> {
-    pub(crate) instance: RefMut<'a, MemoryInstance>,
-}
+pub struct MemoryRefMut<'a>(pub(crate) RefMut<'a, MemoryInstance>);
 
 impl<'a> MemoryRefLoad for MemoryRef<'a> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, len)
+        self.0.load(offset, len)
     }
 }
 
 impl<'a> MemoryRefLoad for MemoryRefMut<'a> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, len)
+        self.0.load(offset, len)
     }
 }
 
 impl MemoryRef<'_> {
     /// Load a slice of memory
     pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, len)
+        self.0.load(offset, len)
     }
 
     /// Load a slice of memory as a vector
@@ -51,7 +46,7 @@ impl MemoryRef<'_> {
 impl MemoryRefMut<'_> {
     /// Load a slice of memory
     pub fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
-        self.instance.load(offset, len)
+        self.0.load(offset, len)
     }
 
     /// Load a slice of memory as a vector
@@ -61,27 +56,27 @@ impl MemoryRefMut<'_> {
 
     /// Grow the memory by the given number of pages
     pub fn grow(&mut self, delta_pages: i32) -> Option<i32> {
-        self.instance.grow(delta_pages)
+        self.0.grow(delta_pages)
     }
 
     /// Get the current size of the memory in pages
     pub fn page_count(&mut self) -> usize {
-        self.instance.page_count()
+        self.0.page_count()
     }
 
     /// Copy a slice of memory to another place in memory
     pub fn copy_within(&mut self, src: usize, dst: usize, len: usize) -> Result<()> {
-        self.instance.copy_within(src, dst, len)
+        self.0.copy_within(src, dst, len)
     }
 
     /// Fill a slice of memory with a value
     pub fn fill(&mut self, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance.fill(offset, len, val)
+        self.0.fill(offset, len, val)
     }
 
     /// Store a slice of memory
     pub fn store(&mut self, offset: usize, len: usize, data: &[u8]) -> Result<()> {
-        self.instance.store(offset, len, data)
+        self.0.store(offset, len, data)
     }
 }
 
@@ -139,21 +134,3 @@ pub trait MemoryStringExt: MemoryRefLoad {
 
 impl MemoryStringExt for MemoryRef<'_> {}
 impl MemoryStringExt for MemoryRefMut<'_> {}
-
-/// A reference to a global instance
-#[derive(Debug)]
-pub struct GlobalRef {
-    pub(crate) instance: RefCell<GlobalInstance>,
-}
-
-impl GlobalRef {
-    /// Get the value of the global
-    pub fn get(&self) -> WasmValue {
-        self.instance.borrow().get()
-    }
-
-    /// Set the value of the global
-    pub fn set(&self, val: WasmValue) -> Result<()> {
-        self.instance.borrow_mut().set(val)
-    }
-}

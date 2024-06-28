@@ -3,7 +3,7 @@ use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
-use crate::runtime::{self, InterpreterRuntime, TinyWasmValue};
+use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
 use crate::{Error, Function, ModuleInstance, Result, Trap};
 
 mod data;
@@ -57,7 +57,7 @@ impl Store {
     }
 
     /// Create a new store with the given runtime
-    pub(crate) fn runtime(&self) -> runtime::InterpreterRuntime {
+    pub(crate) fn runtime(&self) -> interpreter::InterpreterRuntime {
         match self.runtime {
             Runtime::Default => InterpreterRuntime::default(),
         }
@@ -381,7 +381,7 @@ impl Store {
     }
 
     pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(FunctionInstance { func, owner: idx });
+        self.data.funcs.push(FunctionInstance { func, _owner: idx });
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 

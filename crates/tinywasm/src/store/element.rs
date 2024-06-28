@@ -9,7 +9,7 @@ use tinywasm_types::*;
 pub(crate) struct ElementInstance {
     pub(crate) kind: ElementKind,
     pub(crate) items: Option<Vec<TableElement>>, // none is the element was dropped
-    _owner: ModuleInstanceAddr,                  // index into store.module_instances
+    pub(crate) _owner: ModuleInstanceAddr,       // index into store.module_instances
 }
 
 impl ElementInstance {

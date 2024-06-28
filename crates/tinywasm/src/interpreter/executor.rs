@@ -1,34 +1,25 @@
-mod num_helpers;
-
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
+use interpreter::CallFrame;
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
 use no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
-use num_helpers::*;
 use tinywasm_types::*;
 
-use super::stack::{values::StackHeight, BlockFrame, BlockType};
-use super::{values::*, InterpreterRuntime, Stack};
-use crate::runtime::CallFrame;
+use super::num_helpers::*;
+use super::stack::{values::StackHeight, BlockFrame, BlockType, Stack};
+use super::values::*;
 use crate::*;
 
-impl InterpreterRuntime {
-    pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
-        Executor::new(store, stack)?.run_to_completion()
-    }
-}
-
-struct Executor<'store, 'stack> {
-    store: &'store mut Store,
-    stack: &'stack mut Stack,
-
+pub(super) struct Executor<'store, 'stack> {
     cf: CallFrame,
     module: ModuleInstance,
+    store: &'store mut Store,
+    stack: &'stack mut Stack,
 }
 
 impl<'store, 'stack> Executor<'store, 'stack> {
@@ -68,10 +59,28 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Call(v) => return self.exec_call_direct(*v),
             CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
 
-            If(args, el, end) => self.exec_if((*args).into(), *el, *end)?,
+            If(end, el) => self.exec_if(*end, *el, (Default::default(), Default::default()))?,
+            IfWithType(ty, end, el) => self.exec_if(*end, *el, (Default::default(), (*ty).into()))?,
+            IfWithFuncType(ty, end, el) => self.exec_if(*end, *el, self.resolve_functype(*ty))?,
             Else(end_offset) => self.exec_else(*end_offset)?,
-            Loop(args, end) => self.enter_block(self.cf.instr_ptr(), *end, BlockType::Loop, *args),
-            Block(args, end) => self.enter_block(self.cf.instr_ptr(), *end, BlockType::Block, *args),
+            Loop(end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Loop, (Default::default(), Default::default()))
+            }
+            LoopWithType(ty, end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Loop, (Default::default(), (*ty).into()))
+            }
+            LoopWithFuncType(ty, end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Loop, self.resolve_functype(*ty))
+            }
+            Block(end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Block, (Default::default(), Default::default()))
+            }
+            BlockWithType(ty, end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Block, (Default::default(), (*ty).into()))
+            }
+            BlockWithFuncType(ty, end) => {
+                self.enter_block(self.cf.instr_ptr(), *end, BlockType::Block, self.resolve_functype(*ty))
+            }
             Br(v) => return self.exec_br(*v),
             BrIf(v) => return self.exec_br_if(*v),
             BrTable(default, len) => return self.exec_brtable(*default, *len),
@@ -429,7 +438,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
         };
 
-        self.exec_call(wasm_func.clone(), func_inst.owner)
+        self.exec_call(wasm_func.clone(), func_inst._owner)
     }
     fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> Result<ControlFlow<()>> {
         // verify that the table is of the right type, this should be validated by the parser already
@@ -467,17 +476,22 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         if wasm_func.ty == *call_ty {
-            return self.exec_call(wasm_func.clone(), func_inst.owner);
+            return self.exec_call(wasm_func.clone(), func_inst._owner);
         }
 
         cold();
         Err(Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into())
     }
 
-    fn exec_if(&mut self, args: BlockArgs, else_offset: u32, end_offset: u32) -> Result<()> {
+    fn exec_if(
+        &mut self,
+        else_offset: u32,
+        end_offset: u32,
+        (params, results): (StackHeight, StackHeight),
+    ) -> Result<()> {
         // truthy value is on the top of the stack, so enter the then block
         if self.stack.values.pop::<i32>()? != 0 {
-            self.enter_block(self.cf.instr_ptr(), end_offset, BlockType::If, args);
+            self.enter_block(self.cf.instr_ptr(), end_offset, BlockType::If, (params, results));
             return Ok(());
         }
 
@@ -489,7 +503,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         let old = self.cf.instr_ptr();
         *self.cf.instr_ptr_mut() += else_offset as usize;
-        self.enter_block(old + else_offset as usize, end_offset - else_offset, BlockType::Else, args);
+        self.enter_block(old + else_offset as usize, end_offset - else_offset, BlockType::Else, (params, results));
         Ok(())
     }
     fn exec_else(&mut self, end_offset: u32) -> Result<()> {
@@ -497,16 +511,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         *self.cf.instr_ptr_mut() += end_offset as usize;
         Ok(())
     }
-    fn enter_block(&mut self, instr_ptr: usize, end_instr_offset: u32, ty: BlockType, args: BlockArgs) {
-        let (params, results) = match args {
-            BlockArgs::Empty => (StackHeight::default(), StackHeight::default()),
-            BlockArgs::Type(t) => (StackHeight::default(), t.into()),
-            BlockArgs::FuncType(t) => {
-                let ty = self.module.func_ty(t);
-                ((&*ty.params).into(), (&*ty.results).into())
-            }
-        };
-
+    fn resolve_functype(&self, idx: u32) -> (StackHeight, StackHeight) {
+        let ty = self.module.func_ty(idx);
+        ((&*ty.params).into(), (&*ty.results).into())
+    }
+    fn enter_block(
+        &mut self,
+        instr_ptr: usize,
+        end_instr_offset: u32,
+        ty: BlockType,
+        (params, results): (StackHeight, StackHeight),
+    ) {
         self.stack.blocks.push(BlockFrame {
             instr_ptr,
             end_instr_offset,

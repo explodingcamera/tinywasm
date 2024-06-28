@@ -108,8 +108,8 @@ mod reference;
 mod store;
 
 /// Runtime for executing WebAssembly modules.
-pub mod runtime;
-pub use runtime::InterpreterRuntime;
+pub mod interpreter;
+pub use interpreter::InterpreterRuntime;
 
 #[cfg(feature = "parser")]
 /// Re-export of [`tinywasm_parser`]. Requires `parser` feature.

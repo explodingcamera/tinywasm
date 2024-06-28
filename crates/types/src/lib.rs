@@ -14,7 +14,7 @@ use core::{fmt::Debug, ops::Range};
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
-#[allow(clippy::single_component_path_imports)]
+#[allow(clippy::single_component_path_imports, unused)]
 use log;
 
 #[cfg(not(feature = "logging"))]
@@ -125,7 +125,7 @@ pub type ExternAddr = Addr;
 
 // additional internal addresses
 pub type TypeAddr = Addr;
-pub type LocalAddr = Addr;
+pub type LocalAddr = u16; // there can't be more than 50.000 locals in a function
 pub type LabelAddr = Addr;
 pub type ModuleInstanceAddr = Addr;
 

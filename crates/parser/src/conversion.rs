@@ -225,14 +225,6 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     Ok(FuncType { params, results })
 }
 
-pub(crate) fn convert_blocktype(blocktype: wasmparser::BlockType) -> BlockArgs {
-    match blocktype {
-        wasmparser::BlockType::Empty => BlockArgs::Empty,
-        wasmparser::BlockType::Type(ty) => BlockArgs::Type(convert_valtype(&ty)),
-        wasmparser::BlockType::FuncType(ty) => BlockArgs::FuncType(ty),
-    }
-}
-
 pub(crate) fn convert_reftype(reftype: &wasmparser::RefType) -> ValType {
     match reftype {
         _ if reftype.is_func_ref() => ValType::RefFunc,

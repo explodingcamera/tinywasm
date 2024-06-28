@@ -11,7 +11,7 @@ where
 /// Rust sadly doesn't have wrapping casts for floats yet, maybe never.
 /// Alternatively, https://crates.io/crates/az could be used for this but
 /// it's not worth the dependency. 
-#[rustfmt::skip]
+#[rustfmt::skip] 
 macro_rules! float_min_max {
     (f32, i32) => {(-2147483904.0_f32, 2147483648.0_f32)};
     (f64, i32) => {(-2147483649.0_f64, 2147483648.0_f64)};

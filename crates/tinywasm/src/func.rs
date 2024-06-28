@@ -1,4 +1,4 @@
-use crate::runtime::{CallFrame, Stack};
+use crate::interpreter::{CallFrame, Stack};
 use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
@@ -59,7 +59,7 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, 0);
+        let call_frame = CallFrame::new(wasm_func.clone(), func_inst._owner, params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)

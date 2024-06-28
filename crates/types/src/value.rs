@@ -146,31 +146,6 @@ impl ValType {
     pub fn is_simd(&self) -> bool {
         matches!(self, ValType::V128)
     }
-
-    pub(crate) fn to_byte(self) -> u8 {
-        match self {
-            ValType::I32 => 0x7F,
-            ValType::I64 => 0x7E,
-            ValType::F32 => 0x7D,
-            ValType::F64 => 0x7C,
-            ValType::V128 => 0x7B,
-            ValType::RefFunc => 0x70,
-            ValType::RefExtern => 0x6F,
-        }
-    }
-
-    pub(crate) fn from_byte(byte: u8) -> Option<Self> {
-        match byte {
-            0x7F => Some(ValType::I32),
-            0x7E => Some(ValType::I64),
-            0x7D => Some(ValType::F32),
-            0x7C => Some(ValType::F64),
-            0x7B => Some(ValType::V128),
-            0x70 => Some(ValType::RefFunc),
-            0x6F => Some(ValType::RefExtern),
-            _ => None,
-        }
-    }
 }
 
 macro_rules! impl_conversion_for_wasmvalue {
@@ -202,9 +177,4 @@ macro_rules! impl_conversion_for_wasmvalue {
     }
 }
 
-impl_conversion_for_wasmvalue! {
-    i32 => I32,
-    i64 => I64,
-    f32 => F32,
-    f64 => F64
-}
+impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, u128 => V128 }

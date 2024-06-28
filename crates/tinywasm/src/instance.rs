@@ -64,45 +64,39 @@ impl ModuleInstance {
 
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
-        let data = module.data;
 
-        addrs.funcs.extend(store.init_funcs(data.funcs.into(), idx)?);
-        addrs.tables.extend(store.init_tables(data.table_types.into(), idx)?);
-        addrs.memories.extend(store.init_memories(data.memory_types.into(), idx)?);
+        addrs.funcs.extend(store.init_funcs(module.0.funcs.into(), idx)?);
+        addrs.tables.extend(store.init_tables(module.0.table_types.into(), idx)?);
+        addrs.memories.extend(store.init_memories(module.0.memory_types.into(), idx)?);
 
-        let global_addrs = store.init_globals(addrs.globals, data.globals.into(), &addrs.funcs, idx)?;
+        let global_addrs = store.init_globals(addrs.globals, module.0.globals.into(), &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
-            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &data.elements, idx)?;
-        let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, data.data.into(), idx)?;
+            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;
+        let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, module.0.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             failed_to_instantiate: elem_trapped.is_some() || data_trapped.is_some(),
             store_id: store.id(),
             idx,
-            types: data.func_types,
+            types: module.0.func_types,
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
             global_addrs: global_addrs.into_boxed_slice(),
             elem_addrs,
             data_addrs,
-            func_start: data.start_func,
-            imports: data.imports,
-            exports: data.exports,
+            func_start: module.0.start_func,
+            imports: module.0.imports,
+            exports: module.0.exports,
         };
 
         let instance = ModuleInstance::new(instance);
         store.add_instance(instance.clone());
 
-        if let Some(trap) = elem_trapped {
-            return Err(trap.into());
-        };
-
-        if let Some(trap) = data_trapped {
-            return Err(trap.into());
-        };
-
-        Ok(instance)
+        match (elem_trapped, data_trapped) {
+            (Some(trap), _) | (_, Some(trap)) => Err(trap.into()),
+            _ => Ok(instance),
+        }
     }
 
     /// Get a export by name
@@ -224,13 +218,13 @@ impl ModuleInstance {
     /// Get a memory by address
     pub fn memory<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
         let mem = store.get_mem(self.resolve_mem_addr(addr)?)?;
-        Ok(MemoryRef { instance: mem.borrow() })
+        Ok(MemoryRef(mem.borrow()))
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
         let mem = store.get_mem(self.resolve_mem_addr(addr)?)?;
-        Ok(MemoryRefMut { instance: mem.borrow_mut() })
+        Ok(MemoryRefMut(mem.borrow_mut()))
     }
 
     /// Get the start function of the module

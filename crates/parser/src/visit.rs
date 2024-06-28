@@ -1,6 +1,6 @@
-use crate::{conversion::convert_blocktype, Result};
+use crate::Result;
 
-use crate::conversion::convert_heaptype;
+use crate::conversion::{convert_heaptype, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{Instruction, MemoryArg};
@@ -357,7 +357,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        let resolved_idx = self.local_addr_map[idx as usize];
+        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
+            self.errors.push(crate::ParseError::UnsupportedOperator(
+                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
+            ));
+            return;
+        };
+
         match self.validator.get_local_type(idx) {
             Some(t) => self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalGet32(resolved_idx),
@@ -372,7 +378,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        let resolved_idx = self.local_addr_map[idx as usize];
+        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
+            self.errors.push(crate::ParseError::UnsupportedOperator(
+                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
+            ));
+            return;
+        };
+
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalSet32(resolved_idx),
@@ -387,7 +399,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
-        let resolved_idx = self.local_addr_map[idx as usize];
+        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
+            self.errors.push(crate::ParseError::UnsupportedOperator(
+                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
+            ));
+            return;
+        };
+
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
@@ -411,17 +429,29 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.instructions.push(Instruction::Block(convert_blocktype(blockty), 0))
+        self.instructions.push(match blockty {
+            wasmparser::BlockType::Empty => Instruction::Block(0),
+            wasmparser::BlockType::FuncType(idx) => Instruction::BlockWithFuncType(idx, 0),
+            wasmparser::BlockType::Type(ty) => Instruction::BlockWithType(convert_valtype(&ty), 0),
+        })
     }
 
     fn visit_loop(&mut self, ty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.instructions.push(Instruction::Loop(convert_blocktype(ty), 0))
+        self.instructions.push(match ty {
+            wasmparser::BlockType::Empty => Instruction::Loop(0),
+            wasmparser::BlockType::FuncType(idx) => Instruction::LoopWithFuncType(idx, 0),
+            wasmparser::BlockType::Type(ty) => Instruction::LoopWithType(convert_valtype(&ty), 0),
+        })
     }
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.instructions.push(Instruction::If(convert_blocktype(ty).into(), 0, 0))
+        self.instructions.push(match ty {
+            wasmparser::BlockType::Empty => Instruction::If(0, 0),
+            wasmparser::BlockType::FuncType(idx) => Instruction::IfWithFuncType(idx, 0, 0),
+            wasmparser::BlockType::Type(ty) => Instruction::IfWithType(convert_valtype(&ty), 0, 0),
+        })
     }
 
     fn visit_else(&mut self) -> Self::Output {
@@ -451,12 +481,18 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 };
 
                 let if_instruction = &mut self.instructions[if_label_pointer];
-                let Instruction::If(_, else_offset, end_offset) = if_instruction else {
-                    self.errors.push(crate::ParseError::UnsupportedOperator(
-                        "Expected to end an if block, but the last label was not an if".to_string(),
-                    ));
 
-                    return;
+                let (else_offset, end_offset) = match if_instruction {
+                    Instruction::If(else_offset, end_offset)
+                    | Instruction::IfWithFuncType(_, else_offset, end_offset)
+                    | Instruction::IfWithType(_, else_offset, end_offset) => (else_offset, end_offset),
+                    _ => {
+                        self.errors.push(crate::ParseError::UnsupportedOperator(
+                            "Expected to end an if block, but the last label was not an if".to_string(),
+                        ));
+
+                        return;
+                    }
                 };
 
                 *else_offset = (label_pointer - if_label_pointer)
@@ -467,9 +503,15 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support blocks that large");
             }
-            Some(Instruction::Block(_, end_offset))
-            | Some(Instruction::Loop(_, end_offset))
-            | Some(Instruction::If(_, _, end_offset)) => {
+            Some(Instruction::Block(end_offset))
+            | Some(Instruction::BlockWithType(_, end_offset))
+            | Some(Instruction::BlockWithFuncType(_, end_offset))
+            | Some(Instruction::Loop(end_offset))
+            | Some(Instruction::LoopWithFuncType(_, end_offset))
+            | Some(Instruction::LoopWithType(_, end_offset))
+            | Some(Instruction::If(_, end_offset))
+            | Some(Instruction::IfWithFuncType(_, _, end_offset))
+            | Some(Instruction::IfWithType(_, _, end_offset)) => {
                 *end_offset = (current_instr_ptr - label_pointer)
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
