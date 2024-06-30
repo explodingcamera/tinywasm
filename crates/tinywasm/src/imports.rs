@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
-use crate::{log, LinkingError, Result};
+use crate::{log, LinkingError, MemoryRef, MemoryRefMut, Result};
 use tinywasm_types::*;
 
 /// The internal representation of a function
@@ -72,12 +72,12 @@ impl FuncContext<'_> {
     }
 
     /// Get a reference to an exported memory
-    pub fn exported_memory(&mut self, name: &str) -> Result<crate::MemoryRef<'_>> {
+    pub fn exported_memory(&mut self, name: &str) -> Result<MemoryRef<'_>> {
         self.module().exported_memory(self.store, name)
     }
 
     /// Get a reference to an exported memory
-    pub fn exported_memory_mut(&mut self, name: &str) -> Result<crate::MemoryRefMut<'_>> {
+    pub fn exported_memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
         self.module().exported_memory_mut(self.store, name)
     }
 }
@@ -394,15 +394,12 @@ impl Imports {
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                             let table = store.get_table(table_addr)?;
-                            Self::compare_table_types(import, &table.borrow().kind, ty)?;
+                            Self::compare_table_types(import, &table.kind, ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
                             let mem = store.get_mem(memory_addr)?;
-                            let (size, kind) = {
-                                let mem = mem.borrow();
-                                (mem.page_count(), mem.kind)
-                            };
+                            let (size, kind) = { (mem.page_count(), mem.kind) };
                             Self::compare_memory_types(import, &kind, ty, Some(size))?;
                             imports.memories.push(memory_addr);
                         }

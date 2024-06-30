@@ -5,7 +5,7 @@
 ))]
 #![allow(unexpected_cfgs, clippy::reserve_after_initialization)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(feature = "nightly", feature(error_in_core, portable_simd))]
+#![cfg_attr(feature = "nightly", feature(portable_simd))]
 #![forbid(unsafe_code)]
 
 //! A tiny WebAssembly Runtime written in Rust

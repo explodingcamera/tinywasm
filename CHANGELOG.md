@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use a seperate stack and locals for 32, 64 and 128 bit values and references (#21)
 - Updated to latest `wasmparser` version
 - Removed benchmarks comparing TinyWasm to other WebAssembly runtimes to reduce build dependencies
+- Memory and Data Instances are no longer reference counted
 
 ## [0.7.0] - 2024-05-15
 

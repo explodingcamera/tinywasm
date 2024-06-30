@@ -1,7 +1,9 @@
 use alloc::vec::Vec;
-use tinywasm_types::{ValType, WasmValue};
+use tinywasm_types::{LocalCounts, ValType, WasmValue};
 
 use crate::{interpreter::values::*, Result};
+
+use super::Locals;
 pub(crate) const STACK_32_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_64_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_128_SIZE: usize = 1024 * 128;
@@ -34,14 +36,17 @@ impl ValueStack {
         }
     }
 
+    #[inline]
     pub(crate) fn peek<T: InternalValue>(&self) -> Result<T> {
         T::stack_peek(self)
     }
 
+    #[inline]
     pub(crate) fn pop<T: InternalValue>(&mut self) -> Result<T> {
         T::stack_pop(self)
     }
 
+    #[inline]
     pub(crate) fn push<T: InternalValue>(&mut self, value: T) {
         T::stack_push(self, value)
     }
@@ -62,7 +67,6 @@ impl ValueStack {
     }
 
     // TODO: this needs to re-introduce the top replacement optimization
-    #[inline(always)]
     pub(crate) fn calculate<T: InternalValue, U: InternalValue>(&mut self, func: fn(T, T) -> Result<U>) -> Result<()> {
         let v2 = T::stack_pop(self)?;
         let v1 = T::stack_pop(self)?;
@@ -100,12 +104,40 @@ impl ValueStack {
         })
     }
 
-    pub(crate) fn pop_many_raw(&mut self, val_types: &[ValType]) -> Result<Vec<TinyWasmValue>> {
-        let mut values = Vec::with_capacity(val_types.len());
-        for val_type in val_types.iter() {
-            values.push(self.pop_dyn(*val_type)?);
+    // TODO: a lot of optimization potential here
+    pub(crate) fn pop_locals(&mut self, val_types: &[ValType], lc: LocalCounts) -> Result<Locals> {
+        let mut locals_32 = Vec::new();
+        locals_32.reserve_exact(lc.local_32 as usize);
+        let mut locals_64 = Vec::new();
+        locals_64.reserve_exact(lc.local_64 as usize);
+        let mut locals_128 = Vec::new();
+        locals_128.reserve_exact(lc.local_128 as usize);
+        let mut locals_ref = Vec::new();
+        locals_ref.reserve_exact(lc.local_ref as usize);
+
+        for ty in val_types {
+            match self.pop_dyn(*ty)? {
+                TinyWasmValue::Value32(v) => locals_32.push(v),
+                TinyWasmValue::Value64(v) => locals_64.push(v),
+                TinyWasmValue::Value128(v) => locals_128.push(v),
+                TinyWasmValue::ValueRef(v) => locals_ref.push(v),
+            }
         }
-        Ok(values)
+        locals_32.reverse();
+        locals_32.resize_with(lc.local_32 as usize, Default::default);
+        locals_64.reverse();
+        locals_64.resize_with(lc.local_64 as usize, Default::default);
+        locals_128.reverse();
+        locals_128.resize_with(lc.local_128 as usize, Default::default);
+        locals_ref.reverse();
+        locals_ref.resize_with(lc.local_ref as usize, Default::default);
+
+        Ok(Locals {
+            locals_32: locals_32.into_boxed_slice(),
+            locals_64: locals_64.into_boxed_slice(),
+            locals_128: locals_128.into_boxed_slice(),
+            locals_ref: locals_ref.into_boxed_slice(),
+        })
     }
 
     pub(crate) fn truncate_keep(&mut self, to: &StackLocation, keep: &StackHeight) {

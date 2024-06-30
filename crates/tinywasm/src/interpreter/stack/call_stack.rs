@@ -53,6 +53,8 @@ pub(crate) struct Locals {
 }
 
 impl Locals {
+    // TODO: locals get_set
+
     pub(crate) fn get<T: InternalValue>(&self, local_index: LocalAddr) -> Result<T> {
         T::local_get(self, local_index)
     }
@@ -90,10 +92,7 @@ impl CallFrame {
 
     #[inline(always)]
     pub(crate) fn fetch_instr(&self) -> &Instruction {
-        match self.func_instance.instructions.get(self.instr_ptr) {
-            Some(instr) => instr,
-            None => unreachable!("Instruction pointer out of bounds"),
-        }
+        &self.func_instance.instructions[self.instr_ptr]
     }
 
     /// Break to a block at the given index (relative to the current frame)
@@ -148,24 +147,18 @@ impl CallFrame {
         params: &[WasmValue],
         block_ptr: u32,
     ) -> Self {
-        Self::new_raw(wasm_func_inst, owner, params.iter().map(|v| v.into()), block_ptr)
-    }
-
-    #[inline(always)]
-    pub(crate) fn new_raw(
-        wasm_func_inst: Rc<WasmFunction>,
-        owner: ModuleInstanceAddr,
-        params: impl ExactSizeIterator<Item = TinyWasmValue>,
-        block_ptr: u32,
-    ) -> Self {
         let locals = {
             let mut locals_32 = Vec::new();
+            locals_32.reserve_exact(wasm_func_inst.locals.local_32 as usize);
             let mut locals_64 = Vec::new();
+            locals_64.reserve_exact(wasm_func_inst.locals.local_64 as usize);
             let mut locals_128 = Vec::new();
+            locals_128.reserve_exact(wasm_func_inst.locals.local_128 as usize);
             let mut locals_ref = Vec::new();
+            locals_ref.reserve_exact(wasm_func_inst.locals.local_ref as usize);
 
             for p in params {
-                match p {
+                match p.into() {
                     TinyWasmValue::Value32(v) => locals_32.push(v),
                     TinyWasmValue::Value64(v) => locals_64.push(v),
                     TinyWasmValue::Value128(v) => locals_128.push(v),
@@ -186,6 +179,16 @@ impl CallFrame {
             }
         };
 
+        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
+    }
+
+    #[inline]
+    pub(crate) fn new_raw(
+        wasm_func_inst: Rc<WasmFunction>,
+        owner: ModuleInstanceAddr,
+        locals: Locals,
+        block_ptr: u32,
+    ) -> Self {
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
     }
 

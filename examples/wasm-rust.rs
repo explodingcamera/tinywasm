@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 use eyre::{eyre, Result};
 use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
@@ -66,19 +68,13 @@ fn tinywasm() -> Result<()> {
     let mut store = Store::default();
 
     let mut imports = Imports::new();
-    imports.define(
-        "env",
-        "printi32",
-        Extern::typed_func(|_: FuncContext<'_>, x: i32| {
-            println!("{}", x);
-            Ok(())
-        }),
-    )?;
-    let instance = module.instantiate(&mut store, Some(imports))?;
+    imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _x: i32| Ok(())))?;
+    let instance = module.instantiate(&mut store, Some(black_box(imports)))?;
 
     let hello = instance.exported_func::<(), ()>(&store, "hello")?;
-    hello.call(&mut store, ())?;
-
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
     Ok(())
 }
 
@@ -133,7 +129,7 @@ fn printi32() -> Result<()> {
 }
 
 fn fibonacci() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/fibonacci.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/fibonacci.opt.wasm")?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
@@ -146,7 +142,7 @@ fn fibonacci() -> Result<()> {
 }
 
 fn argon2id() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/argon2id.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/argon2id.opt.wasm")?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;

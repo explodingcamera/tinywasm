@@ -86,18 +86,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block()?,
 
-            LocalGet32(local_index) => {
-                self.cf.locals.get::<Value32>(*local_index).map(|v| self.stack.values.push(v))?
-            }
-            LocalGet64(local_index) => {
-                self.cf.locals.get::<Value64>(*local_index).map(|v| self.stack.values.push(v))?
-            }
-            LocalGet128(local_index) => {
-                self.cf.locals.get::<Value128>(*local_index).map(|v| self.stack.values.push(v))?
-            }
-            LocalGetRef(local_index) => {
-                self.cf.locals.get::<ValueRef>(*local_index).map(|v| self.stack.values.push(v))?
-            }
+            LocalGet32(local_index) => self.exec_local_get::<Value32>(*local_index)?,
+            LocalGet64(local_index) => self.exec_local_get::<Value64>(*local_index)?,
+            LocalGet128(local_index) => self.exec_local_get::<Value128>(*local_index)?,
+            LocalGetRef(local_index) => self.exec_local_get::<ValueRef>(*local_index)?,
 
             LocalSet32(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value32>()?)?,
             LocalSet64(local_index) => self.cf.locals.set(*local_index, self.stack.values.pop::<Value64>()?)?,
@@ -414,9 +406,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> Result<ControlFlow<()>> {
-        let params = self.stack.values.pop_many_raw(&wasm_func.ty.params)?;
-        let new_call_frame =
-            CallFrame::new_raw(wasm_func, owner, params.into_iter().rev(), self.stack.blocks.len() as u32);
+        let locals = match self.stack.values.pop_locals(&wasm_func.ty.params, wasm_func.locals) {
+            Ok(locals) => locals,
+            Err(e) => {
+                cold();
+                return Err(e);
+            }
+        };
+
+        let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
         self.cf.incr_instr_ptr(); // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         self.module.swap_with(self.cf.module_addr(), self.store);
@@ -443,7 +441,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr)?)?;
             let table_idx: u32 = self.stack.values.pop::<i32>()? as u32;
-            let table = table.borrow();
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
             table
                 .get(table_idx)
@@ -586,6 +583,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.truncate_keep(&block.stack_ptr, &block.results);
         Ok(())
     }
+    fn exec_local_get<T: InternalValue>(&mut self, local_index: u16) -> Result<()> {
+        let v = self.cf.locals.get::<T>(local_index)?;
+        self.stack.values.push(v);
+        Ok(())
+    }
 
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
         self.stack.values.push_dyn(self.store.get_global_val(self.module.resolve_global_addr(global_index)?)?);
@@ -605,11 +607,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
-        self.stack.values.push::<i32>(mem.borrow().page_count() as i32);
+        self.stack.values.push::<i32>(mem.page_count() as i32);
         Ok(())
     }
     fn exec_memory_grow(&mut self, addr: u32) -> Result<()> {
-        let mut mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?.borrow_mut();
+        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr)?)?;
         let prev_size = mem.page_count() as i32;
         let pages_delta = self.stack.values.pop::<i32>()?;
         self.stack.values.push::<i32>(match mem.grow(pages_delta) {
@@ -625,13 +627,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let dst = self.stack.values.pop::<i32>()?;
 
         if from == to {
-            let mut mem_from = self.store.get_mem(self.module.resolve_mem_addr(from)?)?.borrow_mut();
+            let mem_from = self.store.get_mem_mut(self.module.resolve_mem_addr(from)?)?;
             // copy within the same memory
             mem_from.copy_within(dst as usize, src as usize, size as usize)?;
         } else {
             // copy between two memories
-            let mem_from = self.store.get_mem(self.module.resolve_mem_addr(from)?)?.borrow();
-            let mut mem_to = self.store.get_mem(self.module.resolve_mem_addr(to)?)?.borrow_mut();
+            let (mem_from, mem_to) =
+                self.store.get_mems_mut(self.module.resolve_mem_addr(from)?, self.module.resolve_mem_addr(to)?)?;
             mem_to.copy_from_slice(dst as usize, mem_from.load(src as usize, size as usize)?)?;
         }
         Ok(())
@@ -641,8 +643,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let val = self.stack.values.pop::<i32>()?;
         let dst = self.stack.values.pop::<i32>()?;
 
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr)?)?;
-        mem.borrow_mut().fill(dst as usize, size as usize, val as u8)?;
+        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr)?)?;
+        mem.fill(dst as usize, size as usize, val as u8)?;
         Ok(())
     }
     fn exec_memory_init(&mut self, data_index: u32, mem_index: u32) -> Result<()> {
@@ -650,12 +652,23 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let offset = self.stack.values.pop::<i32>()?; // s
         let dst = self.stack.values.pop::<i32>()?; // d
 
-        let data = self.store.get_data(self.module.resolve_data_addr(data_index)?)?;
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_index)?)?;
+        let data = self
+            .store
+            .data
+            .datas
+            .get(self.module.resolve_data_addr(data_index)? as usize)
+            .ok_or_else(|| Error::Other("data not found".to_string()))?;
+
+        let mem = self
+            .store
+            .data
+            .memories
+            .get_mut(self.module.resolve_mem_addr(mem_index)? as usize)
+            .ok_or_else(|| Error::Other("memory not found".to_string()))?;
 
         let data_len = data.data.as_ref().map(|d| d.len()).unwrap_or(0);
 
-        if unlikely(((size + offset) as usize > data_len) || ((dst + size) as usize > mem.borrow().len())) {
+        if unlikely(((size + offset) as usize > data_len) || ((dst + size) as usize > mem.len())) {
             return Err(Trap::MemoryOutOfBounds { offset: offset as usize, len: size as usize, max: data_len }.into());
         }
 
@@ -668,7 +681,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             None => return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()),
         };
 
-        mem.borrow_mut().store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])?;
+        mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])?;
         Ok(())
     }
     fn exec_data_drop(&mut self, data_index: u32) -> Result<()> {
@@ -683,13 +696,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let dst: i32 = self.stack.values.pop::<i32>()?;
 
         if from == to {
-            let mut table_from = self.store.get_table(self.module.resolve_table_addr(from)?)?.borrow_mut();
             // copy within the same memory
-            table_from.copy_within(dst as usize, src as usize, size as usize)?;
+            self.store.get_table_mut(self.module.resolve_table_addr(from)?)?.copy_within(
+                dst as usize,
+                src as usize,
+                size as usize,
+            )?;
         } else {
             // copy between two memories
-            let table_from = self.store.get_table(self.module.resolve_table_addr(from)?)?.borrow();
-            let mut table_to = self.store.get_table(self.module.resolve_table_addr(to)?)?.borrow_mut();
+            let (table_from, table_to) = self
+                .store
+                .get_tables_mut(self.module.resolve_table_addr(from)?, self.module.resolve_table_addr(to)?)?;
             table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)?;
         }
         Ok(())
@@ -702,16 +719,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
     ) -> Result<()> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
+
         let val = self.stack.values.pop::<i32>()? as u64;
         let Some(Ok(addr)) = offset.checked_add(val).map(|a| a.try_into()) else {
             cold();
             return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset: offset as usize,
                 len: LOAD_SIZE,
-                max: mem.borrow().max_pages(),
+                max: mem.max_pages(),
             }));
         };
-        let val = mem.borrow().load_as::<LOAD_SIZE, LOAD>(addr)?;
+        let val = mem.load_as::<LOAD_SIZE, LOAD>(addr)?;
         self.stack.values.push(cast(val));
         Ok(())
     }
@@ -721,37 +739,49 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
     ) -> Result<()> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr)?)?;
+        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr)?)?;
         let val = val.to_mem_bytes();
         let addr = self.stack.values.pop::<i32>()? as u64;
-        mem.borrow_mut().store((offset + addr) as usize, val.len(), &val)?;
+        mem.store((offset + addr) as usize, val.len(), &val)?;
         Ok(())
     }
 
     fn exec_table_get(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
         let idx: i32 = self.stack.values.pop::<i32>()?;
-        let v = table.borrow().get_wasm_val(idx as u32)?;
+        let v = table.get_wasm_val(idx as u32)?;
         self.stack.values.push_dyn(v.into());
         Ok(())
     }
     fn exec_table_set(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
+        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index)?)?;
         let val = self.stack.values.pop::<ValueRef>()?;
         let idx = self.stack.values.pop::<i32>()? as u32;
-        table.borrow_mut().set(idx, val.into())?;
+        table.set(idx, val.into())?;
         Ok(())
     }
     fn exec_table_size(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        self.stack.values.push_dyn(table.borrow().size().into());
+        self.stack.values.push_dyn(table.size().into());
         Ok(())
     }
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        let table_len = table.borrow().size();
-        let elem = self.store.get_elem(self.module.resolve_elem_addr(elem_index)?)?;
+        let elem = self
+            .store
+            .data
+            .elements
+            .get(self.module.resolve_elem_addr(elem_index)? as usize)
+            .ok_or_else(|| Error::Other("element not found".to_string()))?;
+
+        let table = self
+            .store
+            .data
+            .tables
+            .get_mut(self.module.resolve_table_addr(table_index)? as usize)
+            .ok_or_else(|| Error::Other("table not found".to_string()))?;
+
         let elem_len = elem.items.as_ref().map(|items| items.len()).unwrap_or(0);
+        let table_len = table.size();
 
         let size: i32 = self.stack.values.pop::<i32>()?; // n
         let offset: i32 = self.stack.values.pop::<i32>()?; // s
@@ -773,17 +803,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
-        table.borrow_mut().init(self.module.func_addrs(), dst, &items[offset as usize..(offset + size) as usize])?;
+        table.init(self.module.func_addrs(), dst, &items[offset as usize..(offset + size) as usize])?;
         Ok(())
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
-        let sz = table.borrow().size();
+        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index)?)?;
+        let sz = table.size();
 
         let n = self.stack.values.pop::<i32>()?;
         let val = self.stack.values.pop::<ValueRef>()?;
 
-        match table.borrow_mut().grow(n, val.into()) {
+        match table.grow(n, val.into()) {
             Ok(_) => self.stack.values.push_dyn(sz.into()),
             Err(_) => self.stack.values.push_dyn((-1_i32).into()),
         }
@@ -791,17 +821,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index)?)?;
+        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index)?)?;
 
         let n = self.stack.values.pop::<i32>()?;
         let val = self.stack.values.pop::<ValueRef>()?;
         let i = self.stack.values.pop::<i32>()?;
 
-        if unlikely(i + n > table.borrow().size()) {
+        if unlikely(i + n > table.size()) {
             return Err(Error::Trap(Trap::TableOutOfBounds {
                 offset: i as usize,
                 len: n as usize,
-                max: table.borrow().size() as usize,
+                max: table.size() as usize,
             }));
         }
 
@@ -809,7 +839,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Ok(());
         }
 
-        table.borrow_mut().fill(self.module.func_addrs(), i as usize, n as usize, val.into())?;
+        table.fill(self.module.func_addrs(), i as usize, n as usize, val.into())?;
         Ok(())
     }
 }

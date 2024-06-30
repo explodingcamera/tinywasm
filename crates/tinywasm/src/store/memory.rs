@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryType, ModuleInstanceAddr};
 
-use crate::{log, Error, Result};
+use crate::{cold, log, Error, Result};
 
 const PAGE_SIZE: usize = 65536;
 const MAX_PAGES: usize = 65536;
@@ -45,13 +45,14 @@ impl MemoryInstance {
 
     pub(crate) fn store(&mut self, addr: usize, len: usize, data: &[u8]) -> Result<()> {
         let Some(end) = addr.checked_add(len) else {
+            cold();
             return Err(self.trap_oob(addr, data.len()));
         };
 
         if end > self.data.len() || end < addr {
+            cold();
             return Err(self.trap_oob(addr, data.len()));
         }
-
         self.data[addr..end].copy_from_slice(data);
         Ok(())
     }
@@ -62,10 +63,12 @@ impl MemoryInstance {
 
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
         let Some(end) = addr.checked_add(len) else {
+            cold();
             return Err(self.trap_oob(addr, len));
         };
 
         if end > self.data.len() || end < addr {
+            cold();
             return Err(self.trap_oob(addr, len));
         }
 
@@ -75,16 +78,25 @@ impl MemoryInstance {
     // this is a workaround since we can't use generic const expressions yet (https://github.com/rust-lang/rust/issues/76560)
     pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
+            cold();
             return Err(self.trap_oob(addr, SIZE));
         };
 
         if end > self.data.len() {
+            cold();
             return Err(self.trap_oob(addr, SIZE));
         }
 
         Ok(T::from_le_bytes(match self.data[addr..end].try_into() {
             Ok(bytes) => bytes,
-            Err(_) => unreachable!("checked bounds above"),
+            Err(_) => {
+                cold();
+                return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
+                    offset: addr,
+                    len: SIZE,
+                    max: self.data.len(),
+                }));
+            }
         }))
     }
 

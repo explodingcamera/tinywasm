@@ -43,7 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(module.clone())));
     c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(twasm.clone())));
     c.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
-    c.bench_function("fibonacci_recursive_60", |b| b.iter(|| fibonacci_run(module.clone(), true, 60)));
+    c.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
 }
 
 criterion_group!(benches, criterion_benchmark);

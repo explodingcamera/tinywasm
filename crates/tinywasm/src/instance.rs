@@ -133,37 +133,37 @@ impl ModuleInstance {
     }
 
     // resolve a function address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> Result<FuncAddr> {
         self.0.func_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("function")).copied()
     }
 
     // resolve a table address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> Result<TableAddr> {
         self.0.table_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("table")).copied()
     }
 
     // resolve a memory address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> Result<MemAddr> {
         self.0.mem_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("mem")).copied()
     }
 
     // resolve a data address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> Result<DataAddr> {
         self.0.data_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("data")).copied()
     }
 
     // resolve a memory address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> Result<ElemAddr> {
         self.0.elem_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("elem")).copied()
     }
 
     // resolve a global address to the global store address
-    #[inline(always)]
+    #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> Result<GlobalAddr> {
         self.0.global_addrs.get(addr as usize).ok_or_else(|| Self::not_found_error("global")).copied()
     }
@@ -216,15 +216,15 @@ impl ModuleInstance {
     }
 
     /// Get a memory by address
-    pub fn memory<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
+    pub fn memory<'a>(&self, store: &'a Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
         let mem = store.get_mem(self.resolve_mem_addr(addr)?)?;
-        Ok(MemoryRef(mem.borrow()))
+        Ok(MemoryRef(mem))
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
-        let mem = store.get_mem(self.resolve_mem_addr(addr)?)?;
-        Ok(MemoryRefMut(mem.borrow_mut()))
+        let mem = store.get_mem_mut(self.resolve_mem_addr(addr)?)?;
+        Ok(MemoryRefMut(mem))
     }
 
     /// Get the start function of the module

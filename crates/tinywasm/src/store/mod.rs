@@ -1,10 +1,9 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
-use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
-use crate::{Error, Function, ModuleInstance, Result, Trap};
+use crate::{cold, Error, Function, ModuleInstance, Result, Trap};
 
 mod data;
 mod element;
@@ -84,8 +83,8 @@ impl Default for Store {
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub(crate) struct StoreData {
     pub(crate) funcs: Vec<FunctionInstance>,
-    pub(crate) tables: Vec<RefCell<TableInstance>>,
-    pub(crate) memories: Vec<RefCell<MemoryInstance>>,
+    pub(crate) tables: Vec<TableInstance>,
+    pub(crate) memories: Vec<MemoryInstance>,
     pub(crate) globals: Vec<GlobalInstance>,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) datas: Vec<DataInstance>,
@@ -112,49 +111,93 @@ impl Store {
     }
 
     /// Get the function at the actual index in the store
-    #[inline(always)]
+    #[inline]
     pub(crate) fn get_func(&self, addr: FuncAddr) -> Result<&FunctionInstance> {
         self.data.funcs.get(addr as usize).ok_or_else(|| Self::not_found_error("function"))
     }
 
     /// Get the memory at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&RefCell<MemoryInstance>> {
-        self.data.memories.get(addr as usize).ok_or_else(|| Self::not_found_error("memory"))
+    #[inline]
+    pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&MemoryInstance> {
+        match self.data.memories.get(addr as usize) {
+            Some(mem) => Ok(mem),
+            None => {
+                cold();
+                Err(Self::not_found_error("memory"))
+            }
+        }
+    }
+
+    /// Get the memory at the actual index in the store
+    #[inline]
+    pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> Result<&mut MemoryInstance> {
+        match self.data.memories.get_mut(addr as usize) {
+            Some(mem) => Ok(mem),
+            None => {
+                cold();
+                Err(Self::not_found_error("memory"))
+            }
+        }
+    }
+
+    /// Get the memory at the actual index in the store
+    #[inline]
+    pub(crate) fn get_mems_mut(
+        &mut self,
+        addr: MemAddr,
+        addr2: MemAddr,
+    ) -> Result<(&mut MemoryInstance, &mut MemoryInstance)> {
+        match get_pair_mut(&mut self.data.memories, addr as usize, addr2 as usize) {
+            Some(mems) => Ok(mems),
+            None => {
+                cold();
+                Err(Self::not_found_error("memory"))
+            }
+        }
     }
 
     /// Get the table at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&RefCell<TableInstance>> {
+    #[inline]
+    pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&TableInstance> {
         self.data.tables.get(addr as usize).ok_or_else(|| Self::not_found_error("table"))
     }
 
-    /// Get the data at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn get_data(&self, addr: DataAddr) -> Result<&DataInstance> {
-        self.data.datas.get(addr as usize).ok_or_else(|| Self::not_found_error("data"))
+    /// Get the table at the actual index in the store
+    #[inline]
+    pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> Result<&mut TableInstance> {
+        self.data.tables.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("table"))
+    }
+
+    /// Get two mutable tables at the actual index in the store
+    #[inline]
+    pub(crate) fn get_tables_mut(
+        &mut self,
+        addr: TableAddr,
+        addr2: TableAddr,
+    ) -> Result<(&mut TableInstance, &mut TableInstance)> {
+        match get_pair_mut(&mut self.data.tables, addr as usize, addr2 as usize) {
+            Some(tables) => Ok(tables),
+            None => {
+                cold();
+                Err(Self::not_found_error("table"))
+            }
+        }
     }
 
     /// Get the data at the actual index in the store
-    #[inline(always)]
+    #[inline]
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> Result<&mut DataInstance> {
         self.data.datas.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("data"))
     }
 
     /// Get the element at the actual index in the store
-    #[inline(always)]
-    pub(crate) fn get_elem(&self, addr: ElemAddr) -> Result<&ElementInstance> {
-        self.data.elements.get(addr as usize).ok_or_else(|| Self::not_found_error("element"))
-    }
-
-    /// Get the element at the actual index in the store
-    #[inline(always)]
+    #[inline]
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> Result<&mut ElementInstance> {
         self.data.elements.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("element"))
     }
 
     /// Get the global at the actual index in the store
-    #[inline(always)]
+    #[inline]
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&GlobalInstance> {
         self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"))
     }
@@ -195,7 +238,7 @@ impl Store {
         let table_count = self.data.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.into_iter().enumerate() {
-            self.data.tables.push(RefCell::new(TableInstance::new(table, idx)));
+            self.data.tables.push(TableInstance::new(table, idx));
             table_addrs.push((i + table_count) as TableAddr);
         }
         Ok(table_addrs)
@@ -209,7 +252,7 @@ impl Store {
             if let MemoryArch::I64 = mem.arch {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
-            self.data.memories.push(RefCell::new(MemoryInstance::new(mem, idx)));
+            self.data.memories.push(MemoryInstance::new(mem, idx));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)
@@ -302,7 +345,7 @@ impl Store {
                     // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
                     // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
                     // I have NO IDEA why this is allowed, but it is.
-                    if let Err(Error::Trap(trap)) = table.borrow_mut().init_raw(offset, &init) {
+                    if let Err(Error::Trap(trap)) = table.init_raw(offset, &init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 
@@ -345,7 +388,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)));
                     };
 
-                    match mem.borrow_mut().store(offset as usize, data.data.len(), &data.data) {
+                    match mem.store(offset as usize, data.data.len(), &data.data) {
                         Ok(()) => None,
                         Err(Error::Trap(trap)) => return Ok((data_addrs.into_boxed_slice(), Some(trap))),
                         Err(e) => return Err(e),
@@ -368,7 +411,7 @@ impl Store {
     }
 
     pub(crate) fn add_table(&mut self, table: TableType, idx: ModuleInstanceAddr) -> Result<TableAddr> {
-        self.data.tables.push(RefCell::new(TableInstance::new(table, idx)));
+        self.data.tables.push(TableInstance::new(table, idx));
         Ok(self.data.tables.len() as TableAddr - 1)
     }
 
@@ -376,7 +419,7 @@ impl Store {
         if let MemoryArch::I64 = mem.arch {
             return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
         }
-        self.data.memories.push(RefCell::new(MemoryInstance::new(mem, idx)));
+        self.data.memories.push(MemoryInstance::new(mem, idx));
         Ok(self.data.memories.len() as MemAddr - 1)
     }
 
@@ -425,4 +468,17 @@ impl Store {
         };
         Ok(val)
     }
+}
+
+// remove this when the `get_many_mut` function is stabilized
+fn get_pair_mut<T>(slice: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut T)> {
+    let (first, second) = (core::cmp::min(i, j), core::cmp::max(i, j));
+    if i == j || second >= slice.len() {
+        return None;
+    }
+    let (_, tmp) = slice.split_at_mut(first);
+    let (x, rest) = tmp.split_at_mut(1);
+    let (_, y) = rest.split_at_mut(second - first - 1);
+    let pair = if i < j { (&mut x[0], &mut y[0]) } else { (&mut y[0], &mut x[0]) };
+    Some(pair)
 }

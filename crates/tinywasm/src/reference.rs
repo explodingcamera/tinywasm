@@ -1,4 +1,3 @@
-use core::cell::{Ref, RefMut};
 use core::ffi::CStr;
 
 use alloc::ffi::CString;
@@ -11,11 +10,11 @@ use crate::{MemoryInstance, Result};
 
 /// A reference to a memory instance
 #[derive(Debug)]
-pub struct MemoryRef<'a>(pub(crate) Ref<'a, MemoryInstance>);
+pub struct MemoryRef<'a>(pub(crate) &'a MemoryInstance);
 
 /// A borrowed reference to a memory instance
 #[derive(Debug)]
-pub struct MemoryRefMut<'a>(pub(crate) RefMut<'a, MemoryInstance>);
+pub struct MemoryRefMut<'a>(pub(crate) &'a mut MemoryInstance);
 
 impl<'a> MemoryRefLoad for MemoryRef<'a> {
     /// Load a slice of memory
