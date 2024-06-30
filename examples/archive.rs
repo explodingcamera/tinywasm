@@ -1,4 +1,4 @@
-use color_eyre::eyre::Result;
+use eyre::Result;
 use tinywasm::{parser::Parser, types::TinyWasmModule, Module, Store};
 
 const WASM: &str = r#"

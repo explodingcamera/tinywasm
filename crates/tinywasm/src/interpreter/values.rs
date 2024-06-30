@@ -1,7 +1,8 @@
 #![allow(missing_docs)]
-use super::{call_stack::Locals, ValueStack};
 use crate::{Error, Result};
 use tinywasm_types::{LocalAddr, ValType, WasmValue};
+
+use super::stack::{Locals, ValueStack};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -156,29 +157,42 @@ macro_rules! impl_internalvalue {
             impl sealed::Sealed for $outer {}
 
             impl From<$outer> for TinyWasmValue {
+                #[inline(always)]
                 fn from(value: $outer) -> Self {
                     TinyWasmValue::$variant($to_internal(value))
                 }
             }
 
             impl InternalValue for $outer {
-                #[inline]
+                #[inline(always)]
                 fn stack_push(stack: &mut ValueStack, value: Self) {
                     stack.$stack.push($to_internal(value));
                 }
-                #[inline]
+                #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Result<Self> {
-                    stack.$stack.pop().ok_or(Error::ValueStackUnderflow).map($to_outer)
+                    match stack.$stack.pop() {
+                        Some(v) => Ok($to_outer(v)),
+                        None => {
+                            crate::cold();
+                            Err(Error::ValueStackUnderflow)
+                        },
+                    }
                 }
-                #[inline]
+                #[inline(always)]
                 fn stack_peek(stack: &ValueStack) -> Result<Self> {
-                    stack.$stack.last().copied().ok_or(Error::ValueStackUnderflow).map($to_outer)
+                    match stack.$stack.last() {
+                        Some(v) => Ok($to_outer(*v)),
+                        None => {
+                            crate::cold();
+                            Err(Error::ValueStackUnderflow)
+                        },
+                    }
                 }
-                #[inline]
+                #[inline(always)]
                 fn local_get(locals: &Locals, index: LocalAddr) -> Result<Self> {
                     Ok($to_outer(locals.$locals[index as usize]))
                 }
-                #[inline]
+                #[inline(always)]
                 fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) -> Result<()> {
                     locals.$locals[index as usize] = $to_internal(value);
                     Ok(())

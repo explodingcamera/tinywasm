@@ -1,4 +1,4 @@
-use crate::interpreter::{CallFrame, Stack};
+use crate::interpreter::stack::{CallFrame, Stack};
 use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};

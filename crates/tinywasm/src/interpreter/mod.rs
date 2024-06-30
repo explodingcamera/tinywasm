@@ -1,14 +1,13 @@
-mod executor;
-mod num_helpers;
+pub(crate) mod executor;
+pub(crate) mod num_helpers;
 pub(crate) mod stack;
+mod values;
 
-#[doc(hidden)]
-pub use stack::values;
-pub use stack::values::*;
-
-pub(crate) use stack::{CallFrame, Stack};
+#[cfg(not(feature = "std"))]
+mod no_std_floats;
 
 use crate::{Result, Store};
+pub use values::*;
 
 /// The main TinyWasm runtime.
 ///
@@ -17,7 +16,7 @@ use crate::{Result, Store};
 pub struct InterpreterRuntime {}
 
 impl InterpreterRuntime {
-    pub(crate) fn exec(&self, store: &mut Store, stack: &mut Stack) -> Result<()> {
+    pub(crate) fn exec(&self, store: &mut Store, stack: &mut stack::Stack) -> Result<()> {
         executor::Executor::new(store, stack)?.run_to_completion()
     }
 }

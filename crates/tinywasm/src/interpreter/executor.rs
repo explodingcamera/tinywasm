@@ -1,17 +1,14 @@
 #[cfg(not(feature = "std"))]
-mod no_std_floats;
-
-use interpreter::CallFrame;
-#[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
-use no_std_floats::NoStdFloatExt;
+use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
+use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
 use super::num_helpers::*;
-use super::stack::{values::StackHeight, BlockFrame, BlockType, Stack};
+use super::stack::{BlockFrame, BlockType, Stack};
 use super::values::*;
 use crate::*;
 
@@ -32,6 +29,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
+            // TODO: the result checking takes about 10% of the time
             match self.exec_next()? {
                 ControlFlow::Break(..) => return Ok(()),
                 ControlFlow::Continue(..) => continue,

@@ -1,4 +1,4 @@
-use color_eyre::eyre::{eyre, Result};
+use eyre::{eyre, Result};
 use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
 /// Examples of using WebAssembly compiled from Rust with tinywasm.
@@ -32,6 +32,7 @@ fn main() -> Result<()> {
         println!("  printi32");
         println!("  fibonacci - calculate fibonacci(30)");
         println!("  tinywasm - run printi32 inside of tinywasm inside of itself");
+        println!("  argon2id - run argon2id(1000, 2, 1)");
         return Ok(());
     }
 
@@ -40,6 +41,7 @@ fn main() -> Result<()> {
         "printi32" => printi32()?,
         "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
+        "argon2id" => argon2id()?,
         "all" => {
             println!("Running all examples");
             println!("\nhello.wasm:");
@@ -50,6 +52,8 @@ fn main() -> Result<()> {
             fibonacci()?;
             println!("\ntinywasm.wasm:");
             tinywasm()?;
+            println!("argon2id.wasm:");
+            argon2id()?;
         }
         _ => {}
     }
@@ -133,10 +137,21 @@ fn fibonacci() -> Result<()> {
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
-    let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci")?;
+    let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci_recursive")?;
     let n = 30;
     let result = fibonacci.call(&mut store, n)?;
     println!("fibonacci({}) = {}", n, result);
+
+    Ok(())
+}
+
+fn argon2id() -> Result<()> {
+    let module = Module::parse_file("./examples/rust/out/argon2id.wasm")?;
+    let mut store = Store::default();
+
+    let instance = module.instantiate(&mut store, None)?;
+    let argon2id = instance.exported_func::<(i32, i32, i32), i32>(&store, "argon2id")?;
+    argon2id.call(&mut store, (1000, 2, 1))?;
 
     Ok(())
 }

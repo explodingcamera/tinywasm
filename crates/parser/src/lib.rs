@@ -5,7 +5,6 @@
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
-#![cfg_attr(not(feature = "std"), feature(error_in_core))]
 //! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
 
 extern crate alloc;
@@ -15,23 +14,25 @@ extern crate std;
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
-#[allow(clippy::single_component_path_imports)]
+#[allow(clippy::single_component_path_imports, unused_imports)]
 use log;
 
 // noop fallback if logging is disabled.
 #[cfg(not(feature = "logging"))]
-mod log {
+#[allow(unused_imports, unused_macros)]
+pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    macro_rules! info    ( ($($tt:tt)*) => {{}} );
     macro_rules! error    ( ($($tt:tt)*) => {{}} );
     pub(crate) use debug;
     pub(crate) use error;
+    pub(crate) use info;
 }
 
 mod conversion;
 mod error;
 mod module;
 mod visit;
-use alloc::vec::Vec;
 pub use error::*;
 use module::ModuleReader;
 use wasmparser::{Validator, WasmFeaturesInflated};
@@ -114,7 +115,7 @@ impl Parser {
 
         let mut validator = self.create_validator();
         let mut reader = ModuleReader::new();
-        let mut buffer = Vec::new();
+        let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);
         let mut eof = false;
 

@@ -14,23 +14,24 @@ name="tinywasm"
 path="src/lib.rs"
 
 [dependencies]
-_log={version="0.4", optional=true, package="log"}
-tinywasm-parser={version="0.7.0", path="../parser", default-features=false, optional=true}
-tinywasm-types={version="0.7.0", path="../types", default-features=false}
+log={workspace=true, optional=true}
+tinywasm-parser={version="0.8.0-alpha.0", path="../parser", default-features=false, optional=true}
+tinywasm-types={version="0.8.0-alpha.0", path="../types", default-features=false}
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
 wasm-testsuite={path="../wasm-testsuite"}
-wast={version="212.0"}
+wast={workspace=true}
+eyre={workspace=true}
+pretty_env_logger={workspace=true}
+criterion={workspace=true}
 owo-colors={version="4.0"}
-eyre={version="0.6"}
 serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
-pretty_env_logger="0.5"
 
 [features]
 default=["std", "parser", "logging", "archive"]
-logging=["_log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
+logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["tinywasm-parser"]
 archive=["tinywasm-types/archive"]
@@ -47,4 +48,17 @@ harness=false
 
 [[test]]
 name="test-wast"
+harness=false
+
+
+[[bench]]
+name="argon2id"
+harness=false
+
+[[bench]]
+name="fibonacci"
+harness=false
+
+[[bench]]
+name="tinywasm"
 harness=false

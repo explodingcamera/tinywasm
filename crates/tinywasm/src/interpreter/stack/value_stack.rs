@@ -1,8 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::{ValType, WasmValue};
 
-use super::values::*;
-use crate::Result;
+use crate::{interpreter::values::*, Result};
 pub(crate) const STACK_32_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_64_SIZE: usize = 1024 * 128;
 pub(crate) const STACK_128_SIZE: usize = 1024 * 128;
@@ -51,6 +50,7 @@ impl ValueStack {
         T::stack_pop(self).map(|_| ())
     }
 
+    // TODO: this needs to re-introduce the top replacement optimization
     pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
         let cond: i32 = self.pop()?;
         let val2: T = self.pop()?;
@@ -61,6 +61,8 @@ impl ValueStack {
         Ok(())
     }
 
+    // TODO: this needs to re-introduce the top replacement optimization
+    #[inline(always)]
     pub(crate) fn calculate<T: InternalValue, U: InternalValue>(&mut self, func: fn(T, T) -> Result<U>) -> Result<()> {
         let v2 = T::stack_pop(self)?;
         let v1 = T::stack_pop(self)?;
@@ -68,6 +70,7 @@ impl ValueStack {
         Ok(())
     }
 
+    // TODO: this needs to re-introduce the top replacement optimization
     pub(crate) fn replace_top<T: InternalValue, U: InternalValue>(&mut self, func: fn(T) -> Result<U>) -> Result<()> {
         let v1 = T::stack_pop(self)?;
         U::stack_push(self, func(v1)?);

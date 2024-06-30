@@ -8,3 +8,4 @@ perf.*
 flamegraph.svg
 /.idea
 /*.iml
+profile.json

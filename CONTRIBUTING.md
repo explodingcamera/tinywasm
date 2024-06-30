@@ -7,17 +7,11 @@
   Run the development version of the tinywasm-cli. This is the main command used for developing new features.\
   See [tinywasm-cli](./crates/cli) for more information.
 
-- **`cargo generate-charts`**\
-  Generate test result charts from the previous test runs. This is used to generate the charts in the [README](./README.md).
-
 - **`cargo test-mvp`**\
   Run the WebAssembly MVP (1.0) test suite. Be sure to cloned this repo with `--recursive` or initialize the submodules with `git submodule update --init --recursive`
 
 - **`cargo test-2`**\
   Run the full WebAssembly test suite (2.0)
-
-- **`cargo benchmark <benchmark>`**\
-  Run a single benchmark. e.g. `cargo benchmark argon2id`
 
 - **`cargo test-wast <path>`**\
   Run a single WAST test file. e.g. `cargo test-wast ./examples/wast/i32.wast`

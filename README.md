@@ -20,7 +20,7 @@
 
 As of version `0.3.0`, TinyWasm successfully passes all the WebAssembly 1.0 tests in the [WebAssembly Test Suite](https://github.com/WebAssembly/testsuite). Work on the 2.0 tests is ongoing. This enables TinyWasm to run most WebAssembly programs, including executing TinyWasm itself compiled to WebAssembly (see [examples/wasm-rust.rs](./examples/wasm-rust.rs)). The results of the testsuites are available [here](https://github.com/explodingcamera/tinywasm/tree/main/crates/tinywasm/tests/generated).
 
-The API is still unstable and may change at any time, so you probably don't want to use it in production _yet_. TinyWasm isn't primarily designed for high performance; it focuses more on simplicity, size, and portability. More details on its performance can be found in [BENCHMARKS.md](./BENCHMARKS.md).
+The API is still unstable and may change at any time, so you probably don't want to use it in production _yet_. TinyWasm isn't primarily designed for high performance; it focuses more on simplicity, size, and portability. Benchmarks are currently being reworked and will be available again soon.
 
 **Future Development**: The first major version will focus on improving the API and adding support for [WASI](https://wasi.dev/). While doing so, I also want to further simplify and reduce the codebase's size and improve the parser's performance.
 

@@ -1,8 +1,0 @@
-[package]
-name="scripts"
-publish=false
-edition.workspace=true
-
-[dependencies]
-plotters={version="0.3", default-features=false, features=["histogram", "svg_backend"]}
-eyre={version="0.6"}

@@ -1,5 +1,5 @@
-use super::values::{InternalValue, TinyWasmValue, Value128, Value32, Value64, ValueRef};
 use super::BlockType;
+use crate::interpreter::values::*;
 use crate::unlikely;
 use crate::{Result, Trap};
 
@@ -98,6 +98,7 @@ impl CallFrame {
 
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
+    #[inline(always)]
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,

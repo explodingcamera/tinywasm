@@ -14,14 +14,19 @@ use core::{fmt::Debug, ops::Range};
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
-#[allow(clippy::single_component_path_imports, unused)]
+#[allow(clippy::single_component_path_imports, unused_imports)]
 use log;
 
+// noop fallback if logging is disabled.
 #[cfg(not(feature = "logging"))]
-#[macro_use]
+#[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
+    macro_rules! debug    ( ($($tt:tt)*) => {{}} );
+    macro_rules! info    ( ($($tt:tt)*) => {{}} );
     macro_rules! error    ( ($($tt:tt)*) => {{}} );
+    pub(crate) use debug;
     pub(crate) use error;
+    pub(crate) use info;
 }
 
 mod instructions;

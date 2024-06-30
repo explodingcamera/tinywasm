@@ -9,7 +9,7 @@ repository.workspace=true
 rust-version.workspace=true
 
 [dependencies]
-log={version="0.4", optional=true}
+log={workspace=true, optional=true}
 rkyv={version="0.7", optional=true, default-features=false, features=["size_32", "validation"]}
 bytecheck={version="0.7", optional=true}
 

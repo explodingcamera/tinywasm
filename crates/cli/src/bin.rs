@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use argh::FromArgs;
 use args::WasmArg;
-use color_eyre::eyre::Result;
+use eyre::Result;
 use log::{debug, info};
 use tinywasm::{types::WasmValue, Module};
 
@@ -67,8 +67,6 @@ struct Run {
 }
 
 fn main() -> Result<()> {
-    color_eyre::install()?;
-
     let args: TinyWasmCli = argh::from_env();
     let level = match args.log_level.as_str() {
         "trace" => log::LevelFilter::Trace,
@@ -80,7 +78,6 @@ fn main() -> Result<()> {
     };
 
     pretty_env_logger::formatted_builder().filter_level(level).init();
-
     let cwd = std::env::current_dir()?;
 
     match args.nested {
@@ -96,7 +93,7 @@ fn main() -> Result<()> {
                     tinywasm::Module::parse_bytes(&wasm)?
                 }
                 #[cfg(not(feature = "wat"))]
-                true => return Err(color_eyre::eyre::eyre!("wat support is not enabled in this build")),
+                true => return Err(eyre::eyre!("wat support is not enabled in this build")),
                 false => tinywasm::Module::parse_file(path)?,
             };
 

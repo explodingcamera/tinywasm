@@ -191,7 +191,7 @@ impl From<&Import> for ExternName {
 ///
 /// ## Example
 /// ```rust
-/// # use _log as log;
+/// # use log;
 /// # fn main() -> tinywasm::Result<()> {
 /// use tinywasm::{Imports, Extern};
 /// use tinywasm::types::{ValType, TableType, MemoryType, WasmValue};

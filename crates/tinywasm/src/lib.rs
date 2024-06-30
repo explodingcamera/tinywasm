@@ -78,10 +78,11 @@ extern crate alloc;
 // log for logging (optional).
 #[cfg(feature = "logging")]
 #[allow(clippy::single_component_path_imports)]
-use _log as log;
+use log;
 
 // noop fallback if logging is disabled.
 #[cfg(not(feature = "logging"))]
+#[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
     macro_rules! info    ( ($($tt:tt)*) => {{}} );
