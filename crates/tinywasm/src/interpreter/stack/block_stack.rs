@@ -1,4 +1,4 @@
-use crate::{cold, unlikely, Error, Result};
+use crate::unlikely;
 use alloc::vec::Vec;
 
 use crate::interpreter::values::{StackHeight, StackLocation};
@@ -37,14 +37,8 @@ impl BlockStack {
     }
 
     #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Result<BlockFrame> {
-        match self.0.pop() {
-            Some(frame) => Ok(frame),
-            None => {
-                cold();
-                Err(Error::BlockStackUnderflow)
-            }
-        }
+    pub(crate) fn pop(&mut self) -> BlockFrame {
+        self.0.pop().expect("block stack underflow, this is a bug")
     }
 
     /// keep the top `len` blocks and discard the rest

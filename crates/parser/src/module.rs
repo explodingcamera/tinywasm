@@ -3,12 +3,12 @@ use crate::{conversion, ParseError, Result};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{
-    Data, Element, Export, FuncType, Global, Import, Instruction, LocalCounts, MemoryType, TableType, TinyWasmModule,
-    WasmFunction,
+    Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule, ValType,
+    ValueCounts, ValueCountsSmall, WasmFunction,
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
-pub(crate) type Code = (Box<[Instruction]>, LocalCounts);
+pub(crate) type Code = (Box<[Instruction]>, ValueCounts);
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {
@@ -193,10 +193,18 @@ impl ModuleReader {
             .code
             .into_iter()
             .zip(self.code_type_addrs)
-            .map(|((instructions, locals), ty_idx)| WasmFunction {
-                instructions,
-                locals,
-                ty: self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone(),
+            .map(|((instructions, locals), ty_idx)| {
+                let mut params = ValueCountsSmall::default();
+                let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
+                for param in ty.params.iter() {
+                    match param {
+                        ValType::I32 | ValType::F32 => params.c32 += 1,
+                        ValType::I64 | ValType::F64 => params.c64 += 1,
+                        ValType::V128 => params.c128 += 1,
+                        ValType::RefExtern | ValType::RefFunc => params.cref += 1,
+                    }
+                }
+                WasmFunction { instructions, params, locals, ty }
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();

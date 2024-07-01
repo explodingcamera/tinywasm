@@ -60,7 +60,7 @@ impl MemoryRefMut<'_> {
 
     /// Get the current size of the memory in pages
     pub fn page_count(&mut self) -> usize {
-        self.0.page_count()
+        self.0.page_count
     }
 
     /// Copy a slice of memory to another place in memory

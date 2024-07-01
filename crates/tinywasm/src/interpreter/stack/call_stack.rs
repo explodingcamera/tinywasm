@@ -1,7 +1,9 @@
+use core::ops::ControlFlow;
+
 use super::BlockType;
 use crate::interpreter::values::*;
-use crate::unlikely;
-use crate::{Result, Trap};
+use crate::Trap;
+use crate::{unlikely, Error};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};
@@ -26,21 +28,21 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
+    pub(crate) fn push(&mut self, call_frame: CallFrame) -> ControlFlow<Option<Error>> {
         if unlikely((self.stack.len() + 1) >= MAX_CALL_STACK_SIZE) {
-            return Err(Trap::CallStackOverflow.into());
+            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
         }
         self.stack.push(call_frame);
-        Ok(())
+        ControlFlow::Continue(())
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: usize,
-    pub(crate) block_ptr: u32,
-    pub(crate) func_instance: Rc<WasmFunction>,
-    pub(crate) module_addr: ModuleInstanceAddr,
+    instr_ptr: usize,
+    func_instance: Rc<WasmFunction>,
+    block_ptr: u32,
+    module_addr: ModuleInstanceAddr,
     pub(crate) locals: Locals,
 }
 
@@ -53,13 +55,11 @@ pub(crate) struct Locals {
 }
 
 impl Locals {
-    // TODO: locals get_set
-
-    pub(crate) fn get<T: InternalValue>(&self, local_index: LocalAddr) -> Result<T> {
+    pub(crate) fn get<T: InternalValue>(&self, local_index: LocalAddr) -> T {
         T::local_get(self, local_index)
     }
 
-    pub(crate) fn set<T: InternalValue>(&mut self, local_index: LocalAddr, value: T) -> Result<()> {
+    pub(crate) fn set<T: InternalValue>(&mut self, local_index: LocalAddr, value: T) {
         T::local_set(self, local_index, value)
     }
 }
@@ -71,13 +71,13 @@ impl CallFrame {
     }
 
     #[inline(always)]
-    pub(crate) fn instr_ptr_mut(&mut self) -> &mut usize {
-        &mut self.instr_ptr
+    pub(crate) fn incr_instr_ptr(&mut self) {
+        self.instr_ptr += 1;
     }
 
     #[inline(always)]
-    pub(crate) fn incr_instr_ptr(&mut self) {
-        self.instr_ptr += 1;
+    pub(crate) fn jump(&mut self, offset: usize) {
+        self.instr_ptr += offset;
     }
 
     #[inline(always)]
@@ -149,13 +149,13 @@ impl CallFrame {
     ) -> Self {
         let locals = {
             let mut locals_32 = Vec::new();
-            locals_32.reserve_exact(wasm_func_inst.locals.local_32 as usize);
+            locals_32.reserve_exact(wasm_func_inst.locals.c32 as usize);
             let mut locals_64 = Vec::new();
-            locals_64.reserve_exact(wasm_func_inst.locals.local_64 as usize);
+            locals_64.reserve_exact(wasm_func_inst.locals.c64 as usize);
             let mut locals_128 = Vec::new();
-            locals_128.reserve_exact(wasm_func_inst.locals.local_128 as usize);
+            locals_128.reserve_exact(wasm_func_inst.locals.c128 as usize);
             let mut locals_ref = Vec::new();
-            locals_ref.reserve_exact(wasm_func_inst.locals.local_ref as usize);
+            locals_ref.reserve_exact(wasm_func_inst.locals.cref as usize);
 
             for p in params {
                 match p.into() {
@@ -166,10 +166,10 @@ impl CallFrame {
                 }
             }
 
-            locals_32.resize_with(wasm_func_inst.locals.local_32 as usize, Default::default);
-            locals_64.resize_with(wasm_func_inst.locals.local_64 as usize, Default::default);
-            locals_128.resize_with(wasm_func_inst.locals.local_128 as usize, Default::default);
-            locals_ref.resize_with(wasm_func_inst.locals.local_ref as usize, Default::default);
+            locals_32.resize_with(wasm_func_inst.locals.c32 as usize, Default::default);
+            locals_64.resize_with(wasm_func_inst.locals.c64 as usize, Default::default);
+            locals_128.resize_with(wasm_func_inst.locals.c128 as usize, Default::default);
+            locals_ref.resize_with(wasm_func_inst.locals.cref as usize, Default::default);
 
             Locals {
                 locals_32: locals_32.into_boxed_slice(),

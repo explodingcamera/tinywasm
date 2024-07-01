@@ -1,5 +1,5 @@
 #![allow(missing_docs)]
-use crate::{Error, Result};
+use crate::Result;
 use tinywasm_types::{LocalAddr, ValType, WasmValue};
 
 use super::stack::{Locals, ValueStack};
@@ -137,18 +137,23 @@ mod sealed {
     pub trait Sealed {}
 }
 
-pub(crate) trait InternalValue: sealed::Sealed {
+pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     fn stack_push(stack: &mut ValueStack, value: Self);
-    fn stack_pop(stack: &mut ValueStack) -> Result<Self>
+    fn replace_top(stack: &mut ValueStack, func: fn(Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
-    fn stack_peek(stack: &ValueStack) -> Result<Self>
+    fn stack_calculate(stack: &mut ValueStack, func: fn(Self, Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
-    fn local_get(locals: &Locals, index: LocalAddr) -> Result<Self>
+
+    fn stack_pop(stack: &mut ValueStack) -> Self
     where
         Self: Sized;
-    fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) -> Result<()>;
+    fn stack_peek(stack: &ValueStack) -> Self
+    where
+        Self: Sized;
+    fn local_get(locals: &Locals, index: LocalAddr) -> Self;
+    fn local_set(locals: &mut Locals, index: LocalAddr, value: Self);
 }
 
 macro_rules! impl_internalvalue {
@@ -169,33 +174,43 @@ macro_rules! impl_internalvalue {
                     stack.$stack.push($to_internal(value));
                 }
                 #[inline(always)]
-                fn stack_pop(stack: &mut ValueStack) -> Result<Self> {
-                    match stack.$stack.pop() {
-                        Some(v) => Ok($to_outer(v)),
-                        None => {
-                            crate::cold();
-                            Err(Error::ValueStackUnderflow)
-                        },
+                fn stack_pop(stack: &mut ValueStack) -> Self {
+                    ($to_outer)(stack.$stack.pop().expect("ValueStack underflow, this is a bug"))
+                }
+                #[inline(always)]
+                fn stack_peek(stack: &ValueStack) -> Self {
+                    ($to_outer)(*stack.$stack.last().expect("ValueStack underflow, this is a bug"))
+                }
+
+                #[inline(always)]
+                fn stack_calculate(stack: &mut ValueStack, func: fn(Self, Self) -> Result<Self>) -> Result<()> {
+                    let v2 = stack.$stack.pop();
+                    let v1 = stack.$stack.last_mut();
+                    if let (Some(v1), Some(v2)) = (v1, v2) {
+                        *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
+                    } else {
+                        unreachable!("ValueStack underflow, this is a bug");
                     }
-                }
-                #[inline(always)]
-                fn stack_peek(stack: &ValueStack) -> Result<Self> {
-                    match stack.$stack.last() {
-                        Some(v) => Ok($to_outer(*v)),
-                        None => {
-                            crate::cold();
-                            Err(Error::ValueStackUnderflow)
-                        },
-                    }
-                }
-                #[inline(always)]
-                fn local_get(locals: &Locals, index: LocalAddr) -> Result<Self> {
-                    Ok($to_outer(locals.$locals[index as usize]))
-                }
-                #[inline(always)]
-                fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) -> Result<()> {
-                    locals.$locals[index as usize] = $to_internal(value);
                     Ok(())
+                }
+
+                #[inline(always)]
+                fn replace_top(stack: &mut ValueStack, func: fn(Self) -> Result<Self>) -> Result<()> {
+                    if let Some(v) = stack.$stack.last_mut() {
+                        *v = $to_internal(func($to_outer(*v))?);
+                        Ok(())
+                    } else {
+                        unreachable!("ValueStack underflow, this is a bug");
+                    }
+                }
+
+                #[inline(always)]
+                fn local_get(locals: &Locals, index: LocalAddr) -> Self {
+                    $to_outer(locals.$locals[index as usize])
+                }
+                #[inline(always)]
+                fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) {
+                    locals.$locals[index as usize] = $to_internal(value);
                 }
             }
         )*

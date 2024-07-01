@@ -25,7 +25,7 @@ fn argon2id_run(module: TinyWasmModule) -> Result<()> {
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
     let argon2 = instance.exported_func::<(i32, i32, i32), i32>(&store, "argon2id")?;
-    argon2.call(&mut store, (1000, 1, 1))?;
+    argon2.call(&mut store, (1000, 2, 1))?;
     Ok(())
 }
 

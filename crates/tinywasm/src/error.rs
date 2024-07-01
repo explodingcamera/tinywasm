@@ -1,5 +1,5 @@
 use alloc::string::{String, ToString};
-use core::fmt::Display;
+use core::{fmt::Display, ops::ControlFlow};
 use tinywasm_types::FuncType;
 
 #[cfg(feature = "parser")]
@@ -22,15 +22,6 @@ pub enum Error {
 
     /// A function did not return a value
     FuncDidNotReturn,
-
-    /// The stack is empty
-    ValueStackUnderflow,
-
-    /// The label stack is empty
-    BlockStackUnderflow,
-
-    /// The call stack is empty
-    CallStackUnderflow,
 
     /// An invalid label type was encountered
     InvalidLabelType,
@@ -189,13 +180,10 @@ impl Display for Error {
 
             Self::Trap(trap) => write!(f, "trap: {}", trap),
             Self::Linker(err) => write!(f, "linking error: {}", err),
-            Self::CallStackUnderflow => write!(f, "call stack empty"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {}", message),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
-            Self::BlockStackUnderflow => write!(f, "label stack underflow"),
-            Self::ValueStackUnderflow => write!(f, "value stack underflow"),
             Self::InvalidStore => write!(f, "invalid store"),
         }
     }
@@ -249,3 +237,16 @@ impl From<tinywasm_parser::ParseError> for Error {
 
 /// A wrapper around [`core::result::Result`] for tinywasm operations
 pub type Result<T, E = Error> = crate::std::result::Result<T, E>;
+
+pub(crate) trait Controlify<T> {
+    fn to_cf(self) -> ControlFlow<Option<Error>, T>;
+}
+
+impl<T> Controlify<T> for Result<T, Error> {
+    fn to_cf(self) -> ControlFlow<Option<Error>, T> {
+        match self {
+            Ok(value) => ControlFlow::Continue(value),
+            Err(err) => ControlFlow::Break(Some(err)),
+        }
+    }
+}

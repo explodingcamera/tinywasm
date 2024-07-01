@@ -1,8 +1,9 @@
-pub(crate) trait CheckedWrappingRem
+pub(crate) trait TinywasmIntExt
 where
     Self: Sized,
 {
-    fn checked_wrapping_rem(self, rhs: Self) -> Option<Self>;
+    fn checked_wrapping_rem(self, rhs: Self) -> Result<Self>;
+    fn wasm_checked_div(self, rhs: Self) -> Result<Self>;
 }
 
 /// Doing the actual conversion from float to int is a bit tricky, because
@@ -33,27 +34,36 @@ macro_rules! checked_conv_float {
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
-        $self.stack.values.replace_top::<$from, $to>(|v| {
-            let (min, max) = float_min_max!($from, $intermediate);
-            if unlikely(v.is_nan()) {
-                return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
-            }
-            if unlikely(v <= min || v >= max) {
-                return Err(Error::Trap(crate::Trap::IntegerOverflow));
-            }
-            Ok((v as $intermediate as $to).into())
-        })?
+        $self
+            .stack
+            .values
+            .replace_top::<$from, $to>(|v| {
+                let (min, max) = float_min_max!($from, $intermediate);
+                if unlikely(v.is_nan()) {
+                    return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
+                }
+                if unlikely(v <= min || v >= max) {
+                    return Err(Error::Trap(crate::Trap::IntegerOverflow));
+                }
+                Ok((v as $intermediate as $to).into())
+            })
+            .to_cf()?
     };
 }
 
 pub(crate) use checked_conv_float;
 pub(crate) use float_min_max;
 
+pub(super) fn trap_0() -> Error {
+    Error::Trap(crate::Trap::DivisionByZero)
+}
 pub(crate) trait TinywasmFloatExt {
     fn tw_minimum(self, other: Self) -> Self;
     fn tw_maximum(self, other: Self) -> Self;
     fn tw_nearest(self) -> Self;
 }
+
+use crate::{Error, Result};
 
 #[cfg(not(feature = "std"))]
 use super::no_std_floats::NoStdFloatExt;
@@ -147,13 +157,22 @@ impl_wrapping_self_sh! { i32 i64 u32 u64 }
 
 macro_rules! impl_checked_wrapping_rem {
     ($($t:ty)*) => ($(
-        impl CheckedWrappingRem for $t {
+        impl TinywasmIntExt for $t {
             #[inline]
-            fn checked_wrapping_rem(self, rhs: Self) -> Option<Self> {
+            fn checked_wrapping_rem(self, rhs: Self) -> Result<Self> {
                 if rhs == 0 {
-                    None
+                    Err(Error::Trap(crate::Trap::DivisionByZero))
                 } else {
-                    Some(self.wrapping_rem(rhs))
+                    Ok(self.wrapping_rem(rhs))
+                }
+            }
+
+            #[inline]
+            fn wasm_checked_div(self, rhs: Self) -> Result<Self> {
+                if rhs == 0 {
+                    Err(Error::Trap(crate::Trap::DivisionByZero))
+                } else {
+                    self.checked_div(rhs).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
                 }
             }
         }

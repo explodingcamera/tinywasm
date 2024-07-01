@@ -134,7 +134,7 @@ fn fibonacci() -> Result<()> {
 
     let instance = module.instantiate(&mut store, None)?;
     let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci_recursive")?;
-    let n = 30;
+    let n = 26;
     let result = fibonacci.call(&mut store, n)?;
     println!("fibonacci({}) = {}", n, result);
 

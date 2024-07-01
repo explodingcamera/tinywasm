@@ -48,7 +48,7 @@ impl FuncHandle {
             return Err(Error::Other("Type mismatch".into()));
         }
 
-        let func_inst = store.get_func(self.addr)?;
+        let func_inst = store.get_func(&self.addr);
         let wasm_func = match &func_inst.func {
             Function::Host(host_func) => {
                 let func = &host_func.clone().func;
@@ -76,7 +76,7 @@ impl FuncHandle {
         // assert!(stack.values.len() >= result_m);
 
         // 2. Pop m values from the stack
-        let res = stack.values.pop_results(&func_ty.results)?;
+        let res = stack.values.pop_results(&func_ty.results);
 
         // The values are returned as the results of the invocation.
         Ok(res)

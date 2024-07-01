@@ -176,7 +176,7 @@ pub(crate) fn convert_module_code(
 
     // maps a local's address to the index in the type's locals array
     let mut local_addr_map = Vec::with_capacity(count as usize);
-    let mut local_counts = LocalCounts::default();
+    let mut local_counts = ValueCounts::default();
 
     for (i, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
@@ -186,20 +186,20 @@ pub(crate) fn convert_module_code(
     for i in 0..validator.len_locals() {
         match validator.get_local_type(i) {
             Some(wasmparser::ValType::I32) | Some(wasmparser::ValType::F32) => {
-                local_addr_map.push(local_counts.local_32);
-                local_counts.local_32 += 1;
+                local_addr_map.push(local_counts.c32);
+                local_counts.c32 += 1;
             }
             Some(wasmparser::ValType::I64) | Some(wasmparser::ValType::F64) => {
-                local_addr_map.push(local_counts.local_64);
-                local_counts.local_64 += 1;
+                local_addr_map.push(local_counts.c64);
+                local_counts.c64 += 1;
             }
             Some(wasmparser::ValType::V128) => {
-                local_addr_map.push(local_counts.local_128);
-                local_counts.local_128 += 1;
+                local_addr_map.push(local_counts.c128);
+                local_counts.c128 += 1;
             }
             Some(wasmparser::ValType::Ref(_)) => {
-                local_addr_map.push(local_counts.local_ref);
-                local_counts.local_ref += 1;
+                local_addr_map.push(local_counts.cref);
+                local_counts.cref += 1;
             }
             None => return Err(crate::ParseError::UnsupportedOperator("Unknown local type".to_string())),
         }

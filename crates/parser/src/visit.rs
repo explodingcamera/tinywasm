@@ -122,6 +122,7 @@ macro_rules! impl_visit_operator {
     (@@sign_extension $($rest:tt)* ) => {};
     (@@saturating_float_to_int $($rest:tt)* ) => {};
     (@@bulk_memory $($rest:tt)* ) => {};
+    (@@tail_call $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
         #[cold]
         fn $visit(&mut self $($(,$arg: $argty)*)?) {
@@ -317,6 +318,14 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_i64_trunc_sat_f64_u, Instruction::I64TruncSatF64U
     }
 
+    fn visit_return_call(&mut self, function_index: u32) -> Self::Output {
+        self.instructions.push(Instruction::ReturnCall(function_index));
+    }
+
+    fn visit_return_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
+        self.instructions.push(Instruction::ReturnCallIndirect(type_index, table_index));
+    }
+
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match t {
@@ -384,6 +393,30 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             ));
             return;
         };
+
+        match self.instructions.last() {
+            Some(Instruction::LocalGet32(from))
+            | Some(Instruction::LocalGet64(from))
+            | Some(Instruction::LocalGet128(from))
+            | Some(Instruction::LocalGetRef(from)) => {
+                let from = *from;
+                self.instructions.pop();
+                // validation will ensure that the last instruction is the correct local.get
+                match self.validator.get_operand_type(0) {
+                    Some(Some(t)) => self.instructions.push(match t {
+                        wasmparser::ValType::I32 => Instruction::LocalCopy32(from, resolved_idx),
+                        wasmparser::ValType::F32 => Instruction::LocalCopy32(from, resolved_idx),
+                        wasmparser::ValType::I64 => Instruction::LocalCopy64(from, resolved_idx),
+                        wasmparser::ValType::F64 => Instruction::LocalCopy64(from, resolved_idx),
+                        wasmparser::ValType::V128 => Instruction::LocalCopy128(from, resolved_idx),
+                        wasmparser::ValType::Ref(_) => Instruction::LocalCopyRef(from, resolved_idx),
+                    }),
+                    _ => self.visit_unreachable(),
+                }
+                return;
+            }
+            _ => {}
+        }
 
         match self.validator.get_operand_type(0) {
             Some(Some(t)) => self.instructions.push(match t {

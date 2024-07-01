@@ -75,34 +75,19 @@ impl MemoryInstance {
         Ok(&self.data[addr..end])
     }
 
-    // this is a workaround since we can't use generic const expressions yet (https://github.com/rust-lang/rust/issues/76560)
     pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
-            cold();
             return Err(self.trap_oob(addr, SIZE));
         };
 
         if end > self.data.len() {
-            cold();
             return Err(self.trap_oob(addr, SIZE));
         }
 
         Ok(T::from_le_bytes(match self.data[addr..end].try_into() {
             Ok(bytes) => bytes,
-            Err(_) => {
-                cold();
-                return Err(Error::Trap(crate::Trap::MemoryOutOfBounds {
-                    offset: addr,
-                    len: SIZE,
-                    max: self.data.len(),
-                }));
-            }
+            Err(_) => return Err(self.trap_oob(addr, SIZE)),
         }))
-    }
-
-    #[inline]
-    pub(crate) fn page_count(&self) -> usize {
-        self.page_count
     }
 
     pub(crate) fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<()> {
@@ -144,7 +129,7 @@ impl MemoryInstance {
 
     #[inline]
     pub(crate) fn grow(&mut self, pages_delta: i32) -> Option<i32> {
-        let current_pages = self.page_count();
+        let current_pages = self.page_count;
         let new_pages = current_pages as i64 + pages_delta as i64;
         debug_assert!(new_pages <= i32::MAX as i64, "page count should never be greater than i32::MAX");
 
@@ -256,9 +241,9 @@ mod memory_instance_tests {
     #[test]
     fn test_memory_grow() {
         let mut memory = create_test_memory();
-        let original_pages = memory.page_count();
+        let original_pages = memory.page_count;
         assert_eq!(memory.grow(1), Some(original_pages as i32));
-        assert_eq!(memory.page_count(), original_pages + 1);
+        assert_eq!(memory.page_count, original_pages + 1);
     }
 
     #[test]

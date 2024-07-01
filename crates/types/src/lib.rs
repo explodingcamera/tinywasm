@@ -179,18 +179,28 @@ pub struct FuncType {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
-pub struct LocalCounts {
-    pub local_32: u32,
-    pub local_64: u32,
-    pub local_128: u32,
-    pub local_ref: u32,
+pub struct ValueCounts {
+    pub c32: u32,
+    pub c64: u32,
+    pub c128: u32,
+    pub cref: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+pub struct ValueCountsSmall {
+    pub c32: u16,
+    pub c64: u16,
+    pub c128: u16,
+    pub cref: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
-    pub locals: LocalCounts,
+    pub locals: ValueCounts,
+    pub params: ValueCountsSmall,
     pub ty: FuncType,
 }
 

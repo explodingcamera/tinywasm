@@ -59,6 +59,7 @@ impl Parser {
             sign_extension: true,
             saturating_float_to_int: true,
             function_references: true,
+            tail_call: true,
 
             component_model: false,
             component_model_nested_names: false,
@@ -71,7 +72,6 @@ impl Parser {
             memory_control: false,
             relaxed_simd: false,
             simd: false,
-            tail_call: false,
             threads: false,
             multi_memory: false, // should be working mostly
             custom_page_sizes: false,

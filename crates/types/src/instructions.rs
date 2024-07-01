@@ -57,16 +57,21 @@ pub enum Instruction {
     // LocalGet2(LocalAddr, LocalAddr),
     // LocalGet3(LocalAddr, LocalAddr, LocalAddr),
     // LocalGetSet(LocalAddr, LocalAddr),
+ 
+    // LocalGetGet32(LocalAddr, LocalAddr), LocalGetGet64(LocalAddr, LocalAddr), LocalGetGet128(LocalAddr, LocalAddr),
+    // LocalTeeGet32(LocalAddr, LocalAddr), LocalTeeGet64(LocalAddr, LocalAddr), LocalTeeGet128(LocalAddr, LocalAddr),
+    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopy128Ref(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
+    LocalsStore32(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore64(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore128(LocalAddr, LocalAddr, u32, MemAddr), LocalsStoreRef(LocalAddr, LocalAddr, u32, MemAddr),
 
     // > Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
-    
-    Block(EndOffset),
+
+    Block(EndOffset), 
     BlockWithType(ValType, EndOffset),
     BlockWithFuncType(TypeAddr, EndOffset),
-
+ 
     Loop(EndOffset),
     LoopWithType(ValType, EndOffset),
     LoopWithFuncType(TypeAddr, EndOffset),
@@ -84,6 +89,8 @@ pub enum Instruction {
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
+    ReturnCall(FuncAddr),
+    ReturnCallIndirect(TypeAddr, TableAddr),
  
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>

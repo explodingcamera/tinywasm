@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use core::fmt::Debug;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
@@ -26,13 +27,22 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 /// functions, you should create a new store and then drop it when you're done (e.g. in a request handler)
 ///
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
-#[derive(Debug)]
 pub struct Store {
     id: usize,
     module_instances: Vec<ModuleInstance>,
 
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
+}
+
+impl Debug for Store {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Store")
+            .field("id", &self.id)
+            .field("module_instances", &self.module_instances)
+            .field("data", &"...")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -76,7 +86,7 @@ impl Default for Store {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 /// Global state that can be manipulated by WebAssembly programs
 ///
 /// Data should only be addressable by the module that owns it
@@ -112,42 +122,30 @@ impl Store {
 
     /// Get the function at the actual index in the store
     #[inline]
-    pub(crate) fn get_func(&self, addr: FuncAddr) -> Result<&FunctionInstance> {
-        self.data.funcs.get(addr as usize).ok_or_else(|| Self::not_found_error("function"))
+    pub(crate) fn get_func(&self, addr: &FuncAddr) -> &FunctionInstance {
+        &self.data.funcs[*addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline]
-    pub(crate) fn get_mem(&self, addr: MemAddr) -> Result<&MemoryInstance> {
-        match self.data.memories.get(addr as usize) {
-            Some(mem) => Ok(mem),
-            None => {
-                cold();
-                Err(Self::not_found_error("memory"))
-            }
-        }
+    pub(crate) fn get_mem(&self, addr: &MemAddr) -> &MemoryInstance {
+        &self.data.memories[*addr as usize]
     }
 
     /// Get the memory at the actual index in the store
-    #[inline]
-    pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> Result<&mut MemoryInstance> {
-        match self.data.memories.get_mut(addr as usize) {
-            Some(mem) => Ok(mem),
-            None => {
-                cold();
-                Err(Self::not_found_error("memory"))
-            }
-        }
+    #[inline(always)]
+    pub(crate) fn get_mem_mut(&mut self, addr: &MemAddr) -> &mut MemoryInstance {
+        &mut self.data.memories[*addr as usize]
     }
 
     /// Get the memory at the actual index in the store
-    #[inline]
+    #[inline(always)]
     pub(crate) fn get_mems_mut(
         &mut self,
-        addr: MemAddr,
-        addr2: MemAddr,
+        addr: &MemAddr,
+        addr2: &MemAddr,
     ) -> Result<(&mut MemoryInstance, &mut MemoryInstance)> {
-        match get_pair_mut(&mut self.data.memories, addr as usize, addr2 as usize) {
+        match get_pair_mut(&mut self.data.memories, *addr as usize, *addr2 as usize) {
             Some(mems) => Ok(mems),
             None => {
                 cold();
@@ -158,24 +156,24 @@ impl Store {
 
     /// Get the table at the actual index in the store
     #[inline]
-    pub(crate) fn get_table(&self, addr: TableAddr) -> Result<&TableInstance> {
-        self.data.tables.get(addr as usize).ok_or_else(|| Self::not_found_error("table"))
+    pub(crate) fn get_table(&self, addr: &TableAddr) -> &TableInstance {
+        &self.data.tables[*addr as usize]
     }
 
     /// Get the table at the actual index in the store
     #[inline]
-    pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> Result<&mut TableInstance> {
-        self.data.tables.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("table"))
+    pub(crate) fn get_table_mut(&mut self, addr: &TableAddr) -> &mut TableInstance {
+        &mut self.data.tables[*addr as usize]
     }
 
     /// Get two mutable tables at the actual index in the store
     #[inline]
     pub(crate) fn get_tables_mut(
         &mut self,
-        addr: TableAddr,
-        addr2: TableAddr,
+        addr: &TableAddr,
+        addr2: &TableAddr,
     ) -> Result<(&mut TableInstance, &mut TableInstance)> {
-        match get_pair_mut(&mut self.data.tables, addr as usize, addr2 as usize) {
+        match get_pair_mut(&mut self.data.tables, *addr as usize, *addr2 as usize) {
             Some(tables) => Ok(tables),
             None => {
                 cold();
@@ -186,37 +184,32 @@ impl Store {
 
     /// Get the data at the actual index in the store
     #[inline]
-    pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> Result<&mut DataInstance> {
-        self.data.datas.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("data"))
+    pub(crate) fn get_data_mut(&mut self, addr: &DataAddr) -> &mut DataInstance {
+        &mut self.data.datas[*addr as usize]
     }
 
     /// Get the element at the actual index in the store
     #[inline]
-    pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> Result<&mut ElementInstance> {
-        self.data.elements.get_mut(addr as usize).ok_or_else(|| Self::not_found_error("element"))
+    pub(crate) fn get_elem_mut(&mut self, addr: &ElemAddr) -> &mut ElementInstance {
+        &mut self.data.elements[*addr as usize]
     }
 
     /// Get the global at the actual index in the store
     #[inline]
-    pub(crate) fn get_global(&self, addr: GlobalAddr) -> Result<&GlobalInstance> {
-        self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"))
+    pub(crate) fn get_global(&self, addr: &GlobalAddr) -> &GlobalInstance {
+        &self.data.globals[*addr as usize]
     }
 
     /// Get the global at the actual index in the store
     #[doc(hidden)]
-    pub fn get_global_val(&self, addr: MemAddr) -> Result<TinyWasmValue> {
-        self.data
-            .globals
-            .get(addr as usize)
-            .ok_or_else(|| Self::not_found_error("global"))
-            .map(|global| global.value.get())
+    pub fn get_global_val(&self, addr: &MemAddr) -> TinyWasmValue {
+        self.data.globals[*addr as usize].value.get()
     }
 
     /// Set the global at the actual index in the store
     #[doc(hidden)]
-    pub fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) -> Result<()> {
-        let global = self.data.globals.get(addr as usize).ok_or_else(|| Self::not_found_error("global"));
-        global.map(|global| global.value.set(value))
+    pub fn set_global_val(&mut self, addr: &MemAddr, value: TinyWasmValue) {
+        self.data.globals[*addr as usize].value.set(value);
     }
 }
 
