@@ -76,6 +76,8 @@ impl Parser {
             multi_memory: false, // should be working mostly
             custom_page_sizes: false,
             shared_everything_threads: false,
+            component_model_multiple_returns: false,
+            legacy_exceptions: false,
         };
         Validator::new_with_features(features.into())
     }
