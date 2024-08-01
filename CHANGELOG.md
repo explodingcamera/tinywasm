@@ -5,10 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [UNRELEASED]
+## [Unreleased]
 
 ### Changed
 
+- Increased MSRV to 1.80.0
 - Improved support for WebAssembly 2.0 features
 - Simplify and optimize the interpreter loop
 - Use a seperate stack and locals for 32, 64 and 128 bit values and references (#21)

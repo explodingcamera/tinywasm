@@ -4,7 +4,7 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="214"
+wast="215"
 wat="1.212"
 eyre="0.6"
 log="0.4"
@@ -13,7 +13,7 @@ criterion={version="0.5", default-features=false, features=["cargo_bench_support
 
 [workspace.package]
 version="0.8.0-alpha.0"
-rust-version="1.79"
+rust-version="1.80"
 edition="2021"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
