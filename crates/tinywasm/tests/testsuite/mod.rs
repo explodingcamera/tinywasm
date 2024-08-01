@@ -1,5 +1,3 @@
-#![allow(dead_code)] // rust analyzer doesn't recognize that code is used by tests without harness
-
 use eyre::Result;
 use owo_colors::OwoColorize;
 use std::io::{BufRead, Seek, SeekFrom};

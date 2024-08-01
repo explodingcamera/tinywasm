@@ -1,4 +1,3 @@
-#![allow(missing_docs)]
 use crate::Result;
 use tinywasm_types::{LocalAddr, ValType, WasmValue};
 
@@ -12,9 +11,13 @@ pub(crate) type ValueRef = Option<u32>;
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// A untyped WebAssembly value
 pub enum TinyWasmValue {
+    /// A 32-bit value
     Value32(Value32),
+    /// A 64-bit value
     Value64(Value64),
+    /// A 128-bit value
     Value128(Value128),
+    /// A reference value
     ValueRef(ValueRef),
 }
 
@@ -64,6 +67,7 @@ impl From<&[ValType]> for StackHeight {
 }
 
 impl TinyWasmValue {
+    /// Asserts that the value is a 32-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_32(&self) -> Value32 {
         match self {
             TinyWasmValue::Value32(v) => *v,
@@ -71,6 +75,7 @@ impl TinyWasmValue {
         }
     }
 
+    /// Asserts that the value is a 64-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_64(&self) -> Value64 {
         match self {
             TinyWasmValue::Value64(v) => *v,
@@ -78,6 +83,7 @@ impl TinyWasmValue {
         }
     }
 
+    /// Asserts that the value is a 128-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_128(&self) -> Value128 {
         match self {
             TinyWasmValue::Value128(v) => *v,
@@ -85,6 +91,7 @@ impl TinyWasmValue {
         }
     }
 
+    /// Asserts that the value is a reference value and returns it (panics if the value is the wrong size)
     pub fn unwrap_ref(&self) -> ValueRef {
         match self {
             TinyWasmValue::ValueRef(v) => *v,
@@ -92,6 +99,7 @@ impl TinyWasmValue {
         }
     }
 
+    /// Attaches a type to the value (panics if the size of the value is not the same as the type)
     pub fn attach_type(&self, ty: ValType) -> WasmValue {
         match ty {
             ValType::I32 => WasmValue::I32(self.unwrap_32() as i32),

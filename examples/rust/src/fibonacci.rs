@@ -1,5 +1,4 @@
 #![no_main]
-#![allow(non_snake_case)]
 
 #[no_mangle]
 pub extern "C" fn fibonacci(n: i32) -> i32 {
