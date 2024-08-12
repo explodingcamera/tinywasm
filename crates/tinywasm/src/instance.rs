@@ -129,38 +129,38 @@ impl ModuleInstance {
 
     // resolve a function address to the global store address
     #[inline]
-    pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> &FuncAddr {
-        &self.0.func_addrs[addr as usize]
+    pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
+        self.0.func_addrs[addr as usize]
     }
 
     // resolve a table address to the global store address
     #[inline]
-    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> &TableAddr {
-        &self.0.table_addrs[addr as usize]
+    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
+        self.0.table_addrs[addr as usize]
     }
 
     // resolve a memory address to the global store address
     #[inline]
-    pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> &MemAddr {
-        &self.0.mem_addrs[addr as usize]
+    pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
+        self.0.mem_addrs[addr as usize]
     }
 
     // resolve a data address to the global store address
     #[inline]
-    pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> &DataAddr {
-        &self.0.data_addrs[addr as usize]
+    pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
+        self.0.data_addrs[addr as usize]
     }
 
     // resolve a memory address to the global store address
     #[inline]
-    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> &ElemAddr {
-        &self.0.elem_addrs[addr as usize]
+    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
+        self.0.elem_addrs[addr as usize]
     }
 
     // resolve a global address to the global store address
     #[inline]
-    pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> &GlobalAddr {
-        &self.0.global_addrs[addr as usize]
+    pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
+        self.0.global_addrs[addr as usize]
     }
 
     /// Get an exported function by name
@@ -169,12 +169,12 @@ impl ModuleInstance {
             return Err(Error::InvalidStore);
         }
 
-        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Func(func_addr) = export else {
-            return Err(Error::Other(format!("Export is not a function: {}", name)));
+            return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
-        let ty = store.get_func(&func_addr).func.ty();
+        let ty = store.get_func(func_addr).func.ty();
         Ok(FuncHandle { addr: func_addr, module_addr: self.id(), name: Some(name.to_string()), ty: ty.clone() })
     }
 
@@ -190,7 +190,7 @@ impl ModuleInstance {
 
     /// Get an exported memory by name
     pub fn exported_memory<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRef<'a>> {
-        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {}", name)));
         };
@@ -200,7 +200,7 @@ impl ModuleInstance {
 
     /// Get an exported memory by name
     pub fn exported_memory_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRefMut<'a>> {
-        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {}", name)))?;
+        let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {}", name)));
         };
@@ -247,7 +247,7 @@ impl ModuleInstance {
         let func_inst = store.get_func(func_addr);
         let ty = func_inst.func.ty();
 
-        Ok(Some(FuncHandle { module_addr: self.id(), addr: *func_addr, ty: ty.clone(), name: None }))
+        Ok(Some(FuncHandle { module_addr: self.id(), addr: func_addr, ty: ty.clone(), name: None }))
     }
 
     /// Invoke the start function of the module

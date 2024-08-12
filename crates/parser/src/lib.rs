@@ -49,7 +49,7 @@ impl Parser {
         Self {}
     }
 
-    fn create_validator(&self) -> Validator {
+    fn create_validator() -> Validator {
         let features = WasmFeaturesInflated {
             bulk_memory: true,
             floats: true,
@@ -85,7 +85,7 @@ impl Parser {
     /// Parse a [`TinyWasmModule`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
         let wasm = wasm.as_ref();
-        let mut validator = self.create_validator();
+        let mut validator = Self::create_validator();
         let mut reader = ModuleReader::new();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
@@ -115,7 +115,7 @@ impl Parser {
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
         use alloc::format;
 
-        let mut validator = self.create_validator();
+        let mut validator = Self::create_validator();
         let mut reader = ModuleReader::new();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);
@@ -128,7 +128,7 @@ impl Parser {
                     buffer.extend((0..hint).map(|_| 0u8));
                     let read_bytes = stream
                         .read(&mut buffer[len..])
-                        .map_err(|e| ParseError::Other(format!("Error reading from stream: {}", e)))?;
+                        .map_err(|e| ParseError::Other(format!("Error reading from stream: {e}")))?;
                     buffer.truncate(len + read_bytes);
                     eof = read_bytes == 0;
                 }

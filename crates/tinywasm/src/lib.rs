@@ -9,7 +9,7 @@
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
-//! TinyWasm provides a minimal WebAssembly runtime for executing WebAssembly modules.
+//! `TinyWasm` provides a minimal WebAssembly runtime for executing WebAssembly modules.
 //! It currently supports all features of the WebAssembly MVP specification and is
 //! designed to be easy to use and integrate in other projects.
 //!
@@ -23,8 +23,8 @@
 //!- **`archive`**\
 //!  Enables pre-parsing of archives. This is enabled by default.
 //!
-//! With all these features disabled, TinyWasm only depends on `core`, `alloc` and `libm`.
-//! By disabling `std`, you can use TinyWasm in `no_std` environments. This requires
+//! With all these features disabled, `TinyWasm` only depends on `core`, `alloc` and `libm`.
+//! By disabling `std`, you can use `TinyWasm` in `no_std` environments. This requires
 //! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
 //! Additionally, to have proper error types in `no_std`, you currently need a `nightly` compiler to use the unstable error trait in `core`.
 //!
@@ -127,7 +127,7 @@ pub(crate) fn cold() {}
 
 pub(crate) fn unlikely(b: bool) -> bool {
     if b {
-        cold()
+        cold();
     };
     b
 }

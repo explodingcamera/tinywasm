@@ -48,7 +48,7 @@ impl FuncHandle {
             return Err(Error::Other("Type mismatch".into()));
         }
 
-        let func_inst = store.get_func(&self.addr);
+        let func_inst = store.get_func(self.addr);
         let wasm_func = match &func_inst.func {
             Function::Host(host_func) => {
                 let func = &host_func.clone().func;
@@ -59,7 +59,7 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let call_frame = CallFrame::new(wasm_func.clone(), func_inst._owner, params, 0);
+        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)

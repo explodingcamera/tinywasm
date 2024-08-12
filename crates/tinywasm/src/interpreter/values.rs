@@ -54,7 +54,7 @@ impl From<&[ValType]> for StackHeight {
         let mut s64 = 0;
         let mut s128 = 0;
         let mut sref = 0;
-        for val_type in value.iter() {
+        for val_type in value {
             match val_type {
                 ValType::I32 | ValType::F32 => s32 += 1,
                 ValType::I64 | ValType::F64 => s64 += 1,
@@ -127,8 +127,7 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::V128(v) => TinyWasmValue::Value128(*v),
             WasmValue::F32(v) => TinyWasmValue::Value32(v.to_bits()),
             WasmValue::F64(v) => TinyWasmValue::Value64(v.to_bits()),
-            WasmValue::RefFunc(v) => TinyWasmValue::ValueRef(Some(*v)),
-            WasmValue::RefExtern(v) => TinyWasmValue::ValueRef(Some(*v)),
+            WasmValue::RefFunc(v) | WasmValue::RefExtern(v) => TinyWasmValue::ValueRef(Some(*v)),
             WasmValue::RefNull(_) => TinyWasmValue::ValueRef(None),
         }
     }

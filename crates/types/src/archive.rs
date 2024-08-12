@@ -54,16 +54,16 @@ extern crate std;
 impl std::error::Error for TwasmError {}
 
 impl TinyWasmModule {
-    /// Creates a TinyWasmModule from a slice of bytes.
+    /// Creates a `TinyWasmModule` from a slice of bytes.
     pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
         let len = validate_magic(wasm)?;
         let root = check_archived_root::<Self>(&wasm[len..]).map_err(|_e| TwasmError::InvalidArchive)?;
         Ok(root.deserialize(&mut rkyv::Infallible).unwrap())
     }
 
-    /// Serializes the TinyWasmModule into a vector of bytes.
-    /// AlignedVec can be deferenced as a slice of bytes and
-    /// implements io::Write when the `std` feature is enabled.
+    /// Serializes the `TinyWasmModule` into a vector of bytes.
+    /// `AlignedVec` can be deferenced as a slice of bytes and
+    /// implements `io::Write` when the `std` feature is enabled.
     pub fn serialize_twasm(&self) -> rkyv::AlignedVec {
         let mut serializer = AllocSerializer::<0>::default();
         serializer.pad(TWASM_MAGIC.len()).unwrap();

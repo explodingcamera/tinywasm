@@ -42,19 +42,19 @@ impl Display for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidType => write!(f, "invalid type"),
-            Self::UnsupportedSection(section) => write!(f, "unsupported section: {}", section),
-            Self::DuplicateSection(section) => write!(f, "duplicate section: {}", section),
-            Self::EmptySection(section) => write!(f, "empty section: {}", section),
-            Self::UnsupportedOperator(operator) => write!(f, "unsupported operator: {}", operator),
+            Self::UnsupportedSection(section) => write!(f, "unsupported section: {section}"),
+            Self::DuplicateSection(section) => write!(f, "duplicate section: {section}"),
+            Self::EmptySection(section) => write!(f, "empty section: {section}"),
+            Self::UnsupportedOperator(operator) => write!(f, "unsupported operator: {operator}"),
             Self::ParseError { message, offset } => {
-                write!(f, "error parsing module: {} at offset {}", message, offset)
+                write!(f, "error parsing module: {message} at offset {offset}")
             }
-            Self::InvalidEncoding(encoding) => write!(f, "invalid encoding: {:?}", encoding),
+            Self::InvalidEncoding(encoding) => write!(f, "invalid encoding: {encoding:?}"),
             Self::InvalidLocalCount { expected, actual } => {
-                write!(f, "invalid local count: expected {}, actual {}", expected, actual)
+                write!(f, "invalid local count: expected {expected}, actual {actual}")
             }
             Self::EndNotReached => write!(f, "end of module not reached"),
-            Self::Other(message) => write!(f, "unknown error: {}", message),
+            Self::Other(message) => write!(f, "unknown error: {message}"),
         }
     }
 }

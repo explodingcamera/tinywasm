@@ -41,6 +41,7 @@ impl Debug for Store {
             .field("id", &self.id)
             .field("module_instances", &self.module_instances)
             .field("data", &"...")
+            .field("runtime", &self.runtime)
             .finish()
     }
 }
@@ -117,35 +118,35 @@ impl Store {
 
     #[cold]
     fn not_found_error(name: &str) -> Error {
-        Error::Other(format!("{} not found", name))
+        Error::Other(format!("{name} not found"))
     }
 
     /// Get the function at the actual index in the store
     #[inline]
-    pub(crate) fn get_func(&self, addr: &FuncAddr) -> &FunctionInstance {
-        &self.data.funcs[*addr as usize]
+    pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
+        &self.data.funcs[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline]
-    pub(crate) fn get_mem(&self, addr: &MemAddr) -> &MemoryInstance {
-        &self.data.memories[*addr as usize]
+    pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
+        &self.data.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline(always)]
-    pub(crate) fn get_mem_mut(&mut self, addr: &MemAddr) -> &mut MemoryInstance {
-        &mut self.data.memories[*addr as usize]
+    pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
+        &mut self.data.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline(always)]
     pub(crate) fn get_mems_mut(
         &mut self,
-        addr: &MemAddr,
-        addr2: &MemAddr,
+        addr: MemAddr,
+        addr2: MemAddr,
     ) -> Result<(&mut MemoryInstance, &mut MemoryInstance)> {
-        match get_pair_mut(&mut self.data.memories, *addr as usize, *addr2 as usize) {
+        match get_pair_mut(&mut self.data.memories, addr as usize, addr2 as usize) {
             Some(mems) => Ok(mems),
             None => {
                 cold();
@@ -156,24 +157,24 @@ impl Store {
 
     /// Get the table at the actual index in the store
     #[inline]
-    pub(crate) fn get_table(&self, addr: &TableAddr) -> &TableInstance {
-        &self.data.tables[*addr as usize]
+    pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
+        &self.data.tables[addr as usize]
     }
 
     /// Get the table at the actual index in the store
     #[inline]
-    pub(crate) fn get_table_mut(&mut self, addr: &TableAddr) -> &mut TableInstance {
-        &mut self.data.tables[*addr as usize]
+    pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
+        &mut self.data.tables[addr as usize]
     }
 
     /// Get two mutable tables at the actual index in the store
     #[inline]
     pub(crate) fn get_tables_mut(
         &mut self,
-        addr: &TableAddr,
-        addr2: &TableAddr,
+        addr: TableAddr,
+        addr2: TableAddr,
     ) -> Result<(&mut TableInstance, &mut TableInstance)> {
-        match get_pair_mut(&mut self.data.tables, *addr as usize, *addr2 as usize) {
+        match get_pair_mut(&mut self.data.tables, addr as usize, addr2 as usize) {
             Some(tables) => Ok(tables),
             None => {
                 cold();
@@ -184,32 +185,32 @@ impl Store {
 
     /// Get the data at the actual index in the store
     #[inline]
-    pub(crate) fn get_data_mut(&mut self, addr: &DataAddr) -> &mut DataInstance {
-        &mut self.data.datas[*addr as usize]
+    pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
+        &mut self.data.datas[addr as usize]
     }
 
     /// Get the element at the actual index in the store
     #[inline]
-    pub(crate) fn get_elem_mut(&mut self, addr: &ElemAddr) -> &mut ElementInstance {
-        &mut self.data.elements[*addr as usize]
+    pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
+        &mut self.data.elements[addr as usize]
     }
 
     /// Get the global at the actual index in the store
     #[inline]
-    pub(crate) fn get_global(&self, addr: &GlobalAddr) -> &GlobalInstance {
-        &self.data.globals[*addr as usize]
+    pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
+        &self.data.globals[addr as usize]
     }
 
     /// Get the global at the actual index in the store
     #[doc(hidden)]
-    pub fn get_global_val(&self, addr: &MemAddr) -> TinyWasmValue {
-        self.data.globals[*addr as usize].value.get()
+    pub fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
+        self.data.globals[addr as usize].value.get()
     }
 
     /// Set the global at the actual index in the store
     #[doc(hidden)]
-    pub fn set_global_val(&mut self, addr: &MemAddr, value: TinyWasmValue) {
-        self.data.globals[*addr as usize].value.set(value);
+    pub fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) {
+        self.data.globals[addr as usize].value.set(value);
     }
 }
 
@@ -279,17 +280,17 @@ impl Store {
         let res = match item {
             ElementItem::Func(addr) | ElementItem::Expr(ConstInstruction::RefFunc(addr)) => {
                 Some(funcs.get(*addr as usize).copied().ok_or_else(|| {
-                    Error::Other(format!("function {} not found. This should have been caught by the validator", addr))
+                    Error::Other(format!("function {addr} not found. This should have been caught by the validator"))
                 })?)
             }
             ElementItem::Expr(ConstInstruction::RefNull(_ty)) => None,
             ElementItem::Expr(ConstInstruction::GlobalGet(addr)) => {
                 let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
-                    Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
+                    Error::Other(format!("global {addr} not found. This should have been caught by the validator"))
                 })?;
                 self.data.globals[addr as usize].value.get().unwrap_ref()
             }
-            _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {:?}", item))),
+            _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}"))),
         };
 
         Ok(res)
@@ -323,14 +324,14 @@ impl Store {
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_i32_const(&offset)?;
+                    let offset = self.eval_i32_const(offset)?;
                     let table_addr = table_addrs
                         .get(table as usize)
                         .copied()
-                        .ok_or_else(|| Error::Other(format!("table {} not found for element {}", table, i)))?;
+                        .ok_or_else(|| Error::Other(format!("table {table} not found for element {i}")))?;
 
                     let Some(table) = self.data.tables.get_mut(table_addr as usize) else {
-                        return Err(Error::Other(format!("table {} not found for element {}", table, i)));
+                        return Err(Error::Other(format!("table {table} not found for element {i}")));
                     };
 
                     // In wasm 2.0, it's possible to call a function that hasn't been instantiated yet,
@@ -373,12 +374,12 @@ impl Store {
                     }
 
                     let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
-                        return Err(Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)));
+                        return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_i32_const(&offset)?;
+                    let offset = self.eval_i32_const(offset)?;
                     let Some(mem) = self.data.memories.get_mut(*mem_addr as usize) else {
-                        return Err(Error::Other(format!("memory {} not found for data segment {}", mem_addr, i)));
+                        return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
                     match mem.store(offset as usize, data.data.len(), &data.data) {
@@ -417,16 +418,16 @@ impl Store {
     }
 
     pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
-        self.data.funcs.push(FunctionInstance { func, _owner: idx });
+        self.data.funcs.push(FunctionInstance { func, owner: idx });
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
     /// Evaluate a constant expression, only supporting i32 globals and i32.const
-    pub(crate) fn eval_i32_const(&self, const_instr: &tinywasm_types::ConstInstruction) -> Result<i32> {
+    pub(crate) fn eval_i32_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i32> {
         use tinywasm_types::ConstInstruction::*;
         let val = match const_instr {
-            I32Const(i) => *i,
-            GlobalGet(addr) => self.data.globals[*addr as usize].value.get().unwrap_32() as i32,
+            I32Const(i) => i,
+            GlobalGet(addr) => self.data.globals[addr as usize].value.get().unwrap_32() as i32,
             _ => return Err(Error::Other("expected i32".to_string())),
         };
         Ok(val)
@@ -447,7 +448,7 @@ impl Store {
             I64Const(i) => (*i).into(),
             GlobalGet(addr) => {
                 let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
-                    Error::Other(format!("global {} not found. This should have been caught by the validator", addr))
+                    Error::Other(format!("global {addr} not found. This should have been caught by the validator"))
                 })?;
 
                 let global =
@@ -456,7 +457,7 @@ impl Store {
             }
             RefNull(t) => t.default_value().into(),
             RefFunc(idx) => TinyWasmValue::ValueRef(Some(*module_func_addrs.get(*idx as usize).ok_or_else(|| {
-                Error::Other(format!("function {} not found. This should have been caught by the validator", idx))
+                Error::Other(format!("function {idx} not found. This should have been caught by the validator"))
             })?)),
         };
         Ok(val)

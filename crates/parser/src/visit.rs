@@ -362,7 +362,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
         let arg = MemoryArg { offset: memarg.offset, mem_addr: memarg.memory };
         let i32store = Instruction::I32Store { offset: arg.offset, mem_addr: arg.mem_addr };
-        self.instructions.push(i32store)
+        self.instructions.push(i32store);
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
@@ -394,28 +394,28 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             return;
         };
 
-        match self.instructions.last() {
-            Some(Instruction::LocalGet32(from))
-            | Some(Instruction::LocalGet64(from))
-            | Some(Instruction::LocalGet128(from))
-            | Some(Instruction::LocalGetRef(from)) => {
-                let from = *from;
-                self.instructions.pop();
-                // validation will ensure that the last instruction is the correct local.get
-                match self.validator.get_operand_type(0) {
-                    Some(Some(t)) => self.instructions.push(match t {
-                        wasmparser::ValType::I32 => Instruction::LocalCopy32(from, resolved_idx),
-                        wasmparser::ValType::F32 => Instruction::LocalCopy32(from, resolved_idx),
-                        wasmparser::ValType::I64 => Instruction::LocalCopy64(from, resolved_idx),
-                        wasmparser::ValType::F64 => Instruction::LocalCopy64(from, resolved_idx),
-                        wasmparser::ValType::V128 => Instruction::LocalCopy128(from, resolved_idx),
-                        wasmparser::ValType::Ref(_) => Instruction::LocalCopyRef(from, resolved_idx),
-                    }),
-                    _ => self.visit_unreachable(),
-                }
-                return;
+        if let Some(
+            Instruction::LocalGet32(from)
+            | Instruction::LocalGet64(from)
+            | Instruction::LocalGet128(from)
+            | Instruction::LocalGetRef(from),
+        ) = self.instructions.last()
+        {
+            let from = *from;
+            self.instructions.pop();
+            // validation will ensure that the last instruction is the correct local.get
+            match self.validator.get_operand_type(0) {
+                Some(Some(t)) => self.instructions.push(match t {
+                    wasmparser::ValType::I32 => Instruction::LocalCopy32(from, resolved_idx),
+                    wasmparser::ValType::F32 => Instruction::LocalCopy32(from, resolved_idx),
+                    wasmparser::ValType::I64 => Instruction::LocalCopy64(from, resolved_idx),
+                    wasmparser::ValType::F64 => Instruction::LocalCopy64(from, resolved_idx),
+                    wasmparser::ValType::V128 => Instruction::LocalCopy128(from, resolved_idx),
+                    wasmparser::ValType::Ref(_) => Instruction::LocalCopyRef(from, resolved_idx),
+                }),
+                _ => self.visit_unreachable(),
             }
-            _ => {}
+            return;
         }
 
         match self.validator.get_operand_type(0) {
@@ -453,11 +453,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_i64_rotl(&mut self) -> Self::Output {
-        self.instructions.push(Instruction::I64Rotl)
+        self.instructions.push(Instruction::I64Rotl);
     }
 
     fn visit_i32_add(&mut self) -> Self::Output {
-        self.instructions.push(Instruction::I32Add)
+        self.instructions.push(Instruction::I32Add);
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
@@ -466,7 +466,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             wasmparser::BlockType::Empty => Instruction::Block(0),
             wasmparser::BlockType::FuncType(idx) => Instruction::BlockWithFuncType(idx, 0),
             wasmparser::BlockType::Type(ty) => Instruction::BlockWithType(convert_valtype(&ty), 0),
-        })
+        });
     }
 
     fn visit_loop(&mut self, ty: wasmparser::BlockType) -> Self::Output {
@@ -475,7 +475,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             wasmparser::BlockType::Empty => Instruction::Loop(0),
             wasmparser::BlockType::FuncType(idx) => Instruction::LoopWithFuncType(idx, 0),
             wasmparser::BlockType::Type(ty) => Instruction::LoopWithType(convert_valtype(&ty), 0),
-        })
+        });
     }
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
@@ -484,12 +484,12 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             wasmparser::BlockType::Empty => Instruction::If(0, 0),
             wasmparser::BlockType::FuncType(idx) => Instruction::IfWithFuncType(idx, 0, 0),
             wasmparser::BlockType::Type(ty) => Instruction::IfWithType(convert_valtype(&ty), 0, 0),
-        })
+        });
     }
 
     fn visit_else(&mut self) -> Self::Output {
         self.label_ptrs.push(self.instructions.len());
-        self.instructions.push(Instruction::Else(0))
+        self.instructions.push(Instruction::Else(0));
     }
 
     fn visit_end(&mut self) -> Self::Output {
@@ -536,15 +536,17 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support blocks that large");
             }
-            Some(Instruction::Block(end_offset))
-            | Some(Instruction::BlockWithType(_, end_offset))
-            | Some(Instruction::BlockWithFuncType(_, end_offset))
-            | Some(Instruction::Loop(end_offset))
-            | Some(Instruction::LoopWithFuncType(_, end_offset))
-            | Some(Instruction::LoopWithType(_, end_offset))
-            | Some(Instruction::If(_, end_offset))
-            | Some(Instruction::IfWithFuncType(_, _, end_offset))
-            | Some(Instruction::IfWithType(_, _, end_offset)) => {
+            Some(
+                Instruction::Block(end_offset)
+                | Instruction::BlockWithType(_, end_offset)
+                | Instruction::BlockWithFuncType(_, end_offset)
+                | Instruction::Loop(end_offset)
+                | Instruction::LoopWithFuncType(_, end_offset)
+                | Instruction::LoopWithType(_, end_offset)
+                | Instruction::If(_, end_offset)
+                | Instruction::IfWithFuncType(_, _, end_offset)
+                | Instruction::IfWithType(_, _, end_offset),
+            ) => {
                 *end_offset = (current_instr_ptr - label_pointer)
                     .try_into()
                     .expect("else_instr_end_offset is too large, tinywasm does not support  blocks that large");
@@ -554,7 +556,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             }
         };
 
-        self.instructions.push(Instruction::EndBlockFrame)
+        self.instructions.push(Instruction::EndBlockFrame);
     }
 
     fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Self::Output {
@@ -569,15 +571,15 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
-        self.instructions.push(Instruction::CallIndirect(ty, table))
+        self.instructions.push(Instruction::CallIndirect(ty, table));
     }
 
     fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
-        self.instructions.push(Instruction::F32Const(f32::from_bits(val.bits())))
+        self.instructions.push(Instruction::F32Const(f32::from_bits(val.bits())));
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        self.instructions.push(Instruction::F64Const(f64::from_bits(val.bits())))
+        self.instructions.push(Instruction::F64Const(f64::from_bits(val.bits())));
     }
 
     // Bulk Memory Operations
@@ -594,16 +596,16 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
-        self.instructions.push(Instruction::TableCopy { from: src_table, to: dst_table })
+        self.instructions.push(Instruction::TableCopy { from: src_table, to: dst_table });
     }
 
     // Reference Types
     fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        self.instructions.push(Instruction::RefNull(convert_heaptype(ty)))
+        self.instructions.push(Instruction::RefNull(convert_heaptype(ty)));
     }
 
     fn visit_ref_is_null(&mut self) -> Self::Output {
-        self.instructions.push(Instruction::RefIsNull)
+        self.instructions.push(Instruction::RefIsNull);
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
@@ -614,7 +616,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             wasmparser::ValType::F64 => Instruction::Select64,
             wasmparser::ValType::V128 => Instruction::Select128,
             wasmparser::ValType::Ref(_) => Instruction::SelectRef,
-        })
+        });
     }
 
     define_primitive_operands! {

@@ -38,7 +38,7 @@ impl MemoryRef<'_> {
 
     /// Load a slice of memory as a vector
     pub fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
-        self.load(offset, len).map(|x| x.to_vec())
+        self.load(offset, len).map(<[u8]>::to_vec)
     }
 }
 
@@ -50,7 +50,7 @@ impl MemoryRefMut<'_> {
 
     /// Load a slice of memory as a vector
     pub fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
-        self.load(offset, len).map(|x| x.to_vec())
+        self.load(offset, len).map(<[u8]>::to_vec)
     }
 
     /// Grow the memory by the given number of pages
@@ -83,7 +83,7 @@ impl MemoryRefMut<'_> {
 pub trait MemoryRefLoad {
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]>;
     fn load_vec(&self, offset: usize, len: usize) -> Result<Vec<u8>> {
-        self.load(offset, len).map(|x| x.to_vec())
+        self.load(offset, len).map(<[u8]>::to_vec)
     }
 }
 
@@ -124,7 +124,7 @@ pub trait MemoryStringExt: MemoryRefLoad {
         for i in 0..(len / 2) {
             let c = u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
             string.push(
-                char::from_u32(c as u32).ok_or_else(|| crate::Error::Other("Invalid UTF-16 string".to_string()))?,
+                char::from_u32(u32::from(c)).ok_or_else(|| crate::Error::Other("Invalid UTF-16 string".to_string()))?,
             );
         }
         Ok(string)

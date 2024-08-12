@@ -87,14 +87,14 @@ fn cold() {}
 impl Debug for WasmValue {
     fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         match self {
-            WasmValue::I32(i) => write!(f, "i32({})", i),
-            WasmValue::I64(i) => write!(f, "i64({})", i),
-            WasmValue::F32(i) => write!(f, "f32({})", i),
-            WasmValue::F64(i) => write!(f, "f64({})", i),
-            WasmValue::V128(i) => write!(f, "v128({:?})", i),
-            WasmValue::RefExtern(addr) => write!(f, "ref.extern({:?})", addr),
-            WasmValue::RefFunc(addr) => write!(f, "ref.func({:?})", addr),
-            WasmValue::RefNull(ty) => write!(f, "ref.null({:?})", ty),
+            WasmValue::I32(i) => write!(f, "i32({i})"),
+            WasmValue::I64(i) => write!(f, "i64({i})"),
+            WasmValue::F32(i) => write!(f, "f32({i})"),
+            WasmValue::F64(i) => write!(f, "f64({i})"),
+            WasmValue::V128(i) => write!(f, "v128({i:?})"),
+            WasmValue::RefExtern(addr) => write!(f, "ref.extern({addr:?})"),
+            WasmValue::RefFunc(addr) => write!(f, "ref.func({addr:?})"),
+            WasmValue::RefNull(ty) => write!(f, "ref.null({ty:?})"),
         }
     }
 }

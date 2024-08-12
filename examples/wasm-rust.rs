@@ -16,8 +16,8 @@ use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 ///
 /// This requires the `wasm32-unknown-unknown` target, `binaryen` and `wabt` to be installed.
 /// `rustup target add wasm32-unknown-unknown`.
-/// https://github.com/WebAssembly/wabt
-/// https://github.com/WebAssembly/binaryen
+/// <https://github.com/WebAssembly/wabt>
+/// <https://github.com/WebAssembly/binaryen>
 ///
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -91,7 +91,7 @@ fn hello() -> Result<()> {
             let ptr = args.0 as usize;
             let len = args.1 as usize;
             let string = mem.load_string(ptr, len)?;
-            println!("{}", string);
+            println!("{string}");
             Ok(())
         }),
     )?;
@@ -116,7 +116,7 @@ fn printi32() -> Result<()> {
         "env",
         "printi32",
         Extern::typed_func(|_: FuncContext<'_>, x: i32| {
-            println!("{}", x);
+            println!("{x}");
             Ok(())
         }),
     )?;
@@ -136,7 +136,7 @@ fn fibonacci() -> Result<()> {
     let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci_recursive")?;
     let n = 26;
     let result = fibonacci.call(&mut store, n)?;
-    println!("fibonacci({}) = {}", n, result);
+    println!("fibonacci({n}) = {result}");
 
     Ok(())
 }

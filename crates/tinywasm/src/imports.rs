@@ -346,7 +346,7 @@ impl Imports {
     ) -> Result<ResolvedImports> {
         let mut imports = ResolvedImports::new();
 
-        for import in module.0.imports.iter() {
+        for import in &module.0.imports {
             let val = self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))?;
 
             match val {
@@ -386,23 +386,23 @@ impl Imports {
 
                     match (val, &import.kind) {
                         (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
-                            let global = store.get_global(&global_addr);
+                            let global = store.get_global(global_addr);
                             Self::compare_types(import, &global.ty, ty)?;
                             imports.globals.push(global_addr);
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
-                            let table = store.get_table(&table_addr);
+                            let table = store.get_table(table_addr);
                             Self::compare_table_types(import, &table.kind, ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
-                            let mem = store.get_mem(&memory_addr);
+                            let mem = store.get_mem(memory_addr);
                             let (size, kind) = { (mem.page_count, mem.kind) };
                             Self::compare_memory_types(import, &kind, ty, Some(size))?;
                             imports.memories.push(memory_addr);
                         }
                         (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
-                            let func = store.get_func(&func_addr);
+                            let func = store.get_func(func_addr);
                             let import_func_type = module
                                 .0
                                 .func_types

@@ -33,10 +33,10 @@ fn test_wast(wast_file: &str) -> Result<()> {
     TestSuite::set_log_level(log::LevelFilter::Debug);
 
     let args = std::env::args().collect::<Vec<_>>();
-    println!("args: {:?}", args);
+    println!("args: {args:?}");
 
     let mut test_suite = TestSuite::new();
-    println!("running wast file: {}", wast_file);
+    println!("running wast file: {wast_file}");
 
     test_suite.run_paths(&[wast_file])?;
 
@@ -46,7 +46,7 @@ fn test_wast(wast_file: &str) -> Result<()> {
         println!();
         Err(eyre!(format!("{}:\n{:#?}", "failed one or more tests".red().bold(), test_suite,)))
     } else {
-        println!("\n\npassed all tests:\n{:#?}", test_suite);
+        println!("\n\npassed all tests:\n{test_suite:#?}");
         Ok(())
     }
 }

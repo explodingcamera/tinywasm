@@ -102,7 +102,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn pop_locals(&mut self, pc: &ValueCountsSmall, lc: &ValueCounts) -> Locals {
+    pub(crate) fn pop_locals(&mut self, pc: ValueCountsSmall, lc: ValueCounts) -> Locals {
         Locals {
             locals_32: {
                 let mut locals_32 = { alloc::vec![Value32::default(); lc.c32 as usize].into_boxed_slice() };
@@ -135,7 +135,7 @@ impl ValueStack {
         }
     }
 
-    pub(crate) fn truncate_keep(&mut self, to: &StackLocation, keep: &StackHeight) {
+    pub(crate) fn truncate_keep(&mut self, to: StackLocation, keep: StackHeight) {
         #[inline(always)]
         fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
             let len = data.len() as u32;
@@ -145,10 +145,10 @@ impl ValueStack {
             data.drain((n as usize)..(len - end_keep) as usize);
         }
 
-        truncate_keep(&mut self.stack_32, to.s32, keep.s32 as u32);
-        truncate_keep(&mut self.stack_64, to.s64, keep.s64 as u32);
-        truncate_keep(&mut self.stack_128, to.s128, keep.s128 as u32);
-        truncate_keep(&mut self.stack_ref, to.sref, keep.sref as u32);
+        truncate_keep(&mut self.stack_32, to.s32, u32::from(keep.s32));
+        truncate_keep(&mut self.stack_64, to.s64, u32::from(keep.s64));
+        truncate_keep(&mut self.stack_128, to.s128, u32::from(keep.s128));
+        truncate_keep(&mut self.stack_ref, to.sref, u32::from(keep.sref));
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) {
@@ -179,7 +179,7 @@ impl ValueStack {
     }
 
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
-        for value in values.iter() {
+        for value in values {
             self.push_dyn(value.into())
         }
     }

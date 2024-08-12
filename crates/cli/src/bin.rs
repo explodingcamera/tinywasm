@@ -14,7 +14,7 @@ mod util;
 mod wat;
 
 #[derive(FromArgs)]
-/// TinyWasm CLI
+/// `TinyWasm` CLI
 struct TinyWasmCli {
     #[argh(subcommand)]
     nested: TinyWasmSubcommand,
@@ -40,7 +40,7 @@ impl FromStr for Engine {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "main" => Ok(Self::Main),
-            _ => Err(format!("unknown engine: {}", s)),
+            _ => Err(format!("unknown engine: {s}")),
         }
     }
 }
@@ -98,19 +98,19 @@ fn main() -> Result<()> {
             };
 
             match engine {
-                Engine::Main => run(module, func, to_wasm_args(args)),
+                Engine::Main => run(module, func, &to_wasm_args(args)),
             }
         }
     }
 }
 
-fn run(module: Module, func: Option<String>, args: Vec<WasmValue>) -> Result<()> {
+fn run(module: Module, func: Option<String>, args: &[WasmValue]) -> Result<()> {
     let mut store = tinywasm::Store::default();
     let instance = module.instantiate(&mut store, None)?;
 
     if let Some(func) = func {
         let func = instance.exported_func_untyped(&store, &func)?;
-        let res = func.call(&mut store, &args)?;
+        let res = func.call(&mut store, args)?;
         info!("{res:?}");
     }
 

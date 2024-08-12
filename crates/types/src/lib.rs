@@ -37,11 +37,11 @@ pub use value::*;
 #[cfg(feature = "archive")]
 pub mod archive;
 
-/// A TinyWasm WebAssembly Module
+/// A `TinyWasm` WebAssembly Module
 ///
-/// This is the internal representation of a WebAssembly module in TinyWasm.
-/// TinyWasmModules are validated before being created, so they are guaranteed to be valid (as long as they were created by TinyWasm).
-/// This means you should not trust a TinyWasmModule created by a third party to be valid.
+/// This is the internal representation of a WebAssembly module in `TinyWasm`.
+/// `TinyWasmModules` are validated before being created, so they are guaranteed to be valid (as long as they were created by `TinyWasm`).
+/// This means you should not trust a `TinyWasmModule` created by a third party to be valid.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
 pub struct TinyWasmModule {

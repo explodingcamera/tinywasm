@@ -9,9 +9,9 @@ mod no_std_floats;
 use crate::{Result, Store};
 pub use values::*;
 
-/// The main TinyWasm runtime.
+/// The main `TinyWasm` runtime.
 ///
-/// This is the default runtime used by TinyWasm.
+/// This is the default runtime used by `TinyWasm`.
 #[derive(Debug, Default)]
 pub struct InterpreterRuntime {}
 

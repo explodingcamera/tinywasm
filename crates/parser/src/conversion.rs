@@ -38,7 +38,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
-            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(&ty), range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(ty), range: element.range })
         }
     }
 }
@@ -76,23 +76,23 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         kind: match import.ty {
             wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
             wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
-                element_type: convert_reftype(&ty.element_type),
+                element_type: convert_reftype(ty.element_type),
                 size_initial: ty.initial.try_into().map_err(|_| {
                     crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
                 })?,
                 size_max: match ty.maximum {
                     Some(max) => Some(max.try_into().map_err(|_| {
-                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max))
+                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}"))
                     })?),
                     None => None,
                 },
             }),
-            wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)?),
+            wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
             wasmparser::TypeRef::Global(ty) => {
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
             }
             wasmparser::TypeRef::Tag(ty) => {
-                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", ty)))
+                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")))
             }
         },
     })
@@ -101,18 +101,15 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
 pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
     memory_types: T,
 ) -> Result<Vec<MemoryType>> {
-    memory_types.into_iter().map(|memory| convert_module_memory(memory?)).collect::<Result<Vec<_>>>()
+    memory_types.into_iter().map(|memory| Ok(convert_module_memory(memory?))).collect::<Result<Vec<_>>>()
 }
 
-pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> Result<MemoryType> {
-    Ok(MemoryType {
-        arch: match memory.memory64 {
-            true => MemoryArch::I64,
-            false => MemoryArch::I32,
-        },
+pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryType {
+    MemoryType {
+        arch: if memory.memory64 { MemoryArch::I64 } else { MemoryArch::I32 },
         page_count_initial: memory.initial,
         page_count_max: memory.maximum,
-    })
+    }
 }
 
 pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Table<'a>>>>(
@@ -129,12 +126,12 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
     let size_max = match table.ty.maximum {
         Some(max) => Some(
             max.try_into()
-                .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {}", max)))?,
+                .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}")))?,
         ),
         None => None,
     };
 
-    Ok(TableType { element_type: convert_reftype(&table.ty.element_type), size_initial, size_max })
+    Ok(TableType { element_type: convert_reftype(table.ty.element_type), size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals(
@@ -185,11 +182,11 @@ pub(crate) fn convert_module_code(
 
     for i in 0..validator.len_locals() {
         match validator.get_local_type(i) {
-            Some(wasmparser::ValType::I32) | Some(wasmparser::ValType::F32) => {
+            Some(wasmparser::ValType::I32 | wasmparser::ValType::F32) => {
                 local_addr_map.push(local_counts.c32);
                 local_counts.c32 += 1;
             }
-            Some(wasmparser::ValType::I64) | Some(wasmparser::ValType::F64) => {
+            Some(wasmparser::ValType::I64 | wasmparser::ValType::F64) => {
                 local_addr_map.push(local_counts.c64);
                 local_counts.c64 += 1;
             }
@@ -225,7 +222,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     Ok(FuncType { params, results })
 }
 
-pub(crate) fn convert_reftype(reftype: &wasmparser::RefType) -> ValType {
+pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> ValType {
     match reftype {
         _ if reftype.is_func_ref() => ValType::RefFunc,
         _ if reftype.is_extern_ref() => ValType::RefExtern,
@@ -240,7 +237,7 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
         wasmparser::ValType::F32 => ValType::F32,
         wasmparser::ValType::F64 => ValType::F64,
         wasmparser::ValType::V128 => ValType::V128,
-        wasmparser::ValType::Ref(r) => convert_reftype(r),
+        wasmparser::ValType::Ref(r) => convert_reftype(*r),
     }
 }
 
@@ -260,7 +257,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
-        op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {:?}", op))),
+        op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {op:?}"))),
     }
 }
 

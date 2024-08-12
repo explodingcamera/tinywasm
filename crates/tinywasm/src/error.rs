@@ -5,7 +5,7 @@ use tinywasm_types::FuncType;
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
 
-/// Errors that can occur for TinyWasm operations
+/// Errors that can occur for `TinyWasm` operations
 #[derive(Debug)]
 pub enum Error {
     /// A WebAssembly trap occurred
@@ -173,16 +173,16 @@ impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "parser")]
-            Self::ParseError(err) => write!(f, "error parsing module: {:?}", err),
+            Self::ParseError(err) => write!(f, "error parsing module: {err:?}"),
 
             #[cfg(feature = "std")]
-            Self::Io(err) => write!(f, "I/O error: {}", err),
+            Self::Io(err) => write!(f, "I/O error: {err}"),
 
-            Self::Trap(trap) => write!(f, "trap: {}", trap),
-            Self::Linker(err) => write!(f, "linking error: {}", err),
+            Self::Trap(trap) => write!(f, "trap: {trap}"),
+            Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
-            Self::Other(message) => write!(f, "unknown error: {}", message),
-            Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {}", feature),
+            Self::Other(message) => write!(f, "unknown error: {message}"),
+            Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {feature}"),
             Self::FuncDidNotReturn => write!(f, "function did not return"),
             Self::InvalidStore => write!(f, "invalid store"),
         }
@@ -205,21 +205,21 @@ impl Display for Trap {
         match self {
             Self::Unreachable => write!(f, "unreachable"),
             Self::MemoryOutOfBounds { offset, len, max } => {
-                write!(f, "out of bounds memory access: offset={}, len={}, max={}", offset, len, max)
+                write!(f, "out of bounds memory access: offset={offset}, len={len}, max={max}")
             }
             Self::TableOutOfBounds { offset, len, max } => {
-                write!(f, "out of bounds table access: offset={}, len={}, max={}", offset, len, max)
+                write!(f, "out of bounds table access: offset={offset}, len={len}, max={max}")
             }
             Self::DivisionByZero => write!(f, "integer divide by zero"),
             Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::CallStackOverflow => write!(f, "call stack exhausted"),
-            Self::UndefinedElement { index } => write!(f, "undefined element: index={}", index),
+            Self::UndefinedElement { index } => write!(f, "undefined element: index={index}"),
             Self::UninitializedElement { index } => {
-                write!(f, "uninitialized element: index={}", index)
+                write!(f, "uninitialized element: index={index}")
             }
             Self::IndirectCallTypeMismatch { expected, actual } => {
-                write!(f, "indirect call type mismatch: expected={:?}, actual={:?}", expected, actual)
+                write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")
             }
         }
     }

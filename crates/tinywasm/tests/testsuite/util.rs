@@ -5,7 +5,7 @@ use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 use wast::{core::AbstractHeapType, QuoteWat};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
-    let info = panic.downcast_ref::<panic::PanicHookInfo>().or(None).map(|p| p.to_string()).clone();
+    let info = panic.downcast_ref::<panic::PanicHookInfo>().or(None).map(ToString::to_string).clone();
     let info_string = panic.downcast_ref::<String>().cloned();
     let info_str = panic.downcast::<&str>().ok().map(|s| *s);
 
@@ -96,7 +96,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         return Err(eyre!("unsupported arg type: Component"));
     };
 
-    use wast::core::WastArgCore::*;
+    use wast::core::WastArgCore::{RefExtern, RefNull, F32, F64, I32, I64};
     Ok(match arg {
         F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
@@ -121,7 +121,7 @@ fn wastret2tinywasmvalue(ret: wast::WastRet) -> Result<tinywasm_types::WasmValue
         return Err(eyre!("unsupported arg type"));
     };
 
-    use wast::core::WastRetCore::*;
+    use wast::core::WastRetCore::{RefExtern, RefFunc, RefNull, F32, F64, I32, I64};
     Ok(match ret {
         F32(f) => nanpattern2tinywasmvalue(f)?,
         F64(f) => nanpattern2tinywasmvalue(f)?,
@@ -194,7 +194,7 @@ fn nanpattern2tinywasmvalue<T>(arg: wast::core::NanPattern<T>) -> Result<tinywas
 where
     T: FloatToken,
 {
-    use wast::core::NanPattern::*;
+    use wast::core::NanPattern::{ArithmeticNan, CanonicalNan, Value};
     Ok(match arg {
         CanonicalNan => T::canonical_nan(),
         ArithmeticNan => T::arithmetic_nan(),

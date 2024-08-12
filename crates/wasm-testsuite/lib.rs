@@ -66,12 +66,10 @@ pub fn get_tests(include_proposals: &[String]) -> impl Iterator<Item = String> {
 
 /// Get the WAST file as a byte slice.
 pub fn get_test_wast(name: &str) -> Option<Cow<'static, [u8]>> {
-    if !name.ends_with(".wast") {
-        panic!("Expected .wast file. Got: {}", name);
-    }
+    assert!(name.ends_with(".wast"), "Expected .wast file. Got: {name}");
 
     match name.contains('/') {
-        true => Asset::get(&format!("proposals/{}", name)).map(|x| x.data),
+        true => Asset::get(&format!("proposals/{name}")).map(|x| x.data),
         false => Asset::get(name).map(|x| x.data),
     }
 }

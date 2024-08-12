@@ -30,7 +30,7 @@ pub struct TestSuite(BTreeMap<String, TestGroup>, Vec<String>);
 
 impl TestSuite {
     pub fn skip(&mut self, groups: &[&str]) {
-        self.1.extend(groups.iter().map(|s| s.to_string()));
+        self.1.extend(groups.iter().map(|s| (*s).to_string()));
     }
 
     pub fn set_log_level(level: log::LevelFilter) {
@@ -89,7 +89,7 @@ impl TestSuite {
         let mut failed = 0;
 
         let mut groups = Vec::new();
-        for (name, group) in self.0.iter() {
+        for (name, group) in &self.0 {
             let (group_passed, group_failed) = group.stats();
             passed += group_passed;
             failed += group_failed;
@@ -98,7 +98,7 @@ impl TestSuite {
         }
 
         let groups = serde_json::to_string(&groups)?;
-        let line = format!("{},{},{},{}\n", version, passed, failed, groups);
+        let line = format!("{version},{passed},{failed},{groups}\n");
         file.write_all(line.as_bytes()).expect("failed to write to csv file");
 
         Ok(())
@@ -108,10 +108,10 @@ impl TestSuite {
 fn link(name: &str, file: &str, line: Option<usize>) -> String {
     let (path, name) = match line {
         None => (file.to_string(), name.to_owned()),
-        Some(line) => (format!("{}:{}:0", file, line), (format!("{}:{}", name, line))),
+        Some(line) => (format!("{file}:{line}:0"), (format!("{name}:{line}"))),
     };
 
-    format!("\x1b]8;;file://{}\x1b\\{}\x1b]8;;\x1b\\", path, name)
+    format!("\x1b]8;;file://{path}\x1b\\{name}\x1b]8;;\x1b\\")
 }
 
 impl Debug for TestSuite {

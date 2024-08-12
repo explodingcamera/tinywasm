@@ -42,7 +42,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     fn exec_next(&mut self) -> ControlFlow<Option<Error>> {
         use tinywasm_types::Instruction::*;
         match self.cf.fetch_instr() {
-            Nop => self.exec_noop(),
+            Nop | BrLabel(_) | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
             Unreachable => self.exec_unreachable()?,
 
             Drop32 => self.stack.values.drop::<Value32>(),
@@ -58,20 +58,19 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Call(v) => return self.exec_call_direct(*v),
             CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
 
-            If(end, el) => self.exec_if(*end, *el, (Default::default(), Default::default())),
-            IfWithType(ty, end, el) => self.exec_if(*end, *el, (Default::default(), (*ty).into())),
+            If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())),
+            IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())),
             IfWithFuncType(ty, end, el) => self.exec_if(*end, *el, self.resolve_functype(*ty)),
             Else(end_offset) => self.exec_else(*end_offset),
-            Loop(end) => self.enter_block(*end, BlockType::Loop, (Default::default(), Default::default())),
-            LoopWithType(ty, end) => self.enter_block(*end, BlockType::Loop, (Default::default(), (*ty).into())),
+            Loop(end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), StackHeight::default())),
+            LoopWithType(ty, end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), (*ty).into())),
             LoopWithFuncType(ty, end) => self.enter_block(*end, BlockType::Loop, self.resolve_functype(*ty)),
-            Block(end) => self.enter_block(*end, BlockType::Block, (Default::default(), Default::default())),
-            BlockWithType(ty, end) => self.enter_block(*end, BlockType::Block, (Default::default(), (*ty).into())),
+            Block(end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), StackHeight::default())),
+            BlockWithType(ty, end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), (*ty).into())),
             BlockWithFuncType(ty, end) => self.enter_block(*end, BlockType::Block, self.resolve_functype(*ty)),
             Br(v) => return self.exec_br(*v),
             BrIf(v) => return self.exec_br_if(*v),
             BrTable(default, len) => return self.exec_brtable(*default, *len),
-            BrLabel(_) => {}
             Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block(),
 
@@ -140,45 +139,45 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Load32S { mem_addr, offset } => self.exec_mem_load::<i32, 4, _>(*mem_addr, *offset, |v| v as i64)?,
             I64Load32U { mem_addr, offset } => self.exec_mem_load::<u32, 4, _>(*mem_addr, *offset, |v| v as i64)?,
 
-            I64Eqz => self.stack.values.replace_top::<i64, _>(|v| Ok((v == 0) as i32)).to_cf()?,
-            I32Eqz => self.stack.values.replace_top_same::<i32>(|v| Ok((v == 0) as i32)).to_cf()?,
-            I32Eq => self.stack.values.calculate_same::<i32>(|a, b| Ok((a == b) as i32)).to_cf()?,
-            I64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok((a == b) as i32)).to_cf()?,
-            F32Eq => self.stack.values.calculate::<f32, _>(|a, b| Ok((a == b) as i32)).to_cf()?,
-            F64Eq => self.stack.values.calculate::<f64, _>(|a, b| Ok((a == b) as i32)).to_cf()?,
+            I64Eqz => self.stack.values.replace_top::<i64, _>(|v| Ok(i32::from(v == 0))).to_cf()?,
+            I32Eqz => self.stack.values.replace_top_same::<i32>(|v| Ok(i32::from(v == 0))).to_cf()?,
+            I32Eq => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a == b))).to_cf()?,
+            I64Eq => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a == b))).to_cf()?,
+            F32Eq => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a == b))).to_cf()?,
+            F64Eq => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a == b))).to_cf()?,
 
-            I32Ne => self.stack.values.calculate_same::<i32>(|a, b| Ok((a != b) as i32)).to_cf()?,
-            I64Ne => self.stack.values.calculate::<i64, _>(|a, b| Ok((a != b) as i32)).to_cf()?,
-            F32Ne => self.stack.values.calculate::<f32, _>(|a, b| Ok((a != b) as i32)).to_cf()?,
-            F64Ne => self.stack.values.calculate::<f64, _>(|a, b| Ok((a != b) as i32)).to_cf()?,
+            I32Ne => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a != b))).to_cf()?,
+            I64Ne => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a != b))).to_cf()?,
+            F32Ne => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a != b))).to_cf()?,
+            F64Ne => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a != b))).to_cf()?,
 
-            I32LtS => self.stack.values.calculate_same::<i32>(|a, b| Ok((a < b) as i32)).to_cf()?,
-            I64LtS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a < b) as i32)).to_cf()?,
-            I32LtU => self.stack.values.calculate::<u32, _>(|a, b| Ok((a < b) as i32)).to_cf()?,
-            I64LtU => self.stack.values.calculate::<u64, _>(|a, b| Ok((a < b) as i32)).to_cf()?,
-            F32Lt => self.stack.values.calculate::<f32, _>(|a, b| Ok((a < b) as i32)).to_cf()?,
-            F64Lt => self.stack.values.calculate::<f64, _>(|a, b| Ok((a < b) as i32)).to_cf()?,
+            I32LtS => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a < b))).to_cf()?,
+            I64LtS => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a < b))).to_cf()?,
+            I32LtU => self.stack.values.calculate::<u32, _>(|a, b| Ok(i32::from(a < b))).to_cf()?,
+            I64LtU => self.stack.values.calculate::<u64, _>(|a, b| Ok(i32::from(a < b))).to_cf()?,
+            F32Lt => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a < b))).to_cf()?,
+            F64Lt => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a < b))).to_cf()?,
 
-            I32LeS => self.stack.values.calculate_same::<i32>(|a, b| Ok((a <= b) as i32)).to_cf()?,
-            I64LeS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a <= b) as i32)).to_cf()?,
-            I32LeU => self.stack.values.calculate::<u32, _>(|a, b| Ok((a <= b) as i32)).to_cf()?,
-            I64LeU => self.stack.values.calculate::<u64, _>(|a, b| Ok((a <= b) as i32)).to_cf()?,
-            F32Le => self.stack.values.calculate::<f32, _>(|a, b| Ok((a <= b) as i32)).to_cf()?,
-            F64Le => self.stack.values.calculate::<f64, _>(|a, b| Ok((a <= b) as i32)).to_cf()?,
+            I32LeS => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
+            I64LeS => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
+            I32LeU => self.stack.values.calculate::<u32, _>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
+            I64LeU => self.stack.values.calculate::<u64, _>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
+            F32Le => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
+            F64Le => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a <= b))).to_cf()?,
 
-            I32GeS => self.stack.values.calculate_same::<i32>(|a, b| Ok((a >= b) as i32)).to_cf()?,
-            I64GeS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a >= b) as i32)).to_cf()?,
-            I32GeU => self.stack.values.calculate::<u32, _>(|a, b| Ok((a >= b) as i32)).to_cf()?,
-            I64GeU => self.stack.values.calculate::<u64, _>(|a, b| Ok((a >= b) as i32)).to_cf()?,
-            F32Ge => self.stack.values.calculate::<f32, _>(|a, b| Ok((a >= b) as i32)).to_cf()?,
-            F64Ge => self.stack.values.calculate::<f64, _>(|a, b| Ok((a >= b) as i32)).to_cf()?,
+            I32GeS => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
+            I64GeS => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
+            I32GeU => self.stack.values.calculate::<u32, _>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
+            I64GeU => self.stack.values.calculate::<u64, _>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
+            F32Ge => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
+            F64Ge => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a >= b))).to_cf()?,
 
-            I32GtS => self.stack.values.calculate_same::<i32>(|a, b| Ok((a > b) as i32)).to_cf()?,
-            I64GtS => self.stack.values.calculate::<i64, _>(|a, b| Ok((a > b) as i32)).to_cf()?,
-            I32GtU => self.stack.values.calculate::<u32, _>(|a, b| Ok((a > b) as i32)).to_cf()?,
-            I64GtU => self.stack.values.calculate::<u64, _>(|a, b| Ok((a > b) as i32)).to_cf()?,
-            F32Gt => self.stack.values.calculate::<f32, _>(|a, b| Ok((a > b) as i32)).to_cf()?,
-            F64Gt => self.stack.values.calculate::<f64, _>(|a, b| Ok((a > b) as i32)).to_cf()?,
+            I32GtS => self.stack.values.calculate_same::<i32>(|a, b| Ok(i32::from(a > b))).to_cf()?,
+            I64GtS => self.stack.values.calculate::<i64, _>(|a, b| Ok(i32::from(a > b))).to_cf()?,
+            I32GtU => self.stack.values.calculate::<u32, _>(|a, b| Ok(i32::from(a > b))).to_cf()?,
+            I64GtU => self.stack.values.calculate::<u64, _>(|a, b| Ok(i32::from(a > b))).to_cf()?,
+            F32Gt => self.stack.values.calculate::<f32, _>(|a, b| Ok(i32::from(a > b))).to_cf()?,
+            F64Gt => self.stack.values.calculate::<f64, _>(|a, b| Ok(i32::from(a > b))).to_cf()?,
 
             I32Add => self.stack.values.calculate_same::<i32>(|a, b| Ok(a.wrapping_add(b))).to_cf()?,
             I64Add => self.stack.values.calculate_same::<i64>(|a, b| Ok(a.wrapping_add(b))).to_cf()?,
@@ -273,9 +272,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F32Copysign => self.stack.values.calculate_same::<f32>(|a, b| Ok(a.copysign(b))).to_cf()?,
             F64Copysign => self.stack.values.calculate_same::<f64>(|a, b| Ok(a.copysign(b))).to_cf()?,
 
-            // no-op instructions since types are erased at runtime
-            I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
-
             I32TruncF32S => checked_conv_float!(f32, i32, self),
             I32TruncF64S => checked_conv_float!(f64, i32, self),
             I32TruncF32U => checked_conv_float!(f32, u32, i32, self),
@@ -315,14 +311,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ControlFlow::Continue(())
     }
 
-    fn exec_noop(&self) {}
     #[cold]
     fn exec_unreachable(&self) -> ControlFlow<Option<Error>> {
         ControlFlow::Break(Some(Trap::Unreachable.into()))
     }
 
     fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> ControlFlow<Option<Error>> {
-        let locals = self.stack.values.pop_locals(&wasm_func.params, &wasm_func.locals);
+        let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
         let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
         self.cf.incr_instr_ptr(); // skip the call instruction
         self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
@@ -344,7 +339,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
         };
 
-        self.exec_call(wasm_func.clone(), func_inst._owner)
+        self.exec_call(wasm_func.clone(), func_inst.owner)
     }
     fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> ControlFlow<Option<Error>> {
         // verify that the table is of the right type, this should be validated by the parser already
@@ -361,7 +356,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 .to_cf()?
         };
 
-        let func_inst = self.store.get_func(&func_ref);
+        let func_inst = self.store.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
         let wasm_func = match &func_inst.func {
             crate::Function::Wasm(f) => f,
@@ -393,7 +388,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             ));
         }
 
-        self.exec_call(wasm_func.clone(), func_inst._owner)
+        self.exec_call(wasm_func.clone(), func_inst.owner)
     }
 
     fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
@@ -488,7 +483,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_end_block(&mut self) {
         let block = self.stack.blocks.pop();
-        self.stack.values.truncate_keep(&block.stack_ptr, &block.results);
+        self.stack.values.truncate_keep(block.stack_ptr, block.results);
     }
     fn exec_local_get<T: InternalValue>(&mut self, local_index: u16) {
         let v = self.cf.locals.get::<T>(local_index);
@@ -566,17 +561,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             .store
             .data
             .datas
-            .get(*self.module.resolve_data_addr(data_index) as usize)
+            .get(self.module.resolve_data_addr(data_index) as usize)
             .ok_or_else(|| Error::Other("data not found".to_string()))?;
 
         let mem = self
             .store
             .data
             .memories
-            .get_mut(*self.module.resolve_mem_addr(mem_index) as usize)
+            .get_mut(self.module.resolve_mem_addr(mem_index) as usize)
             .ok_or_else(|| Error::Other("memory not found".to_string()))?;
 
-        let data_len = data.data.as_ref().map(|d| d.len()).unwrap_or(0);
+        let data_len = data.data.as_ref().map_or(0, |d| d.len());
 
         if unlikely(((size + offset) as usize > data_len) || ((dst + size) as usize > mem.len())) {
             return Err(Trap::MemoryOutOfBounds { offset: offset as usize, len: size as usize, max: data_len }.into());
@@ -586,11 +581,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Ok(());
         }
 
-        let data = match &data.data {
-            Some(data) => data,
-            None => return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()),
-        };
-
+        let Some(data) = &data.data else { return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()) };
         mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])
     }
     fn exec_data_drop(&mut self, data_index: u32) {
@@ -628,7 +619,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     ) -> ControlFlow<Option<Error>> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
         let val = self.stack.values.pop::<i32>() as u64;
-        let Some(Ok(addr)) = offset.checked_add(val).map(|a| a.try_into()) else {
+        let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
             cold();
             return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
                 offset: val as usize,
@@ -679,17 +670,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             .store
             .data
             .elements
-            .get(*self.module.resolve_elem_addr(elem_index) as usize)
+            .get(self.module.resolve_elem_addr(elem_index) as usize)
             .ok_or_else(|| Error::Other("element not found".to_string()))?;
 
         let table = self
             .store
             .data
             .tables
-            .get_mut(*self.module.resolve_table_addr(table_index) as usize)
+            .get_mut(self.module.resolve_table_addr(table_index) as usize)
             .ok_or_else(|| Error::Other("table not found".to_string()))?;
 
-        let elem_len = elem.items.as_ref().map(|items| items.len()).unwrap_or(0);
+        let elem_len = elem.items.as_ref().map_or(0, alloc::vec::Vec::len);
         let table_len = table.size();
 
         let size: i32 = self.stack.values.pop(); // n

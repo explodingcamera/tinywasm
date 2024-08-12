@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use eyre::Result;
-use tinywasm::*;
+use tinywasm::{Extern, FuncContext, Imports, ModuleInstance, Store, types};
 use types::{archive::AlignedVec, TinyWasmModule};
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.opt.wasm");

@@ -168,12 +168,12 @@ impl ModuleReader {
                 validator.end(offset)?;
                 self.end_reached = true;
             }
-            CustomSection(_reader) => {
+            CustomSection(reader) => {
                 debug!("Found custom section");
-                debug!("Skipping custom section: {:?}", _reader.name());
+                debug!("Skipping custom section: {:?}", reader.name());
             }
             UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
-            section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {:?}", section))),
+            section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {section:?}"))),
         };
 
         Ok(())
@@ -196,7 +196,7 @@ impl ModuleReader {
             .map(|((instructions, locals), ty_idx)| {
                 let mut params = ValueCountsSmall::default();
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
-                for param in ty.params.iter() {
+                for param in &ty.params {
                     match param {
                         ValType::I32 | ValType::F32 => params.c32 += 1,
                         ValType::I64 | ValType::F64 => params.c64 += 1,
@@ -204,7 +204,7 @@ impl ModuleReader {
                         ValType::RefExtern | ValType::RefFunc => params.cref += 1,
                     }
                 }
-                WasmFunction { instructions, params, locals, ty }
+                WasmFunction { instructions, locals, params, ty }
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();

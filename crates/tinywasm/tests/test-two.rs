@@ -23,7 +23,7 @@ fn test_2() -> Result<()> {
         println!();
         Err(eyre!(format!("{}:\n{:#?}", "failed one or more tests".red().bold(), test_suite,)))
     } else {
-        println!("\n\npassed all tests:\n{:#?}", test_suite);
+        println!("\n\npassed all tests:\n{test_suite:#?}");
         Ok(())
     }
 }
