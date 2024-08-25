@@ -61,6 +61,7 @@ impl Parser {
             function_references: true,
             tail_call: true,
 
+            gc_types: true,
             component_model: false,
             component_model_nested_names: false,
             component_model_values: false,
