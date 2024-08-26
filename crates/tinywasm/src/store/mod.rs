@@ -339,7 +339,7 @@ impl Store {
                     // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
                     // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
                     // I have NO IDEA why this is allowed, but it is.
-                    if let Err(Error::Trap(trap)) = table.init_raw(offset, &init) {
+                    if let Err(Error::Trap(trap)) = table.init(offset, &init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 

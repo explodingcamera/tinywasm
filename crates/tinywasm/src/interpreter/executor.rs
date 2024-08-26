@@ -666,6 +666,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(())
     }
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<()> {
+        let size: i32 = self.stack.values.pop(); // n
+        let offset: i32 = self.stack.values.pop(); // s
+        let dst: i32 = self.stack.values.pop(); // d
+
         let elem = self
             .store
             .data
@@ -683,11 +687,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let elem_len = elem.items.as_ref().map_or(0, alloc::vec::Vec::len);
         let table_len = table.size();
 
-        let size: i32 = self.stack.values.pop(); // n
-        let offset: i32 = self.stack.values.pop(); // s
-        let dst: i32 = self.stack.values.pop(); // d
-
-        if unlikely(((size + offset) as usize > elem_len) || ((dst + size) > table_len)) {
+        if unlikely(size < 0 || ((size + offset) as usize > elem_len) || ((dst + size) > table_len)) {
             return Err(Trap::TableOutOfBounds { offset: offset as usize, len: size as usize, max: elem_len }.into());
         }
 
@@ -703,7 +703,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
-        table.init(self.module.func_addrs(), dst, &items[offset as usize..(offset + size) as usize])
+        table.init(dst, &items[offset as usize..(offset + size) as usize])
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));

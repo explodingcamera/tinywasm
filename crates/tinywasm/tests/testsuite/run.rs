@@ -143,8 +143,9 @@ impl TestSuite {
         Ok(imports)
     }
 
-    pub fn run_spec_group(&mut self, tests: &[&str]) -> Result<()> {
-        tests.iter().for_each(|group| {
+    pub fn run_spec_group<T: AsRef<str>>(&mut self, tests: impl IntoIterator<Item = T>) -> Result<()> {
+        tests.into_iter().for_each(|group| {
+            let group = group.as_ref();
             let group_wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
             if self.1.contains(&(*group).to_string()) {
                 info!("skipping group: {}", group);

@@ -21,31 +21,11 @@ where
         self.map.insert(key, value)
     }
 
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.map.get(key)
-    }
-
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.map.get_mut(key)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.keys.iter().map(move |k| (k, self.map.get(k).unwrap()))
     }
 
-    pub fn len(&self) -> usize {
-        self.map.len()
-    }
-
-    pub fn keys(&self) -> impl Iterator<Item = &K> {
-        self.keys.iter()
-    }
-
     pub fn values(&self) -> impl Iterator<Item = &V> {
         self.map.values()
-    }
-
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
-        self.map.values_mut()
     }
 }

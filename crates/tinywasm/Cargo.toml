@@ -39,17 +39,44 @@ simd=[]
 nightly=["tinywasm-parser?/nightly"]
 
 [[test]]
-name="test-mvp"
+name="test-wasm-1"
 harness=false
+test=false
 
 [[test]]
-name="test-two"
+name="test-wasm-2"
 harness=false
+test=false
+
+[[test]]
+name="test-wasm-multi-memory"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-memory64"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-annotations"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-extended-const"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-simd"
+harness=false
+test=false
 
 [[test]]
 name="test-wast"
 harness=false
-
+test=false
 
 [[bench]]
 name="argon2id"

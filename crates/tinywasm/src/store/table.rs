@@ -133,8 +133,7 @@ impl TableInstance {
             .expect("error initializing table: function not found. This should have been caught by the validator")
     }
 
-    // Initialize the table with the given elements
-    pub(crate) fn init_raw(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
+    pub(crate) fn init(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or_else(|| {
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
@@ -147,12 +146,6 @@ impl TableInstance {
         self.elements[offset..end].copy_from_slice(init);
         log::debug!("table: {:?}", self.elements);
         Ok(())
-    }
-
-    // Initialize the table with the given elements (resolves function references)
-    pub(crate) fn init(&mut self, func_addrs: &[u32], offset: i32, init: &[TableElement]) -> Result<()> {
-        let init = init.iter().map(|item| item.map(|addr| self.resolve_func_ref(func_addrs, addr))).collect::<Vec<_>>();
-        self.init_raw(offset, &init)
     }
 }
 
@@ -248,8 +241,7 @@ mod tests {
         let mut table_instance = TableInstance::new(kind, 0);
 
         let init_elements = vec![TableElement::Initialized(0); 5];
-        let func_addrs = vec![0, 1, 2, 3, 4];
-        let result = table_instance.init(&func_addrs, 0, &init_elements);
+        let result = table_instance.init(0, &init_elements);
 
         assert!(result.is_ok(), "Initializing table with elements failed");
 

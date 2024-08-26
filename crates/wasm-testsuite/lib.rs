@@ -18,7 +18,7 @@ struct Asset;
 /// 
 /// Includes all proposals from <https://github.com/WebAssembly/testsuite/tree/master/proposals>
 #[rustfmt::skip] 
-pub const PROPOSALS: &[&str] = &["annotations", "exception-handling", "memory64", "function-references", "multi-memory", "relaxed-simd", "tail-call", "threads", "extended-const", "gc"];
+pub const PROPOSALS: &[&str] = &["annotations", "exception-handling", "extended-const", "function-references", "gc", "memory64", "multi-memory", "relaxed-simd", "tail-call", "threads"];
 
 /// List of all tests that apply to the MVP (V1) spec
 /// Note that the tests are still for the latest spec, so the latest version of Wast is used.
@@ -33,33 +33,14 @@ pub const V2_DRAFT_1_TESTS: &[&str] = &["address.wast", "align.wast", "binary-le
 #[rustfmt::skip]
 pub const SIMD_TESTS: &[&str] = &["simd_address.wast", "simd_align.wast", "simd_bit_shift.wast", "simd_bitwise.wast", "simd_boolean.wast", "simd_const.wast", "simd_conversions.wast", "simd_f32x4.wast", "simd_f32x4_arith.wast", "simd_f32x4_cmp.wast", "simd_f32x4_pmin_pmax.wast", "simd_f32x4_rounding.wast", "simd_f64x2.wast", "simd_f64x2_arith.wast", "simd_f64x2_cmp.wast", "simd_f64x2_pmin_pmax.wast", "simd_f64x2_rounding.wast", "simd_i16x8_arith.wast", "simd_i16x8_arith2.wast", "simd_i16x8_cmp.wast", "simd_i16x8_extadd_pairwise_i8x16.wast", "simd_i16x8_extmul_i8x16.wast", "simd_i16x8_q15mulr_sat_s.wast", "simd_i16x8_sat_arith.wast", "simd_i32x4_arith.wast", "simd_i32x4_arith2.wast", "simd_i32x4_cmp.wast", "simd_i32x4_dot_i16x8.wast", "simd_i32x4_extadd_pairwise_i16x8.wast", "simd_i32x4_extmul_i16x8.wast", "simd_i32x4_trunc_sat_f32x4.wast", "simd_i32x4_trunc_sat_f64x2.wast", "simd_i64x2_arith.wast", "simd_i64x2_arith2.wast", "simd_i64x2_cmp.wast", "simd_i64x2_extmul_i32x4.wast", "simd_i8x16_arith.wast", "simd_i8x16_arith2.wast", "simd_i8x16_cmp.wast", "simd_i8x16_sat_arith.wast", "simd_int_to_int_extend.wast", "simd_lane.wast", "simd_linking.wast", "simd_load.wast", "simd_load16_lane.wast", "simd_load32_lane.wast", "simd_load64_lane.wast", "simd_load8_lane.wast", "simd_load_extend.wast", "simd_load_splat.wast", "simd_load_zero.wast", "simd_splat.wast", "simd_store.wast", "simd_store16_lane.wast", "simd_store32_lane.wast", "simd_store64_lane.wast", "simd_store8_lane.wast"];
 
-/// Get all test file names and their contents.
-pub fn get_tests_wast(include_proposals: &[String]) -> impl Iterator<Item = (String, Cow<'static, [u8]>)> {
-    get_tests(include_proposals)
-        .filter_map(|name| Some((name.clone(), get_test_wast(&name)?)))
-        .map(|(name, data)| (name, Cow::Owned(data.to_vec())))
-}
-
-/// Get all test file names.
-pub fn get_tests(include_proposals: &[String]) -> impl Iterator<Item = String> {
-    let include_proposals = include_proposals.to_vec();
-
+/// List of all tests that apply to a specific proposal.
+pub fn get_proposal_tests(proposal: &str) -> impl Iterator<Item = String> + '_ {
     Asset::iter().filter_map(move |x| {
         let mut parts = x.split('/');
-        match parts.next() {
-            Some("proposals") => {
-                let proposal = parts.next();
-                let test_name = parts.next().unwrap_or_default();
-
-                if proposal.map_or(false, |p| include_proposals.contains(&p.to_string())) {
-                    let full_path = format!("{}/{}", proposal.unwrap_or_default(), test_name);
-                    Some(full_path)
-                } else {
-                    None
-                }
-            }
-            Some(test_name) => Some(test_name.to_owned()),
-            None => None,
+        if parts.next() == Some("proposals") && parts.next() == Some(proposal) {
+            Some(format!("{}/{}", proposal, parts.next().unwrap_or_default()))
+        } else {
+            None
         }
     })
 }
