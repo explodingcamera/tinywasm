@@ -1,6 +1,6 @@
 <div>
     <div>
-        <a href=""><img align="left" src="./tinywasm.png" width="100px"></a>
+        <a href=""><img align="left" src="https://raw.githubusercontent.com/explodingcamera/tinywasm/main/tinywasm.png" width="100px"></a>
     </div>
     <h1>TinyWasm</h1>
     A tiny WebAssembly Runtime written in safe Rust
