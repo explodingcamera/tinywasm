@@ -60,6 +60,7 @@ impl Parser {
             saturating_float_to_int: true,
             function_references: true,
             tail_call: true,
+            multi_memory: true,
 
             gc_types: true,
             component_model: false,
@@ -74,7 +75,6 @@ impl Parser {
             relaxed_simd: false,
             simd: false,
             threads: false,
-            multi_memory: false, // should be working mostly
             custom_page_sizes: false,
             shared_everything_threads: false,
             component_model_multiple_returns: false,

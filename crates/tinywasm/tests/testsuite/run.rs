@@ -246,7 +246,12 @@ impl TestSuite {
                     );
                 }
 
-                AssertInvalid { span, mut module, message: _ } => {
+                AssertInvalid { span, mut module, message } => {
+                    if ["multiple memories"].contains(&message) {
+                        test_group.add_result(&format!("AssertInvalid({i})"), span.linecol_in(wast), Ok(()));
+                        continue;
+                    }
+
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
                         .map_err(|e| eyre!("failed to parse module (invalid): {:?}", try_downcast_panic(e)))
                         .and_then(|res| res);

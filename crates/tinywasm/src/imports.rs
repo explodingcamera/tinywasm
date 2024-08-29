@@ -392,7 +392,9 @@ impl Imports {
                         }
                         (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                             let table = store.get_table(table_addr);
-                            Self::compare_table_types(import, &table.kind, ty)?;
+                            let mut kind = table.kind.clone();
+                            kind.size_initial = table.size() as u32;
+                            Self::compare_table_types(import, &kind, ty)?;
                             imports.tables.push(table_addr);
                         }
                         (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {

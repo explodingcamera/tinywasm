@@ -540,7 +540,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             let (mem_from, mem_to) =
                 self.store.get_mems_mut(self.module.resolve_mem_addr(from), self.module.resolve_mem_addr(to))?;
 
-            mem_to.copy_from_slice(dst as usize, mem_from.load(src as usize, size as usize)?)?;
+            mem_from.copy_from_slice(dst as usize, mem_to.load(src as usize, size as usize)?)?;
         }
         Ok(())
     }

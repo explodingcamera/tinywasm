@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Full support for Multi-Memory proposal
+- Extern tables now correctly update their type after growing
 - Increased MSRV to 1.80.0
 - Improved support for WebAssembly 2.0 features
 - Simplify and optimize the interpreter loop

@@ -1,3 +1,4 @@
+#![allow(unused)]
 use eyre::Result;
 use owo_colors::OwoColorize;
 use std::io::{BufRead, Seek, SeekFrom};

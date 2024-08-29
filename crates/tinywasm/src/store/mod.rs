@@ -368,11 +368,6 @@ impl Store {
         for (i, data) in datas.into_iter().enumerate() {
             let data_val = match data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
-                    // a. Assert: memidx == 0
-                    if mem_addr != 0 {
-                        return Err(Error::UnsupportedFeature("data segments for non-zero memories".to_string()));
-                    }
-
                     let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
