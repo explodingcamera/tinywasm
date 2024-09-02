@@ -79,6 +79,70 @@ impl WasmValue {
             _ => false,
         }
     }
+
+    #[doc(hidden)]
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            Self::I32(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::I64(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_f32(&self) -> Option<f32> {
+        match self {
+            Self::F32(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::F64(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_v128(&self) -> Option<u128> {
+        match self {
+            Self::V128(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_ref_extern(&self) -> Option<ExternAddr> {
+        match self {
+            Self::RefExtern(addr) => Some(*addr),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_ref_func(&self) -> Option<FuncAddr> {
+        match self {
+            Self::RefFunc(addr) => Some(*addr),
+            _ => None,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn as_ref_null(&self) -> Option<ValType> {
+        match self {
+            Self::RefNull(ty) => Some(*ty),
+            _ => None,
+        }
+    }
 }
 
 #[cold]

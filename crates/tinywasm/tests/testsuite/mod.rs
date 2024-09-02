@@ -50,6 +50,10 @@ impl TestSuite {
         Self(BTreeMap::new(), Vec::new())
     }
 
+    pub fn skip(&mut self, name: &str) {
+        self.1.push(name.to_string());
+    }
+
     pub fn failed(&self) -> bool {
         self.0.values().any(|group| group.stats().1 > 0)
     }
