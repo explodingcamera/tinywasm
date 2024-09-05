@@ -59,8 +59,7 @@ impl Display for ParseError {
     }
 }
 
-#[cfg(any(feature = "std", all(not(feature = "std"), feature = "nightly")))]
-impl crate::std::error::Error for ParseError {}
+impl core::error::Error for ParseError {}
 
 impl From<wasmparser::BinaryReaderError> for ParseError {
     fn from(value: wasmparser::BinaryReaderError) -> Self {

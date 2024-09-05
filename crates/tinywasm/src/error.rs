@@ -225,8 +225,7 @@ impl Display for Trap {
     }
 }
 
-#[cfg(any(feature = "std", all(not(feature = "std"), feature = "nightly")))]
-impl crate::std::error::Error for Error {}
+impl core::error::Error for Error {}
 
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {

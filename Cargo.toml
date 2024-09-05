@@ -13,7 +13,7 @@ criterion={version="0.5", default-features=false, features=["cargo_bench_support
 
 [workspace.package]
 version="0.8.0"
-rust-version="1.80"
+rust-version="1.81"
 edition="2021"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]

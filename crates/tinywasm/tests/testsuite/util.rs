@@ -5,8 +5,7 @@ use tinywasm_types::{ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 use wast::{core::AbstractHeapType, QuoteWat};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
-    #[allow(deprecated)] // new name is not available on stable
-    let info = panic.downcast_ref::<panic::PanicInfo>().or(None).map(ToString::to_string).clone();
+    let info = panic.downcast_ref::<panic::PanicHookInfo>().or(None).map(ToString::to_string).clone();
     let info_string = panic.downcast_ref::<String>().cloned();
     let info_str = panic.downcast::<&str>().ok().map(|s| *s);
 
