@@ -1,7 +1,5 @@
 [alias]
 version-dev="workspaces version --no-git-commit --force tinywasm*"
-dev="run -- -l debug run"
-
 test-wasm-1="test --package tinywasm --test test-wasm-1 --release"
 test-wasm-2="test --package tinywasm --test test-wasm-2 --release"
 test-wast="test --package tinywasm --test test-wast"

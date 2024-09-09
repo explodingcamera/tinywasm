@@ -5,18 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-<!-- ## [Unreleased] -->
+## [Unreleased]
+
+### Added
+
+- Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
 
 ## [0.8.0] - 2024-08-29
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.7.0...v0.8.0
 
-### Changed
+### Added
 
 - Full support for Multi-Memory proposal
+- Improved support for WebAssembly 2.0 features
+
+### Changed
+
 - Extern tables now correctly update their type after growing
 - Increased MSRV to 1.80.0
-- Improved support for WebAssembly 2.0 features
 - Simplify and optimize the interpreter loop
 - Use a seperate stack and locals for 32, 64 and 128 bit values and references (#21)
 - Updated to latest `wasmparser` version
