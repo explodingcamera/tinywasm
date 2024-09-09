@@ -2,9 +2,9 @@ name: Rust CI
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: ["next", "main"]
 
 jobs:
   build-wasm:
