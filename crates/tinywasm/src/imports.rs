@@ -208,7 +208,7 @@ impl From<&Import> for ExternName {
 /// imports
 ///     .define("my_module", "print_i32", print_i32)?
 ///     .define("my_module", "table", Extern::table(table_type, table_init))?
-///     .define("my_module", "memory", Extern::memory(MemoryType::new_32(1, Some(2))))?
+///     .define("my_module", "memory", Extern::memory(MemoryType::new_32(1, Some(2), None)))?
 ///     .define("my_module", "global_i32", Extern::global(WasmValue::I32(666), false))?
 ///     .link_module("my_other_module", 0)?;
 /// # Ok(())
@@ -317,22 +317,20 @@ impl Imports {
         actual: &MemoryType,
         real_size: Option<usize>,
     ) -> Result<()> {
-        Self::compare_types(import, &expected.arch, &actual.arch)?;
+        Self::compare_types(import, &expected.arch(), &actual.arch())?;
 
-        if actual.page_count_initial > expected.page_count_initial
-            && real_size.map_or(true, |size| actual.page_count_initial > size as u64)
+        if actual.page_count_initial() > expected.page_count_initial()
+            && real_size.map_or(true, |size| actual.page_count_initial() > size as u64)
         {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        if expected.page_count_max.is_none() && actual.page_count_max.is_some() {
+        if expected.page_size() != actual.page_size() {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        if let (Some(expected_max), Some(actual_max)) = (expected.page_count_max, actual.page_count_max) {
-            if actual_max < expected_max {
-                return Err(LinkingError::incompatible_import_type(import).into());
-            }
+        if expected.page_count_max() > actual.page_count_max() {
+            return Err(LinkingError::incompatible_import_type(import).into());
         }
 
         Ok(())

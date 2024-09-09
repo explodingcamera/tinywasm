@@ -121,7 +121,7 @@ impl TestSuite {
         });
 
         imports
-            .define("spectest", "memory", Extern::memory(MemoryType::new_32(1, Some(2))))?
+            .define("spectest", "memory", Extern::memory(MemoryType::new_32(1, Some(2), None)))?
             .define("spectest", "table", table)?
             .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
             .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
