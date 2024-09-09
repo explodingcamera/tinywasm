@@ -192,7 +192,7 @@ impl From<&Import> for ExternName {
 /// # use log;
 /// # fn main() -> tinywasm::Result<()> {
 /// use tinywasm::{Imports, Extern};
-/// use tinywasm::types::{ValType, TableType, MemoryType, WasmValue};
+/// use tinywasm::types::{ValType, TableType, MemoryType, MemoryArch, WasmValue};
 /// let mut imports = Imports::new();
 ///
 /// // function args can be either a single
@@ -208,7 +208,7 @@ impl From<&Import> for ExternName {
 /// imports
 ///     .define("my_module", "print_i32", print_i32)?
 ///     .define("my_module", "table", Extern::table(table_type, table_init))?
-///     .define("my_module", "memory", Extern::memory(MemoryType::new_32(1, Some(2), None)))?
+///     .define("my_module", "memory", Extern::memory(MemoryType::new(MemoryArch::I32, 1, Some(2), None)))?
 ///     .define("my_module", "global_i32", Extern::global(WasmValue::I32(666), false))?
 ///     .link_module("my_other_module", 0)?;
 /// # Ok(())
