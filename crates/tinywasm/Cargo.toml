@@ -73,6 +73,12 @@ name="test-wasm-simd"
 harness=false
 test=false
 
+
+[[test]]
+name="test-wasm-custom-page-sizes"
+harness=false
+test=false
+
 [[test]]
 name="test-wast"
 harness=false

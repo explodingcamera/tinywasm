@@ -121,7 +121,11 @@ impl TestSuite {
         });
 
         imports
-            .define("spectest", "memory", Extern::memory(MemoryType::new_32(1, Some(2))))?
+            .define(
+                "spectest",
+                "memory",
+                Extern::memory(MemoryType::new(tinywasm_types::MemoryArch::I32, 1, Some(2), None)),
+            )?
             .define("spectest", "table", table)?
             .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
             .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
@@ -145,6 +149,7 @@ impl TestSuite {
 
     pub fn run_spec_group<T: AsRef<str>>(&mut self, tests: impl IntoIterator<Item = T>) -> Result<()> {
         tests.into_iter().for_each(|group| {
+            println!("running group: {}", group.as_ref());
             let group = group.as_ref();
             let group_wast = wasm_testsuite::get_test_wast(group).expect("failed to get test wast");
             if self.1.contains(&(*group).to_string()) {

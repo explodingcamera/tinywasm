@@ -4,10 +4,6 @@ use tinywasm_types::{MemoryType, ModuleInstanceAddr};
 
 use crate::{cold, log, Error, Result};
 
-const PAGE_SIZE: usize = 65536;
-const MAX_PAGES: usize = 65536;
-const MAX_SIZE: u64 = PAGE_SIZE as u64 * MAX_PAGES as u64;
-
 /// A WebAssembly Memory Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
@@ -21,13 +17,13 @@ pub(crate) struct MemoryInstance {
 
 impl MemoryInstance {
     pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
-        assert!(kind.page_count_initial <= kind.page_count_max.unwrap_or(MAX_PAGES as u64));
-        log::debug!("initializing memory with {} pages", kind.page_count_initial);
+        assert!(kind.page_count_initial() <= kind.page_count_max());
+        log::debug!("initializing memory with {} pages of {} bytes", kind.page_count_initial(), kind.page_size());
 
         Self {
             kind,
-            data: vec![0; PAGE_SIZE * kind.page_count_initial as usize],
-            page_count: kind.page_count_initial as usize,
+            data: vec![0; kind.initial_size() as usize],
+            page_count: kind.page_count_initial() as usize,
             _owner: owner,
         }
     }
@@ -58,7 +54,7 @@ impl MemoryInstance {
     }
 
     pub(crate) fn max_pages(&self) -> usize {
-        self.kind.page_count_max.unwrap_or(MAX_PAGES as u64) as usize
+        self.kind.page_count_max() as usize
     }
 
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
@@ -133,12 +129,12 @@ impl MemoryInstance {
         let new_pages = current_pages as i64 + pages_delta as i64;
         debug_assert!(new_pages <= i32::MAX as i64, "page count should never be greater than i32::MAX");
 
-        if new_pages < 0 || new_pages > MAX_PAGES as i64 || new_pages as usize > self.max_pages() {
+        if new_pages < 0 || new_pages as usize > self.max_pages() {
             return None;
         }
 
-        let new_size = new_pages as usize * PAGE_SIZE;
-        if new_size as u64 > MAX_SIZE {
+        let new_size = (new_pages as u64 * self.kind.page_size()) as usize;
+        if new_size as u64 > self.kind.max_size() {
             return None;
         }
 
@@ -190,7 +186,7 @@ mod memory_instance_tests {
     use tinywasm_types::MemoryArch;
 
     fn create_test_memory() -> MemoryInstance {
-        let kind = MemoryType { arch: MemoryArch::I32, page_count_initial: 1, page_count_max: Some(2) };
+        let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
         let owner = ModuleInstanceAddr::default();
         MemoryInstance::new(kind, owner)
     }
@@ -249,7 +245,7 @@ mod memory_instance_tests {
     #[test]
     fn test_memory_grow_out_of_bounds() {
         let mut memory = create_test_memory();
-        assert!(memory.grow(MAX_PAGES as i32 + 1).is_none());
+        assert!(memory.grow(memory.kind.max_size() as i32 + 1).is_none());
     }
 
     #[test]
@@ -257,5 +253,30 @@ mod memory_instance_tests {
         let mut memory = create_test_memory();
         assert_eq!(memory.grow(1), Some(1));
         assert_eq!(memory.grow(1), None);
+    }
+
+    #[test]
+    fn test_memory_custom_page_size_out_of_bounds() {
+        let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), Some(1));
+        let owner = ModuleInstanceAddr::default();
+        let mut memory = MemoryInstance::new(kind, owner);
+
+        let data_to_store = [1, 2];
+        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_err());
+    }
+
+    #[test]
+    fn test_memory_custom_page_size_grow() {
+        let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), Some(1));
+        let owner = ModuleInstanceAddr::default();
+        let mut memory = MemoryInstance::new(kind, owner);
+
+        assert_eq!(memory.grow(1), Some(1));
+
+        let data_to_store = [1, 2];
+        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_ok());
+
+        let loaded_data = memory.load(0, data_to_store.len()).unwrap();
+        assert_eq!(loaded_data, &data_to_store);
     }
 }

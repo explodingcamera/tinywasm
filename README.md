@@ -27,17 +27,18 @@ TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](
 🚧 -- in development / partialy supported\
 🟢 -- fully supported
 
-| Proposal                                                                                                                   | Status | TinyWasm Version |
-| -------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
-| [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md)      | 🟢     | 0.2.0            |
-| [**Non-trapping float-to-int Conversion**](https://github.com/WebAssembly/nontrapping-float-to-int-conversions)            | 🟢     | 0.2.0            |
-| [**Sign-extension operators**](https://github.com/WebAssembly/sign-extension-ops)                                          | 🟢     | 0.2.0            |
-| [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md)                       | 🟢     | 0.2.0            |
-| [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md) | 🟢     | 0.4.0            |
-| [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md)    | 🟢     | 0.7.0            |
-| [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)        | 🟢     | 0.8.0            |
-| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                         | 🚧     | N/A              |
-| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                | 🌑     | N/A              |
+| Proposal                                                                                                                    | Status | TinyWasm Version |
+| --------------------------------------------------------------------------------------------------------------------------- | ------ | ---------------- |
+| [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md)       | 🟢     | 0.2.0            |
+| [**Non-trapping float-to-int Conversion**](https://github.com/WebAssembly/nontrapping-float-to-int-conversions)             | 🟢     | 0.2.0            |
+| [**Sign-extension operators**](https://github.com/WebAssembly/sign-extension-ops)                                           | 🟢     | 0.2.0            |
+| [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md)                        | 🟢     | 0.2.0            |
+| [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md)  | 🟢     | 0.4.0            |
+| [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md)     | 🟢     | 0.7.0            |
+| [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)         | 🟢     | 0.8.0            |
+| [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes/blob/main/proposals/custom-page-sizes/Overview.md) | 🟢     | `next`           |
+| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                          | 🚧     | N/A              |
+| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🌑     | N/A              |
 
 ## Usage
 

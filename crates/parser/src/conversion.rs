@@ -105,11 +105,12 @@ pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<
 }
 
 pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryType {
-    MemoryType {
-        arch: if memory.memory64 { MemoryArch::I64 } else { MemoryArch::I32 },
-        page_count_initial: memory.initial,
-        page_count_max: memory.maximum,
-    }
+    MemoryType::new(
+        if memory.memory64 { MemoryArch::I64 } else { MemoryArch::I32 },
+        memory.initial,
+        memory.maximum,
+        memory.page_size_log2.map(|x| 1 << x),
+    )
 }
 
 pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Table<'a>>>>(

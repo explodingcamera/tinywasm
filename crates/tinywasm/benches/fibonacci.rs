@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use eyre::Result;
-use tinywasm::{ModuleInstance, Store, types};
+use tinywasm::{types, ModuleInstance, Store};
 use types::{archive::AlignedVec, TinyWasmModule};
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.opt.wasm");

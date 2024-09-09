@@ -243,7 +243,7 @@ impl Store {
         let mem_count = self.data.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.into_iter().enumerate() {
-            if let MemoryArch::I64 = mem.arch {
+            if let MemoryArch::I64 = mem.arch() {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
             }
             self.data.memories.push(MemoryInstance::new(mem, idx));
@@ -405,7 +405,7 @@ impl Store {
     }
 
     pub(crate) fn add_mem(&mut self, mem: MemoryType, idx: ModuleInstanceAddr) -> Result<MemAddr> {
-        if let MemoryArch::I64 = mem.arch {
+        if let MemoryArch::I64 = mem.arch() {
             return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
         }
         self.data.memories.push(MemoryInstance::new(mem, idx));
