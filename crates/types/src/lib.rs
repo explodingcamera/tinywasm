@@ -14,7 +14,11 @@ use core::{fmt::Debug, ops::Range};
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
-const MEM_MAX_PAGES: u64 = 65536;
+const MAX_MEMORY_SIZE: u64 = 4294967296;
+
+const fn max_page_count(page_size: u64) -> u64 {
+    MAX_MEMORY_SIZE / page_size
+}
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
@@ -267,10 +271,6 @@ impl MemoryType {
         Self { arch, page_count_initial, page_count_max, page_size }
     }
 
-    pub fn new_32(page_count_initial: u64, page_count_max: Option<u64>, page_size: Option<u64>) -> Self {
-        Self { arch: MemoryArch::I32, page_count_initial, page_count_max, page_size }
-    }
-
     pub fn arch(&self) -> MemoryArch {
         self.arch
     }
@@ -280,7 +280,7 @@ impl MemoryType {
     }
 
     pub fn page_count_max(&self) -> u64 {
-        self.page_count_max.unwrap_or(MEM_MAX_PAGES)
+        self.page_count_max.unwrap_or_else(|| max_page_count(self.page_size()))
     }
 
     pub fn page_size(&self) -> u64 {

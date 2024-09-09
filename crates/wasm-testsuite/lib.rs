@@ -12,13 +12,18 @@ use std::borrow::Cow;
 #[derive(RustEmbed)]
 #[folder = "data/"]
 #[include = "*.wast"]
-struct Asset;
+struct OfficialTests;
+
+#[derive(RustEmbed)]
+#[folder = "tests/"]
+#[include = "*.wast"]
+struct CustomTests;
 
 /// List of all supported proposals. Can be used to filter tests.
 /// 
 /// Includes all proposals from <https://github.com/WebAssembly/testsuite/tree/master/proposals>
 #[rustfmt::skip] 
-pub const PROPOSALS: &[&str] = &["annotations", "exception-handling", "extended-const", "function-references", "gc", "memory64", "multi-memory", "relaxed-simd", "tail-call", "threads"];
+pub const PROPOSALS: &[&str] = &["annotations", "exception-handling", "extended-const", "function-references", "gc", "memory64", "multi-memory", "relaxed-simd", "tail-call", "threads", "custom-page-sizes"];
 
 /// List of all tests that apply to the MVP (V1) spec
 /// Note that the tests are still for the latest spec, so the latest version of Wast is used.
@@ -35,7 +40,7 @@ pub const SIMD_TESTS: &[&str] = &["simd_address.wast", "simd_align.wast", "simd_
 
 /// List of all tests that apply to a specific proposal.
 pub fn get_proposal_tests(proposal: &str) -> impl Iterator<Item = String> + '_ {
-    Asset::iter().filter_map(move |x| {
+    OfficialTests::iter().chain(CustomTests::iter()).filter_map(move |x| {
         let mut parts = x.split('/');
         if parts.next() == Some("proposals") && parts.next() == Some(proposal) {
             Some(format!("{}/{}", proposal, parts.next().unwrap_or_default()))
@@ -50,8 +55,10 @@ pub fn get_test_wast(name: &str) -> Option<Cow<'static, [u8]>> {
     assert!(name.ends_with(".wast"), "Expected .wast file. Got: {name}");
 
     match name.contains('/') {
-        true => Asset::get(&format!("proposals/{name}")).map(|x| x.data),
-        false => Asset::get(name).map(|x| x.data),
+        true => OfficialTests::get(&format!("proposals/{name}"))
+            .or_else(|| CustomTests::get(&format!("proposals/{name}")))
+            .map(|x| x.data),
+        false => OfficialTests::get(name).or_else(|| CustomTests::get(name)).map(|x| x.data),
     }
 }
 
@@ -66,7 +73,7 @@ mod tests {
         let mut unique_proposals = HashSet::new();
 
         // check that all proposals are present
-        for proposal in Asset::iter() {
+        for proposal in OfficialTests::iter() {
             if !proposal.starts_with("proposals/") {
                 continue;
             }
