@@ -14,6 +14,7 @@ mkdir -p "$dest_dir"
 
 # build no_std
 cargo build --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm_no_std --no-default-features
+cp "$out_dir/tinywasm_no_std.wasm" "$dest_dir/"
 
 for bin in "${bins[@]}"; do
     RUSTFLAGS="-C target-feature=$rust_features -C panic=abort" cargo build --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin "$bin"

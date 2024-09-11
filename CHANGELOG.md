@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
 
+### Changed
+
+- **Breaking:**: New backwards-incompatible version of the twasm format (upgraded `rkyv` to 0.8.0)
+- Increased MSRV to 1.81.0
+
+### Fixed
+
+- Fixed archive **no_std** support which was broken in the previous release, and added more tests to ensure it stays working
+
 ## [0.8.0] - 2024-08-29
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.7.0...v0.8.0

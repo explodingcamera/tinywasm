@@ -62,7 +62,7 @@ jobs:
             name: "Linux armv7"
             target: armv7-unknown-linux-gnueabihf
 
-    name: Run tests on ${{ matrix.name }})
+    name: Run tests on ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
