@@ -44,7 +44,8 @@ $ cargo test-wast {path}
 # Run a specific example (run without arguments to see available examples)
 #   The wasm test files required to run the `wasm-rust` examples are not
 #   included in the main repository.
-#   To build these, you will need to run `./examples/rust/build.sh`.
+#   To build these, you will need to install binaryen and wabt
+#   and run `./examples/rust/build.sh`.
 $ cargo run --example {example_name}
 ```
 

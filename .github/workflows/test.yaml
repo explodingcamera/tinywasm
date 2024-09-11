@@ -51,6 +51,7 @@ jobs:
             name: "armv7 (32-Bit Raspberry Pi)"
             target: armv7-unknown-linux-gnueabihf
 
+    name: Run tests on ${{ matrix.os }}, ${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -70,6 +71,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: wasm
+          path: examples/rust/out
 
       - name: Run tests
         run: cargo test --workspace ${{ matrix.args }} && cargo run --example wasm-rust all

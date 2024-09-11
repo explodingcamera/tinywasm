@@ -53,5 +53,5 @@ panic="abort"
 inherits="release"
 
 [profile.samply]
-inherits = "release"
-debug = true
+inherits="release"
+debug=true
