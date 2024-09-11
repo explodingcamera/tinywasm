@@ -11,10 +11,10 @@ rust-version.workspace=true
 [dependencies]
 log={workspace=true, optional=true}
 rkyv={version="0.7", optional=true, default-features=false, features=["size_32", "validation"]}
-bytecheck={version="0.7", optional=true}
+bytecheck={version="0.7", optional=true, default-features=false}
 
 [features]
 default=["std", "logging", "archive"]
-std=["rkyv?/std"]
+std=["rkyv?/std", "bytecheck?/std"]
 archive=["dep:rkyv", "dep:bytecheck"]
 logging=["dep:log"]
