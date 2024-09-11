@@ -54,7 +54,7 @@ impl MemoryInstance {
     }
 
     pub(crate) fn max_pages(&self) -> usize {
-        self.kind.page_count_max() as usize
+        self.kind.page_count_max().try_into().unwrap_or(usize::MAX)
     }
 
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
@@ -130,6 +130,9 @@ impl MemoryInstance {
         debug_assert!(new_pages <= i32::MAX as i64, "page count should never be greater than i32::MAX");
 
         if new_pages < 0 || new_pages as usize > self.max_pages() {
+            log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, self.max_pages());
+            log::debug!("{} {}", self.kind.page_count_max(), self.kind.page_size());
+
             return None;
         }
 
