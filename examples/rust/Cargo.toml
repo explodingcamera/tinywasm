@@ -10,13 +10,13 @@ forced-target="wasm32-unknown-unknown"
 edition="2021"
 
 [dependencies]
-tinywasm={path="../../crates/tinywasm", features=["parser", "std", "nightly"]}
+tinywasm={path="../../crates/tinywasm", features=["parser", "std"]}
 argon2={version="0.5"}
 
 [[bin]]
 name="hello"
 path="src/hello.rs"
- 
+
 [[bin]]
 name="print"
 path="src/print.rs"

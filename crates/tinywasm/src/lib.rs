@@ -4,8 +4,8 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(feature = "nightly", feature(portable_simd))]
 #![forbid(unsafe_code)]
+// #![cfg_attr(feature = "nightly", feature(portable_simd))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
@@ -26,7 +26,6 @@
 //! With all these features disabled, `TinyWasm` only depends on `core`, `alloc` and `libm`.
 //! By disabling `std`, you can use `TinyWasm` in `no_std` environments. This requires
 //! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
-//! Additionally, to have proper error types in `no_std`, you currently need a `nightly` compiler to use the unstable error trait in `core`.
 //!
 //! ## Getting Started
 //! The easiest way to get started is to use the [`Module::parse_bytes`] function to load a
