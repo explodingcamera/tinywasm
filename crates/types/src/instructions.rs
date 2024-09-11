@@ -3,7 +3,7 @@ use crate::{DataAddr, ElemAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 pub struct MemoryArg {
     pub offset: u64,
     pub mem_addr: MemAddr,
@@ -15,7 +15,7 @@ type EndOffset = u32;
 type ElseOffset = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 pub enum ConstInstruction {
     I32Const(i32),
     I64Const(i64),
@@ -38,7 +38,7 @@ pub enum ConstInstruction {
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize), archive(check_bytes))]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {

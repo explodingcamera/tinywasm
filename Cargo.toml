@@ -4,8 +4,8 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="216"
-wat="1.216"
+wast="217"
+wat="1.217"
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
@@ -51,3 +51,7 @@ lto="thin"
 codegen-units=1
 panic="abort"
 inherits="release"
+
+[profile.samply]
+inherits = "release"
+debug = true

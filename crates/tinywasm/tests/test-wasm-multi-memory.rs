@@ -7,6 +7,7 @@ fn main() -> Result<()> {
     let mut test_suite = TestSuite::new();
 
     TestSuite::set_log_level(log::LevelFilter::Off);
+    test_suite.skip("multi-memory/simd_memory-multi.wast");
     test_suite.run_spec_group(wasm_testsuite::get_proposal_tests("multi-memory"))?;
     test_suite.save_csv("./tests/generated/wasm-multi-memory.csv", env!("CARGO_PKG_VERSION"))?;
 

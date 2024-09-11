@@ -33,33 +33,32 @@ serde={version="1.0", features=["derive"]}
 default=["std", "parser", "logging", "archive"]
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
-parser=["tinywasm-parser"]
+parser=["dep:tinywasm-parser"]
 archive=["tinywasm-types/archive"]
-simd=[]
-nightly=["tinywasm-parser?/nightly"]
+nightly=[]
 
 [[test]]
 name="test-wasm-1"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-2"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-multi-memory"
 harness=false
-test=false
-
-[[test]]
-name="test-wasm-memory64"
-harness=false
-test=false
 
 [[test]]
 name="test-wasm-annotations"
+harness=false
+
+[[test]]
+name="test-wasm-custom-page-sizes"
+harness=false
+
+[[test]]
+name="test-wasm-memory64"
 harness=false
 test=false
 
@@ -70,12 +69,6 @@ test=false
 
 [[test]]
 name="test-wasm-simd"
-harness=false
-test=false
-
-
-[[test]]
-name="test-wasm-custom-page-sizes"
 harness=false
 test=false
 

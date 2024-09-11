@@ -24,132 +24,73 @@ jobs:
           name: wasm
           path: examples/rust/out
 
-  test-std:
+  run-tests:
     needs: build-wasm
-    name: Test with default features on stable Rust
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rust: stable
+            name: "Linux (stable)"
+          - os: ubuntu-latest
+            rust: nightly
+            name: "Linux (nightly)"
+          - os: ubuntu-latest
+            rust: stable
+            name: "Linux (stable, no default features)"
+            args: "--no-default-features"
+          - os: ubuntu-latest
+            rust: nightly
+            name: "Linux (nightly, no default features)"
+            args: "--no-default-features"
+          - os: macos-14
+            rust: stable
+            name: "macOS arm64 (Apple M1)"
+          - os: ubuntu-latest
+            rust: stable
+            name: "armv7 (32-Bit Raspberry Pi)"
+            target: armv7-unknown-linux-gnueabihf
 
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Install latest stable Rust toolchain
-        run: rustup update stable
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          rustflags: ""
+          components: rustfmt, clippy
+        if: matrix.target == ''
 
       - name: Load wasm
         uses: actions/download-artifact@v4
         with:
           name: wasm
-          path: examples/rust/out
 
-      - name: Build (stable)
-        run: cargo +stable build --workspace
+      - name: Run tests
+        run: cargo test --workspace ${{ matrix.args }} && cargo run --example wasm-rust all
+        if: matrix.target == ''
 
-      - name: Run tests (stable)
-        run: cargo +stable test --workspace && cargo +stable run --example wasm-rust all
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --all-features
+        if: matrix.target == ''
 
-      - name: Run MVP testsuite
-        run: cargo +stable test-wasm-1
-
-      - name: Run 2.0 testsuite
-        run: cargo +stable test-wasm-2
-
-  test-no-std:
-    needs: build-wasm
-    name: Test without default features on nightly Rust
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Install latest nightly Rust toolchain
-        run: rustup update nightly
-
-      - name: Load wasm
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm
-          path: examples/rust/out
-
-      - name: Build (nightly, no default features)
-        run: cargo +nightly build --workspace --no-default-features
-
-      - name: Run tests (nightly, no default features)
-        run: cargo +nightly test --workspace --no-default-features && cargo +nightly run --example wasm-rust all
-
-      - name: Run MVP testsuite
-        run: cargo +nightly test-wasm-1
-
-      - name: Run 2.0 testsuite
-        run: cargo +nightly test-wasm-2
-
-  test-m1:
-    needs: build-wasm
-    name: Test on arm64 (Apple M1)
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install stable Rust toolchain
-        run: rustup update stable
-
-      - name: Load wasm
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm
-          path: examples/rust/out
-
-      - name: Build (stable)
-        run: cargo +stable build
-
-      - name: Run tests (stable)
-        run: cargo +stable test
-
-      - name: Run MVP testsuite
-        run: cargo +stable test-wasm-1
-
-      - name: Run 2.0 testsuite
-        run: cargo +stable test-wasm-2
-
-  test-armv7:
-    needs: build-wasm
-    name: Test on armv7 (32-Bit Raspberry Pi)
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Load wasm
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm
-          path: examples/rust/out
-
-      - name: Run all tests (for the default workspace members)
+      - name: Run tests (${{ matrix.target }})
         uses: houseabsolute/actions-rust-cross@v0.0.13
         with:
           command: test
-          target: armv7-unknown-linux-gnueabihf
-          toolchain: nightly
+          target: ${{ matrix.target }}
+          toolchain: ${{ matrix.rust }}
+        if: matrix.target != ''
 
-      - name: Run MVP testsuite
+      - name: Run clippy (${{ matrix.target }})
         uses: houseabsolute/actions-rust-cross@v0.0.13
         with:
-          command: test
-          args: "-p tinywasm --test test-wasm-1 --release"
-          target: armv7-unknown-linux-gnueabihf
-          toolchain: nightly
-
-      - name: Run 2.0 testsuite
-        uses: houseabsolute/actions-rust-cross@v0.0.13
-        with:
-          command: test
-          args: "-p tinywasm --test test-wasm-2 --release"
-          target: armv7-unknown-linux-gnueabihf
-          toolchain: nightly
+          command: clippy
+          target: ${{ matrix.target }}
+          toolchain: ${{ matrix.rust }}
+        if: matrix.target != ''

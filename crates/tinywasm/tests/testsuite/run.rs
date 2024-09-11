@@ -184,7 +184,7 @@ impl TestSuite {
             let span = directive.span();
             use wast::WastDirective::{
                 AssertExhaustion, AssertInvalid, AssertMalformed, AssertReturn, AssertTrap, AssertUnlinkable, Invoke,
-                Register, Wat,
+                Module as Wat, Register,
             };
 
             match directive {

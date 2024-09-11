@@ -16,7 +16,7 @@ argon2={version="0.5"}
 [[bin]]
 name="hello"
 path="src/hello.rs"
-
+ 
 [[bin]]
 name="print"
 path="src/print.rs"

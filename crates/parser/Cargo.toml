@@ -9,7 +9,7 @@ repository.workspace=true
 rust-version.workspace=true
 
 [dependencies]
-wasmparser={version="0.216", default-features=false, features=["validate"]}
+wasmparser={version="0.217", default-features=false, features=["validate", "features"]}
 log={workspace=true, optional=true}
 tinywasm-types={version="0.8.0-alpha.0", path="../types", default-features=false}
 
@@ -17,4 +17,3 @@ tinywasm-types={version="0.8.0-alpha.0", path="../types", default-features=false
 default=["std", "logging"]
 logging=["log"]
 std=["tinywasm-types/std", "wasmparser/std"]
-nightly=[]

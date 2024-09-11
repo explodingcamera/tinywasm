@@ -7,6 +7,7 @@ fn main() -> Result<()> {
     let mut test_suite = TestSuite::new();
 
     TestSuite::set_log_level(log::LevelFilter::Off);
+    test_suite.skip("annotations/simd_lane.wast");
     test_suite.run_spec_group(wasm_testsuite::get_proposal_tests("annotations"))?;
     test_suite.save_csv("./tests/generated/wasm-annotations.csv", env!("CARGO_PKG_VERSION"))?;
 
