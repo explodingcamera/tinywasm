@@ -10,8 +10,13 @@ forced-target="wasm32-unknown-unknown"
 edition="2021"
 
 [dependencies]
-tinywasm={path="../../crates/tinywasm", features=["parser", "std"]}
+tinywasm={path="../../crates/tinywasm", default-features=false, features=["parser", "archive"]}
 argon2={version="0.5"}
+lol_alloc="0.4.1"
+
+[features]
+default=["std"]
+std=["tinywasm/std"]
 
 [[bin]]
 name="hello"
@@ -24,6 +29,10 @@ path="src/print.rs"
 [[bin]]
 name="tinywasm"
 path="src/tinywasm.rs"
+
+[[bin]]
+name="tinywasm_no_std"
+path="src/tinywasm_no_std.rs"
 
 [[bin]]
 name="fibonacci"

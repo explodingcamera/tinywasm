@@ -1,6 +1,18 @@
 #![no_main]
 #![no_std]
+use lol_alloc::{AssumeSingleThreaded, FreeListAllocator};
 use tinywasm::{Extern, FuncContext};
+
+extern crate alloc;
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
+
+#[global_allocator]
+static ALLOCATOR: AssumeSingleThreaded<FreeListAllocator> =
+    unsafe { AssumeSingleThreaded::new(FreeListAllocator::new()) };
 
 #[link(wasm_import_module = "env")]
 extern "C" {
@@ -13,9 +25,12 @@ pub extern "C" fn hello() {
 }
 
 fn run() -> tinywasm::Result<()> {
-    let module = tinywasm::Module::parse_bytes(include_bytes!("../out/print.wasm"))?;
     let mut store = tinywasm::Store::default();
     let mut imports = tinywasm::Imports::new();
+
+    let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("../out/print.wasm"))?;
+    let twasm = res.serialize_twasm();
+    let module = tinywasm::Module::parse_bytes(&twasm)?;
 
     imports.define(
         "env",

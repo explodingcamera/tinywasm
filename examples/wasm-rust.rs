@@ -43,6 +43,7 @@ fn main() -> Result<()> {
         "printi32" => printi32()?,
         "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
+        "tinywasm_no_std" => tinywasm_no_std()?,
         "argon2id" => argon2id()?,
         "all" => {
             println!("Running all examples");
@@ -54,6 +55,8 @@ fn main() -> Result<()> {
             fibonacci()?;
             println!("\ntinywasm.wasm:");
             tinywasm()?;
+            println!("\ntinywasm_no_std.wasm:");
+            tinywasm_no_std()?;
             println!("argon2id.wasm:");
             argon2id()?;
         }
@@ -64,7 +67,22 @@ fn main() -> Result<()> {
 }
 
 fn tinywasm() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/tinywasm.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/tinywasm.opt.wasm")?;
+    let mut store = Store::default();
+
+    let mut imports = Imports::new();
+    imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _x: i32| Ok(())))?;
+    let instance = module.instantiate(&mut store, Some(black_box(imports)))?;
+
+    let hello = instance.exported_func::<(), ()>(&store, "hello")?;
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
+    Ok(())
+}
+
+fn tinywasm_no_std() -> Result<()> {
+    let module = Module::parse_file("./examples/rust/out/tinywasm_no_std.opt.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -79,7 +97,7 @@ fn tinywasm() -> Result<()> {
 }
 
 fn hello() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/hello.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/hello.opt.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -108,7 +126,7 @@ fn hello() -> Result<()> {
 }
 
 fn printi32() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/print.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/print.opt.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -150,4 +168,39 @@ fn argon2id() -> Result<()> {
     argon2id.call(&mut store, (1000, 2, 1))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hello() {
+        hello().unwrap();
+    }
+
+    #[test]
+    fn test_printi32() {
+        printi32().unwrap();
+    }
+
+    #[test]
+    fn test_fibonacci() {
+        fibonacci().unwrap();
+    }
+
+    #[test]
+    fn test_tinywasm() {
+        tinywasm().unwrap();
+    }
+
+    #[test]
+    fn test_tinywasm_no_std() {
+        tinywasm_no_std().unwrap();
+    }
+
+    #[test]
+    fn test_argon2id() {
+        argon2id().unwrap();
+    }
 }

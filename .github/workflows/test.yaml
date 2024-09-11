@@ -5,6 +5,8 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["next", "main"]
+  schedule:
+    - cron: "0 0 * * 0"
 
 jobs:
   build-wasm:
@@ -14,8 +16,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Install Rust toolchain & Binaryen
-        run: rustup update && rustup target add wasm32-unknown-unknown && sudo apt-get install -y binaryen wabt
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+      - name: Install Binaryen and WABT
+        run: sudo apt-get install -y binaryen wabt
       - name: Build wasm
         run: ./examples/rust/build.sh
       - name: Save artifacts
@@ -31,27 +38,31 @@ jobs:
         include:
           - os: ubuntu-latest
             rust: stable
-            name: "Linux (stable)"
+            name: "Linux x86 (stable)"
           - os: ubuntu-latest
             rust: nightly
-            name: "Linux (nightly)"
+            name: "Linux x86 (nightly)"
           - os: ubuntu-latest
             rust: stable
-            name: "Linux (stable, no default features)"
+            name: "Linux x86 (stable, no default features)"
             args: "--no-default-features"
           - os: ubuntu-latest
             rust: nightly
-            name: "Linux (nightly, no default features)"
+            name: "Linux x86 (nightly, no default features)"
             args: "--no-default-features"
           - os: macos-14
             rust: stable
             name: "macOS arm64 (Apple M1)"
           - os: ubuntu-latest
             rust: stable
-            name: "armv7 (32-Bit Raspberry Pi)"
+            name: "Linux arm64"
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            rust: stable
+            name: "Linux armv7"
             target: armv7-unknown-linux-gnueabihf
 
-    name: Run tests on ${{ matrix.os }}, ${{ matrix.name }})
+    name: Run tests on ${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -74,11 +85,11 @@ jobs:
           path: examples/rust/out
 
       - name: Run tests
-        run: cargo test --workspace ${{ matrix.args }} && cargo run --example wasm-rust all
+        run: cargo test --workspace ${{ matrix.args }} && cargo test --workspace ${{ matrix.args }} --examples
         if: matrix.target == ''
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --workspace ${{ matrix.args }}
         if: matrix.target == ''
 
       - name: Run tests (${{ matrix.target }})
