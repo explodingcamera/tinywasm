@@ -28,7 +28,7 @@ fn run() -> tinywasm::Result<()> {
     let mut store = tinywasm::Store::default();
     let mut imports = tinywasm::Imports::new();
 
-    let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("../out/print.wasm"))?;
+    let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("./print.wasm"))?;
     let twasm = res.serialize_twasm();
     let module = tinywasm::Module::parse_bytes(&twasm)?;
 
