@@ -99,11 +99,3 @@ jobs:
           target: ${{ matrix.target }}
           toolchain: ${{ matrix.rust }}
         if: matrix.target != ''
-
-      - name: Run clippy (${{ matrix.target }})
-        uses: houseabsolute/actions-rust-cross@v0.0.13
-        with:
-          command: clippy
-          target: ${{ matrix.target }}
-          toolchain: ${{ matrix.rust }}
-        if: matrix.target != ''

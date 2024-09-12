@@ -42,24 +42,6 @@ pub enum ConstInstruction {
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {
-    // > Custom Instructions
-    // // LocalGet + I32Const + I32Add
-    // I32LocalGetConstAdd(LocalAddr, i32),
-    // // LocalGet + I32Const + I32Store
-    // I32ConstStoreLocal { local: LocalAddr, const_i32: i32, offset: u32, mem_addr: u8 },
-    // // LocalGet + LocalGet + I32Store
-    // I32StoreLocal { local_a: LocalAddr, local_b: LocalAddr, offset: u32, mem_addr: u8 },
-    // // I64Xor + I64Const + I64RotL 
-    // // Commonly used by a few crypto libraries
-    // I64XorConstRotl(i64),
-    // // LocalTee + LocalGet
-    // LocalTeeGet(LocalAddr, LocalAddr),
-    // LocalGet2(LocalAddr, LocalAddr),
-    // LocalGet3(LocalAddr, LocalAddr, LocalAddr),
-    // LocalGetSet(LocalAddr, LocalAddr),
- 
-    // LocalGetGet32(LocalAddr, LocalAddr), LocalGetGet64(LocalAddr, LocalAddr), LocalGetGet128(LocalAddr, LocalAddr),
-    // LocalTeeGet32(LocalAddr, LocalAddr), LocalTeeGet64(LocalAddr, LocalAddr), LocalTeeGet128(LocalAddr, LocalAddr),
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopy128Ref(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
     LocalsStore32(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore64(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore128(LocalAddr, LocalAddr, u32, MemAddr), LocalsStoreRef(LocalAddr, LocalAddr, u32, MemAddr),
 
@@ -205,4 +187,8 @@ pub enum Instruction {
     MemoryFill(MemAddr),
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
+
+    // // > SIMD Instructions
+    // V128Load(MemoryArg), V128Load8x8S { offset: u64, mem_addr: MemAddr }, V128Load8x8U { offset: u64, mem_addr: MemAddr }, V128Load16x4S { offset: u64, mem_addr: MemAddr }, V128Load16x4U { offset: u64, mem_addr: MemAddr }, V128Load32x2S { offset: u64, mem_addr: MemAddr }, V128Load32x2U { offset: u64, mem_addr: MemAddr }, V128Load8Splat { offset: u64, mem_addr: MemAddr }, V128Load16Splat { offset: u64, mem_addr: MemAddr }, V128Load32Splat { offset: u64, mem_addr: MemAddr }, V128Load64Splat { offset: u64, mem_addr: MemAddr }, V128Load32Zero { offset: u64, mem_addr: MemAddr }, V128Load64Zero { offset: u64, mem_addr: MemAddr }, 
+    // V128Store { offset: u64, mem_addr: MemAddr }, V128Store8x8 { offset: u64, mem_addr: MemAddr }, V128Store16x4 { offset: u64, mem_addr: MemAddr }, V128Store32x2 { offset: u64, mem_addr: MemAddr },
 }

@@ -10,7 +10,7 @@ rust-version.workspace=true
 
 [dependencies]
 log={workspace=true, optional=true}
-rkyv={version="0.8.0-rc.2", optional=true, default-features=false, features=["alloc", "bytecheck"]}
+rkyv={version="0.8.1", optional=true, default-features=false, features=["alloc", "bytecheck"]}
 
 [features]
 default=["std", "logging", "archive"]
