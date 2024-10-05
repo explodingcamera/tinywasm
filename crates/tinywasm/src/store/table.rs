@@ -49,7 +49,7 @@ impl TableInstance {
 
     pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement> {
         // self.elements.get(addr as usize).ok_or_else(|| Error::Trap(Trap::UndefinedElement { index: addr as usize }))
-        self.elements.get(addr as usize).ok_or_else(|| {
+        self.elements.get(addr as usize).ok_or({
             Error::Trap(Trap::TableOutOfBounds { offset: addr as usize, len: 1, max: self.elements.len() })
         })
     }
@@ -135,7 +135,7 @@ impl TableInstance {
 
     pub(crate) fn init(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
         let offset = offset as usize;
-        let end = offset.checked_add(init.len()).ok_or_else(|| {
+        let end = offset.checked_add(init.len()).ok_or({
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
         })?;
 

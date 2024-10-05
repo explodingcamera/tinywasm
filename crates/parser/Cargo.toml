@@ -9,7 +9,7 @@ repository.workspace=true
 rust-version.workspace=true
 
 [dependencies]
-wasmparser={version="0.217", default-features=false, features=["validate", "features"]}
+wasmparser={version="0.218", default-features=false, features=["validate", "features"]}
 log={workspace=true, optional=true}
 tinywasm-types={version="0.8.0-alpha.0", path="../types", default-features=false}
 

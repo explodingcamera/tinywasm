@@ -16,14 +16,14 @@ pub struct MemoryRef<'a>(pub(crate) &'a MemoryInstance);
 #[derive(Debug)]
 pub struct MemoryRefMut<'a>(pub(crate) &'a mut MemoryInstance);
 
-impl<'a> MemoryRefLoad for MemoryRef<'a> {
+impl MemoryRefLoad for MemoryRef<'_> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
         self.0.load(offset, len)
     }
 }
 
-impl<'a> MemoryRefLoad for MemoryRefMut<'a> {
+impl MemoryRefLoad for MemoryRefMut<'_> {
     /// Load a slice of memory
     fn load(&self, offset: usize, len: usize) -> Result<&[u8]> {
         self.0.load(offset, len)

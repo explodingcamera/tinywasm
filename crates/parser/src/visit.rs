@@ -8,7 +8,7 @@ use wasmparser::{FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOpe
 
 struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
 macro_rules! validate_then_visit {
-    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {$(
+    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
             self.1.$visit($($($arg.clone()),*)?);
             self.1.validator_visitor(self.0).$visit($($($arg),*)?)?;
@@ -118,8 +118,8 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 }
 
 macro_rules! impl_visit_operator {
-    ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
-        $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit);)*
+    ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
+        $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann:tt)*));)*
     };
 
     (@@mvp $($rest:tt)* ) => {};
@@ -129,7 +129,7 @@ macro_rules! impl_visit_operator {
     (@@bulk_memory $($rest:tt)* ) => {};
     (@@tail_call $($rest:tt)* ) => {};
     // (@@simd $($rest:tt)* ) => {};
-    (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident) => {
+    (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
         #[cold]
         fn $visit(&mut self $($(,$arg: $argty)*)?) {
             self.unsupported(stringify!($visit))
@@ -137,7 +137,7 @@ macro_rules! impl_visit_operator {
     };
 }
 
-impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
+impl<R: WasmModuleResources> wasmparser::VisitOperator<'_> for FunctionBuilder<R> {
     type Output = ();
     wasmparser::for_each_operator!(impl_visit_operator);
 

@@ -4,8 +4,8 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="217"
-wat="1.217"
+wast="218"
+wat="1.218"
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"

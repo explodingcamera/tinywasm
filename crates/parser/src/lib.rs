@@ -66,6 +66,7 @@ impl Parser {
             custom_page_sizes: true,
 
             gc_types: true,
+            stack_switching: false,
             component_model: false,
             component_model_nested_names: false,
             component_model_values: false,
