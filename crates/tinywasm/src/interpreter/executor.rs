@@ -26,7 +26,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         Ok(Self { cf: current_frame, module: current_module, stack, store })
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
             if let ControlFlow::Break(res) = self.exec_next() {
@@ -114,30 +114,30 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             ElemDrop(elem_index) => self.exec_elem_drop(*elem_index),
             TableCopy { from, to } => self.exec_table_copy(*from, *to).to_cf()?,
 
-            I32Store { mem_addr, offset } => self.exec_mem_store::<i32, i32, 4>(*mem_addr, *offset, |v| v)?,
-            I64Store { mem_addr, offset } => self.exec_mem_store::<i64, i64, 8>(*mem_addr, *offset, |v| v)?,
-            F32Store { mem_addr, offset } => self.exec_mem_store::<f32, f32, 4>(*mem_addr, *offset, |v| v)?,
-            F64Store { mem_addr, offset } => self.exec_mem_store::<f64, f64, 8>(*mem_addr, *offset, |v| v)?,
-            I32Store8 { mem_addr, offset } => self.exec_mem_store::<i32, i8, 1>(*mem_addr, *offset, |v| v as i8)?,
-            I32Store16 { mem_addr, offset } => self.exec_mem_store::<i32, i16, 2>(*mem_addr, *offset, |v| v as i16)?,
-            I64Store8 { mem_addr, offset } => self.exec_mem_store::<i64, i8, 1>(*mem_addr, *offset, |v| v as i8)?,
-            I64Store16 { mem_addr, offset } => self.exec_mem_store::<i64, i16, 2>(*mem_addr, *offset, |v| v as i16)?,
-            I64Store32 { mem_addr, offset } => self.exec_mem_store::<i64, i32, 4>(*mem_addr, *offset, |v| v as i32)?,
+            I32Store(m) => self.exec_mem_store::<i32, i32, 4>(m.mem_addr(), m.offset(), |v| v)?,
+            I64Store(m) => self.exec_mem_store::<i64, i64, 8>(m.mem_addr(), m.offset(), |v| v)?,
+            F32Store(m) => self.exec_mem_store::<f32, f32, 4>(m.mem_addr(), m.offset(), |v| v)?,
+            F64Store(m) => self.exec_mem_store::<f64, f64, 8>(m.mem_addr(), m.offset(), |v| v)?,
+            I32Store8(m) => self.exec_mem_store::<i32, i8, 1>(m.mem_addr(), m.offset(), |v| v as i8)?,
+            I32Store16(m) => self.exec_mem_store::<i32, i16, 2>(m.mem_addr(), m.offset(), |v| v as i16)?,
+            I64Store8(m) => self.exec_mem_store::<i64, i8, 1>(m.mem_addr(), m.offset(), |v| v as i8)?,
+            I64Store16(m) => self.exec_mem_store::<i64, i16, 2>(m.mem_addr(), m.offset(), |v| v as i16)?,
+            I64Store32(m) => self.exec_mem_store::<i64, i32, 4>(m.mem_addr(), m.offset(), |v| v as i32)?,
 
-            I32Load { mem_addr, offset } => self.exec_mem_load::<i32, 4, _>(*mem_addr, *offset, |v| v)?,
-            I64Load { mem_addr, offset } => self.exec_mem_load::<i64, 8, _>(*mem_addr, *offset, |v| v)?,
-            F32Load { mem_addr, offset } => self.exec_mem_load::<f32, 4, _>(*mem_addr, *offset, |v| v)?,
-            F64Load { mem_addr, offset } => self.exec_mem_load::<f64, 8, _>(*mem_addr, *offset, |v| v)?,
-            I32Load8S { mem_addr, offset } => self.exec_mem_load::<i8, 1, _>(*mem_addr, *offset, |v| v as i32)?,
-            I32Load8U { mem_addr, offset } => self.exec_mem_load::<u8, 1, _>(*mem_addr, *offset, |v| v as i32)?,
-            I32Load16S { mem_addr, offset } => self.exec_mem_load::<i16, 2, _>(*mem_addr, *offset, |v| v as i32)?,
-            I32Load16U { mem_addr, offset } => self.exec_mem_load::<u16, 2, _>(*mem_addr, *offset, |v| v as i32)?,
-            I64Load8S { mem_addr, offset } => self.exec_mem_load::<i8, 1, _>(*mem_addr, *offset, |v| v as i64)?,
-            I64Load8U { mem_addr, offset } => self.exec_mem_load::<u8, 1, _>(*mem_addr, *offset, |v| v as i64)?,
-            I64Load16S { mem_addr, offset } => self.exec_mem_load::<i16, 2, _>(*mem_addr, *offset, |v| v as i64)?,
-            I64Load16U { mem_addr, offset } => self.exec_mem_load::<u16, 2, _>(*mem_addr, *offset, |v| v as i64)?,
-            I64Load32S { mem_addr, offset } => self.exec_mem_load::<i32, 4, _>(*mem_addr, *offset, |v| v as i64)?,
-            I64Load32U { mem_addr, offset } => self.exec_mem_load::<u32, 4, _>(*mem_addr, *offset, |v| v as i64)?,
+            I32Load(m) => self.exec_mem_load::<i32, 4, _>(m.mem_addr(), m.offset(), |v| v)?,
+            I64Load(m) => self.exec_mem_load::<i64, 8, _>(m.mem_addr(), m.offset(), |v| v)?,
+            F32Load(m) => self.exec_mem_load::<f32, 4, _>(m.mem_addr(), m.offset(), |v| v)?,
+            F64Load(m) => self.exec_mem_load::<f64, 8, _>(m.mem_addr(), m.offset(), |v| v)?,
+            I32Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
+            I32Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
+            I32Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
+            I32Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
+            I64Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I64Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I64Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I64Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I64Load32S(m) => self.exec_mem_load::<i32, 4, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I64Load32U(m) => self.exec_mem_load::<u32, 4, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
 
             I64Eqz => self.stack.values.replace_top::<i64, _>(|v| Ok(i32::from(v == 0))).to_cf()?,
             I32Eqz => self.stack.values.replace_top_same::<i32>(|v| Ok(i32::from(v == 0))).to_cf()?,
@@ -301,6 +301,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalCopy64(from, to) => self.exec_local_copy::<Value64>(*from, *to),
             LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
             LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
+
+            Simd(_) => {
+                unreachable!("unimplemented sidm instruction");
+            }
 
             instr => {
                 unreachable!("unimplemented instruction: {:?}", instr);
@@ -585,10 +589,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])
     }
     fn exec_data_drop(&mut self, data_index: u32) {
-        self.store.get_data_mut(self.module.resolve_data_addr(data_index)).drop()
+        self.store.get_data_mut(self.module.resolve_data_addr(data_index)).drop();
     }
     fn exec_elem_drop(&mut self, elem_index: u32) {
-        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)).drop()
+        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)).drop();
     }
     fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
         let size: i32 = self.stack.values.pop();

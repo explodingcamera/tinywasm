@@ -48,7 +48,7 @@ impl ValueStack {
 
     #[inline]
     pub(crate) fn push<T: InternalValue>(&mut self, value: T) {
-        T::stack_push(self, value)
+        T::stack_push(self, value);
     }
 
     #[inline]
@@ -180,7 +180,7 @@ impl ValueStack {
 
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
         for value in values {
-            self.push_dyn(value.into())
+            self.push_dyn(value.into());
         }
     }
 }

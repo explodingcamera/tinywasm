@@ -4,15 +4,15 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="218"
-wat="1.218"
+wast="219"
+wat="1.219"
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
 criterion={version="0.5", default-features=false, features=["cargo_bench_support", "rayon"]}
 
 [workspace.package]
-version="0.8.0"
+version="0.9.0-alpha.0"
 rust-version="1.81"
 edition="2021"
 license="MIT OR Apache-2.0"

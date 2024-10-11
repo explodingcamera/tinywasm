@@ -135,6 +135,7 @@ pub type GlobalAddr = Addr;
 pub type ElemAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
+pub type ConstIdx = Addr;
 
 // additional internal addresses
 pub type TypeAddr = Addr;
@@ -203,13 +204,50 @@ pub struct ValueCountsSmall {
     pub cref: u16,
 }
 
+impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCounts {
+    fn from(types: T) -> Self {
+        let mut counts = ValueCounts::default();
+        for ty in types {
+            match ty {
+                ValType::I32 | ValType::F32 => counts.c32 += 1,
+                ValType::I64 | ValType::F64 => counts.c64 += 1,
+                ValType::V128 => counts.c128 += 1,
+                ValType::RefExtern | ValType::RefFunc => counts.cref += 1,
+            }
+        }
+        counts
+    }
+}
+
+impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
+    fn from(types: T) -> Self {
+        let mut counts = ValueCountsSmall::default();
+        for ty in types {
+            match ty {
+                ValType::I32 | ValType::F32 => counts.c32 += 1,
+                ValType::I64 | ValType::F64 => counts.c64 += 1,
+                ValType::V128 => counts.c128 += 1,
+                ValType::RefExtern | ValType::RefFunc => counts.cref += 1,
+            }
+        }
+        counts
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
 pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
+    pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub params: ValueCountsSmall,
     pub ty: FuncType,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+pub struct WasmFunctionData {
+    pub v128_constants: Box<[u128]>,
 }
 
 /// A WebAssembly Module Export

@@ -22,12 +22,12 @@ impl CallStack {
         Self { stack: vec![initial_frame] }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn pop(&mut self) -> Option<CallFrame> {
         self.stack.pop()
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> ControlFlow<Option<Error>> {
         if unlikely((self.stack.len() + 1) >= MAX_CALL_STACK_SIZE) {
             return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
@@ -60,44 +60,47 @@ impl Locals {
     }
 
     pub(crate) fn set<T: InternalValue>(&mut self, local_index: LocalAddr, value: T) {
-        T::local_set(self, local_index, value)
+        T::local_set(self, local_index, value);
     }
 }
 
 impl CallFrame {
-    #[inline(always)]
+    #[inline]
     pub(crate) fn instr_ptr(&self) -> usize {
         self.instr_ptr
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn incr_instr_ptr(&mut self) {
         self.instr_ptr += 1;
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn jump(&mut self, offset: usize) {
         self.instr_ptr += offset;
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn module_addr(&self) -> ModuleInstanceAddr {
         self.module_addr
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn block_ptr(&self) -> u32 {
         self.block_ptr
     }
 
     #[inline(always)]
     pub(crate) fn fetch_instr(&self) -> &Instruction {
-        &self.func_instance.instructions[self.instr_ptr]
+        match self.func_instance.instructions.get(self.instr_ptr) {
+            Some(instr) => instr,
+            None => unreachable!("Instruction out of bounds, this is a bug"),
+        }
     }
 
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
-    #[inline(always)]
+    #[inline]
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,
@@ -140,7 +143,7 @@ impl CallFrame {
         Some(())
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn new(
         wasm_func_inst: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
@@ -192,7 +195,7 @@ impl CallFrame {
         Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn instructions(&self) -> &[Instruction] {
         &self.func_instance.instructions
     }

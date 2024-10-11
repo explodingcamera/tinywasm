@@ -61,10 +61,11 @@ impl Parser {
             function_references: true,
             tail_call: true,
             multi_memory: true,
-            memory64: false,
             simd: true,
+            memory64: true,
             custom_page_sizes: true,
 
+            wide_arithmetic: false,
             gc_types: true,
             stack_switching: false,
             component_model: false,
