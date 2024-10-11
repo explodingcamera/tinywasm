@@ -1,12 +1,27 @@
 use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
-use crate::{DataAddr, ElemAddr, MemAddr};
+use crate::{ConstIdx, DataAddr, ElemAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-pub struct MemoryArg {
-    pub offset: u64,
-    pub mem_addr: MemAddr,
+
+pub struct MemoryArg([u8; 12]);
+
+impl MemoryArg {
+    pub fn new(offset: u64, mem_addr: MemAddr) -> Self {
+        let mut bytes = [0; 12];
+        bytes[0..8].copy_from_slice(&offset.to_le_bytes());
+        bytes[8..12].copy_from_slice(&mem_addr.to_le_bytes());
+        Self(bytes)
+    }
+
+    pub fn offset(&self) -> u64 {
+        u64::from_le_bytes(self.0[0..8].try_into().expect("invalid offset"))
+    }
+
+    pub fn mem_addr(&self) -> MemAddr {
+        MemAddr::from_le_bytes(self.0[8..12].try_into().expect("invalid mem_addr"))
+    }
 }
 
 type BrTableDefault = u32;
@@ -42,8 +57,8 @@ pub enum ConstInstruction {
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {
-    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopy128Ref(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
-    LocalsStore32(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore64(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore128(LocalAddr, LocalAddr, u32, MemAddr), LocalsStoreRef(LocalAddr, LocalAddr, u32, MemAddr),
+    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
+    // LocalsStore32(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore64(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore128(LocalAddr, LocalAddr, u32, MemAddr), LocalsStoreRef(LocalAddr, LocalAddr, u32, MemAddr),
 
     // > Control Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
@@ -71,68 +86,48 @@ pub enum Instruction {
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
-    ReturnCall(FuncAddr),
-    ReturnCallIndirect(TypeAddr, TableAddr),
+    // ReturnCall(FuncAddr),
+    // ReturnCallIndirect(TypeAddr, TableAddr),
  
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
-    Drop32,
-    Drop64,
-    Drop128,
-    DropRef,
-
-    Select32,
-    Select64,
-    Select128,
-    SelectRef,
+    Drop32, Select32,
+    Drop64, Select64,
+    Drop128, Select128,
+    DropRef, SelectRef,
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    LocalGet32(LocalAddr),
-    LocalGet64(LocalAddr),
-    LocalGet128(LocalAddr),
-    LocalGetRef(LocalAddr),
-
-    LocalSet32(LocalAddr),
-    LocalSet64(LocalAddr),
-    LocalSet128(LocalAddr),
-    LocalSetRef(LocalAddr),
-
-    LocalTee32(LocalAddr),
-    LocalTee64(LocalAddr),
-    LocalTee128(LocalAddr),
-    LocalTeeRef(LocalAddr),
-
     GlobalGet(GlobalAddr),
-    GlobalSet32(GlobalAddr),
-    GlobalSet64(GlobalAddr),
-    GlobalSet128(GlobalAddr),
-    GlobalSetRef(GlobalAddr),
+    LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr), GlobalSet32(GlobalAddr),
+    LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr), GlobalSet64(GlobalAddr),
+    LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr), GlobalSet128(GlobalAddr),
+    LocalGetRef(LocalAddr), LocalSetRef(LocalAddr), LocalTeeRef(LocalAddr), GlobalSetRef(GlobalAddr),
 
     // > Memory Instructions
-    I32Load { offset: u64, mem_addr: MemAddr },
-    I64Load { offset: u64, mem_addr: MemAddr },
-    F32Load { offset: u64, mem_addr: MemAddr },
-    F64Load { offset: u64, mem_addr: MemAddr },
-    I32Load8S { offset: u64, mem_addr: MemAddr },
-    I32Load8U { offset: u64, mem_addr: MemAddr },
-    I32Load16S { offset: u64, mem_addr: MemAddr },
-    I32Load16U { offset: u64, mem_addr: MemAddr },
-    I64Load8S { offset: u64, mem_addr: MemAddr },
-    I64Load8U { offset: u64, mem_addr: MemAddr },
-    I64Load16S { offset: u64, mem_addr: MemAddr },
-    I64Load16U { offset: u64, mem_addr: MemAddr },
-    I64Load32S { offset: u64, mem_addr: MemAddr },
-    I64Load32U { offset: u64, mem_addr: MemAddr },
-    I32Store { offset: u64, mem_addr: MemAddr },
-    I64Store { offset: u64, mem_addr: MemAddr },
-    F32Store { offset: u64, mem_addr: MemAddr },
-    F64Store { offset: u64, mem_addr: MemAddr },
-    I32Store8 { offset: u64, mem_addr: MemAddr },
-    I32Store16 { offset: u64, mem_addr: MemAddr },
-    I64Store8 { offset: u64, mem_addr: MemAddr },
-    I64Store16 { offset: u64, mem_addr: MemAddr },
-    I64Store32 { offset: u64, mem_addr: MemAddr },
+    I32Load(MemoryArg),
+    I64Load(MemoryArg),
+    F32Load(MemoryArg),
+    F64Load(MemoryArg),
+    I32Load8S(MemoryArg),
+    I32Load8U(MemoryArg),
+    I32Load16S(MemoryArg),
+    I32Load16U(MemoryArg),
+    I64Load8S(MemoryArg),
+    I64Load8U(MemoryArg),
+    I64Load16S(MemoryArg),
+    I64Load16U(MemoryArg),
+    I64Load32S(MemoryArg),
+    I64Load32U(MemoryArg),
+    I32Store(MemoryArg),
+    I64Store(MemoryArg),
+    F32Store(MemoryArg),
+    F64Store(MemoryArg),
+    I32Store8(MemoryArg),
+    I32Store16(MemoryArg),
+    I64Store8(MemoryArg),
+    I64Store16(MemoryArg),
+    I64Store32(MemoryArg),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
 
@@ -146,7 +141,7 @@ pub enum Instruction {
     RefNull(ValType),
     RefFunc(FuncAddr),
     RefIsNull,
-
+ 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
     I32Eqz, I32Eq, I32Ne, I32LtS, I32LtU, I32GtS, I32GtU, I32LeS, I32LeU, I32GeS, I32GeU,
@@ -188,7 +183,97 @@ pub enum Instruction {
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
 
-    // // > SIMD Instructions
-    // V128Load(MemoryArg), V128Load8x8S { offset: u64, mem_addr: MemAddr }, V128Load8x8U { offset: u64, mem_addr: MemAddr }, V128Load16x4S { offset: u64, mem_addr: MemAddr }, V128Load16x4U { offset: u64, mem_addr: MemAddr }, V128Load32x2S { offset: u64, mem_addr: MemAddr }, V128Load32x2U { offset: u64, mem_addr: MemAddr }, V128Load8Splat { offset: u64, mem_addr: MemAddr }, V128Load16Splat { offset: u64, mem_addr: MemAddr }, V128Load32Splat { offset: u64, mem_addr: MemAddr }, V128Load64Splat { offset: u64, mem_addr: MemAddr }, V128Load32Zero { offset: u64, mem_addr: MemAddr }, V128Load64Zero { offset: u64, mem_addr: MemAddr }, 
-    // V128Store { offset: u64, mem_addr: MemAddr }, V128Store8x8 { offset: u64, mem_addr: MemAddr }, V128Store16x4 { offset: u64, mem_addr: MemAddr }, V128Store32x2 { offset: u64, mem_addr: MemAddr },
+    // > SIMD Instructions
+    Simd(SimdInstruction),
+}
+
+impl From<SimdInstruction> for Instruction {
+    fn from(instr: SimdInstruction) -> Self {
+        Instruction::Simd(instr)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[rustfmt::skip] 
+pub enum SimdInstruction {
+    V128Load(MemoryArg),
+    V128Load8x8S(MemoryArg), V128Load8x8U(MemoryArg),
+    V128Load16x4S(MemoryArg), V128Load16x4U(MemoryArg),
+    V128Load32x2S(MemoryArg), V128Load32x2U(MemoryArg),
+
+    V128Load8Splat(MemoryArg), V128Load16Splat(MemoryArg), V128Load32Splat(MemoryArg), V128Load64Splat(MemoryArg),
+    V128Load8Lane(MemoryArg, u8), V128Load16Lane(MemoryArg, u8), V128Load32Lane(MemoryArg, u8), V128Load64Lane(MemoryArg, u8),
+    
+    V128Load32Zero(MemoryArg), V128Load64Zero(MemoryArg),
+
+    V128Store(MemoryArg), V128Store8Lane(MemoryArg, u8), V128Store16Lane(MemoryArg, u8), V128Store32Lane(MemoryArg, u8), V128Store64Lane(MemoryArg, u8),
+
+    I8x16Shuffle(ConstIdx),
+    V128Const(ConstIdx),
+
+    I8x16ExtractLaneS(u8), I8x16ExtractLaneU(u8), I8x16ReplaceLane(u8),
+    I16x8ExtractLaneS(u8), I16x8ExtractLaneU(u8), I16x8ReplaceLane(u8),
+    I32x4ExtractLane(u8), I32x4ReplaceLane(u8),
+    I64x2ExtractLane(u8), I64x2ReplaceLane(u8),
+    F32x4ExtractLane(u8), F32x4ReplaceLane(u8),
+    F64x2ExtractLane(u8), F64x2ReplaceLane(u8),
+
+    V128Not, V128And, V128AndNot, V128Or, V128Xor, V128Bitselect, V128AnyTrue,
+
+    I8x16Splat, I8x16Swizzle, I8x16Eq, I8x16Ne, I8x16LtS, I8x16LtU, I8x16GtS, I8x16GtU, I8x16LeS, I8x16LeU, I8x16GeS, I8x16GeU,
+    I16x8Splat, I16x8Eq, I16x8Ne, I16x8LtS, I16x8LtU, I16x8GtS, I16x8GtU, I16x8LeS, I16x8LeU, I16x8GeS, I16x8GeU,
+    I32x4Splat, I32x4Eq, I32x4Ne, I32x4LtS, I32x4LtU, I32x4GtS, I32x4GtU, I32x4LeS, I32x4LeU, I32x4GeS, I32x4GeU,
+    I64x2Splat, I64x2Eq, I64x2Ne, I64x2LtS, I64x2GtS, I64x2LeS, I64x2GeS, 
+    F32x4Splat, F32x4Eq, F32x4Ne, F32x4Lt, F32x4Gt, F32x4Le, F32x4Ge,
+    F64x2Splat, F64x2Eq, F64x2Ne, F64x2Lt, F64x2Gt, F64x2Le, F64x2Ge,
+
+    I8x16Abs, I8x16Neg, I8x16AllTrue, I8x16Bitmask, I8x16Shl, I8x16ShrS, I8x16ShrU, I8x16Add, I8x16Sub, I8x16MinS, I8x16MinU, I8x16MaxS, I8x16MaxU,
+    I16x8Abs, I16x8Neg, I16x8AllTrue, I16x8Bitmask, I16x8Shl, I16x8ShrS, I16x8ShrU, I16x8Add, I16x8Sub, I16x8MinS, I16x8MinU, I16x8MaxS, I16x8MaxU,
+    I32x4Abs, I32x4Neg, I32x4AllTrue, I32x4Bitmask, I32x4Shl, I32x4ShrS, I32x4ShrU, I32x4Add, I32x4Sub, I32x4MinS, I32x4MinU, I32x4MaxS, I32x4MaxU, 
+    I64x2Abs, I64x2Neg, I64x2AllTrue, I64x2Bitmask, I64x2Shl, I64x2ShrS, I64x2ShrU, I64x2Add, I64x2Sub, I64x2Mul,
+
+    I8x16NarrowI16x8S, I8x16NarrowI16x8U, I8x16AddSatS, I8x16AddSatU, I8x16SubSatS, I8x16SubSatU, I8x16AvgrU,
+    I16x8NarrowI32x4S, I16x8NarrowI32x4U, I16x8AddSatS, I16x8AddSatU, I16x8SubSatS, I16x8SubSatU, I16x8AvgrU,
+
+    I16x8ExtAddPairwiseI8x16S, I16x8ExtAddPairwiseI8x16U, I16x8Mul,
+    I32x4ExtAddPairwiseI16x8S, I32x4ExtAddPairwiseI16x8U, I32x4Mul,
+
+    I16x8ExtMulLowI8x16S, I16x8ExtMulLowI8x16U, I16x8ExtMulHighI8x16S, I16x8ExtMulHighI8x16U,
+    I32x4ExtMulLowI16x8S, I32x4ExtMulLowI16x8U, I32x4ExtMulHighI16x8S, I32x4ExtMulHighI16x8U,
+    I64x2ExtMulLowI32x4S, I64x2ExtMulLowI32x4U, I64x2ExtMulHighI32x4S, I64x2ExtMulHighI32x4U,
+
+    I16x8ExtendLowI8x16S, I16x8ExtendLowI8x16U, I16x8ExtendHighI8x16S, I16x8ExtendHighI8x16U,
+    I32x4ExtendLowI16x8S, I32x4ExtendLowI16x8U, I32x4ExtendHighI16x8S, I32x4ExtendHighI16x8U,
+    I64x2ExtendLowI32x4S, I64x2ExtendLowI32x4U, I64x2ExtendHighI32x4S, I64x2ExtendHighI32x4U,
+
+    I8x16Popcnt, I16x8Q15MulrSatS, I32x4DotI16x8S,
+
+    F32x4Ceil, F32x4Floor, F32x4Trunc, F32x4Nearest, F32x4Abs, F32x4Neg, F32x4Sqrt, F32x4Add, F32x4Sub, F32x4Mul, F32x4Div, F32x4Min, F32x4Max, F32x4PMin, F32x4PMax,
+    F64x2Ceil, F64x2Floor, F64x2Trunc, F64x2Nearest, F64x2Abs, F64x2Neg, F64x2Sqrt, F64x2Add, F64x2Sub, F64x2Mul, F64x2Div, F64x2Min, F64x2Max, F64x2PMin, F64x2PMax,
+    I32x4TruncSatF32x4S, I32x4TruncSatF32x4U,
+    F32x4ConvertI32x4S, F32x4ConvertI32x4U,
+    I32x4TruncSatF64x2SZero, I32x4TruncSatF64x2UZero,
+    F64x2ConvertLowI32x4S, F64x2ConvertLowI32x4U,
+    F32x4DemoteF64x2Zero, F64x2PromoteLowF32x4,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[rustfmt::skip]
+pub enum RelaxedSimd {
+    I8x16RelaxedSwizzle,
+    I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
+    I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,
+    F32x4RelaxedMadd, F32x4RelaxedNmadd,
+    F64x2RelaxedMadd, F64x2RelaxedNmadd,
+    I8x16RelaxedLaneselect,
+    I16x8RelaxedLaneselect,
+    I32x4RelaxedLaneselect,
+    I64x2RelaxedLaneselect,
+    F32x4RelaxedMin, F32x4RelaxedMax,
+    F64x2RelaxedMin, F64x2RelaxedMax,
+    I16x8RelaxedQ15mulrS,
+    I16x8RelaxedDotI8x16I7x16S,
+    I32x4RelaxedDotI8x16I7x16AddS
 }

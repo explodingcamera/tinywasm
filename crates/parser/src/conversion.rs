@@ -203,8 +203,8 @@ pub(crate) fn convert_module_code(
         }
     }
 
-    let (body, allocations) = process_operators_and_validate(validator, func, local_addr_map)?;
-    Ok(((body, local_counts), allocations))
+    let (body, data, allocations) = process_operators_and_validate(validator, func, local_addr_map)?;
+    Ok(((body, data, local_counts), allocations))
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {

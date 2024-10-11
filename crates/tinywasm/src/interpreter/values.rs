@@ -169,7 +169,6 @@ macro_rules! impl_internalvalue {
             impl sealed::Sealed for $outer {}
 
             impl From<$outer> for TinyWasmValue {
-                #[inline(always)]
                 fn from(value: $outer) -> Self {
                     TinyWasmValue::$variant($to_internal(value))
                 }
@@ -180,44 +179,59 @@ macro_rules! impl_internalvalue {
                 fn stack_push(stack: &mut ValueStack, value: Self) {
                     stack.$stack.push($to_internal(value));
                 }
+
                 #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
-                    ($to_outer)(stack.$stack.pop().expect("ValueStack underflow, this is a bug"))
+                    match stack.$stack.pop() {
+                        Some(v) => $to_outer(v),
+                        None => unreachable!("ValueStack underflow, this is a bug"),
+                    }
                 }
+
                 #[inline(always)]
                 fn stack_peek(stack: &ValueStack) -> Self {
-                    ($to_outer)(*stack.$stack.last().expect("ValueStack underflow, this is a bug"))
+                    match stack.$stack.last() {
+                        Some(v) => $to_outer(*v),
+                        None => unreachable!("ValueStack underflow, this is a bug"),
+                    }
                 }
 
                 #[inline(always)]
                 fn stack_calculate(stack: &mut ValueStack, func: fn(Self, Self) -> Result<Self>) -> Result<()> {
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
-                    if let (Some(v1), Some(v2)) = (v1, v2) {
-                        *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
-                    } else {
-                        unreachable!("ValueStack underflow, this is a bug");
-                    }
-                    Ok(())
+                    let (Some(v1), Some(v2)) = (v1, v2) else {
+                         unreachable!("ValueStack underflow, this is a bug");
+                    };
+
+                    *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
+                    return Ok(())
                 }
 
                 #[inline(always)]
                 fn replace_top(stack: &mut ValueStack, func: fn(Self) -> Result<Self>) -> Result<()> {
-                    if let Some(v) = stack.$stack.last_mut() {
-                        *v = $to_internal(func($to_outer(*v))?);
-                        Ok(())
-                    } else {
+                    let Some(v) = stack.$stack.last_mut() else {
                         unreachable!("ValueStack underflow, this is a bug");
-                    }
+                    };
+
+                    *v = $to_internal(func($to_outer(*v))?);
+                    Ok(())
                 }
 
                 #[inline(always)]
                 fn local_get(locals: &Locals, index: LocalAddr) -> Self {
-                    $to_outer(locals.$locals[index as usize])
+                    match locals.$locals.get(index as usize) {
+                        Some(v) => $to_outer(*v),
+                        None => unreachable!("Local variable out of bounds, this is a bug"),
+                    }
                 }
+
                 #[inline(always)]
                 fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) {
-                    locals.$locals[index as usize] = $to_internal(value);
+                    match locals.$locals.get_mut(index as usize) {
+                        Some(v) => *v = $to_internal(value),
+                        None => unreachable!("Local variable out of bounds, this is a bug"),
+                    }
                 }
             }
         )*
