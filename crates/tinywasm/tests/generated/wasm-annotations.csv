@@ -1,1 +1,2 @@
 0.8.0,142,0,[{"name":"annotations.wast","passed":74,"failed":0},{"name":"annotations/simd_lane.wast (skipped)","passed":0,"failed":0},{"name":"id.wast","passed":7,"failed":0},{"name":"token.wast","passed":61,"failed":0}]
+0.9.0-alpha.0,142,0,[{"name":"annotations.wast","passed":74,"failed":0},{"name":"annotations/simd_lane.wast (skipped)","passed":0,"failed":0},{"name":"id.wast","passed":7,"failed":0},{"name":"token.wast","passed":61,"failed":0}]

@@ -1,1 +1,2 @@
 0.8.0,57,0,[{"name":"custom-page-sizes-invalid.wast","passed":22,"failed":0},{"name":"custom-page-sizes.wast","passed":35,"failed":0}]
+0.9.0-alpha.0,57,0,[{"name":"custom-page-sizes-invalid.wast","passed":22,"failed":0},{"name":"custom-page-sizes.wast","passed":35,"failed":0}]

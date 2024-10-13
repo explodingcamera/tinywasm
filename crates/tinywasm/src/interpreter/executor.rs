@@ -305,10 +305,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Simd(_) => {
                 unreachable!("unimplemented sidm instruction");
             }
-
-            instr => {
-                unreachable!("unimplemented instruction: {:?}", instr);
-            }
         };
 
         self.cf.incr_instr_ptr();
