@@ -1,6 +1,6 @@
 pub(crate) mod executor;
 pub(crate) mod num_helpers;
-// pub(crate) mod simd;
+pub(crate) mod simd;
 pub(crate) mod stack;
 mod values;
 

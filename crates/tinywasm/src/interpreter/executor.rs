@@ -302,9 +302,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
             LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
 
-            Simd(_) => {
-                unreachable!("unimplemented sidm instruction");
-            }
+            Simd(op) => unimplemented!("simd instruction {:?}", op),
         };
 
         self.cf.incr_instr_ptr();

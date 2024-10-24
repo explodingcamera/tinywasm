@@ -21,6 +21,7 @@ repository="https://github.com/explodingcamera/tinywasm"
 
 [package]
 name="tinywasm-root"
+version.workspace=true
 publish=false
 edition.workspace=true
 rust-version.workspace=true
