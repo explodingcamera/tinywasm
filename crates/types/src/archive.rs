@@ -30,12 +30,12 @@ fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     Ok(TWASM_MAGIC.len())
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum TwasmError {
     InvalidMagic,
     InvalidVersion,
     InvalidPadding,
-    InvalidArchive,
+    InvalidArchive(rkyv::rancor::Error),
 }
 
 impl Display for TwasmError {
@@ -44,7 +44,7 @@ impl Display for TwasmError {
             TwasmError::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
             TwasmError::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
             TwasmError::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
-            TwasmError::InvalidArchive => write!(f, "Invalid twasm: invalid archive"),
+            TwasmError::InvalidArchive(e) => write!(f, "Invalid twasm: {}", e),
         }
     }
 }
@@ -58,9 +58,8 @@ impl TinyWasmModule {
     /// Creates a `TinyWasmModule` from a slice of bytes.
     pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
         let len = validate_magic(wasm)?;
-        let root =
-            access::<Archived<Self>, rkyv::rancor::Error>(&wasm[len..]).map_err(|_| TwasmError::InvalidArchive)?;
-        deserialize::<TinyWasmModule, rkyv::rancor::Error>(root).map_err(|_e| TwasmError::InvalidArchive)
+        let root = access::<Archived<Self>, rkyv::rancor::Error>(&wasm[len..]).map_err(TwasmError::InvalidArchive)?;
+        deserialize::<TinyWasmModule, rkyv::rancor::Error>(root).map_err(TwasmError::InvalidArchive)
     }
 
     /// Serializes the `TinyWasmModule` into a vector of bytes.
@@ -93,7 +92,7 @@ mod tests {
         let wasm = TinyWasmModule::default();
         let mut twasm = wasm.serialize_twasm();
         twasm[0] = 0;
-        assert_eq!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidMagic));
+        assert!(matches!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidMagic)));
     }
 
     #[test]
@@ -101,6 +100,6 @@ mod tests {
         let wasm = TinyWasmModule::default();
         let mut twasm = wasm.serialize_twasm();
         twasm[4] = 0;
-        assert_eq!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidVersion));
+        assert!(matches!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidVersion)));
     }
 }
