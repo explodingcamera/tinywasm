@@ -52,6 +52,7 @@ pub mod archive;
 /// This means you should not trust a `TinyWasmModule` created by a third party to be valid.
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TinyWasmModule {
     /// Optional address of the start function
     ///
@@ -109,6 +110,7 @@ pub struct TinyWasmModule {
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ExternalKind {
     /// A WebAssembly Function.
     Func,
@@ -181,6 +183,7 @@ impl ExternVal {
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuncType {
     pub params: Box<[ValType]>,
     pub results: Box<[ValType]>,
@@ -188,6 +191,7 @@ pub struct FuncType {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueCounts {
     pub c32: u32,
     pub c64: u32,
@@ -197,6 +201,7 @@ pub struct ValueCounts {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueCountsSmall {
     pub c32: u16,
     pub c64: u16,
@@ -236,6 +241,7 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunction {
     pub instructions: Box<[Instruction]>,
     pub data: WasmFunctionData,
@@ -246,6 +252,7 @@ pub struct WasmFunction {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunctionData {
     pub v128_constants: Box<[u128]>,
 }
@@ -253,6 +260,7 @@ pub struct WasmFunctionData {
 /// A WebAssembly Module Export
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Export {
     /// The name of the export.
     pub name: Box<str>,
@@ -264,6 +272,7 @@ pub struct Export {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Global {
     pub ty: GlobalType,
     pub init: ConstInstruction,
@@ -271,6 +280,7 @@ pub struct Global {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
@@ -278,6 +288,7 @@ pub struct GlobalType {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TableType {
     pub element_type: ValType,
     pub size_initial: u32,
@@ -297,6 +308,7 @@ impl TableType {
 /// Represents a memory's type.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryType {
     arch: MemoryArch,
     page_count_initial: u64,
@@ -336,6 +348,7 @@ impl MemoryType {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MemoryArch {
     I32,
     I64,
@@ -343,6 +356,7 @@ pub enum MemoryArch {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Import {
     pub module: Box<str>,
     pub name: Box<str>,
@@ -351,6 +365,7 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ImportKind {
     Function(TypeAddr),
     Table(TableType),
@@ -372,6 +387,7 @@ impl From<&ImportKind> for ExternalKind {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Data {
     pub data: Box<[u8]>,
     pub range: Range<usize>,
@@ -380,6 +396,7 @@ pub struct Data {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DataKind {
     Active { mem: MemAddr, offset: ConstInstruction },
     Passive,
@@ -387,6 +404,7 @@ pub enum DataKind {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
@@ -396,6 +414,7 @@ pub struct Element {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementKind {
     Passive,
     Active { table: TableAddr, offset: ConstInstruction },
@@ -404,6 +423,7 @@ pub enum ElementKind {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementItem {
     Func(FuncAddr),
     Expr(ConstInstruction),

@@ -4,6 +4,7 @@ use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 
 pub struct MemoryArg([u8; 12]);
 
@@ -31,6 +32,7 @@ type ElseOffset = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstInstruction {
     I32Const(i32),
     I64Const(i64),
@@ -54,6 +56,7 @@ pub enum ConstInstruction {
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {
@@ -195,6 +198,7 @@ impl From<SimdInstruction> for Instruction {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[rustfmt::skip] 
 pub enum SimdInstruction { 
     V128Load(MemoryArg),
