@@ -15,7 +15,7 @@ serde={version="1.0.0", optional=true, default-features=false, features=["derive
 
 [features]
 default=["std", "logging", "archive"]
-std=["rkyv?/std"]
+std=["rkyv?/std", "serde?/std"]
 serde=["dep:serde"]
 archive=["dep:rkyv"]
 logging=["dep:log"]
