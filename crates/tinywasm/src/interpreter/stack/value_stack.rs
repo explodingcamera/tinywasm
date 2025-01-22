@@ -4,9 +4,9 @@ use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall,
 use crate::{interpreter::*, Result};
 
 use super::Locals;
-pub(crate) const STACK_32_SIZE: usize = 1024 * 32;
-pub(crate) const STACK_64_SIZE: usize = 1024 * 16;
-pub(crate) const STACK_128_SIZE: usize = 1024 * 8;
+pub(crate) const STACK_32_SIZE: usize = 1024;
+pub(crate) const STACK_64_SIZE: usize = 1024;
+pub(crate) const STACK_128_SIZE: usize = 1024;
 pub(crate) const STACK_REF_SIZE: usize = 1024;
 
 #[derive(Debug)]
@@ -20,10 +20,10 @@ pub(crate) struct ValueStack {
 impl ValueStack {
     pub(crate) fn new() -> Self {
         Self {
-            stack_32: Vec::with_capacity(STACK_32_SIZE),
-            stack_64: Vec::with_capacity(STACK_64_SIZE),
-            stack_128: Vec::with_capacity(STACK_128_SIZE),
-            stack_ref: Vec::with_capacity(STACK_REF_SIZE),
+            stack_32: Vec::with_capacity(0),
+            stack_64: Vec::with_capacity(0),
+            stack_128: Vec::with_capacity(0),
+            stack_ref: Vec::with_capacity(0),
         }
     }
 

@@ -8,7 +8,7 @@ pub(crate) struct BlockStack(Vec<BlockFrame>);
 
 impl Default for BlockStack {
     fn default() -> Self {
-        Self(Vec::with_capacity(128))
+        Self(Vec::with_capacity(0))
     }
 }
 

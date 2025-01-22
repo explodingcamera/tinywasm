@@ -16,8 +16,18 @@ fn argon2id_to_twasm(module: TinyWasmModule) -> Result<AlignedVec> {
     Ok(twasm)
 }
 
+fn argon2id_to_postcard_wasm(module: TinyWasmModule) -> Result<Vec<u8>> {
+    let postcard_wasm = postcard::to_stdvec(&module)?;
+    Ok(postcard_wasm)
+}
+
 fn argon2id_from_twasm(twasm: AlignedVec) -> Result<TinyWasmModule> {
     let module = TinyWasmModule::from_twasm(&twasm)?;
+    Ok(module)
+}
+
+fn argon2id_from_postcard_wasm(postcard_wasm: Vec<u8>) -> Result<TinyWasmModule> {
+    let module = postcard::from_bytes(&postcard_wasm)?;
     Ok(module)
 }
 
@@ -32,10 +42,13 @@ fn argon2id_run(module: TinyWasmModule) -> Result<()> {
 fn criterion_benchmark(c: &mut Criterion) {
     let module = argon2id_parse().expect("argon2id_parse");
     let twasm = argon2id_to_twasm(module.clone()).expect("argon2id_to_twasm");
+    let postcard_wasm = argon2id_to_postcard_wasm(module.clone()).expect("argon2id_to_postcard_wasm");
 
     c.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
     c.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(module.clone())));
+    c.bench_function("argon2id_to_postcard_wasm", |b| b.iter(|| argon2id_to_postcard_wasm(module.clone())));
     c.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(twasm.clone())));
+    c.bench_function("argon2id_from_postcard_wasm", |b| b.iter(|| argon2id_from_postcard_wasm(postcard_wasm.clone())));
     c.bench_function("argon2id", |b| b.iter(|| argon2id_run(module.clone())));
 }
 
