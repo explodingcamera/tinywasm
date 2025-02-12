@@ -4,7 +4,6 @@ use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
-use interpreter::simd::exec_next_simd;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
@@ -303,7 +302,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
             LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
 
-            Simd(op) => exec_next_simd(self, *op).to_cf()?,
+            i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
 
         self.cf.incr_instr_ptr();

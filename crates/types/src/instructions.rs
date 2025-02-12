@@ -3,7 +3,7 @@ use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 
 pub struct MemoryArg([u8; 12]);
 
@@ -30,7 +30,7 @@ type EndOffset = u32;
 type ElseOffset = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstInstruction {
     I32Const(i32),
     I64Const(i64),
@@ -53,7 +53,7 @@ pub enum ConstInstruction {
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 // should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {
@@ -184,19 +184,6 @@ pub enum Instruction {
     ElemDrop(ElemAddr),
 
     // > SIMD Instructions
-    Simd(SimdInstruction),
-}
-
-impl From<SimdInstruction> for Instruction {
-    fn from(instr: SimdInstruction) -> Self {
-        Instruction::Simd(instr)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[rustfmt::skip] 
-pub enum SimdInstruction { 
     V128Load(MemoryArg),
     V128Load8x8S(MemoryArg), V128Load8x8U(MemoryArg),
     V128Load16x4S(MemoryArg), V128Load16x4U(MemoryArg),
@@ -256,12 +243,8 @@ pub enum SimdInstruction {
     I32x4TruncSatF64x2SZero, I32x4TruncSatF64x2UZero,
     F64x2ConvertLowI32x4S, F64x2ConvertLowI32x4U,
     F32x4DemoteF64x2Zero, F64x2PromoteLowF32x4,
-}
 
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
-#[rustfmt::skip]
-pub enum RelaxedSimd {
+    // > Relaxed SIMD
     I8x16RelaxedSwizzle,
     I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
     I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,

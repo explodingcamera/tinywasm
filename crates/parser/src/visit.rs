@@ -3,7 +3,7 @@ use crate::Result;
 use crate::conversion::{convert_heaptype, convert_valtype};
 use alloc::string::ToString;
 use alloc::{boxed::Box, vec::Vec};
-use tinywasm_types::{Instruction, MemoryArg, SimdInstruction, WasmFunctionData};
+use tinywasm_types::{Instruction, MemoryArg, WasmFunctionData};
 use wasmparser::{
     FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, VisitSimdOperator, WasmModuleResources,
 };
@@ -84,12 +84,6 @@ macro_rules! define_operands {
     )*};
 }
 
-macro_rules! define_operands_simd {
-    ($($name:ident($instr:ident $(,$ty:ty)*)),*) => {$(
-        define_operand!($name(SimdInstruction::$instr $(,$ty)*));
-    )*};
-}
-
 macro_rules! define_mem_operands {
     ($($name:ident($instr:ident)),*) => {$(
         fn $name(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
@@ -101,7 +95,7 @@ macro_rules! define_mem_operands {
 macro_rules! define_mem_operands_simd {
     ($($name:ident($instr:ident)),*) => {$(
         fn $name(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
-            self.instructions.push(SimdInstruction::$instr(MemoryArg::new(memarg.offset, memarg.memory)).into());
+            self.instructions.push(Instruction::$instr(MemoryArg::new(memarg.offset, memarg.memory)).into());
         }
     )*};
 }
@@ -109,7 +103,7 @@ macro_rules! define_mem_operands_simd {
 macro_rules! define_mem_operands_simd_lane {
     ($($name:ident($instr:ident)),*) => {$(
         fn $name(&mut self, memarg: wasmparser::MemArg, lane: u8) -> Self::Output {
-            self.instructions.push(SimdInstruction::$instr(MemoryArg::new(memarg.offset, memarg.memory), lane).into());
+            self.instructions.push(Instruction::$instr(MemoryArg::new(memarg.offset, memarg.memory), lane).into());
         }
     )*};
 }
@@ -496,7 +490,7 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
         visit_v128_load8_lane(V128Load8Lane), visit_v128_load16_lane(V128Load16Lane), visit_v128_load32_lane(V128Load32Lane), visit_v128_load64_lane(V128Load64Lane),
         visit_v128_store8_lane(V128Store8Lane), visit_v128_store16_lane(V128Store16Lane), visit_v128_store32_lane(V128Store32Lane), visit_v128_store64_lane(V128Store64Lane)
     }
-    define_operands_simd! {
+    define_operands! {
         visit_v128_not(V128Not), visit_v128_and(V128And), visit_v128_andnot(V128AndNot), visit_v128_or(V128Or), visit_v128_xor(V128Xor), visit_v128_bitselect(V128Bitselect), visit_v128_any_true(V128AnyTrue),
         visit_i8x16_splat(I8x16Splat), visit_i8x16_swizzle(I8x16Swizzle), visit_i8x16_eq(I8x16Eq), visit_i8x16_ne(I8x16Ne), visit_i8x16_lt_s(I8x16LtS), visit_i8x16_lt_u(I8x16LtU), visit_i8x16_gt_s(I8x16GtS), visit_i8x16_gt_u(I8x16GtU), visit_i8x16_le_s(I8x16LeS), visit_i8x16_le_u(I8x16LeU), visit_i8x16_ge_s(I8x16GeS), visit_i8x16_ge_u(I8x16GeU),
         visit_i16x8_splat(I16x8Splat), visit_i16x8_eq(I16x8Eq), visit_i16x8_ne(I16x8Ne), visit_i16x8_lt_s(I16x8LtS), visit_i16x8_lt_u(I16x8LtU), visit_i16x8_gt_s(I16x8GtS), visit_i16x8_gt_u(I16x8GtU), visit_i16x8_le_s(I16x8LeS), visit_i16x8_le_u(I16x8LeU), visit_i16x8_ge_s(I16x8GeS), visit_i16x8_ge_u(I16x8GeU),
@@ -537,11 +531,11 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
         self.v128_constants.push(u128::from_le_bytes(lanes));
-        self.instructions.push(SimdInstruction::I8x16Shuffle(self.v128_constants.len() as u32 - 1).into());
+        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32 - 1).into());
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
         self.v128_constants.push(value.i128() as u128);
-        self.instructions.push(SimdInstruction::V128Const(self.v128_constants.len() as u32 - 1).into());
+        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32 - 1).into());
     }
 }

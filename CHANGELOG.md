@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:**: New backwards-incompatible version of the twasm format (upgraded `rkyv` to 0.8.0)
+- **Breaking:**: New backwards-incompatible version of the twasm format based on `postcard` (thanks [@dragonnn](https://github.com/dragonnn))
 - **Breaking:**: `RefNull` has been removed and replaced with new `FuncRef` and `ExternRef` structs
 - Increased MSRV to 1.83.0
 

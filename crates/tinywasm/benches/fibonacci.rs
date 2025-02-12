@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use eyre::Result;
 use tinywasm::{types, ModuleInstance, Store};
-use types::{archive::AlignedVec, TinyWasmModule};
+use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.opt.wasm");
 
@@ -11,12 +11,12 @@ fn fibonacci_parse() -> Result<TinyWasmModule> {
     Ok(data)
 }
 
-fn fibonacci_to_twasm(module: TinyWasmModule) -> Result<AlignedVec> {
-    let twasm = module.serialize_twasm();
+fn fibonacci_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
+    let twasm = module.serialize_twasm()?;
     Ok(twasm)
 }
 
-fn fibonacci_from_twasm(twasm: AlignedVec) -> Result<TinyWasmModule> {
+fn fibonacci_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
     let module = TinyWasmModule::from_twasm(&twasm)?;
     Ok(module)
 }
@@ -37,11 +37,11 @@ fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> 
 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = fibonacci_parse().expect("fibonacci_parse");
-    let twasm = fibonacci_to_twasm(module.clone()).expect("fibonacci_to_twasm");
+    let twasm = fibonacci_to_twasm(&module).expect("fibonacci_to_twasm");
 
     c.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
-    c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(module.clone())));
-    c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(twasm.clone())));
+    c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
+    c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
     c.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
     c.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
 }

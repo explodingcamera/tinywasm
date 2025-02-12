@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use eyre::Result;
 use tinywasm::{types, Extern, FuncContext, Imports, ModuleInstance, Store};
-use types::{archive::AlignedVec, TinyWasmModule};
+use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.opt.wasm");
 
@@ -11,12 +11,12 @@ fn tinywasm_parse() -> Result<TinyWasmModule> {
     Ok(data)
 }
 
-fn tinywasm_to_twasm(module: TinyWasmModule) -> Result<AlignedVec> {
-    let twasm = module.serialize_twasm();
+fn tinywasm_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
+    let twasm = module.serialize_twasm()?;
     Ok(twasm)
 }
 
-fn tinywasm_from_twasm(twasm: AlignedVec) -> Result<TinyWasmModule> {
+fn tinywasm_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
     let module = TinyWasmModule::from_twasm(&twasm)?;
     Ok(module)
 }
@@ -33,11 +33,11 @@ fn tinywasm_run(module: TinyWasmModule) -> Result<()> {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = tinywasm_parse().expect("tinywasm_parse");
-    let twasm = tinywasm_to_twasm(module.clone()).expect("tinywasm_to_twasm");
+    let twasm = tinywasm_to_twasm(&module).expect("tinywasm_to_twasm");
 
     c.bench_function("tinywasm_parse", |b| b.iter(tinywasm_parse));
-    c.bench_function("tinywasm_to_twasm", |b| b.iter(|| tinywasm_to_twasm(module.clone())));
-    c.bench_function("tinywasm_from_twasm", |b| b.iter(|| tinywasm_from_twasm(twasm.clone())));
+    c.bench_function("tinywasm_to_twasm", |b| b.iter(|| tinywasm_to_twasm(&module)));
+    c.bench_function("tinywasm_from_twasm", |b| b.iter(|| tinywasm_from_twasm(&twasm)));
     c.bench_function("tinywasm", |b| b.iter(|| tinywasm_run(module.clone())));
 }
 
