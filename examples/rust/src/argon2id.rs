@@ -1,6 +1,6 @@
 #![no_main]
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn argon2id(m_cost: i32, t_cost: i32, p_cost: i32) -> i32 {
     let password = b"password";
     let salt = b"some random salt";

@@ -45,6 +45,18 @@ pub use value::*;
 #[cfg(feature = "archive")]
 pub mod archive;
 
+#[cfg(not(feature = "archive"))]
+pub mod archive {
+    #[derive(Debug)]
+    pub enum TwasmError {}
+    impl core::fmt::Display for TwasmError {
+        fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            Err(core::fmt::Error)
+        }
+    }
+    impl core::error::Error for TwasmError {}
+}
+
 /// A `TinyWasm` WebAssembly Module
 ///
 /// This is the internal representation of a WebAssembly module in `TinyWasm`.

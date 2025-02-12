@@ -1,6 +1,6 @@
 #![no_main]
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fibonacci(n: i32) -> i32 {
     let mut sum = 0;
     let mut last = 0;
@@ -13,7 +13,7 @@ pub extern "C" fn fibonacci(n: i32) -> i32 {
     sum
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fibonacci_recursive(n: i32) -> i32 {
     if n <= 1 {
         return n;

@@ -1,6 +1,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::{fmt::Display, ops::ControlFlow};
+use tinywasm_types::archive::TwasmError;
 use tinywasm_types::FuncType;
 
 #[cfg(feature = "parser")]
@@ -8,6 +9,7 @@ pub use tinywasm_parser::ParseError;
 
 /// Errors that can occur for `TinyWasm` operations
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// A WebAssembly trap occurred
     Trap(Trap),
@@ -41,7 +43,10 @@ pub enum Error {
 
     #[cfg(feature = "parser")]
     /// A parsing error occurred
-    ParseError(ParseError),
+    Parser(ParseError),
+
+    /// A serialization error occurred
+    Twasm(TwasmError),
 }
 
 #[derive(Debug)]
@@ -169,6 +174,11 @@ impl From<LinkingError> for Error {
     }
 }
 
+impl From<TwasmError> for Error {
+    fn from(value: TwasmError) -> Self {
+        Self::Twasm(value)
+    }
+}
 impl From<Trap> for Error {
     fn from(value: Trap) -> Self {
         Self::Trap(value)
@@ -179,11 +189,12 @@ impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "parser")]
-            Self::ParseError(err) => write!(f, "error parsing module: {err:?}"),
+            Self::Parser(err) => write!(f, "error parsing module: {err:?}"),
 
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {err}"),
 
+            Self::Twasm(err) => write!(f, "serialization error: {err}"),
             Self::Trap(trap) => write!(f, "trap: {trap}"),
             Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
@@ -238,7 +249,7 @@ impl core::error::Error for Error {}
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {
     fn from(value: tinywasm_parser::ParseError) -> Self {
-        Self::ParseError(value)
+        Self::Parser(value)
     }
 }
 

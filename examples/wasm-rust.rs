@@ -33,6 +33,7 @@ fn main() -> Result<()> {
         println!("Available examples:");
         println!("  hello");
         println!("  printi32");
+        println!("  host_fn");
         println!("  fibonacci - calculate fibonacci(30)");
         println!("  tinywasm - run printi32 inside of tinywasm inside of itself");
         println!("  argon2id - run argon2id(1000, 2, 1)");
@@ -46,6 +47,7 @@ fn main() -> Result<()> {
         "tinywasm" => tinywasm()?,
         "tinywasm_no_std" => tinywasm_no_std()?,
         "argon2id" => argon2id()?,
+        "host_fn" => host_fn()?,
         "all" => {
             println!("Running all examples");
             println!("\nhello.wasm:");
@@ -60,6 +62,8 @@ fn main() -> Result<()> {
             tinywasm_no_std()?;
             println!("argon2id.wasm:");
             argon2id()?;
+            println!("\nhost_fn.wasm:");
+            host_fn()?;
         }
         _ => {}
     }
@@ -123,6 +127,26 @@ fn hello() -> Result<()> {
     let hello = instance.exported_func::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 
+    Ok(())
+}
+
+fn host_fn() -> Result<()> {
+    let module = Module::parse_file("./examples/rust/out/host_fn.wasm")?;
+    let mut store = Store::default();
+    let mut imports = Imports::new();
+    imports.define(
+        "env",
+        "bar",
+        Extern::typed_func(|_: FuncContext<'_>, (left, right): (i64, i32)| {
+            assert_eq!(left, 1);
+            assert_eq!(right, 2);
+            Ok(left as i32 + right)
+        }),
+    )?;
+
+    let instance = module.instantiate(&mut store, Some(imports))?;
+    let host_fn = instance.exported_func::<(), i32>(&store, "foo")?;
+    assert_eq!(host_fn.call(&mut store, ())?, 3);
     Ok(())
 }
 
