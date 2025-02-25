@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
-use tinywasm::{types, Extern, FuncContext, Imports, ModuleInstance, Store};
+use tinywasm::{Extern, FuncContext, Imports, ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.opt.wasm");
@@ -17,7 +17,7 @@ fn tinywasm_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
 }
 
 fn tinywasm_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
-    let module = TinyWasmModule::from_twasm(&twasm)?;
+    let module = TinyWasmModule::from_twasm(twasm)?;
     Ok(module)
 }
 

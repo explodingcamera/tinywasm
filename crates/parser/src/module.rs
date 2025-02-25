@@ -1,5 +1,5 @@
 use crate::log::debug;
-use crate::{conversion, ParseError, Result};
+use crate::{ParseError, Result, conversion};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{

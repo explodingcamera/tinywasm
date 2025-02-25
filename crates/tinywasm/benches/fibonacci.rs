@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
-use tinywasm::{types, ModuleInstance, Store};
+use tinywasm::{ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.opt.wasm");
@@ -17,8 +17,7 @@ fn fibonacci_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
 }
 
 fn fibonacci_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
-    let module = TinyWasmModule::from_twasm(&twasm)?;
-    Ok(module)
+    Ok(TinyWasmModule::from_twasm(twasm)?)
 }
 
 fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> {

@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
-use tinywasm::{types, ModuleInstance, Store};
+use tinywasm::{ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.opt.wasm");

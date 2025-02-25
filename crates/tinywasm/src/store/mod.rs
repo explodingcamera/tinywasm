@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
-use crate::{cold, Error, Function, ModuleInstance, Result, Trap};
+use crate::{Error, Function, ModuleInstance, Result, Trap, cold};
 
 mod data;
 mod element;

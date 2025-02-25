@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{interpreter::*, Result};
+use crate::{Result, interpreter::*};
 
 use super::Locals;
 pub(crate) const STACK_32_SIZE: usize = 1024 * 32;

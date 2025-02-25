@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
-use crate::{log, LinkingError, MemoryRef, MemoryRefMut, Result};
+use crate::{LinkingError, MemoryRef, MemoryRefMut, Result, log};
 use tinywasm_types::*;
 
 /// The internal representation of a function
@@ -322,7 +322,7 @@ impl Imports {
         match (expected.size_max, actual.size_max) {
             (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
             (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
-                return Err(LinkingError::incompatible_import_type(import).into())
+                return Err(LinkingError::incompatible_import_type(import).into());
             }
             _ => {}
         }
@@ -339,7 +339,7 @@ impl Imports {
         Self::compare_types(import, &expected.arch(), &actual.arch())?;
 
         if actual.page_count_initial() > expected.page_count_initial()
-            && real_size.map_or(true, |size| actual.page_count_initial() > size as u64)
+            && real_size.is_none_or(|size| actual.page_count_initial() > size as u64)
         {
             return Err(LinkingError::incompatible_import_type(import).into());
         }

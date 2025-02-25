@@ -20,7 +20,7 @@ tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
-wasm-testsuite={version="0.4.2"}
+wasm-testsuite={version="0.4.4"}
 indexmap="2.7"
 wast={workspace=true}
 wat={workspace=true}

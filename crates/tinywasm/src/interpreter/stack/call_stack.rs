@@ -1,9 +1,9 @@
 use core::ops::ControlFlow;
 
 use super::BlockType;
-use crate::interpreter::values::*;
 use crate::Trap;
-use crate::{unlikely, Error};
+use crate::interpreter::values::*;
+use crate::{Error, unlikely};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};

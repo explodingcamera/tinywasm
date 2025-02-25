@@ -92,7 +92,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
             }
             wasmparser::TypeRef::Tag(ty) => {
-                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")))
+                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
             }
         },
     })
@@ -157,7 +157,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
         wasmparser::ExternalKind::Memory => ExternalKind::Memory,
         wasmparser::ExternalKind::Global => ExternalKind::Global,
         wasmparser::ExternalKind::Tag => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)))
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)));
         }
     };
 

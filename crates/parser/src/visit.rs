@@ -531,11 +531,11 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
         self.v128_constants.push(u128::from_le_bytes(lanes));
-        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32 - 1).into());
+        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32 - 1));
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
         self.v128_constants.push(value.i128() as u128);
-        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32 - 1).into());
+        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32 - 1));
     }
 }

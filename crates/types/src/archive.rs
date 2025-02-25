@@ -52,13 +52,13 @@ impl TinyWasmModule {
     pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
         let len = validate_magic(wasm)?;
 
-        postcard::from_bytes(&wasm[len..]).map_err(|e| TwasmError::InvalidArchive(e))
+        postcard::from_bytes(&wasm[len..]).map_err(TwasmError::InvalidArchive)
     }
 
     /// Serializes the `TinyWasmModule` into a vector of bytes.
     pub fn serialize_twasm(&self) -> Result<Vec<u8>, TwasmError> {
         let buf = Vec::from(TWASM_MAGIC);
-        postcard::to_extend(self, buf).map_err(|e| TwasmError::InvalidArchive(e))
+        postcard::to_extend(self, buf).map_err(TwasmError::InvalidArchive)
     }
 }
 
