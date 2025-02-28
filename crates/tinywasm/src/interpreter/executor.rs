@@ -3,9 +3,14 @@
 use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
-use core::ops::ControlFlow;
+use core::ops::{ControlFlow, Not};
+use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+use core::simd::num::SimdUint;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
+
+#[cfg(feature = "simd")]
+use super::simd::*;
 
 use super::num_helpers::*;
 use super::stack::{BlockFrame, BlockType, Stack};
@@ -41,6 +46,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     #[inline(always)]
     fn exec_next(&mut self) -> ControlFlow<Option<Error>> {
         use tinywasm_types::Instruction::*;
+
+        #[rustfmt::skip]
         match self.cf.fetch_instr() {
             Nop | BrLabel(_) | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
             Unreachable => self.exec_unreachable()?,
@@ -301,6 +308,75 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalCopy64(from, to) => self.exec_local_copy::<Value64>(*from, *to),
             LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
             LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
+
+            V128Not => self.stack.values.replace_top_same::<Value128>(|v| Ok(!v)).to_cf()?,
+            V128And => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a & b)).to_cf()?,
+            V128AndNot => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a & (!b))).to_cf()?,
+            V128Or => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a | b)).to_cf()?,
+            V128Xor => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a ^ b)).to_cf()?,
+            V128Bitselect => self.stack.values.calculate_same_3::<Value128>(|v1, v2, c| Ok((v1 & c) | (v2 & !c))).to_cf()?,
+            V128AnyTrue => self.stack.values.replace_top::<Value128, i32>(|v| Ok((v.reduce_sum() != 0) as i32)).to_cf()?,
+
+            I8x16Swizzle => self.stack.values.calculate_same::<Value128>(|a, s| Ok(a.swizzle_dyn(s))).to_cf()?,
+
+            I8x16Splat => self.stack.values.replace_top::<i32, Value128>(|v| Ok(Simd::<i8, 16>::splat(v as i8).to_ne_bytes())).to_cf()?,
+            I16x8Splat => self.stack.values.replace_top::<i32, Value128>(|v| Ok(Simd::<i16, 8>::splat(v as i16).to_ne_bytes())).to_cf()?,
+            I32x4Splat => self.stack.values.replace_top::<i32, Value128>(|v| Ok(Simd::<i32, 4>::splat(v).to_ne_bytes())).to_cf()?,
+            I64x2Splat => self.stack.values.replace_top::<i64, Value128>(|v| Ok(Simd::<i64, 2>::splat(v).to_ne_bytes())).to_cf()?,
+            F32x4Splat => self.stack.values.replace_top::<f32, Value128>(|v| Ok(Simd::<f32, 4>::splat(v).to_ne_bytes())).to_cf()?,
+            F64x2Splat => self.stack.values.replace_top::<f64, Value128>(|v| Ok(Simd::<f64, 2>::splat(v).to_ne_bytes())).to_cf()?,
+
+            I8x16Eq => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_eq(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8Eq => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_eq(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4Eq => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_eq(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Eq => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_eq(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Eq => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_eq(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16Ne => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ne(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8Ne => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ne(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4Ne => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ne(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Ne => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ne(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Ne => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ne(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16LtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8LtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4LtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I64x2LtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Lt => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Lt => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16LtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8LtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4LtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_lt(b).to_int().to_ne_bytes())).to_cf()?,
+            I64x2GtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Gt => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Gt => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16GtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8GtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4GtS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I64x2LeS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Le => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Le => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16GtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8GtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4GtU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_gt(b).to_int().to_ne_bytes())).to_cf()?,
+            I64x2GeS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
+            F32x4Ge => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
+            F64x2Ge => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16LeS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8LeS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4LeS => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16LeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8LeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4LeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_le(b).to_int().to_ne_bytes())).to_cf()?,
+
+            I8x16GeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
+            I16x8GeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
+            I32x4GeU => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a.simd_ge(b).to_int().to_ne_bytes())).to_cf()?,
 
             i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };

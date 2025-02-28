@@ -5,8 +5,12 @@ use super::stack::{Locals, ValueStack};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
-pub(crate) type Value128 = u128;
 pub(crate) type ValueRef = Option<u32>;
+
+#[cfg(feature = "simd")]
+pub(crate) type Value128 = core::simd::u8x16;
+#[cfg(not(feature = "simd"))]
+pub(crate) type Value128 = u128;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// A untyped WebAssembly value
@@ -106,9 +110,14 @@ impl TinyWasmValue {
             ValType::I64 => WasmValue::I64(self.unwrap_64() as i64),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.unwrap_32())),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.unwrap_64())),
-            ValType::V128 => WasmValue::V128(self.unwrap_128()),
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.unwrap_ref())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
+
+            #[cfg(feature = "simd")]
+            ValType::V128 => WasmValue::V128(u128::from_ne_bytes(self.unwrap_128().to_array())),
+
+            #[cfg(not(feature = "simd"))]
+            ValType::V128 => WasmValue::V128(self.unwrap_128()),
         }
     }
 }
@@ -118,11 +127,16 @@ impl From<&WasmValue> for TinyWasmValue {
         match value {
             WasmValue::I32(v) => TinyWasmValue::Value32(*v as u32),
             WasmValue::I64(v) => TinyWasmValue::Value64(*v as u64),
-            WasmValue::V128(v) => TinyWasmValue::Value128(*v),
             WasmValue::F32(v) => TinyWasmValue::Value32(v.to_bits()),
             WasmValue::F64(v) => TinyWasmValue::Value64(v.to_bits()),
             WasmValue::RefExtern(v) => TinyWasmValue::ValueRef(v.addr()),
             WasmValue::RefFunc(v) => TinyWasmValue::ValueRef(v.addr()),
+
+            #[cfg(not(feature = "simd"))]
+            WasmValue::V128(v) => TinyWasmValue::Value128(*v),
+
+            #[cfg(feature = "simd")]
+            WasmValue::V128(v) => TinyWasmValue::Value128(v.to_ne_bytes().into()),
         }
     }
 }
@@ -144,6 +158,9 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     where
         Self: Sized;
     fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()>
+    where
+        Self: Sized;
+    fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
 
@@ -199,6 +216,19 @@ macro_rules! impl_internalvalue {
                     };
 
                     *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
+                    return Ok(())
+                }
+
+                #[inline(always)]
+                fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()> {
+                    let v3 = stack.$stack.pop();
+                    let v2 = stack.$stack.pop();
+                    let v1 = stack.$stack.last_mut();
+                    let (Some(v1), Some(v2), Some(v3)) = (v1, v2, v3) else {
+                         unreachable!("ValueStack underflow, this is a bug");
+                    };
+
+                    *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2), $to_outer(v3))?);
                     return Ok(())
                 }
 
