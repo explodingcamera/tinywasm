@@ -1,7 +1,7 @@
 use crate::Result;
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
 
 use super::stack::{Locals, ValueStack};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -271,4 +271,22 @@ impl_internalvalue! {
     Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
     Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
     ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v
+}
+
+#[cfg(feature = "simd")]
+use core::simd::{num::SimdUint, *};
+
+#[cfg(feature = "simd")]
+impl_internalvalue! {
+    Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_ne_bytes().into(), |v: u8x16| u128::from_ne_bytes(v.into())
+    Value128, stack_128, locals_128, u8x16, i8x16, |v: i8x16| v.to_ne_bytes(), |v: u8x16| v.cast()
+    Value128, stack_128, locals_128, u8x16, i16x8, |v: i16x8| v.to_ne_bytes(), |v: u8x16| i16x8::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i32x4, |v: i32x4| v.to_ne_bytes(), |v: u8x16| i32x4::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i64x2, |v: i64x2| v.to_ne_bytes(), |v: u8x16| i64x2::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f32x4, |v: f32x4| v.to_ne_bytes(), |v: u8x16| f32x4::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f64x2, |v: f64x2| v.to_ne_bytes(), |v: u8x16| f64x2::from_ne_bytes(v)
+
+    Value128, stack_128, locals_128, u8x16, u16x8, |v: u16x8| v.to_ne_bytes(), |v: u8x16| u16x8::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u32x4, |v: u32x4| v.to_ne_bytes(), |v: u8x16| u32x4::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u64x2, |v: u64x2| v.to_ne_bytes(), |v: u8x16| u64x2::from_ne_bytes(v)
 }
