@@ -98,6 +98,20 @@ impl CallFrame {
         }
     }
 
+    pub(crate) fn reuse_for(
+        &mut self,
+        func: Rc<WasmFunction>,
+        locals: Locals,
+        block_depth: u32,
+        module_addr: ModuleInstanceAddr,
+    ) {
+        self.func_instance = func;
+        self.module_addr = module_addr;
+        self.locals = locals;
+        self.block_ptr = block_depth;
+        self.instr_ptr = 0; // Reset to function entry
+    }
+
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
     #[inline]

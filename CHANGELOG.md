@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
+- Support for the `tail_call` proposal
 
 ### Breaking Changes
 
