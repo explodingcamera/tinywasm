@@ -17,7 +17,7 @@ pub enum WasmValue {
     /// A 64-bit float.
     F64(f64),
     // /// A 128-bit vector
-    V128(u128),
+    V128(i128),
 
     RefExtern(ExternRef),
     RefFunc(FuncRef),
@@ -112,6 +112,7 @@ impl WasmValue {
             Self::I64(i) => ConstInstruction::I64Const(*i),
             Self::F32(i) => ConstInstruction::F32Const(*i),
             Self::F64(i) => ConstInstruction::F64Const(*i),
+            Self::V128(i) => ConstInstruction::V128Const(*i),
             Self::RefFunc(i) => ConstInstruction::RefFunc(i.addr()),
             _ => unimplemented!("no const_instr for {:?}", self),
         }
@@ -137,6 +138,7 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::V128(a), Self::V128(b)) => a == b,
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
@@ -190,7 +192,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_v128(&self) -> Option<u128> {
+    pub fn as_v128(&self) -> Option<i128> {
         match self {
             Self::V128(i) => Some(*i),
             _ => None,
@@ -309,4 +311,4 @@ macro_rules! impl_conversion_for_wasmvalue {
     }
 }
 
-impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, u128 => V128, ExternRef => RefExtern, FuncRef => RefFunc }
+impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, i128 => V128, ExternRef => RefExtern, FuncRef => RefFunc }

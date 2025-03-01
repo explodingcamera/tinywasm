@@ -10,7 +10,7 @@ pub(crate) type ValueRef = Option<u32>;
 #[cfg(feature = "simd")]
 pub(crate) type Value128 = core::simd::u8x16;
 #[cfg(not(feature = "simd"))]
-pub(crate) type Value128 = u128;
+pub(crate) type Value128 = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// A untyped WebAssembly value
@@ -114,7 +114,7 @@ impl TinyWasmValue {
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
 
             #[cfg(feature = "simd")]
-            ValType::V128 => WasmValue::V128(u128::from_ne_bytes(self.unwrap_128().to_array())),
+            ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.unwrap_128().to_array())),
 
             #[cfg(not(feature = "simd"))]
             ValType::V128 => WasmValue::V128(self.unwrap_128()),
@@ -136,7 +136,7 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::V128(v) => TinyWasmValue::Value128(*v),
 
             #[cfg(feature = "simd")]
-            WasmValue::V128(v) => TinyWasmValue::Value128(v.to_ne_bytes().into()),
+            WasmValue::V128(v) => TinyWasmValue::Value128(v.to_le_bytes().into()),
         }
     }
 }
@@ -269,8 +269,8 @@ impl_internalvalue! {
     Value64, stack_64, locals_64, u64, i64, |v| v as u64, |v| v as i64
     Value32, stack_32, locals_32, u32, f32, f32::to_bits, f32::from_bits
     Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
-    Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
     ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v
+    Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
 }
 
 #[cfg(feature = "simd")]
@@ -278,15 +278,16 @@ use core::simd::{num::SimdUint, *};
 
 #[cfg(feature = "simd")]
 impl_internalvalue! {
-    Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_ne_bytes().into(), |v: u8x16| u128::from_ne_bytes(v.into())
-    Value128, stack_128, locals_128, u8x16, i8x16, |v: i8x16| v.to_ne_bytes(), |v: u8x16| v.cast()
-    Value128, stack_128, locals_128, u8x16, i16x8, |v: i16x8| v.to_ne_bytes(), |v: u8x16| i16x8::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, i32x4, |v: i32x4| v.to_ne_bytes(), |v: u8x16| i32x4::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, i64x2, |v: i64x2| v.to_ne_bytes(), |v: u8x16| i64x2::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, f32x4, |v: f32x4| v.to_ne_bytes(), |v: u8x16| f32x4::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, f64x2, |v: f64x2| v.to_ne_bytes(), |v: u8x16| f64x2::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i128, |v: i128| v.to_le_bytes().into(), |v: u8x16| i128::from_le_bytes(v.into())
+    Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_le_bytes().into(), |v: u8x16| u128::from_le_bytes(v.into())
+    Value128, stack_128, locals_128, u8x16, i8x16, |v: i8x16| v.to_le_bytes(), |v: u8x16| v.cast()
+    Value128, stack_128, locals_128, u8x16, i16x8, |v: i16x8| v.to_le_bytes(), |v: u8x16| i16x8::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i32x4, |v: i32x4| v.to_le_bytes(), |v: u8x16| i32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i64x2, |v: i64x2| v.to_le_bytes(), |v: u8x16| i64x2::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f32x4, |v: f32x4| v.to_le_bytes(), |v: u8x16| f32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f64x2, |v: f64x2| v.to_le_bytes(), |v: u8x16| f64x2::from_le_bytes(v)
 
-    Value128, stack_128, locals_128, u8x16, u16x8, |v: u16x8| v.to_ne_bytes(), |v: u8x16| u16x8::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, u32x4, |v: u32x4| v.to_ne_bytes(), |v: u8x16| u32x4::from_ne_bytes(v)
-    Value128, stack_128, locals_128, u8x16, u64x2, |v: u64x2| v.to_ne_bytes(), |v: u8x16| u64x2::from_ne_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u16x8, |v: u16x8| v.to_le_bytes(), |v: u8x16| u16x8::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u32x4, |v: u32x4| v.to_le_bytes(), |v: u8x16| u32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u64x2, |v: u64x2| v.to_le_bytes(), |v: u8x16| u64x2::from_le_bytes(v)
 }

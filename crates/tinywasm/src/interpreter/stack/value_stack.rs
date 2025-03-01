@@ -184,7 +184,7 @@ impl ValueStack {
             ValType::V128 => WasmValue::V128(self.pop()),
 
             #[cfg(feature = "simd")]
-            ValType::V128 => WasmValue::V128(u128::from_ne_bytes(self.pop::<Value128>().to_array())),
+            ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.pop::<Value128>().to_array())),
         }
     }
 

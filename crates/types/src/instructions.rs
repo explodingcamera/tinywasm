@@ -36,6 +36,7 @@ pub enum ConstInstruction {
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
+    V128Const(i128),
     GlobalGet(GlobalAddr),
     RefFunc(Option<FuncAddr>),
     RefExtern(Option<ExternAddr>),

@@ -1,9 +1,9 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use eyre::{bail, eyre, Result};
+use eyre::{Result, bail, eyre};
 use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 use wasm_testsuite::wast;
-use wasm_testsuite::wast::{core::AbstractHeapType, QuoteWat};
+use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicHookInfo>().or(None).map(ToString::to_string).clone();
@@ -96,7 +96,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         bail!("unsupported arg type: Component");
     };
 
-    use wast::core::WastArgCore::{RefExtern, RefNull, F32, F64, I32, I64, V128};
+    use wast::core::WastArgCore::{F32, F64, I32, I64, RefExtern, RefNull, V128};
     Ok(match arg {
         F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
@@ -117,19 +117,21 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
     })
 }
 
-fn wast_i128_to_i128(i: wast::core::V128Pattern) -> u128 {
-    match i {
+fn wast_i128_to_i128(i: wast::core::V128Pattern) -> i128 {
+    let res: Vec<u8> = match i {
         wast::core::V128Pattern::F32x4(f) => {
-            f.iter().fold(0, |acc, &f| (acc << 32) | nanpattern2tinywasmvalue(f).unwrap().as_f32().unwrap() as u128)
+            f.iter().map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f32().unwrap().to_le_bytes()).flatten().collect()
         }
         wast::core::V128Pattern::F64x2(f) => {
-            f.iter().fold(0, |acc, &f| (acc << 64) | nanpattern2tinywasmvalue(f).unwrap().as_f64().unwrap() as u128)
+            f.iter().map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f64().unwrap().to_le_bytes()).flatten().collect()
         }
-        wast::core::V128Pattern::I16x8(f) => f.iter().fold(0, |acc, &f| (acc << 16) | f as u128),
-        wast::core::V128Pattern::I32x4(f) => f.iter().fold(0, |acc, &f| (acc << 32) | f as u128),
-        wast::core::V128Pattern::I64x2(f) => f.iter().fold(0, |acc, &f| (acc << 64) | f as u128),
-        wast::core::V128Pattern::I8x16(f) => f.iter().fold(0, |acc, &f| (acc << 8) | f as u128),
-    }
+        wast::core::V128Pattern::I16x8(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
+        wast::core::V128Pattern::I32x4(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
+        wast::core::V128Pattern::I64x2(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
+        wast::core::V128Pattern::I8x16(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
+    };
+
+    i128::from_le_bytes(res.try_into().unwrap())
 }
 
 fn wastret2tinywasmvalue(ret: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
@@ -137,7 +139,7 @@ fn wastret2tinywasmvalue(ret: wast::WastRet) -> Result<tinywasm_types::WasmValue
         bail!("unsupported arg type");
     };
 
-    use wast::core::WastRetCore::{RefExtern, RefFunc, RefNull, F32, F64, I32, I64, V128};
+    use wast::core::WastRetCore::{F32, F64, I32, I64, RefExtern, RefFunc, RefNull, V128};
     Ok(match ret {
         F32(f) => nanpattern2tinywasmvalue(f)?,
         F64(f) => nanpattern2tinywasmvalue(f)?,

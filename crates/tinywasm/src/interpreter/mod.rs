@@ -6,9 +6,6 @@ mod values;
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
-#[cfg(feature = "simd")]
-mod simd;
-
 use crate::{Result, Store};
 pub use values::*;
 

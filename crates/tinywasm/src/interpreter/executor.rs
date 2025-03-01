@@ -3,14 +3,21 @@
 use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
-use core::ops::ControlFlow;
-use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
-use core::simd::num::SimdUint;
+use core::ops::{ControlFlow, IndexMut, Shl, Shr};
+
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
 #[cfg(feature = "simd")]
-use super::simd::*;
+mod simd {
+    #[cfg(feature = "std")]
+    pub(super) use crate::std::simd::StdFloat;
+    pub(super) use core::simd::cmp::{SimdOrd, SimdPartialEq, SimdPartialOrd};
+    pub(super) use core::simd::num::{SimdFloat, SimdInt, SimdUint};
+    pub(super) use core::simd::*;
+}
+#[cfg(feature = "simd")]
+use simd::*;
 
 use super::num_helpers::*;
 use super::stack::{BlockFrame, BlockType, Stack};
@@ -315,8 +322,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             V128Or => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a | b)).to_cf()?,
             V128Xor => self.stack.values.calculate_same::<Value128>(|a, b| Ok(a ^ b)).to_cf()?,
             V128Bitselect => self.stack.values.calculate_same_3::<Value128>(|v1, v2, c| Ok((v1 & c) | (v2 & !c))).to_cf()?,
-            V128AnyTrue => self.stack.values.replace_top::<Value128, i32>(|v| Ok((v.reduce_sum() != 0) as i32)).to_cf()?,
+            V128AnyTrue => self.stack.values.replace_top::<Value128, i32>(|v| Ok((v.reduce_or() != 0) as i32)).to_cf()?,
             I8x16Swizzle => self.stack.values.calculate_same::<Value128>(|a, s| Ok(a.swizzle_dyn(s))).to_cf()?,
+            V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
+            V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
+            V128Const(arg) => self.exec_const::<Value128>( self.cf.data().v128_constants[*arg as usize].to_le_bytes().into()),
+
+            V128Load8Lane(arg, lane) => self.exec_mem_load_lane::<i8, i8x16, 1>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Load16Lane(arg, lane) => self.exec_mem_load_lane::<i16, i16x8, 2>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Load32Lane(arg, lane) => self.exec_mem_load_lane::<i32, i32x4, 4>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Load64Lane(arg, lane) => self.exec_mem_load_lane::<i64, i64x2, 8>(arg.mem_addr(), arg.offset(), *lane)?,
 
             I8x16Splat => self.stack.values.replace_top::<i32, i8x16>(|v| Ok(Simd::<i8, 16>::splat(v as i8))).to_cf()?,
             I16x8Splat => self.stack.values.replace_top::<i32, i16x8>(|v| Ok(Simd::<i16, 8>::splat(v as i16))).to_cf()?,
@@ -373,6 +388,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I16x8LeU => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_le(b).to_int())).to_cf()?,
             I32x4LeU => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_le(b).to_int())).to_cf()?,
 
+            I8x16GeS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
+            I16x8GeS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
+            I32x4GeS => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
+
             I8x16GeU => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
             I16x8GeU => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
             I32x4GeU => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_ge(b).to_int())).to_cf()?,
@@ -381,6 +400,98 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I16x8Abs => self.stack.values.replace_top_same::<i16x8>(|a| Ok(a.abs())).to_cf()?,
             I32x4Abs => self.stack.values.replace_top_same::<i32x4>(|a| Ok(a.abs())).to_cf()?,
             I64x2Abs => self.stack.values.replace_top_same::<i64x2>(|a| Ok(a.abs())).to_cf()?,
+
+            I8x16Neg => self.stack.values.replace_top_same::<i8x16>(|a| Ok(-a)).to_cf()?,
+            I16x8Neg => self.stack.values.replace_top_same::<i16x8>(|a| Ok(-a)).to_cf()?,
+            I32x4Neg => self.stack.values.replace_top_same::<i32x4>(|a| Ok(-a)).to_cf()?,
+            I64x2Neg => self.stack.values.replace_top_same::<i64x2>(|a| Ok(-a)).to_cf()?,
+
+            I8x16AllTrue => self.stack.values.replace_top::<i8x16, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
+            I16x8AllTrue => self.stack.values.replace_top::<i16x8, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
+            I32x4AllTrue => self.stack.values.replace_top::<i32x4, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
+            I64x2AllTrue => self.stack.values.replace_top::<i64x2, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
+
+            I8x16Bitmask => self.stack.values.replace_top::<i8x16, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
+            I16x8Bitmask => self.stack.values.replace_top::<i16x8, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
+            I32x4Bitmask => self.stack.values.replace_top::<i32x4, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
+            I64x2Bitmask => self.stack.values.replace_top::<i64x2, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
+
+            I8x16Shl => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.shl(b))).to_cf()?,
+            I16x8Shl => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.shl(b))).to_cf()?,
+            I32x4Shl => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.shl(b))).to_cf()?,
+            I64x2Shl => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.shl(b))).to_cf()?,
+
+            I8x16ShrS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I16x8ShrS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I32x4ShrS => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I64x2ShrS => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.shr(b))).to_cf()?,
+
+            I8x16ShrU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I16x8ShrU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I32x4ShrU => self.stack.values.calculate_same::<u32x4>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I64x2ShrU => self.stack.values.calculate_same::<u64x2>(|a, b| Ok(a.shr(b))).to_cf()?,
+
+            I8x16Add => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a + b)).to_cf()?,
+            I16x8Add => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a + b)).to_cf()?,
+            I32x4Add => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a + b)).to_cf()?,
+            I64x2Add => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a + b)).to_cf()?,
+
+            I8x16Sub => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a - b)).to_cf()?,
+            I16x8Sub => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a - b)).to_cf()?,
+            I32x4Sub => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a - b)).to_cf()?,
+            I64x2Sub => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a - b)).to_cf()?,
+
+            I8x16MinS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            I16x8MinS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            I32x4MinS => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+
+            I8x16MinU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            I16x8MinU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            I32x4MinU => self.stack.values.calculate_same::<u32x4>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+
+            I8x16MaxS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            I16x8MaxS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            I32x4MaxS => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+
+            I8x16MaxU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            I16x8MaxU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            I32x4MaxU => self.stack.values.calculate_same::<u32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+
+            I64x2Mul => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a * b)).to_cf()?,
+
+            I8x16AddSatS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
+            I16x8AddSatS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
+            I8x16AddSatU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
+            I16x8AddSatU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
+            I8x16SubSatS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
+            I16x8SubSatS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
+            I8x16SubSatU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
+            I16x8SubSatU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
+
+            F32x4Ceil => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.ceil())).to_cf()?,
+            F64x2Ceil => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.ceil())).to_cf()?,
+            F32x4Floor => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.floor())).to_cf()?,
+            F64x2Floor => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.floor())).to_cf()?,
+            F32x4Trunc => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.trunc())).to_cf()?,
+            F64x2Trunc => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.trunc())).to_cf()?,
+            F32x4Abs => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.abs())).to_cf()?,
+            F64x2Abs => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.abs())).to_cf()?,
+            F32x4Neg => self.stack.values.replace_top_same::<f32x4>(|v| Ok(-v)).to_cf()?,
+            F64x2Neg => self.stack.values.replace_top_same::<f64x2>(|v| Ok(-v)).to_cf()?,
+            F32x4Sqrt => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.sqrt())).to_cf()?,
+            F64x2Sqrt => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.sqrt())).to_cf()?,
+            F32x4Add => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a + b)).to_cf()?,
+            F64x2Add => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a + b)).to_cf()?,
+            F32x4Sub => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a - b)).to_cf()?,
+            F64x2Sub => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a - b)).to_cf()?,
+            F32x4Mul => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a * b)).to_cf()?,
+            F64x2Mul => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a * b)).to_cf()?,
+            F32x4Div => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a / b)).to_cf()?,
+            F64x2Div => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a / b)).to_cf()?,
+            F32x4Min => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            F64x2Min => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_min(b))).to_cf()?,
+            F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            F64x2Max => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_max(b))).to_cf()?,
 
             i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
@@ -688,6 +799,47 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
         Ok(())
     }
+
+    fn exec_mem_load_lane<
+        LOAD: MemLoadable<LOAD_SIZE>,
+        INTO: InternalValue + IndexMut<usize, Output = LOAD>,
+        const LOAD_SIZE: usize,
+    >(
+        &mut self,
+        mem_addr: tinywasm_types::MemAddr,
+        offset: u64,
+        lanes: u8,
+    ) -> ControlFlow<Option<Error>> {
+        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
+        let mut imm = self.stack.values.pop::<INTO>();
+        let val = self.stack.values.pop::<i32>() as u64;
+        let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
+            cold();
+            return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
+                offset: val as usize,
+                len: LOAD_SIZE,
+                max: 0,
+            })));
+        };
+        let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
+        imm[lanes as usize] = val;
+        self.stack.values.push(imm);
+        ControlFlow::Continue(())
+    }
+
+    // fn mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
+    //     &mut self,
+    //     mem_addr: tinywasm_types::MemAddr,
+    //     offset: u64,
+    // ) -> Result<LOAD, Error> {
+    //     let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
+    //     let val = self.stack.values.pop::<i32>() as u64;
+    //     let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
+    //         cold();
+    //         return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: val as usize, len: LOAD_SIZE, max: 0 }));
+    //     };
+    //     mem.load_as::<LOAD_SIZE, LOAD>(addr)
+    // }
 
     fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
