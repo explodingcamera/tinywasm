@@ -707,7 +707,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
-        table.init(dst, &items[offset as usize..(offset + size) as usize])
+        table.init(dst as i64, &items[offset as usize..(offset + size) as usize])
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
