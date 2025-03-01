@@ -55,8 +55,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Select128 => self.stack.values.select::<Value128>(),
             SelectRef => self.stack.values.select::<ValueRef>(),
 
-            Call(v) => return self.exec_call_direct(*v),
-            CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
+            Call(v) => return self.exec_call_direct::<false>(*v),
+            CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
+
+            ReturnCall(v) => return self.exec_call_direct::<true>(*v),
+            ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
 
             If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())),
             IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())),
@@ -314,50 +317,71 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ControlFlow::Break(Some(Trap::Unreachable.into()))
     }
 
-    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> ControlFlow<Option<Error>> {
-        let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-        let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
-        self.cf.incr_instr_ptr(); // skip the call instruction
-        self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-        self.module.swap_with(self.cf.module_addr(), self.store);
+    fn exec_call<const IS_RETURN_CALL: bool>(
+        &mut self,
+        wasm_func: Rc<WasmFunction>,
+        owner: ModuleInstanceAddr,
+    ) -> ControlFlow<Option<Error>> {
+        if !IS_RETURN_CALL {
+            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+            let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
+            self.cf.incr_instr_ptr(); // skip the call instruction
+            self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
+            self.module.swap_with(self.cf.module_addr(), self.store);
+        } else {
+            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+            self.cf.reuse_for(wasm_func, locals, self.stack.blocks.len() as u32, owner);
+            self.module.swap_with(self.cf.module_addr(), self.store);
+        }
+
         ControlFlow::Continue(())
     }
-    fn exec_call_direct(&mut self, v: u32) -> ControlFlow<Option<Error>> {
-        let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
-        let wasm_func = match &func_inst.func {
-            crate::Function::Wasm(wasm_func) => wasm_func,
-            crate::Function::Host(host_func) => {
-                let func = &host_func.clone();
-                let params = self.stack.values.pop_params(&host_func.ty.params);
-                let res =
-                    func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params).to_cf()?;
-                self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.incr_instr_ptr();
-                return ControlFlow::Continue(());
-            }
-        };
-
-        self.exec_call(wasm_func.clone(), func_inst.owner)
+    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
+        let params = self.stack.values.pop_params(&host_func.ty.params);
+        let res = host_func
+            .clone()
+            .call(FuncContext { store: self.store, module_addr: self.module.id() }, &params)
+            .to_cf()?;
+        self.stack.values.extend_from_wasmvalues(&res);
+        self.cf.incr_instr_ptr();
+        ControlFlow::Continue(())
     }
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> ControlFlow<Option<Error>> {
+    fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
+        let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
+        match func_inst.func.clone() {
+            crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),
+            crate::Function::Host(host_func) => self.exec_call_host(host_func),
+        }
+    }
+    fn exec_call_indirect<const IS_RETURN_CALL: bool>(
+        &mut self,
+        type_addr: u32,
+        table_addr: u32,
+    ) -> ControlFlow<Option<Error>> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr));
             let table_idx: u32 = self.stack.values.pop::<i32>() as u32;
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
-            table
-                .get(table_idx)
-                .map_err(|_| Error::Trap(Trap::UndefinedElement { index: table_idx as usize }))
-                .to_cf()?
-                .addr()
-                .ok_or(Error::Trap(Trap::UninitializedElement { index: table_idx as usize }))
-                .to_cf()?
+            let table = table.get(table_idx).map_err(|_| Trap::UndefinedElement { index: table_idx as usize }.into());
+            let table = table.to_cf()?;
+            table.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize }.into()).to_cf()?
         };
 
         let func_inst = self.store.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
-        let wasm_func = match &func_inst.func {
-            crate::Function::Wasm(f) => f,
+
+        match func_inst.func.clone() {
+            crate::Function::Wasm(wasm_func) => {
+                if unlikely(wasm_func.ty != *call_ty) {
+                    return ControlFlow::Break(Some(
+                        Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }
+                            .into(),
+                    ));
+                }
+
+                self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner)
+            }
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
                     return ControlFlow::Break(Some(
@@ -366,27 +390,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                     ));
                 }
 
-                let host_func = host_func.clone();
-                let params = self.stack.values.pop_params(&host_func.ty.params);
-                let res =
-                    match host_func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params) {
-                        Ok(res) => res,
-                        Err(e) => return ControlFlow::Break(Some(e)),
-                    };
-
-                self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.incr_instr_ptr();
-                return ControlFlow::Continue(());
+                self.exec_call_host(host_func)
             }
-        };
-
-        if unlikely(wasm_func.ty != *call_ty) {
-            return ControlFlow::Break(Some(
-                Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into(),
-            ));
         }
-
-        self.exec_call(wasm_func.clone(), func_inst.owner)
     }
 
     fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
