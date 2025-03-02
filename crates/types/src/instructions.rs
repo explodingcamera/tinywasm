@@ -87,8 +87,8 @@ pub enum Instruction {
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
-    // ReturnCall(FuncAddr),
-    // ReturnCallIndirect(TypeAddr, TableAddr),
+    ReturnCall(FuncAddr),
+    ReturnCallIndirect(TypeAddr, TableAddr),
  
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>

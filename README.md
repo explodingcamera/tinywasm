@@ -37,8 +37,9 @@ TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](
 | [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md)     | 🟢     | 0.7.0            |
 | [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)         | 🟢     | 0.8.0            |
 | [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes/blob/main/proposals/custom-page-sizes/Overview.md) | 🟢     | `next`           |
+| [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                         | 🟢     | `next`           |
 | [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                          | 🚧     | N/A              |
-| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🌑     | N/A              |
+| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🚧     | N/A              |
 
 ## Usage
 

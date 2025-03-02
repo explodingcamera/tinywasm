@@ -64,6 +64,10 @@ name="test-wasm-custom-page-sizes"
 harness=false
 
 [[test]]
+name="test-wasm-tail-call"
+harness=false
+
+[[test]]
 name="test-wasm-memory64"
 harness=false
 test=false
