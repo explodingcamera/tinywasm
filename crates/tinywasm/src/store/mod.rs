@@ -243,9 +243,6 @@ impl Store {
         let mem_count = self.data.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.into_iter().enumerate() {
-            if let MemoryArch::I64 = mem.arch() {
-                return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
-            }
             self.data.memories.push(MemoryInstance::new(mem, idx));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
@@ -325,7 +322,7 @@ impl Store {
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_i32_const(offset)?;
+                    let offset = self.eval_size_const(offset)?;
                     let table_addr = table_addrs
                         .get(table as usize)
                         .copied()
@@ -373,7 +370,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_i32_const(offset)?;
+                    let offset = self.eval_size_const(offset)?;
                     let Some(mem) = self.data.memories.get_mut(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
@@ -418,15 +415,18 @@ impl Store {
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
-    /// Evaluate a constant expression, only supporting i32 globals and i32.const
-    pub(crate) fn eval_i32_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i32> {
-        use tinywasm_types::ConstInstruction::*;
-        let val = match const_instr {
-            I32Const(i) => i,
-            GlobalGet(addr) => self.data.globals[addr as usize].value.get().unwrap_32() as i32,
-            _ => return Err(Error::Other("expected i32".to_string())),
-        };
-        Ok(val)
+    /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
+    pub(crate) fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
+        Ok(match const_instr {
+            ConstInstruction::I32Const(i) => i as i64,
+            ConstInstruction::I64Const(i) => i,
+            ConstInstruction::GlobalGet(addr) => match self.data.globals[addr as usize].value.get() {
+                TinyWasmValue::Value32(i) => i as i64,
+                TinyWasmValue::Value64(i) => i as i64,
+                o => return Err(Error::Other(format!("expected i32 or i64, got {o:?}"))),
+            },
+            o => return Err(Error::Other(format!("expected i32, got {o:?}"))),
+        })
     }
 
     /// Evaluate a constant expression
