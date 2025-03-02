@@ -419,7 +419,7 @@ impl Store {
     pub(crate) fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
         Ok(match const_instr {
             ConstInstruction::I32Const(i) => i as i64,
-            ConstInstruction::I64Const(i) => i as i64,
+            ConstInstruction::I64Const(i) => i,
             ConstInstruction::GlobalGet(addr) => match self.data.globals[addr as usize].value.get() {
                 TinyWasmValue::Value32(i) => i as i64,
                 TinyWasmValue::Value64(i) => i as i64,

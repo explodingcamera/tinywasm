@@ -29,7 +29,7 @@ impl MemoryInstance {
     }
 
     #[inline]
-    pub fn is_64bit(&self) -> bool {
+    pub(crate) fn is_64bit(&self) -> bool {
         matches!(self.kind.arch(), MemoryArch::I64)
     }
 
@@ -131,7 +131,7 @@ impl MemoryInstance {
     #[inline]
     pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
         let current_pages = self.page_count;
-        let new_pages = current_pages as i64 + pages_delta as i64;
+        let new_pages = current_pages as i64 + pages_delta;
 
         if new_pages < 0 || new_pages as usize > self.max_pages() {
             log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, self.max_pages());

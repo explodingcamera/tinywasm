@@ -526,17 +526,23 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_memory_grow(&mut self, addr: u32) {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr));
-        let prev_size = mem.page_count as i32;
+        let prev_size = mem.page_count;
 
         let pages_delta = match mem.is_64bit() {
             true => self.stack.values.pop::<i64>(),
             false => self.stack.values.pop::<i32>() as i64,
         };
 
-        self.stack.values.push::<i32>(match mem.grow(pages_delta) {
-            Some(_) => prev_size,
-            None => -1,
-        });
+        match (
+            mem.is_64bit(),
+            match mem.grow(pages_delta) {
+                Some(_) => prev_size as i64,
+                None => -1_i64,
+            },
+        ) {
+            (true, size) => self.stack.values.push::<i64>(size),
+            (false, size) => self.stack.values.push::<i32>(size as i32),
+        };
     }
 
     fn exec_memory_copy(&mut self, from: u32, to: u32) -> Result<()> {

@@ -14,11 +14,15 @@
 
 - **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality (< 4000 LLOC).
 - **Portable**: TinyWasm runs on any platform that Rust can target, including `no_std`, with minimal external dependencies.
-- **Safe**: No unsafe code is used in the runtime (`rkyv`, which uses unsafe code, can be used for serialization but is optional).
+- **Safe**: No unsafe code is used in the runtime
 
-## Status
+## Current Status
 
-TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](https://github.com/WebAssembly/testsuite) and is able to run most WebAssembly programs. Additionally, the current 2.0 Draft is mostly supported, with the exception of Fixed-Width SIMD and Memory64/Multiple Memories. See the [Supported Proposals](#supported-proposals) section for more information.
+TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](https://github.com/WebAssembly/testsuite) and is able to run most WebAssembly programs. Additionally, the current 2.0 WebAssembly is mostly supported, with the exception of the SIMD and Memory64 proposals. See the [Supported Proposals](#supported-proposals) section for more information.
+
+## Safety
+
+Safety wise, TinyWasm doesn't use any unsafe code and is designed to be completly memory-safe. Untrusted WebAssembly code should not be able to crash the runtime or access memory outside of its sandbox, however currently there is no protection against infinite loops or excessive memory usage. Unvalidated Wasm and untrusted, precompilled twasm bytecode is safe to run too but can crash the runtime.
 
 ## Supported Proposals
 
@@ -38,7 +42,7 @@ TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](
 | [**Multiple Memories**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)         | 🟢     | 0.8.0            |
 | [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes/blob/main/proposals/custom-page-sizes/Overview.md) | 🟢     | `next`           |
 | [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                         | 🟢     | `next`           |
-| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                          | 🚧     | N/A              |
+| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                          | 🟢     | `next`           |
 | [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🚧     | N/A              |
 
 ## Usage
