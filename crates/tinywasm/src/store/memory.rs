@@ -1,6 +1,6 @@
 use alloc::vec;
 use alloc::vec::Vec;
-use tinywasm_types::{MemoryType, ModuleInstanceAddr};
+use tinywasm_types::{MemoryArch, MemoryType, ModuleInstanceAddr};
 
 use crate::{Error, Result, cold, log};
 
@@ -26,6 +26,11 @@ impl MemoryInstance {
             page_count: kind.page_count_initial() as usize,
             _owner: owner,
         }
+    }
+
+    #[inline]
+    pub fn is_64bit(&self) -> bool {
+        matches!(self.kind.arch(), MemoryArch::I64)
     }
 
     #[inline(always)]
@@ -124,15 +129,13 @@ impl MemoryInstance {
     }
 
     #[inline]
-    pub(crate) fn grow(&mut self, pages_delta: i32) -> Option<i32> {
+    pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
         let current_pages = self.page_count;
         let new_pages = current_pages as i64 + pages_delta as i64;
-        debug_assert!(new_pages <= i32::MAX as i64, "page count should never be greater than i32::MAX");
 
         if new_pages < 0 || new_pages as usize > self.max_pages() {
             log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, self.max_pages());
             log::debug!("{} {}", self.kind.page_count_max(), self.kind.page_size());
-
             return None;
         }
 
@@ -145,7 +148,7 @@ impl MemoryInstance {
         self.data.reserve_exact(new_size);
         self.data.resize_with(new_size, Default::default);
         self.page_count = new_pages as usize;
-        Some(current_pages as i32)
+        Some(current_pages as i64)
     }
 }
 
@@ -241,14 +244,14 @@ mod memory_instance_tests {
     fn test_memory_grow() {
         let mut memory = create_test_memory();
         let original_pages = memory.page_count;
-        assert_eq!(memory.grow(1), Some(original_pages as i32));
+        assert_eq!(memory.grow(1), Some(original_pages as i64));
         assert_eq!(memory.page_count, original_pages + 1);
     }
 
     #[test]
     fn test_memory_grow_out_of_bounds() {
         let mut memory = create_test_memory();
-        assert!(memory.grow(memory.kind.max_size() as i32 + 1).is_none());
+        assert!(memory.grow(memory.kind.max_size() as i64 + 1).is_none());
     }
 
     #[test]

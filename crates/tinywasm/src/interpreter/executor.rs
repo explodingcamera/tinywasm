@@ -518,12 +518,21 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     fn exec_memory_size(&mut self, addr: u32) {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr));
-        self.stack.values.push::<i32>(mem.page_count as i32);
+
+        match mem.is_64bit() {
+            true => self.stack.values.push::<i64>(mem.page_count as i64),
+            false => self.stack.values.push::<i32>(mem.page_count as i32),
+        }
     }
     fn exec_memory_grow(&mut self, addr: u32) {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr));
         let prev_size = mem.page_count as i32;
-        let pages_delta = self.stack.values.pop::<i32>();
+
+        let pages_delta = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>(),
+            false => self.stack.values.pop::<i32>() as i64,
+        };
+
         self.stack.values.push::<i32>(match mem.grow(pages_delta) {
             Some(_) => prev_size,
             None => -1,
@@ -605,14 +614,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 dst as usize,
                 src as usize,
                 size as usize,
-            )?;
+            )
         } else {
             // copy between two memories
             let (table_from, table_to) =
                 self.store.get_tables_mut(self.module.resolve_table_addr(from), self.module.resolve_table_addr(to))?;
-            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)?;
+            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)
         }
-        Ok(())
     }
 
     fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
@@ -622,11 +630,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         cast: fn(LOAD) -> TARGET,
     ) -> ControlFlow<Option<Error>> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
-        let val = self.stack.values.pop::<i32>() as u64;
-        let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
+
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
+
+        let Some(Ok(addr)) = offset.checked_add(addr).map(TryInto::try_into) else {
             cold();
             return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
-                offset: val as usize,
+                offset: addr as usize,
                 len: LOAD_SIZE,
                 max: 0,
             })));
@@ -644,10 +657,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
         let val = self.stack.values.pop::<T>();
         let val = (cast(val)).to_mem_bytes();
-        let addr = self.stack.values.pop::<i32>() as u64;
+
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
+
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
             return ControlFlow::Break(Some(e));
         }
+
         ControlFlow::Continue(())
     }
 
