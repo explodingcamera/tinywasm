@@ -134,7 +134,7 @@ impl TableInstance {
             .expect("error initializing table: function not found. This should have been caught by the validator")
     }
 
-    pub(crate) fn init(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
+    pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or({
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })

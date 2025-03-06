@@ -54,7 +54,7 @@ impl MemoryRefMut<'_> {
     }
 
     /// Grow the memory by the given number of pages
-    pub fn grow(&mut self, delta_pages: i32) -> Option<i32> {
+    pub fn grow(&mut self, delta_pages: i64) -> Option<i64> {
         self.0.grow(delta_pages)
     }
 
