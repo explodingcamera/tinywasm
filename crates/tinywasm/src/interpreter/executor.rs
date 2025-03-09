@@ -331,6 +331,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
             V128Const(arg) => self.exec_const::<Value128>( self.cf.data().v128_constants[*arg as usize].to_le_bytes().into()),
 
+            I8x16ExtractLaneS(lane) => self.stack.values.replace_top::<i8x16, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            I8x16ExtractLaneU(lane) => self.stack.values.replace_top::<u8x16, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            I16x8ExtractLaneS(lane) => self.stack.values.replace_top::<i16x8, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            I16x8ExtractLaneU(lane) => self.stack.values.replace_top::<u16x8, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            I32x4ExtractLane(lane) => self.stack.values.replace_top::<i32x4, i32>(|v| Ok(v[*lane as usize])).to_cf()?,
+            I64x2ExtractLane(lane) => self.stack.values.replace_top::<i64x2, i64>(|v| Ok(v[*lane as usize])).to_cf()?,
+            F32x4ExtractLane(lane) => self.stack.values.replace_top::<f32x4, f32>(|v| Ok(v[*lane as usize])).to_cf()?,
+            F64x2ExtractLane(lane) => self.stack.values.replace_top::<f64x2, f64>(|v| Ok(v[*lane as usize])).to_cf()?,
+
             V128Load8Lane(arg, lane) => self.exec_mem_load_lane::<i8, i8x16, 1>(arg.mem_addr(), arg.offset(), *lane)?,
             V128Load16Lane(arg, lane) => self.exec_mem_load_lane::<i16, i16x8, 2>(arg.mem_addr(), arg.offset(), *lane)?,
             V128Load32Lane(arg, lane) => self.exec_mem_load_lane::<i32, i32x4, 4>(arg.mem_addr(), arg.offset(), *lane)?,
@@ -409,30 +418,30 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I32x4Neg => self.stack.values.replace_top_same::<i32x4>(|a| Ok(-a)).to_cf()?,
             I64x2Neg => self.stack.values.replace_top_same::<i64x2>(|a| Ok(-a)).to_cf()?,
 
-            I8x16AllTrue => self.stack.values.replace_top::<i8x16, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
-            I16x8AllTrue => self.stack.values.replace_top::<i16x8, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
-            I32x4AllTrue => self.stack.values.replace_top::<i32x4, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
-            I64x2AllTrue => self.stack.values.replace_top::<i64x2, i32>(|v| Ok((v != Simd::splat(0)) as i32)).to_cf()?,
+            I8x16AllTrue => self.stack.values.replace_top::<i8x16, i32>(|v| Ok((v.simd_ne(Simd::splat(0)).all()) as i32)).to_cf()?,
+            I16x8AllTrue => self.stack.values.replace_top::<i16x8, i32>(|v| Ok((v.simd_ne(Simd::splat(0)).all()) as i32)).to_cf()?,
+            I32x4AllTrue => self.stack.values.replace_top::<i32x4, i32>(|v| Ok((v.simd_ne(Simd::splat(0)).all()) as i32)).to_cf()?,
+            I64x2AllTrue => self.stack.values.replace_top::<i64x2, i32>(|v| Ok((v.simd_ne(Simd::splat(0)).all()) as i32)).to_cf()?,
 
             I8x16Bitmask => self.stack.values.replace_top::<i8x16, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
             I16x8Bitmask => self.stack.values.replace_top::<i16x8, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
             I32x4Bitmask => self.stack.values.replace_top::<i32x4, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
             I64x2Bitmask => self.stack.values.replace_top::<i64x2, i32>(|v| Ok(v.simd_lt(Simd::splat(0)).to_bitmask() as i32)).to_cf()?,
 
-            I8x16Shl => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.shl(b))).to_cf()?,
-            I16x8Shl => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.shl(b))).to_cf()?,
-            I32x4Shl => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.shl(b))).to_cf()?,
-            I64x2Shl => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.shl(b))).to_cf()?,
+            I8x16Shl => self.stack.values.calculate_diff::<i32, i8x16, i8x16>(|a, b| Ok(b.shl(a as i8))).to_cf()?,
+            I16x8Shl => self.stack.values.calculate_diff::<i32, i16x8, i16x8>(|a, b| Ok(b.shl(a as i16))).to_cf()?,
+            I32x4Shl => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shl(a as i32))).to_cf()?,
+            I64x2Shl => self.stack.values.calculate_diff::<i32, i64x2, i64x2>(|a, b| Ok(b.shl(a as i64))).to_cf()?,
 
-            I8x16ShrS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I16x8ShrS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I32x4ShrS => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I64x2ShrS => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I8x16ShrS => self.stack.values.calculate_diff::<i32, i8x16, i8x16>(|a, b| Ok(b.shr(a as i8))).to_cf()?,
+            I16x8ShrS => self.stack.values.calculate_diff::<i32, i16x8, i16x8>(|a, b| Ok(b.shr(a as i16))).to_cf()?,
+            I32x4ShrS => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shr(a as i32))).to_cf()?,
+            I64x2ShrS => self.stack.values.calculate_diff::<i32, i64x2, i64x2>(|a, b| Ok(b.shr(a as i64))).to_cf()?,
 
-            I8x16ShrU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I16x8ShrU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I32x4ShrU => self.stack.values.calculate_same::<u32x4>(|a, b| Ok(a.shr(b))).to_cf()?,
-            I64x2ShrU => self.stack.values.calculate_same::<u64x2>(|a, b| Ok(a.shr(b))).to_cf()?,
+            I8x16ShrU => self.stack.values.calculate_diff::<i32, u8x16, u8x16>(|a, b| Ok(b.shr(a as u8))).to_cf()?,
+            I16x8ShrU => self.stack.values.calculate_diff::<i32, u16x8, u16x8>(|a, b| Ok(b.shr(a as u16))).to_cf()?,
+            I32x4ShrU => self.stack.values.calculate_diff::<i32, u32x4, u32x4>(|a, b| Ok(b.shr(a as u32))).to_cf()?,
+            I64x2ShrU => self.stack.values.calculate_diff::<i32, u64x2, u64x2>(|a, b| Ok(b.shr(a as u64))).to_cf()?,
 
             I8x16Add => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a + b)).to_cf()?,
             I16x8Add => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a + b)).to_cf()?,
@@ -471,6 +480,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I8x16SubSatU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
             I16x8SubSatU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
 
+            I16x8Mul => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a * b)).to_cf()?,
+            I32x4Mul => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a * b)).to_cf()?,
+
             F32x4Ceil => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.ceil())).to_cf()?,
             F64x2Ceil => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.ceil())).to_cf()?,
             F32x4Floor => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.floor())).to_cf()?,
@@ -495,6 +507,23 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F64x2Min => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_min(b))).to_cf()?,
             F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
             F64x2Max => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+
+            F32x4PMin => unimplemented!(),
+            F32x4PMax => unimplemented!(),
+            F64x2PMin => unimplemented!(),
+            F64x2PMax => unimplemented!(),
+
+            // not correct
+            I32x4TruncSatF32x4S => self.stack.values.replace_top::<f32x4, f32x4>(|v| Ok(v.trunc())).to_cf()?,
+            I32x4TruncSatF32x4U => self.stack.values.replace_top::<f32x4, f32x4>(|v| Ok(v.trunc())).to_cf()?,
+            F32x4ConvertI32x4S => {},
+            F32x4ConvertI32x4U => {},
+            F64x2ConvertLowI32x4S => {},
+            F64x2ConvertLowI32x4U => {},
+            F32x4DemoteF64x2Zero => {},
+            F64x2PromoteLowF32x4 => {},
+            I32x4TruncSatF64x2SZero => unimplemented!(),
+            I32x4TruncSatF64x2UZero => unimplemented!(),
 
             i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };

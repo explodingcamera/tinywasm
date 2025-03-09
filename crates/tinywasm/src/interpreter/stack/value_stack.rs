@@ -88,6 +88,17 @@ impl ValueStack {
     }
 
     #[inline]
+    pub(crate) fn calculate_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
+        &mut self,
+        func: impl FnOnce(A, B) -> Result<RES>,
+    ) -> Result<()> {
+        let v2 = B::stack_pop(self);
+        let v1 = A::stack_pop(self);
+        RES::stack_push(self, func(v1, v2)?);
+        Ok(())
+    }
+
+    #[inline]
     pub(crate) fn replace_top<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T) -> Result<U>,

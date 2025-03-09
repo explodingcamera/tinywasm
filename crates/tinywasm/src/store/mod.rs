@@ -442,6 +442,7 @@ impl Store {
             F64Const(f) => (*f).into(),
             I32Const(i) => (*i).into(),
             I64Const(i) => (*i).into(),
+            V128Const(i) => (*i).into(),
             GlobalGet(addr) => {
                 let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
                     Error::Other(format!("global {addr} not found. This should have been caught by the validator"))
