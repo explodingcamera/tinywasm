@@ -3,21 +3,15 @@
 use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
-use core::ops::{ControlFlow, IndexMut, Shl, Shr};
+use core::ops::{ControlFlow, Index, IndexMut, Shl, Shr};
 
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
+#[cfg(all(feature = "std", feature = "simd"))]
+use crate::std::simd::StdFloat;
 #[cfg(feature = "simd")]
-mod simd {
-    #[cfg(feature = "std")]
-    pub(super) use crate::std::simd::StdFloat;
-    pub(super) use core::simd::cmp::{SimdOrd, SimdPartialEq, SimdPartialOrd};
-    pub(super) use core::simd::num::{SimdFloat, SimdInt, SimdUint};
-    pub(super) use core::simd::*;
-}
-#[cfg(feature = "simd")]
-use simd::*;
+use core::simd::{cmp::*, num::*, *};
 
 use super::num_helpers::*;
 use super::stack::{BlockFrame, BlockType, Stack};
@@ -329,6 +323,22 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I8x16Swizzle => self.stack.values.calculate_same::<Value128>(|a, s| Ok(a.swizzle_dyn(s))).to_cf()?,
             V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
             V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
+
+            V128Store8Lane(arg, lane) => self.exec_mem_store_lane::<i8x16, i8, 1>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Store16Lane(arg, lane) => self.exec_mem_store_lane::<i16x8, i16, 2>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Store32Lane(arg, lane) => self.exec_mem_store_lane::<i32x4, i32, 4>(arg.mem_addr(), arg.offset(), *lane)?,
+            V128Store64Lane(arg, lane) => self.exec_mem_store_lane::<i64x2, i64, 8>(arg.mem_addr(), arg.offset(), *lane)?,
+
+            // Load a single 32-bit or 64-bit element into the lowest bits of a v128 vector, and initialize all other bits of the v128 vector to zero.
+            V128Load32Zero(arg) => self.exec_mem_load::<i32, 4, Value128>(arg.mem_addr(), arg.offset(), |v|  {
+                let bytes = v.to_le_bytes();
+                u8x16::from_array([bytes[0], bytes[1], bytes[2], bytes[3], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            })?,
+            V128Load64Zero(arg) => self.exec_mem_load::<i64, 8, Value128>(arg.mem_addr(), arg.offset(), |v|  {
+                let bytes = v.to_le_bytes();
+                u8x16::from_array([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], 0, 0, 0, 0, 0, 0, 0, 0])
+            })?,
+
             V128Const(arg) => self.exec_const::<Value128>( self.cf.data().v128_constants[*arg as usize].to_le_bytes().into()),
 
             I8x16ExtractLaneS(lane) => self.stack.values.replace_top::<i8x16, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
@@ -564,16 +574,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F64x2Abs => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.abs())).to_cf()?,
             F32x4Neg => self.stack.values.replace_top_same::<f32x4>(|v| Ok(-v)).to_cf()?,
             F64x2Neg => self.stack.values.replace_top_same::<f64x2>(|v| Ok(-v)).to_cf()?,
-            F32x4Sqrt => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.sqrt())).to_cf()?,
-            F64x2Sqrt => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.sqrt())).to_cf()?,
-            F32x4Add => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a + b)).to_cf()?,
-            F64x2Add => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a + b)).to_cf()?,
-            F32x4Sub => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a - b)).to_cf()?,
-            F64x2Sub => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a - b)).to_cf()?,
-            F32x4Mul => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a * b)).to_cf()?,
-            F64x2Mul => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a * b)).to_cf()?,
-            F32x4Div => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a / b)).to_cf()?,
-            F64x2Div => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a / b)).to_cf()?,
+            F32x4Sqrt => self.stack.values.replace_top_same::<f32x4>(|v| Ok(canonicalize_f32x4(v.sqrt()))).to_cf()?,
+            F64x2Sqrt => self.stack.values.replace_top_same::<f64x2>(|v| Ok(canonicalize_f64x2(v.sqrt()))).to_cf()?,
+            F32x4Add => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(canonicalize_f32x4(a + b))).to_cf()?,
+            F64x2Add => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a + b))).to_cf()?,
+            F32x4Sub => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(canonicalize_f32x4(a - b))).to_cf()?,
+            F64x2Sub => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a - b))).to_cf()?,
+            F32x4Mul => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(canonicalize_f32x4(a * b))).to_cf()?,
+            F64x2Mul => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a * b))).to_cf()?,
+            F32x4Div => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(canonicalize_f32x4(a / b))).to_cf()?,
+            F64x2Div => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a / b))).to_cf()?,
             F32x4Min => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_min(b))).to_cf()?,
             F64x2Min => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_min(b))).to_cf()?,
             F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
@@ -952,7 +962,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         &mut self,
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
-        lanes: u8,
+        lane: u8,
     ) -> ControlFlow<Option<Error>> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
         let mut imm = self.stack.values.pop::<INTO>();
@@ -966,24 +976,10 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             })));
         };
         let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
-        imm[lanes as usize] = val;
+        imm[lane as usize] = val;
         self.stack.values.push(imm);
         ControlFlow::Continue(())
     }
-
-    // fn mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
-    //     &mut self,
-    //     mem_addr: tinywasm_types::MemAddr,
-    //     offset: u64,
-    // ) -> Result<LOAD, Error> {
-    //     let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
-    //     let val = self.stack.values.pop::<i32>() as u64;
-    //     let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
-    //         cold();
-    //         return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: val as usize, len: LOAD_SIZE, max: 0 }));
-    //     };
-    //     mem.load_as::<LOAD_SIZE, LOAD>(addr)
-    // }
 
     fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
@@ -1010,6 +1006,29 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push(cast(val));
         ControlFlow::Continue(())
     }
+
+    fn exec_mem_store_lane<T: InternalValue + Index<usize, Output = U>, U: MemStorable<N> + Copy, const N: usize>(
+        &mut self,
+        mem_addr: tinywasm_types::MemAddr,
+        offset: u64,
+        lane: u8,
+    ) -> ControlFlow<Option<Error>> {
+        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
+        let val = self.stack.values.pop::<T>();
+        let val = val[lane as usize].to_mem_bytes();
+
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
+
+        if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
+            return ControlFlow::Break(Some(e));
+        }
+
+        ControlFlow::Continue(())
+    }
+
     fn exec_mem_store<T: InternalValue, U: MemStorable<N>, const N: usize>(
         &mut self,
         mem_addr: tinywasm_types::MemAddr,

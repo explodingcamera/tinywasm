@@ -180,3 +180,21 @@ macro_rules! impl_checked_wrapping_rem {
 }
 
 impl_checked_wrapping_rem! { i32 i64 u32 u64 }
+
+#[cfg(feature = "simd")]
+/// replace all NaNs in a f32x4 with f32::NAN
+pub(crate) fn canonicalize_f32x4(x: core::simd::f32x4) -> core::simd::f32x4 {
+    use core::simd::{Simd, num::SimdFloat};
+    let nan = Simd::splat(f32::NAN);
+    let mask = x.is_nan();
+    mask.select(nan, x)
+}
+
+#[cfg(feature = "simd")]
+/// replace all NaNs in a f64x2 with f64::NAN
+pub(crate) fn canonicalize_f64x2(x: core::simd::f64x2) -> core::simd::f64x2 {
+    use core::simd::{Simd, num::SimdFloat};
+    let nan = Simd::splat(f64::NAN);
+    let mask = x.is_nan();
+    mask.select(nan, x)
+}
