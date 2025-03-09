@@ -470,6 +470,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I32x4MaxU => self.stack.values.calculate_same::<u32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
 
             I64x2Mul => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a * b)).to_cf()?,
+            I16x8Mul => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a * b)).to_cf()?,
+            I32x4Mul => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a * b)).to_cf()?,
+
+            I8x16NarrowI16x8S => unimplemented!(),
+            I8x16NarrowI16x8U => unimplemented!(),
+            I16x8NarrowI32x4S => unimplemented!(),
+            I16x8NarrowI32x4U => unimplemented!(),
 
             I8x16AddSatS => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
             I16x8AddSatS => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.saturating_add(b))).to_cf()?,
@@ -480,8 +487,72 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I8x16SubSatU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
             I16x8SubSatU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
 
-            I16x8Mul => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a * b)).to_cf()?,
-            I32x4Mul => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a * b)).to_cf()?,
+            I16x8ExtAddPairwiseI8x16S => unimplemented!(),
+            I16x8ExtAddPairwiseI8x16U => unimplemented!(),
+            I32x4ExtAddPairwiseI16x8S => unimplemented!(),
+            I32x4ExtAddPairwiseI16x8U => unimplemented!(),
+
+            I16x8ExtMulLowI8x16S => unimplemented!(),
+            I16x8ExtMulLowI8x16U => unimplemented!(),
+            I16x8ExtMulHighI8x16S => unimplemented!(),
+            I16x8ExtMulHighI8x16U => unimplemented!(),
+            I32x4ExtMulLowI16x8S => unimplemented!(),
+            I32x4ExtMulLowI16x8U => unimplemented!(),
+            I32x4ExtMulHighI16x8S => unimplemented!(),
+            I32x4ExtMulHighI16x8U => unimplemented!(),
+            I64x2ExtMulLowI32x4S => unimplemented!(),
+            I64x2ExtMulLowI32x4U => unimplemented!(),
+            I64x2ExtMulHighI32x4S => unimplemented!(),
+            I64x2ExtMulHighI32x4U => unimplemented!(),
+
+            I16x8ExtendLowI8x16S => unimplemented!(),
+            I16x8ExtendLowI8x16U => unimplemented!(),
+            I16x8ExtendHighI8x16S => unimplemented!(),
+            I16x8ExtendHighI8x16U => unimplemented!(),
+            I32x4ExtendLowI16x8S => unimplemented!(),
+            I32x4ExtendLowI16x8U => unimplemented!(),
+            I32x4ExtendHighI16x8S => unimplemented!(),
+            I32x4ExtendHighI16x8U => unimplemented!(),
+            I64x2ExtendLowI32x4S => unimplemented!(),
+            I64x2ExtendLowI32x4U => unimplemented!(),
+            I64x2ExtendHighI32x4S => unimplemented!(),
+            I64x2ExtendHighI32x4U => unimplemented!(),
+
+            I8x16Popcnt => self.stack.values.replace_top::<i8x16, _>(|v| Ok(v.count_ones())).to_cf()?,
+
+            I16x8Q15MulrSatS =>  self.stack.values.calculate_same::<i16x8>(|a, b| {
+                let subq15mulr = |a,b| {
+                    let a = a as i32;
+                    let b = b as i32;
+                    let r = (a * b + 0x4000) >> 15;
+                    if r > i16::MAX as i32 {
+                        i16::MAX
+                    } else if r < i16::MIN as i32 {
+                        i16::MIN
+                    } else {
+                        r as i16
+                    }
+                };
+                Ok(Simd::<i16, 8>::from_array([
+                    subq15mulr(a[0], b[0]),
+                    subq15mulr(a[1], b[1]),
+                    subq15mulr(a[2], b[2]),
+                    subq15mulr(a[3], b[3]),
+                    subq15mulr(a[4], b[4]),
+                    subq15mulr(a[5], b[5]),
+                    subq15mulr(a[6], b[6]),
+                    subq15mulr(a[7], b[7]),
+                ]))
+            }).to_cf()?,
+
+            I32x4DotI16x8S => self.stack.values.calculate::<i16x8, i32x4>(|a, b| {
+                Ok(Simd::<i32, 4>::from_array([
+                    i32::from(a[0] * b[0] + a[1] * b[1]),
+                    i32::from(a[2] * b[2] + a[3] * b[3]),
+                    i32::from(a[4] * b[4] + a[5] * b[5]),
+                    i32::from(a[6] * b[6] + a[7] * b[7]),
+                ]))
+            }).to_cf()?,
 
             F32x4Ceil => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.ceil())).to_cf()?,
             F64x2Ceil => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.ceil())).to_cf()?,
@@ -508,10 +579,34 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
             F64x2Max => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_max(b))).to_cf()?,
 
-            F32x4PMin => unimplemented!(),
-            F32x4PMax => unimplemented!(),
-            F64x2PMin => unimplemented!(),
-            F64x2PMax => unimplemented!(),
+            F32x4PMin => self.stack.values.calculate_same::<f32x4>(|a, b| {
+                Ok(Simd::<f32, 4>::from_array([
+                    if b[0] < a[0] { b[0] } else { a[0]},
+                    if b[1] < a[1] { b[1] } else { a[1]},
+                    if b[2] < a[2] { b[2] } else { a[2]},
+                    if b[3] < a[3] { b[3] } else { a[3]},
+                ]))
+            }).to_cf()?,
+            F32x4PMax => self.stack.values.calculate_same::<f32x4>(|a, b| {
+                Ok(Simd::<f32, 4>::from_array([
+                    if b[0] > a[0] { b[0] } else { a[0]},
+                    if b[1] > a[1] { b[1] } else { a[1]},
+                    if b[2] > a[2] { b[2] } else { a[2]},
+                    if b[3] > a[3] { b[3] } else { a[3]},
+                ]))
+            }).to_cf()?,
+            F64x2PMin => self.stack.values.calculate_same::<f64x2>(|a, b| {
+                Ok(Simd::<f64, 2>::from_array([
+                    if b[0] < a[0] { b[0] } else { a[0]},
+                    if b[1] < a[1] { b[1] } else { a[1]},
+                ]))
+            }).to_cf()?,
+            F64x2PMax => self.stack.values.calculate_same::<f64x2>(|a, b| {
+                Ok(Simd::<f64, 2>::from_array([
+                    if b[0] > a[0] { b[0] } else { a[0]},
+                    if b[1] > a[1] { b[1] } else { a[1]},
+                ]))
+            }).to_cf()?,
 
             // not correct
             I32x4TruncSatF32x4S => self.stack.values.replace_top::<f32x4, f32x4>(|v| Ok(v.trunc())).to_cf()?,
