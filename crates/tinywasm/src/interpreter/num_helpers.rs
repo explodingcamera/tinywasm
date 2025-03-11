@@ -74,7 +74,8 @@ macro_rules! impl_wasm_float_ops {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
             fn tw_nearest(self) -> Self {
                 match self {
-                    x if x.is_nan() => x, // preserve NaN
+                    // x if x.is_nan() => x, // preserve NaN
+                    x if x.is_nan() => Self::NAN, // Do not preserve NaN
                     x if x.is_infinite() || x == 0.0 => x, // preserve infinities and zeros
                     x if (0.0..=0.5).contains(&x) => 0.0,
                     x if (-0.5..0.0).contains(&x) => -0.0,
@@ -99,7 +100,8 @@ macro_rules! impl_wasm_float_ops {
                     Some(core::cmp::Ordering::Less) => self,
                     Some(core::cmp::Ordering::Greater) => other,
                     Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { self } else { other },
-                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    // None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    None => Self::NAN, // Do not preserve NaN
                 }
             }
 
@@ -111,7 +113,8 @@ macro_rules! impl_wasm_float_ops {
                     Some(core::cmp::Ordering::Greater) => self,
                     Some(core::cmp::Ordering::Less) => other,
                     Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { other } else { self },
-                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    // None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    None => Self::NAN, // Do not preserve NaN
                 }
             }
         }

@@ -584,10 +584,34 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             F64x2Mul => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a * b))).to_cf()?,
             F32x4Div => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(canonicalize_f32x4(a / b))).to_cf()?,
             F64x2Div => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(canonicalize_f64x2(a / b))).to_cf()?,
-            F32x4Min => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_min(b))).to_cf()?,
-            F64x2Min => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_min(b))).to_cf()?,
-            F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| Ok(a.simd_max(b))).to_cf()?,
-            F64x2Max => self.stack.values.calculate_same::<f64x2>(|a, b| Ok(a.simd_max(b))).to_cf()?,
+            F32x4Min => self.stack.values.calculate_same::<f32x4>(|a, b| {
+                Ok(Simd::<f32, 4>::from_array([
+                    b[0].tw_minimum(a[0]),
+                    b[1].tw_minimum(a[1]),
+                    b[2].tw_minimum(a[2]),
+                    b[3].tw_minimum(a[3]),
+                ]))
+            }).to_cf()?,
+            F64x2Min => self.stack.values.calculate_same::<f64x2>(|a, b| {
+                Ok(Simd::<f64, 2>::from_array([
+                    b[0].tw_minimum(a[0]),
+                    b[1].tw_minimum(a[1]),
+                ]))
+            }).to_cf()?,
+            F32x4Max => self.stack.values.calculate_same::<f32x4>(|a, b| {
+                Ok(Simd::<f32, 4>::from_array([
+                    b[0].tw_maximum(a[0]),
+                    b[1].tw_maximum(a[1]),
+                    b[2].tw_maximum(a[2]),
+                    b[3].tw_maximum(a[3]),
+                ]))
+            }).to_cf()?,
+            F64x2Max => self.stack.values.calculate_same::<f64x2>(|a, b| {
+                Ok(Simd::<f64, 2>::from_array([
+                    b[0].tw_maximum(a[0]),
+                    b[1].tw_maximum(a[1]),
+                ]))
+            }).to_cf()?,
 
             F32x4PMin => self.stack.values.calculate_same::<f32x4>(|a, b| {
                 Ok(Simd::<f32, 4>::from_array([
