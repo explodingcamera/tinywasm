@@ -1,5 +1,5 @@
 #![allow(unused)]
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
 use std::io::{BufRead, Seek, SeekFrom};

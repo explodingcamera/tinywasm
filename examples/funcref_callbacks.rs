@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{types::FuncRef, Extern, FuncContext, Imports, Module, Store};
+use tinywasm::{Extern, FuncContext, Imports, Module, Store, types::FuncRef};
 
 fn main() -> Result<()> {
     by_func_ref_passed()?;

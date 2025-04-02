@@ -1,7 +1,7 @@
 mod testsuite;
 use eyre::Result;
 use testsuite::TestSuite;
-use wasm_testsuite::data::{proposal, Proposal};
+use wasm_testsuite::data::{Proposal, proposal};
 
 fn main() -> Result<()> {
     TestSuite::set_log_level(log::LevelFilter::Off);

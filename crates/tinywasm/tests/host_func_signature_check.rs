@@ -1,8 +1,8 @@
 use eyre::Result;
 use std::fmt::Write;
 use tinywasm::{
-    types::{FuncType, ValType, WasmValue},
     Extern, FuncContext, Imports, Module, Store,
+    types::{FuncType, ValType, WasmValue},
 };
 use tinywasm_types::ExternRef;
 

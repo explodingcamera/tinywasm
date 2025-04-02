@@ -1,6 +1,6 @@
 use wast::{
-    parser::{self, ParseBuffer},
     Wat,
+    parser::{self, ParseBuffer},
 };
 
 pub fn wat2wasm(wat: &str) -> Vec<u8> {

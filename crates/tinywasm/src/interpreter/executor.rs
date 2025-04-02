@@ -440,12 +440,12 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
             I8x16Shl => self.stack.values.calculate_diff::<i32, i8x16, i8x16>(|a, b| Ok(b.shl(a as i8))).to_cf()?,
             I16x8Shl => self.stack.values.calculate_diff::<i32, i16x8, i16x8>(|a, b| Ok(b.shl(a as i16))).to_cf()?,
-            I32x4Shl => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shl(a as i32))).to_cf()?,
+            I32x4Shl => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shl(a))).to_cf()?,
             I64x2Shl => self.stack.values.calculate_diff::<i32, i64x2, i64x2>(|a, b| Ok(b.shl(a as i64))).to_cf()?,
 
             I8x16ShrS => self.stack.values.calculate_diff::<i32, i8x16, i8x16>(|a, b| Ok(b.shr(a as i8))).to_cf()?,
             I16x8ShrS => self.stack.values.calculate_diff::<i32, i16x8, i16x8>(|a, b| Ok(b.shr(a as i16))).to_cf()?,
-            I32x4ShrS => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shr(a as i32))).to_cf()?,
+            I32x4ShrS => self.stack.values.calculate_diff::<i32, i32x4, i32x4>(|a, b| Ok(b.shr(a))).to_cf()?,
             I64x2ShrS => self.stack.values.calculate_diff::<i32, i64x2, i64x2>(|a, b| Ok(b.shr(a as i64))).to_cf()?,
 
             I8x16ShrU => self.stack.values.calculate_diff::<i32, u8x16, u8x16>(|a, b| Ok(b.shr(a as u8))).to_cf()?,

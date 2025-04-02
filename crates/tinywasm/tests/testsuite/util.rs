@@ -102,7 +102,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        V128(i) => WasmValue::V128(i128::from_le_bytes(i.to_le_bytes()).try_into().unwrap()),
+        V128(i) => WasmValue::V128(i128::from_le_bytes(i.to_le_bytes())),
         RefExtern(v) => WasmValue::RefExtern(ExternRef::new(Some(v))),
         RefNull(t) => match t {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => {
@@ -120,15 +120,15 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
 fn wast_i128_to_i128(i: wast::core::V128Pattern) -> i128 {
     let res: Vec<u8> = match i {
         wast::core::V128Pattern::F32x4(f) => {
-            f.iter().map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f32().unwrap().to_le_bytes()).flatten().collect()
+            f.iter().flat_map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f32().unwrap().to_le_bytes()).collect()
         }
         wast::core::V128Pattern::F64x2(f) => {
-            f.iter().map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f64().unwrap().to_le_bytes()).flatten().collect()
+            f.iter().flat_map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f64().unwrap().to_le_bytes()).collect()
         }
-        wast::core::V128Pattern::I16x8(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
-        wast::core::V128Pattern::I32x4(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
-        wast::core::V128Pattern::I64x2(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
-        wast::core::V128Pattern::I8x16(f) => f.iter().map(|v| v.to_le_bytes()).flatten().collect(),
+        wast::core::V128Pattern::I16x8(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
+        wast::core::V128Pattern::I32x4(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
+        wast::core::V128Pattern::I64x2(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
+        wast::core::V128Pattern::I8x16(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
     };
 
     i128::from_le_bytes(res.try_into().unwrap())
