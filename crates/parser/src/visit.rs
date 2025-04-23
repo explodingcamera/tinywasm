@@ -46,7 +46,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
         reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
     }
 
-    builder.validator_finish(reader.original_position())?;
+    reader.finish()?;
     if !builder.errors.is_empty() {
         return Err(builder.errors.remove(0));
     }
@@ -123,10 +123,6 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         offset: usize,
     ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> + VisitSimdOperator<'_> {
         self.validator.simd_visitor(offset)
-    }
-
-    pub(crate) fn validator_finish(&mut self, offset: usize) -> Result<(), wasmparser::BinaryReaderError> {
-        self.validator.finish(offset)
     }
 }
 

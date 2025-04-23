@@ -20,7 +20,7 @@ tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
-wasm-testsuite={version="0.5.2"}
+wasm-testsuite={version="0.5.3"}
 indexmap="2.7"
 wast={workspace=true}
 wat={workspace=true}
@@ -32,12 +32,14 @@ serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
 
 [features]
-default=["std", "parser", "logging", "archive", "simd"]
+default=["std", "parser", "logging", "archive"]
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 parser=["dep:tinywasm-parser"]
 archive=["tinywasm-types/archive"]
-simd=[]
+
+# enable simd support (unstable / unfinished)
+__simd=[]
 
 [[test]]
 name="test-wasm-1"

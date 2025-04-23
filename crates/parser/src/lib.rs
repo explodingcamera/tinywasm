@@ -82,6 +82,7 @@ impl Parser {
             cm_async_stackful: false,
             cm_nested_names: false,
             cm_values: false,
+            cm_error_context: false,
         };
         Validator::new_with_features(features.into())
     }

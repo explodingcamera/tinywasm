@@ -72,6 +72,7 @@ impl ValueStack {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn calculate_same_3<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate3(self, func)
     }
@@ -88,6 +89,7 @@ impl ValueStack {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub(crate) fn calculate_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
         &mut self,
         func: impl FnOnce(A, B) -> Result<RES>,
@@ -191,10 +193,10 @@ impl ValueStack {
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
 
-            #[cfg(not(feature = "simd"))]
+            #[cfg(not(feature = "__simd"))]
             ValType::V128 => WasmValue::V128(self.pop()),
 
-            #[cfg(feature = "simd")]
+            #[cfg(feature = "__simd")]
             ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.pop::<Value128>().to_array())),
         }
     }

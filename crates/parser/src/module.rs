@@ -130,7 +130,7 @@ impl ModuleReader {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
                 self.code.reserve(count as usize);
-                validator.code_section_start(count, &range)?;
+                validator.code_section_start(&range)?;
             }
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");

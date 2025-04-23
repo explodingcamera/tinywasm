@@ -4,7 +4,6 @@ use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-
 pub struct MemoryArg([u8; 12]);
 
 impl MemoryArg {

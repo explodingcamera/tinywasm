@@ -5,7 +5,7 @@
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "simd", feature(portable_simd))]
+#![cfg_attr(feature = "__simd", feature(portable_simd))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
