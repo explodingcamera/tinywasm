@@ -70,8 +70,6 @@ impl Parser {
             gc_types: true,
             stack_switching: false,
             component_model: false,
-            component_model_nested_names: false,
-            component_model_values: false,
             exceptions: false,
             gc: false,
             memory_control: false,
@@ -79,7 +77,12 @@ impl Parser {
             threads: false,
             shared_everything_threads: false,
             legacy_exceptions: false,
-            component_model_async: false,
+            cm_async: false,
+            cm_async_builtins: false,
+            cm_async_stackful: false,
+            cm_nested_names: false,
+            cm_values: false,
+            cm_error_context: false,
         };
         Validator::new_with_features(features.into())
     }

@@ -74,7 +74,8 @@ macro_rules! impl_wasm_float_ops {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
             fn tw_nearest(self) -> Self {
                 match self {
-                    x if x.is_nan() => x, // preserve NaN
+                    // x if x.is_nan() => x, // preserve NaN
+                    x if x.is_nan() => Self::NAN, // Do not preserve NaN
                     x if x.is_infinite() || x == 0.0 => x, // preserve infinities and zeros
                     x if (0.0..=0.5).contains(&x) => 0.0,
                     x if (-0.5..0.0).contains(&x) => -0.0,
@@ -99,7 +100,8 @@ macro_rules! impl_wasm_float_ops {
                     Some(core::cmp::Ordering::Less) => self,
                     Some(core::cmp::Ordering::Greater) => other,
                     Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { self } else { other },
-                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    // None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    None => Self::NAN, // Do not preserve NaN
                 }
             }
 
@@ -111,7 +113,8 @@ macro_rules! impl_wasm_float_ops {
                     Some(core::cmp::Ordering::Greater) => self,
                     Some(core::cmp::Ordering::Less) => other,
                     Some(core::cmp::Ordering::Equal) => if self.is_sign_negative() && other.is_sign_positive() { other } else { self },
-                    None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    // None => self + other, // At least one input is NaN. Use `+` to perform NaN propagation and quieting.
+                    None => Self::NAN, // Do not preserve NaN
                 }
             }
         }
@@ -180,3 +183,21 @@ macro_rules! impl_checked_wrapping_rem {
 }
 
 impl_checked_wrapping_rem! { i32 i64 u32 u64 }
+
+#[cfg(feature = "__simd")]
+/// replace all NaNs in a f32x4 with f32::NAN
+pub(crate) fn canonicalize_f32x4(x: core::simd::f32x4) -> core::simd::f32x4 {
+    use core::simd::{Simd, num::SimdFloat};
+    let nan = Simd::splat(f32::NAN);
+    let mask = x.is_nan();
+    mask.select(nan, x)
+}
+
+#[cfg(feature = "__simd")]
+/// replace all NaNs in a f64x2 with f64::NAN
+pub(crate) fn canonicalize_f64x2(x: core::simd::f64x2) -> core::simd::f64x2 {
+    use core::simd::{Simd, num::SimdFloat};
+    let nan = Simd::splat(f64::NAN);
+    let mask = x.is_nan();
+    mask.select(nan, x)
+}

@@ -261,6 +261,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(*value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
+        wasmparser::Operator::V128Const { value } => Ok(ConstInstruction::V128Const(value.i128())),
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {op:?}"))),
     }

@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{parser::Parser, types::TinyWasmModule, Module, Store};
+use tinywasm::{Module, Store, parser::Parser, types::TinyWasmModule};
 
 const WASM: &str = r#"
 (module

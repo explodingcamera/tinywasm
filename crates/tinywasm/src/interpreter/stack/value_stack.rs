@@ -72,6 +72,12 @@ impl ValueStack {
     }
 
     #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn calculate_same_3<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
+        T::stack_calculate3(self, func)
+    }
+
+    #[inline]
     pub(crate) fn calculate<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T, T) -> Result<U>,
@@ -79,6 +85,18 @@ impl ValueStack {
         let v2 = T::stack_pop(self);
         let v1 = T::stack_pop(self);
         U::stack_push(self, func(v1, v2)?);
+        Ok(())
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn calculate_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
+        &mut self,
+        func: impl FnOnce(A, B) -> Result<RES>,
+    ) -> Result<()> {
+        let v2 = B::stack_pop(self);
+        let v1 = A::stack_pop(self);
+        RES::stack_push(self, func(v1, v2)?);
         Ok(())
     }
 
@@ -170,11 +188,16 @@ impl ValueStack {
         match val_type {
             ValType::I32 => WasmValue::I32(self.pop()),
             ValType::I64 => WasmValue::I64(self.pop()),
-            ValType::V128 => WasmValue::V128(self.pop()),
             ValType::F32 => WasmValue::F32(self.pop()),
             ValType::F64 => WasmValue::F64(self.pop()),
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
+
+            #[cfg(not(feature = "__simd"))]
+            ValType::V128 => WasmValue::V128(self.pop()),
+
+            #[cfg(feature = "__simd")]
+            ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.pop::<Value128>().to_array())),
         }
     }
 

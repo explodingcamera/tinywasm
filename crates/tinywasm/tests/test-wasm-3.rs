@@ -1,7 +1,7 @@
 mod testsuite;
 use eyre::Result;
 use testsuite::TestSuite;
-use wasm_testsuite::data::{spec, SpecVersion};
+use wasm_testsuite::data::{SpecVersion, spec};
 
 fn main() -> Result<()> {
     if !std::env::args().any(|x| &x == "--enable") {

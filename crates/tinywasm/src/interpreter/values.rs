@@ -1,12 +1,16 @@
 use crate::Result;
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
 
 use super::stack::{Locals, ValueStack};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
-pub(crate) type Value128 = u128;
 pub(crate) type ValueRef = Option<u32>;
+
+#[cfg(feature = "__simd")]
+pub(crate) type Value128 = core::simd::u8x16;
+#[cfg(not(feature = "__simd"))]
+pub(crate) type Value128 = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// A untyped WebAssembly value
@@ -106,9 +110,14 @@ impl TinyWasmValue {
             ValType::I64 => WasmValue::I64(self.unwrap_64() as i64),
             ValType::F32 => WasmValue::F32(f32::from_bits(self.unwrap_32())),
             ValType::F64 => WasmValue::F64(f64::from_bits(self.unwrap_64())),
-            ValType::V128 => WasmValue::V128(self.unwrap_128()),
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.unwrap_ref())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
+
+            #[cfg(feature = "__simd")]
+            ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.unwrap_128().to_array())),
+
+            #[cfg(not(feature = "__simd"))]
+            ValType::V128 => WasmValue::V128(self.unwrap_128()),
         }
     }
 }
@@ -118,11 +127,16 @@ impl From<&WasmValue> for TinyWasmValue {
         match value {
             WasmValue::I32(v) => TinyWasmValue::Value32(*v as u32),
             WasmValue::I64(v) => TinyWasmValue::Value64(*v as u64),
-            WasmValue::V128(v) => TinyWasmValue::Value128(*v),
             WasmValue::F32(v) => TinyWasmValue::Value32(v.to_bits()),
             WasmValue::F64(v) => TinyWasmValue::Value64(v.to_bits()),
             WasmValue::RefExtern(v) => TinyWasmValue::ValueRef(v.addr()),
             WasmValue::RefFunc(v) => TinyWasmValue::ValueRef(v.addr()),
+
+            #[cfg(not(feature = "__simd"))]
+            WasmValue::V128(v) => TinyWasmValue::Value128(*v),
+
+            #[cfg(feature = "__simd")]
+            WasmValue::V128(v) => TinyWasmValue::Value128(v.to_le_bytes().into()),
         }
     }
 }
@@ -144,6 +158,10 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     where
         Self: Sized;
     fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()>
+    where
+        Self: Sized;
+    #[allow(dead_code)]
+    fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
 
@@ -203,6 +221,19 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
+                fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()> {
+                    let v3 = stack.$stack.pop();
+                    let v2 = stack.$stack.pop();
+                    let v1 = stack.$stack.last_mut();
+                    let (Some(v1), Some(v2), Some(v3)) = (v1, v2, v3) else {
+                         unreachable!("ValueStack underflow, this is a bug");
+                    };
+
+                    *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2), $to_outer(v3))?);
+                    return Ok(())
+                }
+
+                #[inline(always)]
                 fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()> {
                     let Some(v) = stack.$stack.last_mut() else {
                         unreachable!("ValueStack underflow, this is a bug");
@@ -239,6 +270,25 @@ impl_internalvalue! {
     Value64, stack_64, locals_64, u64, i64, |v| v as u64, |v| v as i64
     Value32, stack_32, locals_32, u32, f32, f32::to_bits, f32::from_bits
     Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
-    Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
     ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v
+    Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
+}
+
+#[cfg(feature = "__simd")]
+use core::simd::{num::SimdUint, *};
+
+#[cfg(feature = "__simd")]
+impl_internalvalue! {
+    Value128, stack_128, locals_128, u8x16, i128, |v: i128| v.to_le_bytes().into(), |v: u8x16| i128::from_le_bytes(v.into())
+    Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_le_bytes().into(), |v: u8x16| u128::from_le_bytes(v.into())
+    Value128, stack_128, locals_128, u8x16, i8x16, |v: i8x16| v.to_le_bytes(), |v: u8x16| v.cast()
+    Value128, stack_128, locals_128, u8x16, i16x8, |v: i16x8| v.to_le_bytes(), |v: u8x16| i16x8::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i32x4, |v: i32x4| v.to_le_bytes(), |v: u8x16| i32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, i64x2, |v: i64x2| v.to_le_bytes(), |v: u8x16| i64x2::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f32x4, |v: f32x4| v.to_le_bytes(), |v: u8x16| f32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, f64x2, |v: f64x2| v.to_le_bytes(), |v: u8x16| f64x2::from_le_bytes(v)
+
+    Value128, stack_128, locals_128, u8x16, u16x8, |v: u16x8| v.to_le_bytes(), |v: u8x16| u16x8::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u32x4, |v: u32x4| v.to_le_bytes(), |v: u8x16| u32x4::from_le_bytes(v)
+    Value128, stack_128, locals_128, u8x16, u64x2, |v: u64x2| v.to_le_bytes(), |v: u8x16| u64x2::from_le_bytes(v)
 }

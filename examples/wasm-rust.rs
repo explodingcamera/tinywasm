@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use tinywasm::{Extern, FuncContext, Imports, MemoryStringExt, Module, Store};
 
 /// Examples of using WebAssembly compiled from Rust with tinywasm.

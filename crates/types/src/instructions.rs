@@ -4,7 +4,6 @@ use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-
 pub struct MemoryArg([u8; 12]);
 
 impl MemoryArg {
@@ -36,6 +35,7 @@ pub enum ConstInstruction {
     I64Const(i64),
     F32Const(f32),
     F64Const(f64),
+    V128Const(i128),
     GlobalGet(GlobalAddr),
     RefFunc(Option<FuncAddr>),
     RefExtern(Option<ExternAddr>),
@@ -206,18 +206,17 @@ pub enum Instruction {
     F32x4ExtractLane(u8), F32x4ReplaceLane(u8),
     F64x2ExtractLane(u8), F64x2ReplaceLane(u8),
 
-    V128Not, V128And, V128AndNot, V128Or, V128Xor, V128Bitselect, V128AnyTrue,
-
-    I8x16Splat, I8x16Swizzle, I8x16Eq, I8x16Ne, I8x16LtS, I8x16LtU, I8x16GtS, I8x16GtU, I8x16LeS, I8x16LeU, I8x16GeS, I8x16GeU,
+    V128Not, V128And, V128AndNot, V128Or, V128Xor, V128Bitselect, V128AnyTrue, I8x16Swizzle,
+    I8x16Splat, I8x16Eq, I8x16Ne, I8x16LtS, I8x16LtU, I8x16GtS, I8x16GtU, I8x16LeS, I8x16LeU, I8x16GeS, I8x16GeU,
     I16x8Splat, I16x8Eq, I16x8Ne, I16x8LtS, I16x8LtU, I16x8GtS, I16x8GtU, I16x8LeS, I16x8LeU, I16x8GeS, I16x8GeU,
     I32x4Splat, I32x4Eq, I32x4Ne, I32x4LtS, I32x4LtU, I32x4GtS, I32x4GtU, I32x4LeS, I32x4LeU, I32x4GeS, I32x4GeU,
-    I64x2Splat, I64x2Eq, I64x2Ne, I64x2LtS, I64x2GtS, I64x2LeS, I64x2GeS, 
+    I64x2Splat, I64x2Eq, I64x2Ne, I64x2LtS, I64x2GtS, I64x2LeS, I64x2GeS,
     F32x4Splat, F32x4Eq, F32x4Ne, F32x4Lt, F32x4Gt, F32x4Le, F32x4Ge,
     F64x2Splat, F64x2Eq, F64x2Ne, F64x2Lt, F64x2Gt, F64x2Le, F64x2Ge,
 
     I8x16Abs, I8x16Neg, I8x16AllTrue, I8x16Bitmask, I8x16Shl, I8x16ShrS, I8x16ShrU, I8x16Add, I8x16Sub, I8x16MinS, I8x16MinU, I8x16MaxS, I8x16MaxU,
     I16x8Abs, I16x8Neg, I16x8AllTrue, I16x8Bitmask, I16x8Shl, I16x8ShrS, I16x8ShrU, I16x8Add, I16x8Sub, I16x8MinS, I16x8MinU, I16x8MaxS, I16x8MaxU,
-    I32x4Abs, I32x4Neg, I32x4AllTrue, I32x4Bitmask, I32x4Shl, I32x4ShrS, I32x4ShrU, I32x4Add, I32x4Sub, I32x4MinS, I32x4MinU, I32x4MaxS, I32x4MaxU, 
+    I32x4Abs, I32x4Neg, I32x4AllTrue, I32x4Bitmask, I32x4Shl, I32x4ShrS, I32x4ShrU, I32x4Add, I32x4Sub, I32x4MinS, I32x4MinU, I32x4MaxS, I32x4MaxU,
     I64x2Abs, I64x2Neg, I64x2AllTrue, I64x2Bitmask, I64x2Shl, I64x2ShrS, I64x2ShrU, I64x2Add, I64x2Sub, I64x2Mul,
 
     I8x16NarrowI16x8S, I8x16NarrowI16x8U, I8x16AddSatS, I8x16AddSatU, I8x16SubSatS, I8x16SubSatU, I8x16AvgrU,

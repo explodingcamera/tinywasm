@@ -7,7 +7,7 @@ use crate::{Error, unlikely};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};
-use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmValue};
+use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
 
 pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
@@ -68,6 +68,12 @@ impl CallFrame {
     #[inline]
     pub(crate) fn instr_ptr(&self) -> usize {
         self.instr_ptr
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn data(&self) -> &WasmFunctionData {
+        &self.func_instance.data
     }
 
     #[inline]

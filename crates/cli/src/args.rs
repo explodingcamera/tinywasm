@@ -25,6 +25,7 @@ impl FromStr for WasmArg {
             "i64" => val.parse::<i64>().map_err(|e| format!("invalid argument value for i64: {e:?}"))?.into(),
             "f32" => val.parse::<f32>().map_err(|e| format!("invalid argument value for f32: {e:?}"))?.into(),
             "f64" => val.parse::<f64>().map_err(|e| format!("invalid argument value for f64: {e:?}"))?.into(),
+            "v128" => val.parse::<i128>().map_err(|e| format!("invalid argument value for v128: {e:?}"))?.into(),
             t => return Err(format!("Invalid arg type: {t}")),
         };
 

@@ -46,7 +46,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
         reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
     }
 
-    builder.validator_finish(reader.original_position())?;
+    reader.finish()?;
     if !builder.errors.is_empty() {
         return Err(builder.errors.remove(0));
     }
@@ -111,7 +111,7 @@ macro_rules! define_mem_operands_simd_lane {
 pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
-    v128_constants: Vec<u128>,
+    v128_constants: Vec<i128>,
     label_ptrs: Vec<usize>,
     local_addr_map: Vec<u32>,
     errors: Vec<crate::ParseError>,
@@ -123,10 +123,6 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         offset: usize,
     ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> + VisitSimdOperator<'_> {
         self.validator.simd_visitor(offset)
-    }
-
-    pub(crate) fn validator_finish(&mut self, offset: usize) -> Result<(), wasmparser::BinaryReaderError> {
-        self.validator.finish(offset)
     }
 }
 
@@ -534,12 +530,12 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
     }
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
-        self.v128_constants.push(u128::from_le_bytes(lanes));
-        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32 - 1));
+        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32));
+        self.v128_constants.push(i128::from_le_bytes(lanes));
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        self.v128_constants.push(value.i128() as u128);
-        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32 - 1));
+        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32));
+        self.v128_constants.push(value.i128());
     }
 }
