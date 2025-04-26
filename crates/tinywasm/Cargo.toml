@@ -32,11 +32,19 @@ serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
 
 [features]
-default=["std", "parser", "logging", "archive"]
+default=["std", "parser", "logging", "archive", "canonicalize_nans"]
+
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
+
+# support for parsing WebAssembly
 parser=["dep:tinywasm-parser"]
+
+# support for "archiving" tinywasm bytecode
 archive=["tinywasm-types/archive"]
+
+# canonicalize all NaN values to a single representation
+canonicalize_nans=[]
 
 # enable simd support (unstable / unfinished)
 __simd=[]
