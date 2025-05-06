@@ -74,7 +74,7 @@ pub fn encode_quote_wat(module: QuoteWat) -> (Option<String>, Vec<u8>) {
             };
             (module.id.map(|id| id.name().to_string()), wat.encode().expect("failed to encode module"))
         }
-        _ => unimplemented!("Not supported"),
+        QuoteWat::QuoteComponent(..) => unimplemented!("components are not supported"),
     }
 }
 
@@ -96,7 +96,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
         bail!("unsupported arg type: Component");
     };
 
-    use wast::core::WastArgCore::{F32, F64, I32, I64, RefExtern, RefNull, V128};
+    use wast::core::WastArgCore::*;
     Ok(match arg {
         F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
@@ -113,7 +113,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue
             }
             _ => bail!("unsupported arg type: refnull: {:?}", t),
         },
-        v => bail!("unsupported arg type: {:?}", v),
+        RefHost(v) => bail!("unsupported arg type: RefHost"),
     })
 }
 

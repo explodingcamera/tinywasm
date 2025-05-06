@@ -2,7 +2,7 @@ use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, Val
 use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryArg([u8; 12]);
 

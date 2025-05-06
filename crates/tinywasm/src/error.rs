@@ -51,6 +51,7 @@ pub enum Error {
 
 #[derive(Debug)]
 /// Errors that can occur when linking a WebAssembly module
+#[non_exhaustive]
 pub enum LinkingError {
     /// An unknown import was encountered
     UnknownImport {
@@ -83,6 +84,7 @@ impl LinkingError {
 /// A WebAssembly trap
 ///
 /// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
+#[non_exhaustive]
 pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,

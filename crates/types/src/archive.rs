@@ -34,10 +34,10 @@ pub enum TwasmError {
 impl Display for TwasmError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            TwasmError::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
-            TwasmError::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
-            TwasmError::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
-            TwasmError::InvalidArchive(e) => write!(f, "Invalid twasm: {e}"),
+            Self::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
+            Self::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
+            Self::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
+            Self::InvalidArchive(e) => write!(f, "Invalid twasm: {e}"),
         }
     }
 }
@@ -49,7 +49,7 @@ impl core::error::Error for TwasmError {}
 
 impl TinyWasmModule {
     /// Creates a `TinyWasmModule` from a slice of bytes.
-    pub fn from_twasm(wasm: &[u8]) -> Result<TinyWasmModule, TwasmError> {
+    pub fn from_twasm(wasm: &[u8]) -> Result<Self, TwasmError> {
         let len = validate_magic(wasm)?;
 
         postcard::from_bytes(&wasm[len..]).map_err(TwasmError::InvalidArchive)

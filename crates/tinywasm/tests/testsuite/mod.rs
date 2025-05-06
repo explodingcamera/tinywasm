@@ -41,7 +41,7 @@ impl TestSuite {
     pub fn print_errors(&self) {
         for (group_name, group) in &self.0 {
             let tests = &group.tests;
-            for (test_name, test) in tests.iter() {
+            for (test_name, test) in tests {
                 if let Err(e) = &test.result {
                     eprintln!(
                         "{} {} failed: {:?}",

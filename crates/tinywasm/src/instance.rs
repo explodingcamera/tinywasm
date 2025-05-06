@@ -12,7 +12,7 @@ use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut
 #[derive(Debug, Clone)]
 pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ModuleInstanceInner {
     pub(crate) failed_to_instantiate: bool,
@@ -90,7 +90,7 @@ impl ModuleInstance {
             exports: module.0.exports,
         };
 
-        let instance = ModuleInstance::new(instance);
+        let instance = Self::new(instance);
         store.add_instance(instance.clone());
 
         match (elem_trapped, data_trapped) {

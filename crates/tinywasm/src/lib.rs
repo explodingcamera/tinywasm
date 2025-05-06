@@ -75,7 +75,7 @@ extern crate alloc;
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
-#[allow(clippy::single_component_path_imports)]
+#[expect(clippy::single_component_path_imports)]
 use log;
 
 // noop fallback if logging is disabled.

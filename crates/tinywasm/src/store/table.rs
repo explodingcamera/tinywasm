@@ -159,8 +159,8 @@ pub(crate) enum TableElement {
 impl From<Option<Addr>> for TableElement {
     fn from(addr: Option<Addr>) -> Self {
         match addr {
-            None => TableElement::Uninitialized,
-            Some(addr) => TableElement::Initialized(addr),
+            None => Self::Uninitialized,
+            Some(addr) => Self::Initialized(addr),
         }
     }
 }
@@ -168,15 +168,15 @@ impl From<Option<Addr>> for TableElement {
 impl TableElement {
     pub(crate) fn addr(&self) -> Option<Addr> {
         match self {
-            TableElement::Uninitialized => None,
-            TableElement::Initialized(addr) => Some(*addr),
+            Self::Uninitialized => None,
+            Self::Initialized(addr) => Some(*addr),
         }
     }
 
     pub(crate) fn map(self, f: impl FnOnce(Addr) -> Addr) -> Self {
         match self {
-            TableElement::Uninitialized => TableElement::Uninitialized,
-            TableElement::Initialized(addr) => TableElement::Initialized(f(addr)),
+            Self::Uninitialized => Self::Uninitialized,
+            Self::Initialized(addr) => Self::Initialized(f(addr)),
         }
     }
 }

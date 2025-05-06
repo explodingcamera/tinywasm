@@ -1,6 +1,6 @@
 use crate::interpreter::stack::{CallFrame, Stack};
+use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
-use crate::{Function, log, unlikely};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
@@ -38,11 +38,11 @@ impl FuncHandle {
 
         // 5. For each value type and the corresponding value, check if types match
         if !(func_ty.params.iter().zip(params).enumerate().all(|(_i, (ty, param))| {
-            if ty != &param.val_type() {
+            if ty == &param.val_type() {
+                true
+            } else {
                 log::error!("param type mismatch at index {_i}: expected {ty:?}, got {param:?}");
                 false
-            } else {
-                true
             }
         })) {
             return Err(Error::Other("Type mismatch".into()));

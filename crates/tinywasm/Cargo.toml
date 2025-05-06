@@ -7,6 +7,8 @@ license.workspace=true
 authors.workspace=true
 repository.workspace=true
 rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
 readme="../../README.md"
 
 [lib]
@@ -32,7 +34,7 @@ serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
 
 [features]
-default=["std", "parser", "logging", "archive", "canonicalize_nans"]
+default=["std", "parser", "logging", "archive", "canonicalize_nans", "__simd"]
 
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]

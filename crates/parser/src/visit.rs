@@ -370,17 +370,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
                 let if_instruction = &mut self.instructions[if_label_pointer];
 
-                let (else_offset, end_offset) = match if_instruction {
-                    Instruction::If(else_offset, end_offset)
-                    | Instruction::IfWithFuncType(_, else_offset, end_offset)
-                    | Instruction::IfWithType(_, else_offset, end_offset) => (else_offset, end_offset),
-                    _ => {
-                        self.errors.push(crate::ParseError::UnsupportedOperator(
-                            "Expected to end an if block, but the last label was not an if".to_string(),
-                        ));
-
-                        return;
-                    }
+                let (Instruction::If(else_offset, end_offset)
+                | Instruction::IfWithFuncType(_, else_offset, end_offset)
+                | Instruction::IfWithType(_, else_offset, end_offset)) = if_instruction
+                else {
+                    return self.errors.push(crate::ParseError::UnsupportedOperator(
+                        "Expected to end an if block, but the last label was not an if".to_string(),
+                    ));
                 };
 
                 *else_offset = (label_pointer - if_label_pointer)

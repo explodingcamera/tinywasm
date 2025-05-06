@@ -12,7 +12,7 @@ pub(crate) type Value128 = core::simd::u8x16;
 #[cfg(not(feature = "__simd"))]
 pub(crate) type Value128 = i128;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A untyped WebAssembly value
 pub enum TinyWasmValue {
     /// A 32-bit value
@@ -74,7 +74,7 @@ impl TinyWasmValue {
     /// Asserts that the value is a 32-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_32(&self) -> Value32 {
         match self {
-            TinyWasmValue::Value32(v) => *v,
+            Self::Value32(v) => *v,
             _ => unreachable!("Expected Value32"),
         }
     }
@@ -82,7 +82,7 @@ impl TinyWasmValue {
     /// Asserts that the value is a 64-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_64(&self) -> Value64 {
         match self {
-            TinyWasmValue::Value64(v) => *v,
+            Self::Value64(v) => *v,
             _ => unreachable!("Expected Value64"),
         }
     }
@@ -90,7 +90,7 @@ impl TinyWasmValue {
     /// Asserts that the value is a 128-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_128(&self) -> Value128 {
         match self {
-            TinyWasmValue::Value128(v) => *v,
+            Self::Value128(v) => *v,
             _ => unreachable!("Expected Value128"),
         }
     }
@@ -98,7 +98,7 @@ impl TinyWasmValue {
     /// Asserts that the value is a reference value and returns it (panics if the value is the wrong size)
     pub fn unwrap_ref(&self) -> ValueRef {
         match self {
-            TinyWasmValue::ValueRef(v) => *v,
+            Self::ValueRef(v) => *v,
             _ => unreachable!("Expected ValueRef"),
         }
     }
@@ -125,15 +125,15 @@ impl TinyWasmValue {
 impl From<&WasmValue> for TinyWasmValue {
     fn from(value: &WasmValue) -> Self {
         match value {
-            WasmValue::I32(v) => TinyWasmValue::Value32(*v as u32),
-            WasmValue::I64(v) => TinyWasmValue::Value64(*v as u64),
-            WasmValue::F32(v) => TinyWasmValue::Value32(v.to_bits()),
-            WasmValue::F64(v) => TinyWasmValue::Value64(v.to_bits()),
-            WasmValue::RefExtern(v) => TinyWasmValue::ValueRef(v.addr()),
-            WasmValue::RefFunc(v) => TinyWasmValue::ValueRef(v.addr()),
+            WasmValue::I32(v) => Self::Value32(*v as u32),
+            WasmValue::I64(v) => Self::Value64(*v as u64),
+            WasmValue::F32(v) => Self::Value32(v.to_bits()),
+            WasmValue::F64(v) => Self::Value64(v.to_bits()),
+            WasmValue::RefExtern(v) => Self::ValueRef(v.addr()),
+            WasmValue::RefFunc(v) => Self::ValueRef(v.addr()),
 
             #[cfg(not(feature = "__simd"))]
-            WasmValue::V128(v) => TinyWasmValue::Value128(*v),
+            WasmValue::V128(v) => Self::Value128(*v),
 
             #[cfg(feature = "__simd")]
             WasmValue::V128(v) => TinyWasmValue::Value128(v.to_le_bytes().into()),
@@ -143,12 +143,12 @@ impl From<&WasmValue> for TinyWasmValue {
 
 impl From<WasmValue> for TinyWasmValue {
     fn from(value: WasmValue) -> Self {
-        TinyWasmValue::from(&value)
+        Self::from(&value)
     }
 }
 
 mod sealed {
-    #[allow(unreachable_pub)]
+    #[expect(unreachable_pub)]
     pub trait Sealed {}
 }
 
@@ -160,7 +160,6 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
-    #[allow(dead_code)]
     fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
@@ -266,8 +265,8 @@ macro_rules! impl_internalvalue {
 impl_internalvalue! {
     Value32, stack_32, locals_32, u32, u32, |v| v, |v| v
     Value64, stack_64, locals_64, u64, u64, |v| v, |v| v
-    Value32, stack_32, locals_32, u32, i32, |v| v as u32, |v: u32| v as i32
-    Value64, stack_64, locals_64, u64, i64, |v| v as u64, |v| v as i64
+    Value32, stack_32, locals_32, u32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
+    Value64, stack_64, locals_64, u64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
     Value32, stack_32, locals_32, u32, f32, f32::to_bits, f32::from_bits
     Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
     ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v

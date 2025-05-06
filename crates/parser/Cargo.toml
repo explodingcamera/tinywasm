@@ -7,6 +7,8 @@ license.workspace=true
 authors.workspace=true
 repository.workspace=true
 rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
 
 [dependencies]
 wasmparser={workspace=true, features=["validate", "features", "simd"]}

@@ -170,7 +170,7 @@ impl Extern {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
             let args = P::from_wasm_value_tuple(args)?;
             let result = func(ctx, args)?;
-            Ok(result.into_wasm_value_tuple().to_vec())
+            Ok(result.into_wasm_value_tuple())
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
@@ -263,7 +263,7 @@ impl ResolvedImports {
 impl Imports {
     /// Create a new empty import set
     pub fn new() -> Self {
-        Imports { values: BTreeMap::new(), modules: BTreeMap::new() }
+        Self { values: BTreeMap::new(), modules: BTreeMap::new() }
     }
 
     /// Merge two import sets

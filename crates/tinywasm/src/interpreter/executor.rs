@@ -142,16 +142,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Load(m) => self.exec_mem_load::<i64, 8, _>(m.mem_addr(), m.offset(), |v| v)?,
             F32Load(m) => self.exec_mem_load::<f32, 4, _>(m.mem_addr(), m.offset(), |v| v)?,
             F64Load(m) => self.exec_mem_load::<f64, 8, _>(m.mem_addr(), m.offset(), |v| v)?,
-            I32Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
-            I32Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
-            I32Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
-            I32Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), |v| v as i32)?,
-            I64Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
-            I64Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
-            I64Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
-            I64Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
-            I64Load32S(m) => self.exec_mem_load::<i32, 4, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
-            I64Load32U(m) => self.exec_mem_load::<u32, 4, _>(m.mem_addr(), m.offset(), |v| v as i64)?,
+            I32Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), i32::from)?,
+            I32Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), i32::from)?,
+            I32Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), i32::from)?,
+            I32Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), i32::from)?,
+            I64Load8S(m) => self.exec_mem_load::<i8, 1, _>(m.mem_addr(), m.offset(), i64::from)?,
+            I64Load8U(m) => self.exec_mem_load::<u8, 1, _>(m.mem_addr(), m.offset(), i64::from)?,
+            I64Load16S(m) => self.exec_mem_load::<i16, 2, _>(m.mem_addr(), m.offset(), i64::from)?,
+            I64Load16U(m) => self.exec_mem_load::<u16, 2, _>(m.mem_addr(), m.offset(), i64::from)?,
+            I64Load32S(m) => self.exec_mem_load::<i32, 4, _>(m.mem_addr(), m.offset(), i64::from)?,
+            I64Load32U(m) => self.exec_mem_load::<u32, 4, _>(m.mem_addr(), m.offset(), i64::from)?,
 
             I64Eqz => self.stack.values.replace_top::<i64, _>(|v| Ok(i32::from(v == 0))).to_cf()?,
             I32Eqz => self.stack.values.replace_top_same::<i32>(|v| Ok(i32::from(v == 0))).to_cf()?,
@@ -238,32 +238,32 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             I64Rotr => self.stack.values.calculate_same::<i64>(|a, b| Ok(a.wasm_rotr(b))).to_cf()?,
 
             I32Clz => self.stack.values.replace_top_same::<i32>(|v| Ok(v.leading_zeros() as i32)).to_cf()?,
-            I64Clz => self.stack.values.replace_top_same::<i64>(|v| Ok(v.leading_zeros() as i64)).to_cf()?,
+            I64Clz => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v.leading_zeros()))).to_cf()?,
             I32Ctz => self.stack.values.replace_top_same::<i32>(|v| Ok(v.trailing_zeros() as i32)).to_cf()?,
-            I64Ctz => self.stack.values.replace_top_same::<i64>(|v| Ok(v.trailing_zeros() as i64)).to_cf()?,
+            I64Ctz => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v.trailing_zeros()))).to_cf()?,
             I32Popcnt => self.stack.values.replace_top_same::<i32>(|v| Ok(v.count_ones() as i32)).to_cf()?,
-            I64Popcnt => self.stack.values.replace_top_same::<i64>(|v| Ok(v.count_ones() as i64)).to_cf()?,
+            I64Popcnt => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v.count_ones()))).to_cf()?,
 
             F32ConvertI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as f32)).to_cf()?,
             F32ConvertI64S => self.stack.values.replace_top::<i64, _>(|v| Ok(v as f32)).to_cf()?,
-            F64ConvertI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as f64)).to_cf()?,
+            F64ConvertI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(f64::from(v))).to_cf()?,
             F64ConvertI64S => self.stack.values.replace_top::<i64, _>(|v| Ok(v as f64)).to_cf()?,
             F32ConvertI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as f32)).to_cf()?,
             F32ConvertI64U => self.stack.values.replace_top::<u64, _>(|v| Ok(v as f32)).to_cf()?,
-            F64ConvertI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as f64)).to_cf()?,
+            F64ConvertI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(f64::from(v))).to_cf()?,
             F64ConvertI64U => self.stack.values.replace_top::<u64, _>(|v| Ok(v as f64)).to_cf()?,
 
-            I32Extend8S => self.stack.values.replace_top_same::<i32>(|v| Ok((v as i8) as i32)).to_cf()?,
-            I32Extend16S => self.stack.values.replace_top_same::<i32>(|v| Ok((v as i16) as i32)).to_cf()?,
-            I64Extend8S => self.stack.values.replace_top_same::<i64>(|v| Ok((v as i8) as i64)).to_cf()?,
-            I64Extend16S => self.stack.values.replace_top_same::<i64>(|v| Ok((v as i16) as i64)).to_cf()?,
-            I64Extend32S => self.stack.values.replace_top_same::<i64>(|v| Ok((v as i32) as i64)).to_cf()?,
-            I64ExtendI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(v as i64)).to_cf()?,
-            I64ExtendI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(v as i64)).to_cf()?,
+            I32Extend8S => self.stack.values.replace_top_same::<i32>(|v| Ok(i32::from(v as i8))).to_cf()?,
+            I32Extend16S => self.stack.values.replace_top_same::<i32>(|v| Ok(i32::from(v as i16))).to_cf()?,
+            I64Extend8S => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v as i8))).to_cf()?,
+            I64Extend16S => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v as i16))).to_cf()?,
+            I64Extend32S => self.stack.values.replace_top_same::<i64>(|v| Ok(i64::from(v as i32))).to_cf()?,
+            I64ExtendI32U => self.stack.values.replace_top::<u32, _>(|v| Ok(i64::from(v))).to_cf()?,
+            I64ExtendI32S => self.stack.values.replace_top::<i32, _>(|v| Ok(i64::from(v))).to_cf()?,
             I32WrapI64 => self.stack.values.replace_top::<i64, _>(|v| Ok(v as i32)).to_cf()?,
 
             F32DemoteF64 => self.stack.values.replace_top::<f64, _>(|v| Ok(v as f32)).to_cf()?,
-            F64PromoteF32 => self.stack.values.replace_top::<f32, _>(|v| Ok(v as f64)).to_cf()?,
+            F64PromoteF32 => self.stack.values.replace_top::<f32, _>(|v| Ok(f64::from(v))).to_cf()?,
 
             F32Abs => self.stack.values.replace_top_same::<f32>(|v| Ok(v.abs())).to_cf()?,
             F64Abs => self.stack.values.replace_top_same::<f64>(|v| Ok(v.abs())).to_cf()?,
@@ -324,7 +324,19 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] V128Bitselect => self.stack.values.calculate_same_3::<Value128>(|v1, v2, c| Ok((v1 & c) | (v2 & !c))).to_cf()?,
             #[cfg(feature = "__simd")] V128AnyTrue => self.stack.values.replace_top::<Value128, i32>(|v| Ok((v.reduce_or() != 0) as i32)).to_cf()?,
             #[cfg(feature = "__simd")] I8x16Swizzle => self.stack.values.calculate_same::<Value128>(|a, s| Ok(a.swizzle_dyn(s))).to_cf()?,
+
             #[cfg(feature = "__simd")] V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
+            #[cfg(feature = "__simd")] V128Load8x8S(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load8x8U(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load16x4S(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load16x4U(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load32x2S(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load32x2U(_arg) => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load8Splat(_arg)  => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load16Splat(_arg)  => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load32Splat(_arg)  => unimplemented!(),
+            #[cfg(feature = "__simd")] V128Load64Splat(_arg)  => unimplemented!(),
+
             #[cfg(feature = "__simd")] V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
 
             #[cfg(feature = "__simd")] V128Store8Lane(arg, lane) => self.exec_mem_store_lane::<i8x16, i8, 1>(arg.mem_addr(), arg.offset(), *lane)?,
@@ -358,6 +370,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] V128Load32Lane(arg, lane) => self.exec_mem_load_lane::<i32, i32x4, 4>(arg.mem_addr(), arg.offset(), *lane)?,
             #[cfg(feature = "__simd")] V128Load64Lane(arg, lane) => self.exec_mem_load_lane::<i64, i64x2, 8>(arg.mem_addr(), arg.offset(), *lane)?,
 
+            #[cfg(feature = "__simd")] I8x16ReplaceLane(_lane) => unimplemented!(),
+            #[cfg(feature = "__simd")] I16x8ReplaceLane(_lane) => unimplemented!(),
+            #[cfg(feature = "__simd")] I32x4ReplaceLane(_lane) => unimplemented!(),
+            #[cfg(feature = "__simd")] I64x2ReplaceLane(_lane) => unimplemented!(),
+            #[cfg(feature = "__simd")] F32x4ReplaceLane(_lane) => unimplemented!(),
+            #[cfg(feature = "__simd")] F64x2ReplaceLane(_lane) => unimplemented!(),
+
             #[cfg(feature = "__simd")] I8x16Splat => self.stack.values.replace_top::<i32, i8x16>(|v| Ok(Simd::<i8, 16>::splat(v as i8))).to_cf()?,
             #[cfg(feature = "__simd")] I16x8Splat => self.stack.values.replace_top::<i32, i16x8>(|v| Ok(Simd::<i16, 8>::splat(v as i16))).to_cf()?,
             #[cfg(feature = "__simd")] I32x4Splat => self.stack.values.replace_top::<i32, i32x4>(|v| Ok(Simd::<i32, 4>::splat(v))).to_cf()?,
@@ -368,12 +387,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] I8x16Eq => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] I16x8Eq => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] I32x4Eq => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
+            #[cfg(feature = "__simd")] I64x2Eq => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] F32x4Eq => self.stack.values.calculate::<f32x4, _>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] F64x2Eq => self.stack.values.calculate::<f64x2, _>(|a, b| Ok(a.simd_eq(b).to_int())).to_cf()?,
 
             #[cfg(feature = "__simd")] I8x16Ne => self.stack.values.calculate_same::<i8x16>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] I16x8Ne => self.stack.values.calculate_same::<i16x8>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] I32x4Ne => self.stack.values.calculate_same::<i32x4>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
+            #[cfg(feature = "__simd")] I64x2Ne => self.stack.values.calculate_same::<i64x2>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] F32x4Ne => self.stack.values.calculate::<f32x4, _>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
             #[cfg(feature = "__simd")] F64x2Ne => self.stack.values.calculate::<f64x2, _>(|a, b| Ok(a.simd_ne(b).to_int())).to_cf()?,
 
@@ -500,6 +521,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] I8x16SubSatU => self.stack.values.calculate_same::<u8x16>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
             #[cfg(feature = "__simd")] I16x8SubSatU => self.stack.values.calculate_same::<u16x8>(|a, b| Ok(a.saturating_sub(b))).to_cf()?,
 
+            #[cfg(feature = "__simd")] I8x16AvgrU => unimplemented!(),
+            #[cfg(feature = "__simd")] I16x8AvgrU => unimplemented!(),
+
             #[cfg(feature = "__simd")] I16x8ExtAddPairwiseI8x16S => unimplemented!(),
             #[cfg(feature = "__simd")] I16x8ExtAddPairwiseI8x16U => unimplemented!(),
             #[cfg(feature = "__simd")] I32x4ExtAddPairwiseI16x8S => unimplemented!(),
@@ -532,6 +556,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] I64x2ExtendHighI32x4U => unimplemented!(),
 
             #[cfg(feature = "__simd")] I8x16Popcnt => self.stack.values.replace_top::<i8x16, _>(|v| Ok(v.count_ones())).to_cf()?,
+            #[cfg(feature = "__simd")] I8x16Shuffle(_idx)  => unimplemented!(),
 
             #[cfg(feature = "__simd")]
             I16x8Q15MulrSatS =>  self.stack.values.calculate_same::<i16x8>(|a, b| {
@@ -575,6 +600,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "__simd")] F64x2Floor => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.floor())).to_cf()?,
             #[cfg(feature = "__simd")] F32x4Trunc => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.trunc())).to_cf()?,
             #[cfg(feature = "__simd")] F64x2Trunc => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.trunc())).to_cf()?,
+            #[cfg(feature = "__simd")] F32x4Nearest => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.round())).to_cf()?,
+            #[cfg(feature = "__simd")] F64x2Nearest => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.round())).to_cf()?,
             #[cfg(feature = "__simd")] F32x4Abs => self.stack.values.replace_top_same::<f32x4>(|v| Ok(v.abs())).to_cf()?,
             #[cfg(feature = "__simd")] F64x2Abs => self.stack.values.replace_top_same::<f64x2>(|v| Ok(v.abs())).to_cf()?,
             #[cfg(feature = "__simd")] F32x4Neg => self.stack.values.replace_top_same::<f32x4>(|v| Ok(-v)).to_cf()?,
@@ -664,15 +691,37 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             // not correct
             #[cfg(feature = "__simd")] I32x4TruncSatF32x4S => self.stack.values.replace_top::<f32x4, f32x4>(|v| Ok(v.trunc())).to_cf()?,
             #[cfg(feature = "__simd")] I32x4TruncSatF32x4U => self.stack.values.replace_top::<f32x4, f32x4>(|v| Ok(v.trunc())).to_cf()?,
-            #[cfg(feature = "__simd")] F32x4ConvertI32x4S => {},
-            #[cfg(feature = "__simd")] F32x4ConvertI32x4U => {},
-            #[cfg(feature = "__simd")] F64x2ConvertLowI32x4S => {},
-            #[cfg(feature = "__simd")] F64x2ConvertLowI32x4U => {},
-            #[cfg(feature = "__simd")] F32x4DemoteF64x2Zero => {},
-            #[cfg(feature = "__simd")] F64x2PromoteLowF32x4 => {},
+            #[cfg(feature = "__simd")] F32x4ConvertI32x4S => unimplemented!(),
+            #[cfg(feature = "__simd")] F32x4ConvertI32x4U => unimplemented!(),
+            #[cfg(feature = "__simd")] F64x2ConvertLowI32x4S => unimplemented!(),
+            #[cfg(feature = "__simd")] F64x2ConvertLowI32x4U => unimplemented!(),
+            #[cfg(feature = "__simd")] F32x4DemoteF64x2Zero => unimplemented!(),
+            #[cfg(feature = "__simd")] F64x2PromoteLowF32x4 => unimplemented!(),
             #[cfg(feature = "__simd")] I32x4TruncSatF64x2SZero => unimplemented!(),
             #[cfg(feature = "__simd")] I32x4TruncSatF64x2UZero => unimplemented!(),
 
+            #[cfg(feature = "__simd")]  I8x16RelaxedSwizzle => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedTruncF32x4S => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedTruncF32x4U => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedTruncF64x2SZero => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedTruncF64x2UZero => unimplemented!(),
+            #[cfg(feature = "__simd")]  F32x4RelaxedMadd => unimplemented!(),
+            #[cfg(feature = "__simd")]  F32x4RelaxedNmadd => unimplemented!(),
+            #[cfg(feature = "__simd")]  F64x2RelaxedMadd => unimplemented!(),
+            #[cfg(feature = "__simd")]  F64x2RelaxedNmadd => unimplemented!(),
+            #[cfg(feature = "__simd")]  I8x16RelaxedLaneselect => unimplemented!(),
+            #[cfg(feature = "__simd")]  I16x8RelaxedLaneselect => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedLaneselect => unimplemented!(),
+            #[cfg(feature = "__simd")]  I64x2RelaxedLaneselect => unimplemented!(),
+            #[cfg(feature = "__simd")]  F32x4RelaxedMin => unimplemented!(),
+            #[cfg(feature = "__simd")]  F32x4RelaxedMax => unimplemented!(),
+            #[cfg(feature = "__simd")]  F64x2RelaxedMin => unimplemented!(),
+            #[cfg(feature = "__simd")]  F64x2RelaxedMax => unimplemented!(),
+            #[cfg(feature = "__simd")]  I16x8RelaxedQ15mulrS => unimplemented!(),
+            #[cfg(feature = "__simd")]  I16x8RelaxedDotI8x16I7x16S => unimplemented!(),
+            #[cfg(feature = "__simd")]  I32x4RelaxedDotI8x16I7x16AddS => unimplemented!(),
+
+            #[allow(unreachable_patterns)]
             i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
 
@@ -690,18 +739,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         wasm_func: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
-        if !IS_RETURN_CALL {
-            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+        let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+
+        if IS_RETURN_CALL {
+            self.cf.reuse_for(wasm_func, locals, self.stack.blocks.len() as u32, owner);
+        } else {
             let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
             self.cf.incr_instr_ptr(); // skip the call instruction
             self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-            self.module.swap_with(self.cf.module_addr(), self.store);
-        } else {
-            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-            self.cf.reuse_for(wasm_func, locals, self.stack.blocks.len() as u32, owner);
-            self.module.swap_with(self.cf.module_addr(), self.store);
         }
 
+        self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
     fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
@@ -880,7 +928,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.stack.values.push(val);
     }
     fn exec_ref_is_null(&mut self) {
-        let is_null = self.stack.values.pop::<ValueRef>().is_none() as i32;
+        let is_null = i32::from(self.stack.values.pop::<ValueRef>().is_none());
         self.stack.values.push::<i32>(is_null);
     }
 
@@ -898,7 +946,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         let pages_delta = match mem.is_64bit() {
             true => self.stack.values.pop::<i64>(),
-            false => self.stack.values.pop::<i32>() as i64,
+            false => i64::from(self.stack.values.pop::<i32>()),
         };
 
         match (
@@ -1035,7 +1083,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         let addr = match mem.is_64bit() {
             true => self.stack.values.pop::<i64>() as u64,
-            false => self.stack.values.pop::<i32>() as u32 as u64,
+            false => u64::from(self.stack.values.pop::<i32>() as u32),
         };
 
         let Some(Ok(addr)) = offset.checked_add(addr).map(|a| a.try_into()) else {
@@ -1086,7 +1134,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         let addr = match mem.is_64bit() {
             true => self.stack.values.pop::<i64>() as u64,
-            false => self.stack.values.pop::<i32>() as u32 as u64,
+            false => u64::from(self.stack.values.pop::<i32>() as u32),
         };
 
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
@@ -1152,7 +1200,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
-        table.init(dst as i64, &items[offset as usize..(offset + size) as usize])
+        table.init(i64::from(dst), &items[offset as usize..(offset + size) as usize])
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
@@ -1162,7 +1210,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let val = self.stack.values.pop::<ValueRef>();
 
         match table.grow(n, val.into()) {
-            Ok(_) => self.stack.values.push(sz),
+            Ok(()) => self.stack.values.push(sz),
             Err(_) => self.stack.values.push(-1_i32),
         }
 

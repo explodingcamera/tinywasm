@@ -30,7 +30,7 @@ pub(crate) struct ModuleReader {
 }
 
 impl ModuleReader {
-    pub(crate) fn new() -> ModuleReader {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 

@@ -19,6 +19,8 @@ edition="2024"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
 repository="https://github.com/explodingcamera/tinywasm"
+categories=["wasm", "no-std"]
+keywords=["tinywasm"]
 
 [package]
 name="tinywasm-root"

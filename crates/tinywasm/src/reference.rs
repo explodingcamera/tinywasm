@@ -1,8 +1,7 @@
 use core::ffi::CStr;
 
-use alloc::ffi::CString;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::{ffi::CString, format, vec::Vec};
 
 use crate::{MemoryInstance, Result};
 
@@ -92,19 +91,19 @@ pub trait MemoryStringExt: MemoryRefLoad {
     /// Load a C-style string from memory
     fn load_cstr(&self, offset: usize, len: usize) -> Result<&CStr> {
         let bytes = self.load(offset, len)?;
-        CStr::from_bytes_with_nul(bytes).map_err(|_| crate::Error::Other("Invalid C-style string".to_string()))
+        CStr::from_bytes_with_nul(bytes).map_err(|e| crate::Error::Other(format!("Invalid C-style string: {e}")))
     }
 
     /// Load a C-style string from memory, stopping at the first nul byte
     fn load_cstr_until_nul(&self, offset: usize, max_len: usize) -> Result<&CStr> {
         let bytes = self.load(offset, max_len)?;
-        CStr::from_bytes_until_nul(bytes).map_err(|_| crate::Error::Other("Invalid C-style string".to_string()))
+        CStr::from_bytes_until_nul(bytes).map_err(|e| crate::Error::Other(format!("Invalid C-style string: {e}")))
     }
 
     /// Load a UTF-8 string from memory
     fn load_string(&self, offset: usize, len: usize) -> Result<String> {
         let bytes = self.load(offset, len)?;
-        String::from_utf8(bytes.to_vec()).map_err(|_| crate::Error::Other("Invalid UTF-8 string".to_string()))
+        String::from_utf8(bytes.to_vec()).map_err(|e| crate::Error::Other(format!("Invalid UTF-8 string: {e}")))
     }
 
     /// Load a C-style string from memory

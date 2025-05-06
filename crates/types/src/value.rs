@@ -23,14 +23,14 @@ pub enum WasmValue {
     RefFunc(FuncRef),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ExternRef(Option<ExternAddr>);
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FuncRef(Option<FuncAddr>);
 
 impl Debug for ExternRef {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
             Some(addr) => write!(f, "extern({addr:?})"),
             None => write!(f, "extern(null)"),
@@ -39,7 +39,7 @@ impl Debug for ExternRef {
 }
 
 impl Debug for FuncRef {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
             Some(addr) => write!(f, "func({addr:?})"),
             None => write!(f, "func(null)"),
@@ -114,7 +114,7 @@ impl WasmValue {
             Self::F64(i) => ConstInstruction::F64Const(*i),
             Self::V128(i) => ConstInstruction::V128Const(*i),
             Self::RefFunc(i) => ConstInstruction::RefFunc(i.addr()),
-            _ => unimplemented!("no const_instr for {:?}", self),
+            Self::RefExtern(_) => unimplemented!("no const_instr for RefExtern"),
         }
     }
 
@@ -220,15 +220,15 @@ impl WasmValue {
 fn cold() {}
 
 impl Debug for WasmValue {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WasmValue::I32(i) => write!(f, "i32({i})"),
-            WasmValue::I64(i) => write!(f, "i64({i})"),
-            WasmValue::F32(i) => write!(f, "f32({i})"),
-            WasmValue::F64(i) => write!(f, "f64({i})"),
-            WasmValue::V128(i) => write!(f, "v128({i:?})"),
-            WasmValue::RefExtern(i) => write!(f, "ref({i:?})"),
-            WasmValue::RefFunc(i) => write!(f, "func({i:?})"),
+            Self::I32(i) => write!(f, "i32({i})"),
+            Self::I64(i) => write!(f, "i64({i})"),
+            Self::F32(i) => write!(f, "f32({i})"),
+            Self::F64(i) => write!(f, "f64({i})"),
+            Self::V128(i) => write!(f, "v128({i:?})"),
+            Self::RefExtern(i) => write!(f, "ref({i:?})"),
+            Self::RefFunc(i) => write!(f, "func({i:?})"),
         }
     }
 }
@@ -278,7 +278,7 @@ impl ValType {
     #[doc(hidden)]
     #[inline]
     pub fn is_simd(&self) -> bool {
-        matches!(self, ValType::V128)
+        matches!(self, Self::V128)
     }
 }
 

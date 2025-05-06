@@ -288,7 +288,9 @@ impl Store {
                 })?;
                 self.data.globals[addr as usize].value.get().unwrap_ref()
             }
-            _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}"))),
+            ElementItem::Expr(item) => {
+                return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}")));
+            }
         };
 
         Ok(res)
@@ -418,10 +420,10 @@ impl Store {
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
     pub(crate) fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
         Ok(match const_instr {
-            ConstInstruction::I32Const(i) => i as i64,
+            ConstInstruction::I32Const(i) => i64::from(i),
             ConstInstruction::I64Const(i) => i,
             ConstInstruction::GlobalGet(addr) => match self.data.globals[addr as usize].value.get() {
-                TinyWasmValue::Value32(i) => i as i64,
+                TinyWasmValue::Value32(i) => i64::from(i),
                 TinyWasmValue::Value64(i) => i as i64,
                 o => return Err(Error::Other(format!("expected i32 or i64, got {o:?}"))),
             },
