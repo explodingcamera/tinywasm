@@ -125,7 +125,7 @@ impl ModuleReader {
                 self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             CodeSectionStart { count, range, .. } => {
-                debug!("Found code section ({} functions)", count);
+                debug!("Found code section ({count} functions)");
                 if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }

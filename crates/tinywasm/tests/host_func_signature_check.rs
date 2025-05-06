@@ -147,7 +147,7 @@ fn proxy_module(func_ty: &FuncType) -> Module {
     let params_text = join_surround(params, "param");
 
     let params_gets: String = params.iter().enumerate().fold(String::new(), |mut acc, (num, _)| {
-        let _ = writeln!(acc, "(local.get {num})", num = num);
+        let _ = writeln!(acc, "(local.get {num})");
         acc
     });
 

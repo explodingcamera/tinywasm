@@ -82,7 +82,7 @@ fn main() -> Result<()> {
 
     match args.nested {
         TinyWasmSubcommand::Run(Run { wasm_file, engine, args, func }) => {
-            debug!("args: {:?}", args);
+            debug!("args: {args:?}");
 
             let path = cwd.join(wasm_file.clone());
             let module = match wasm_file.ends_with(".wat") {

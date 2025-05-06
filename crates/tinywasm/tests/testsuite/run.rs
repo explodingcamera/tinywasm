@@ -31,7 +31,7 @@ impl ModuleRegistry {
         }
     }
     fn register(&mut self, name: String, addr: ModuleInstanceAddr) {
-        log::debug!("registering module: {}", name);
+        log::debug!("registering module: {name}");
         self.modules.insert(name.clone(), addr);
 
         self.last_module = Some(addr);
@@ -99,22 +99,22 @@ impl TestSuite {
         });
 
         let print_i32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i32| {
-            log::debug!("print_i32: {}", arg);
+            log::debug!("print_i32: {arg}");
             Ok(())
         });
 
         let print_i64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i64| {
-            log::debug!("print_i64: {}", arg);
+            log::debug!("print_i64: {arg}");
             Ok(())
         });
 
         let print_f32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f32| {
-            log::debug!("print_f32: {}", arg);
+            log::debug!("print_f32: {arg}");
             Ok(())
         });
 
         let print_f64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f64| {
-            log::debug!("print_f64: {}", arg);
+            log::debug!("print_f64: {arg}");
             Ok(())
         });
 
@@ -148,7 +148,7 @@ impl TestSuite {
             .define("spectest", "print_f64_f64", print_f64_f64)?;
 
         for (name, addr) in modules {
-            log::debug!("registering module: {}", name);
+            log::debug!("registering module: {name}");
             imports.link_module(name, *addr)?;
         }
 
@@ -158,7 +158,7 @@ impl TestSuite {
     pub fn run_files<'a>(&mut self, tests: impl IntoIterator<Item = TestFile<'a>>) -> Result<()> {
         tests.into_iter().for_each(|group| {
             let name = group.name();
-            println!("running group: {}", name);
+            println!("running group: {name}");
             if self.1.contains(&name.to_string()) {
                 info!("skipping group: {name}");
                 self.test_group(&format!("{name} (skipped)"), name);
@@ -217,7 +217,7 @@ impl TestSuite {
                     .map_err(|e| eyre!("failed to parse wat module: {:?}", try_downcast_panic(e)));
 
                     match &result {
-                        Err(err) => debug!("failed to parse module: {:?}", err),
+                        Err(err) => debug!("failed to parse module: {err:?}"),
                         Ok((name, module)) => module_registry.update_last_module(module.id(), name.clone()),
                     };
 
@@ -402,7 +402,7 @@ impl TestSuite {
                         let args = convert_wastargs(invoke.args)?;
                         let module = module_registry.get_idx(invoke.module);
                         exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
-                            error!("failed to execute function: {:?}", e);
+                            error!("failed to execute function: {e:?}");
                             e
                         })?;
                         Ok(())
@@ -413,7 +413,7 @@ impl TestSuite {
                 }
 
                 AssertReturn { span, exec, results } => {
-                    info!("AssertReturn: {:?}", exec);
+                    info!("AssertReturn: {exec:?}");
                     let expected = match convert_wastret(results.into_iter()) {
                         Err(err) => {
                             test_group.add_result(
@@ -489,11 +489,11 @@ impl TestSuite {
 
                     let invoke_name = invoke.name;
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        debug!("invoke: {:?}", invoke);
+                        debug!("invoke: {invoke:?}");
                         let args = convert_wastargs(invoke.args)?;
                         let module = module_registry.get_idx(invoke.module);
                         let outcomes = exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
-                            error!("failed to execute function: {:?}", e);
+                            error!("failed to execute function: {e:?}");
                             e
                         })?;
 

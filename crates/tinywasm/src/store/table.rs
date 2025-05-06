@@ -250,8 +250,7 @@ mod tests {
             let elem = table_instance.get(i);
             assert!(
                 elem.is_ok() && matches!(elem.unwrap(), &TableElement::Initialized(_)),
-                "Element not initialized correctly at index {}",
-                i
+                "Element not initialized correctly at index {i}"
             );
         }
     }

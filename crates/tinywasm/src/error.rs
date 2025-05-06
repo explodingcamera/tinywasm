@@ -211,9 +211,9 @@ impl Display for Error {
 impl Display for LinkingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::UnknownImport { module, name } => write!(f, "unknown import: {}.{}", module, name),
+            Self::UnknownImport { module, name } => write!(f, "unknown import: {module}.{name}"),
             Self::IncompatibleImportType { module, name } => {
-                write!(f, "incompatible import type: {}.{}", module, name)
+                write!(f, "incompatible import type: {module}.{name}")
             }
         }
     }

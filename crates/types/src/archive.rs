@@ -37,7 +37,7 @@ impl Display for TwasmError {
             TwasmError::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
             TwasmError::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
             TwasmError::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
-            TwasmError::InvalidArchive(e) => write!(f, "Invalid twasm: {}", e),
+            TwasmError::InvalidArchive(e) => write!(f, "Invalid twasm: {e}"),
         }
     }
 }

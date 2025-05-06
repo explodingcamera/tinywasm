@@ -32,7 +32,7 @@ pub struct FuncRef(Option<FuncAddr>);
 impl Debug for ExternRef {
     fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         match self.0 {
-            Some(addr) => write!(f, "extern({:?})", addr),
+            Some(addr) => write!(f, "extern({addr:?})"),
             None => write!(f, "extern(null)"),
         }
     }
@@ -41,7 +41,7 @@ impl Debug for ExternRef {
 impl Debug for FuncRef {
     fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
         match self.0 {
-            Some(addr) => write!(f, "func({:?})", addr),
+            Some(addr) => write!(f, "func({addr:?})"),
             None => write!(f, "func(null)"),
         }
     }

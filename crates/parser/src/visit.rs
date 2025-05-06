@@ -453,6 +453,21 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         self.instructions.push(Instruction::RefIsNull);
     }
 
+    fn visit_typed_select_multi(&mut self, _tys: Vec<wasmparser::ValType>) -> Self::Output {
+        self.errors.push(crate::ParseError::UnsupportedOperator(
+            "Typed select with multiple types is not supported".to_string(),
+        ));
+
+        // self.instructions.extend(tys.into_iter().map(|ty| match ty {
+        //     wasmparser::ValType::I32 => Instruction::Select32,
+        //     wasmparser::ValType::F32 => Instruction::Select32,
+        //     wasmparser::ValType::I64 => Instruction::Select64,
+        //     wasmparser::ValType::F64 => Instruction::Select64,
+        //     wasmparser::ValType::V128 => Instruction::Select128,
+        //     wasmparser::ValType::Ref(_) => Instruction::SelectRef,
+        // }));
+    }
+
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
         self.instructions.push(match ty {
             wasmparser::ValType::I32 => Instruction::Select32,

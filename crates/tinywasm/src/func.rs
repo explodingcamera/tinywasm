@@ -39,7 +39,7 @@ impl FuncHandle {
         // 5. For each value type and the corresponding value, check if types match
         if !(func_ty.params.iter().zip(params).enumerate().all(|(_i, (ty, param))| {
             if ty != &param.val_type() {
-                log::error!("param type mismatch at index {}: expected {:?}, got {:?}", _i, ty, param);
+                log::error!("param type mismatch at index {_i}: expected {ty:?}, got {param:?}");
                 false
             } else {
                 true
