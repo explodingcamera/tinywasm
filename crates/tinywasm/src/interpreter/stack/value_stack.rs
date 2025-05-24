@@ -193,10 +193,10 @@ impl ValueStack {
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
 
-            #[cfg(not(feature = "__simd"))]
+            #[cfg(not(feature = "unstable-simd"))]
             ValType::V128 => WasmValue::V128(self.pop()),
 
-            #[cfg(feature = "__simd")]
+            #[cfg(feature = "unstable-simd")]
             ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.pop::<Value128>().to_array())),
         }
     }

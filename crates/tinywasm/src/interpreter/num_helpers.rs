@@ -191,13 +191,13 @@ macro_rules! impl_checked_wrapping_rem {
 
 impl_checked_wrapping_rem! { i32 i64 u32 u64 }
 
-#[cfg(all(feature = "__simd", not(feature = "canonicalize_nans")))]
+#[cfg(all(feature = "unstable-simd", not(feature = "canonicalize_nans")))]
 #[inline]
 pub(crate) fn canonicalize_f32x4(x: core::simd::f32x4) -> core::simd::f32x4 {
     x // No need to do anything, as we are not replacing NaNs
 }
 
-#[cfg(all(feature = "__simd", feature = "canonicalize_nans"))]
+#[cfg(all(feature = "unstable-simd", feature = "canonicalize_nans"))]
 /// replace all NaNs in a f32x4 with f32::NAN
 #[inline]
 pub(crate) fn canonicalize_f32x4(x: core::simd::f32x4) -> core::simd::f32x4 {
@@ -207,13 +207,13 @@ pub(crate) fn canonicalize_f32x4(x: core::simd::f32x4) -> core::simd::f32x4 {
     mask.select(nan, x)
 }
 
-#[cfg(all(feature = "__simd", not(feature = "canonicalize_nans")))]
+#[cfg(all(feature = "unstable-simd", not(feature = "canonicalize_nans")))]
 #[inline]
 pub(crate) fn canonicalize_f64x2(x: core::simd::f64x2) -> core::simd::f64x2 {
     x // No need to do anything, as we are not replacing NaNs
 }
 
-#[cfg(feature = "__simd")]
+#[cfg(feature = "unstable-simd")]
 /// replace all NaNs in a f64x2 with f64::NAN
 #[inline]
 pub(crate) fn canonicalize_f64x2(x: core::simd::f64x2) -> core::simd::f64x2 {

@@ -7,9 +7,9 @@ pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
 pub(crate) type ValueRef = Option<u32>;
 
-#[cfg(feature = "__simd")]
+#[cfg(feature = "unstable-simd")]
 pub(crate) type Value128 = core::simd::u8x16;
-#[cfg(not(feature = "__simd"))]
+#[cfg(not(feature = "unstable-simd"))]
 pub(crate) type Value128 = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,10 +113,10 @@ impl TinyWasmValue {
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.unwrap_ref())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
 
-            #[cfg(feature = "__simd")]
+            #[cfg(feature = "unstable-simd")]
             ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.unwrap_128().to_array())),
 
-            #[cfg(not(feature = "__simd"))]
+            #[cfg(not(feature = "unstable-simd"))]
             ValType::V128 => WasmValue::V128(self.unwrap_128()),
         }
     }
@@ -132,10 +132,10 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::RefExtern(v) => Self::ValueRef(v.addr()),
             WasmValue::RefFunc(v) => Self::ValueRef(v.addr()),
 
-            #[cfg(not(feature = "__simd"))]
+            #[cfg(not(feature = "unstable-simd"))]
             WasmValue::V128(v) => Self::Value128(*v),
 
-            #[cfg(feature = "__simd")]
+            #[cfg(feature = "unstable-simd")]
             WasmValue::V128(v) => TinyWasmValue::Value128(v.to_le_bytes().into()),
         }
     }
@@ -273,10 +273,10 @@ impl_internalvalue! {
     Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
 }
 
-#[cfg(feature = "__simd")]
+#[cfg(feature = "unstable-simd")]
 use core::simd::{num::SimdUint, *};
 
-#[cfg(feature = "__simd")]
+#[cfg(feature = "unstable-simd")]
 impl_internalvalue! {
     Value128, stack_128, locals_128, u8x16, i128, |v: i128| v.to_le_bytes().into(), |v: u8x16| i128::from_le_bytes(v.into())
     Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_le_bytes().into(), |v: u8x16| u128::from_le_bytes(v.into())

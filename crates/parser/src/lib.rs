@@ -64,6 +64,8 @@ impl Parser {
             simd: true,
             memory64: true,
             custom_page_sizes: true,
+            bulk_memory_opt: true,
+            call_indirect_overlong: true,
 
             extended_const: false,
             wide_arithmetic: false,
