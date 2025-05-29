@@ -4,13 +4,18 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="231"
-wat="1.231"
-wasmparser={version="0.231", default-features=false}
+wast="232"
+wat="1.232"
+wasmparser={version="0.232", default-features=false}
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
 criterion={version="0.6", default-features=false, features=["cargo_bench_support", "rayon"]}
+wasm-testsuite={version="0.5.6"}
+indexmap="2.7"
+owo-colors={version="4.0"}
+serde_json={version="1.0"}
+serde={version="1.0", features=["derive"]}
 
 [workspace.package]
 version="0.9.0-alpha.0"
@@ -34,9 +39,9 @@ name="wasm-rust"
 test=false
 
 [dev-dependencies]
-wat={workspace=true}
-eyre={workspace=true}
-pretty_env_logger={workspace=true}
+wat.workspace=true
+eyre.workspace=true
+pretty_env_logger.workspace=true
 tinywasm={path="crates/tinywasm"}
 
 [profile.bench]

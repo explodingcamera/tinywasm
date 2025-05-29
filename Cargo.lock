@@ -114,18 +114,18 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.38"
+version = "4.5.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed93b9805f8ba930df42c2590f05453d5ec36cbb85d018868a5b24d31f6ac000"
+checksum = "fd60e63e9be68e5fb56422e397cf9baddded06dae1d2e523401542383bc72a9f"
 dependencies = [
  "clap_builder",
 ]
 
 [[package]]
 name = "clap_builder"
-version = "4.5.38"
+version = "4.5.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "379026ff283facf611b0ea629334361c4211d1b12ee01024eec1591133b04120"
+checksum = "89cc6392a1f72bbeb820d71f32108f61fdaf18bc526e1d23954168a67759ef51"
 dependencies = [
  "anstyle",
  "clap_lex",
@@ -670,9 +670,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.231.0"
+version = "0.232.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e62baf58bc14f219d1d12d082ea99860acb479b582e8f3d292d8a7c8f756091c"
+checksum = "a447e61e38d1226b57e4628edadff36d16760be24a343712ba236b5106c95156"
 dependencies = [
  "leb128fmt",
  "wasmparser",
@@ -680,9 +680,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-testsuite"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a1f22b8de2fb91b81306f7a9e4bab821f0e6f34dd5f6a2e850eb5dbd7c3f0bb"
+checksum = "9142a06b46eb92c9c1597af50400a448b3a370adbedd42824020ab36036b26af"
 dependencies = [
  "include_dir",
  "wast",
@@ -690,9 +690,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.231.0"
+version = "0.232.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1ddaf0d6e069fcd98801b1bf030e3648897d9f09c45ac9ef566d068aca1b76f"
+checksum = "917739b33bb1eb0e9a49bcd2637a351931be4578d0cc4d37b908d7a797784fbb"
 dependencies = [
  "bitflags",
  "indexmap",
@@ -701,9 +701,9 @@ dependencies = [
 
 [[package]]
 name = "wast"
-version = "231.0.0"
+version = "232.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6258b542d232ac51c0426de6ae0efb31fc9e89f64fe3a525aff1524a06a13417"
+checksum = "1b5a22bfb0c309f5cf4b0cfa4fae77801e52570e88bff1344c1b7673a9977954"
 dependencies = [
  "bumpalo",
  "leb128fmt",
@@ -714,9 +714,9 @@ dependencies = [
 
 [[package]]
 name = "wat"
-version = "1.231.0"
+version = "1.232.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97eec2bd34dcd2a2cea1c501fed0c25171cfd02900716d8357639797fa629c2e"
+checksum = "5e2054d3da4289c8634a6ed0dd177e066518f45772c521b6959f5d6109f4c210"
 dependencies = [
  "wast",
 ]
