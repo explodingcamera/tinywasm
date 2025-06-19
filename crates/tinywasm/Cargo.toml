@@ -34,7 +34,7 @@ serde_json.workspace=true
 serde.workspace=true
 
 [features]
-default=["std", "parser", "logging", "archive", "canonicalize_nans", "unstable-simd"]
+default=["std", "parser", "logging", "archive", "canonicalize_nans"]
 
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
