@@ -72,11 +72,11 @@ impl FuncContext<'_> {
     }
 
     /// Get a reference to an exported memory
-    pub fn exported_memory(&mut self, name: &str) -> Result<MemoryRef<'_>> {
+    pub fn exported_memory(&self, name: &str) -> Result<MemoryRef<'_>> {
         self.module().exported_memory(self.store, name)
     }
 
-    /// Get a reference to an exported memory
+    /// Get a mutable reference to an exported memory
     pub fn exported_memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
         self.module().exported_memory_mut(self.store, name)
     }
