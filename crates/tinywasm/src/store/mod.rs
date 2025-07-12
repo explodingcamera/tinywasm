@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
-use crate::{Error, Function, ModuleInstance, Result, Trap, cold};
+use crate::{Error, Function, ModuleInstance, Result, StackConfig, Trap, cold};
 
 mod data;
 mod element;
@@ -33,6 +33,7 @@ pub struct Store {
 
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
+    pub(crate) config: StackConfig,
 }
 
 impl Debug for Store {
@@ -55,6 +56,12 @@ impl Store {
     /// Create a new store
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new store with the given stack configuration
+    pub fn with_config(config: StackConfig) -> Self {
+        let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+        Self { id, module_instances: Vec::new(), data: StoreData::default(), runtime: Runtime::Default, config }
     }
 
     /// Get a module instance by the internal id
@@ -83,7 +90,13 @@ impl PartialEq for Store {
 impl Default for Store {
     fn default() -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-        Self { id, module_instances: Vec::new(), data: StoreData::default(), runtime: Runtime::Default }
+        Self {
+            id,
+            module_instances: Vec::new(),
+            data: StoreData::default(),
+            runtime: Runtime::Default,
+            config: StackConfig::default(),
+        }
     }
 }
 
