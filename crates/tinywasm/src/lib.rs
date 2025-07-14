@@ -75,22 +75,22 @@
 //! For resource-constrained targets, you can configure the initial memory allocation:
 //!
 //! ```rust
-//! use tinywasm::{Store, Module, StackConfig};
+//! use tinywasm::{Store, StackConfig};
 //!
 //! // Create a store with minimal initial allocation (90% reduction in pre-allocated memory)
 //! let config = StackConfig::new()
-//!     .with_value_stack_32_capacity(1024)  // 1KB instead of 32KB
-//!     .with_value_stack_64_capacity(512)   // 512B instead of 16KB
-//!     .with_value_stack_128_capacity(256)  // 256B instead of 8KB
-//!     .with_value_stack_ref_capacity(128)  // 128B instead of 1KB
+//!     .with_value_stack_32_init_size(1024)  // 1KB instead of 32KB
+//!     .with_value_stack_64_init_size(512)   // 512B instead of 16KB
+//!     .with_value_stack_128_init_size(256)  // 256B instead of 8KB
+//!     .with_value_stack_ref_init_size(128)  // 128B instead of 1KB
 
-//!     .with_block_stack_capacity(32);      // 32 instead of 128
-//! let mut store = Store::with_config(config);
+//!     .with_block_stack_init_size(32);      // 32 instead of 128
+//! let store = Store::with_config(config);
 //!
 //! // Or create a partial configuration (only override what you need)
 //! let config = StackConfig::new()
-//!     .with_value_stack_32_capacity(2048); // Only override 32-bit stack size
-//! let mut store = Store::with_config(config);
+//!     .with_value_stack_32_init_size(2048); // Only override 32-bit stack size
+//! let store = Store::with_config(config);
 //! ```
 
 mod std;
