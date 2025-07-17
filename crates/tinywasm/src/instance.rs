@@ -189,7 +189,7 @@ impl ModuleInstance {
     }
 
     /// Get an exported memory by name
-    pub fn exported_memory<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRef<'a>> {
+    pub fn exported_memory<'a>(&self, store: &'a Store, name: &str) -> Result<MemoryRef<'a>> {
         let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {name}")));
@@ -198,7 +198,7 @@ impl ModuleInstance {
         self.memory(store, mem_addr)
     }
 
-    /// Get an exported memory by name
+    /// Get an exported memory by name (mutable)
     pub fn exported_memory_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRefMut<'a>> {
         let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
