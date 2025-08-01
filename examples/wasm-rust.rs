@@ -109,7 +109,7 @@ fn hello() -> Result<()> {
     imports.define(
         "env",
         "print_utf8",
-        Extern::typed_func(|mut ctx: FuncContext<'_>, args: (i64, i32)| {
+        Extern::typed_func(|ctx: FuncContext<'_>, args: (i64, i32)| {
             let mem = ctx.exported_memory("memory")?;
             let ptr = args.0 as usize;
             let len = args.1 as usize;

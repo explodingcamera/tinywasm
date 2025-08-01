@@ -79,13 +79,12 @@ impl TestSuite {
         let last_line = BufReader::new(&file).lines().last().transpose()?;
 
         // Check if the last line starts with the current commit
-        if let Some(last) = last_line {
-            if last.starts_with(version) {
+        if let Some(last) = last_line
+            && last.starts_with(version) {
                 // Truncate the file size to remove the last line
                 let len_to_truncate = last.len() as i64;
                 file.set_len(file.metadata()?.len() - len_to_truncate as u64 - 1)?;
             }
-        }
 
         // Seek to the end of the file for appending
         file.seek(SeekFrom::End(0))?;
