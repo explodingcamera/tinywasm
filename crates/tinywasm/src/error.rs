@@ -6,10 +6,7 @@ use tinywasm_types::FuncType;
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
 
-#[cfg(feature = "async")]
-use crate::coro::UnexpectedSuspendError;
-
-use crate::interpreter;
+use crate::{coro::UnexpectedSuspendError, interpreter};
 
 /// Errors that can occur for `TinyWasm` operations
 #[derive(Debug)]
@@ -48,7 +45,6 @@ pub enum Error {
 
     /// Function unexpectedly yielded instead of returning
     /// (for backwards compatibility with old api)
-    #[cfg(feature = "async")]
     UnexpectedSuspend(UnexpectedSuspendError),
 
     #[cfg(feature = "std")]
@@ -200,9 +196,6 @@ impl Display for Error {
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {err}"),
 
-            #[cfg(feature = "async")]
-            Self::UnexpectedSuspend(_) => write!(f, "funtion yielded instead of returning"),
-
             Self::Trap(trap) => write!(f, "trap: {trap}"),
             Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
@@ -212,6 +205,8 @@ impl Display for Error {
                 write!(f, "invalid host function return: expected={expected:?}, actual={actual:?}")
             }
             Self::InvalidStore => write!(f, "invalid store"),
+
+            Self::UnexpectedSuspend(_) => write!(f, "funtion yielded instead of returning"),
             Self::InvalidResumeArgument => write!(f, "invalid resume argument supplied to suspended function"),
             Self::InvalidResume => write!(f, "attempt to resume coroutine that has already finished"),
         }

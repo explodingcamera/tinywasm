@@ -1,13 +1,11 @@
-#[cfg(feature = "async")]
-use {crate::coro::CoroState, tinywasm_types::ResumeArgument};
-
+use crate::coro::CoroState;
 use crate::interpreter;
 use crate::interpreter::executor::SuspendedHostCoroState;
 use crate::interpreter::stack::{CallFrame, Stack};
 use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
-use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ResumeArgument, ValType, WasmValue};
 
 #[derive(Debug)]
 /// A function handle
@@ -154,7 +152,7 @@ impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
         // Convert the Vec<WasmValue> back to R
         result
             .map_result(|vals| R::from_wasm_value_tuple(&vals))
-            .map_state(|state| SuspendedFuncTyped::<R> { func: state, _marker: Default::default() })
+            .map_state(|state| SuspendedFuncTyped::<R> { func: state, _marker: core::marker::PhantomData {} })
             .propagate_err_result()
     }
 }
@@ -163,13 +161,11 @@ pub(crate) type FuncHandleCallOutcome = crate::coro::PotentialCoroCallResult<Vec
 pub(crate) type TypedFuncHandleCallOutcome<R> = crate::coro::PotentialCoroCallResult<R, SuspendedFuncTyped<R>>;
 
 #[derive(Debug)]
-#[cfg_attr(not(feature = "async"), allow(unused))]
 struct SuspendedWasmFunc {
     runtime: interpreter::SuspendedRuntime,
     result_types: Box<[ValType]>,
 }
 impl SuspendedWasmFunc {
-    #[cfg(feature = "async")]
     fn resume(
         &mut self,
         ctx: FuncContext<'_>,
@@ -180,7 +176,6 @@ impl SuspendedWasmFunc {
 }
 
 #[derive(Debug)]
-#[cfg_attr(not(feature = "async"), allow(unused))]
 #[allow(clippy::large_enum_variant)] // Wasm is bigger, but also much more common variant
 enum SuspendedFuncInner {
     Wasm(SuspendedWasmFunc),
@@ -189,7 +184,6 @@ enum SuspendedFuncInner {
 
 /// handle to function that was suspended and can be resumed
 #[derive(Debug)]
-#[cfg_attr(not(feature = "async"), allow(unused))]
 pub struct SuspendedFunc {
     func: SuspendedFuncInner,
     module_addr: ModuleInstanceAddr,
@@ -197,7 +191,6 @@ pub struct SuspendedFunc {
 }
 
 impl crate::coro::CoroState<Vec<WasmValue>, &mut Store> for SuspendedFunc {
-    #[cfg(feature = "async")]
     fn resume(
         &mut self,
         store: &mut Store,
@@ -215,7 +208,6 @@ impl crate::coro::CoroState<Vec<WasmValue>, &mut Store> for SuspendedFunc {
     }
 }
 
-#[cfg_attr(not(feature = "async"), allow(unused))]
 pub struct SuspendedFuncTyped<R> {
     pub func: SuspendedFunc,
     pub(crate) _marker: core::marker::PhantomData<R>,
@@ -231,7 +223,6 @@ impl<R> crate::coro::CoroState<R, &mut Store> for SuspendedFuncTyped<R>
 where
     R: FromWasmValueTuple,
 {
-    #[cfg(feature = "async")]
     fn resume(&mut self, ctx: &mut Store, arg: ResumeArgument) -> Result<crate::CoroStateResumeResult<R>> {
         self.func.resume(ctx, arg)?.map_result(|vals| R::from_wasm_value_tuple(&vals)).propagate_err()
     }

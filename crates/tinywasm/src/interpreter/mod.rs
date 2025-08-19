@@ -6,13 +6,12 @@ mod values;
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
-#[cfg(feature = "async")]
-use {executor::Executor, tinywasm_types::ResumeArgument};
 
 use crate::coro;
 use crate::{FuncContext, ModuleInstance, Result, Store};
-use executor::SuspendedHostCoroState;
+use executor::{Executor, SuspendedHostCoroState};
 use stack::{CallFrame, Stack};
+use tinywasm_types::ResumeArgument;
 pub use values::*;
 
 /// The main `TinyWasm` runtime.
@@ -22,7 +21,6 @@ pub use values::*;
 pub struct InterpreterRuntime {}
 
 #[derive(Debug)]
-#[cfg_attr(not(feature = "async"), allow(unused))]
 pub(crate) struct SuspendedRuntimeBody {
     pub(crate) suspended_host_coro: Option<SuspendedHostCoroState>,
     pub(crate) module: ModuleInstance,
@@ -31,10 +29,8 @@ pub(crate) struct SuspendedRuntimeBody {
 
 #[derive(Debug)]
 pub(crate) struct SuspendedRuntime {
-    #[cfg_attr(not(feature = "async"), allow(unused))]
     pub(crate) body: Option<(SuspendedRuntimeBody, Stack)>,
 }
-#[cfg(feature = "async")]
 impl SuspendedRuntime {
     fn make_exec<'store, 'stack>(
         body: SuspendedRuntimeBody,
@@ -48,11 +44,10 @@ impl SuspendedRuntime {
     }
 }
 
-impl coro::CoroState<stack::Stack, FuncContext<'_>> for SuspendedRuntime {
-    #[cfg(feature = "async")]
+impl<'a> coro::CoroState<stack::Stack, FuncContext<'a>> for SuspendedRuntime {
     fn resume(
         &mut self,
-        ctx: FuncContext<'_>,
+        ctx: FuncContext<'a>,
         arg: ResumeArgument,
     ) -> Result<coro::CoroStateResumeResult<stack::Stack>> {
         // should be put back into self.body unless we're finished
@@ -88,7 +83,6 @@ impl InterpreterRuntime {
         let mut executor = executor::Executor::new(store, &mut stack)?;
         match executor.run_to_suspension()? {
             coro::CoroStateResumeResult::Return(()) => Ok(RuntimeExecOutcome::Return(stack)),
-            #[cfg(feature = "async")]
             coro::CoroStateResumeResult::Suspended(suspend) => Ok(RuntimeExecOutcome::Suspended(
                 suspend,
                 SuspendedRuntime { body: Some((SuspendedRuntime::unmake_exec(executor), stack)) },

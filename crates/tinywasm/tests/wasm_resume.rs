@@ -1,5 +1,3 @@
-#![cfg(feature = "async")]
-
 use core::panic;
 use eyre;
 use std::sync;

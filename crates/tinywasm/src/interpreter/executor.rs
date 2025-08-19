@@ -5,12 +5,10 @@ use super::no_std_floats::NoStdFloatExt;
 use alloc::boxed::Box;
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
+use coro::SuspendReason;
 use interpreter::simd::exec_next_simd;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
-
-#[cfg(feature = "async")]
-use coro::SuspendReason;
 
 use super::num_helpers::*;
 use super::stack::{BlockFrame, BlockType, Stack};
@@ -19,7 +17,6 @@ use crate::*;
 
 pub(crate) enum ReasonToBreak {
     Errored(Error),
-    #[cfg_attr(not(feature = "async"), allow(unused))]
     Suspended(SuspendReason),
     Finished,
 }
@@ -31,12 +28,11 @@ impl From<ReasonToBreak> for ControlFlow<ReasonToBreak> {
 }
 
 #[derive(Debug)]
-#[cfg_attr(not(feature = "async"), allow(unused))]
 pub(crate) struct SuspendedHostCoroState {
     pub(crate) coro_state: Box<dyn HostCoroState>,
     // plug into used in store.get_func to get original function
     // can be used for checking returned types
-    #[allow(dead_code)] // knowing context is useful for debug and other possible future uses
+    #[allow(dead_code)] // not implemented yet, but knowing context is useful
     pub(crate) coro_orig_function: u32,
 }
 
@@ -44,7 +40,6 @@ pub(crate) struct SuspendedHostCoroState {
 pub(crate) struct Executor<'store, 'stack> {
     pub(crate) cf: CallFrame,
     pub(crate) module: ModuleInstance,
-    #[cfg(feature = "async")]
     pub(crate) suspended_host_coro: Option<SuspendedHostCoroState>,
     pub(crate) store: &'store mut Store,
     pub(crate) stack: &'stack mut Stack,
@@ -56,14 +51,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
         let current_frame = stack.call_stack.pop().expect("no call frame, this is a bug");
         let current_module = store.get_module_instance_raw(current_frame.module_addr());
-        Ok(Self {
-            cf: current_frame,
-            module: current_module,
-            #[cfg(feature = "async")]
-            suspended_host_coro: None,
-            stack,
-            store,
-        })
+        Ok(Self { cf: current_frame, module: current_module, suspended_host_coro: None, stack, store })
     }
 
     #[inline(always)]
@@ -79,7 +67,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
     }
 
-    #[cfg(feature = "async")]
     #[inline(always)]
     pub(crate) fn resume(&mut self, res_arg: ResumeArgument) -> Result<ExecOutcome> {
         if let Some(coro_state) = self.suspended_host_coro.as_mut() {
@@ -118,7 +105,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     /// execution may not be suspended in the middle of execution the funcion:
     /// so only do it as the last thing or first thing in the intsruction execution
     #[must_use = "If this returns ControlFlow::Break, the caller should propagate it"]
-    #[cfg(feature = "async")]
     fn check_should_suspend(&mut self) -> ControlFlow<ReasonToBreak> {
         if let Some(flag) = &self.store.suspend_cond.suspend_flag {
             if flag.load(core::sync::atomic::Ordering::Acquire) {
@@ -141,11 +127,6 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
         }
 
-        ControlFlow::Continue(())
-    }
-
-    #[cfg(not(feature = "async"))]
-    fn check_should_suspend(&mut self) -> ControlFlow<ReasonToBreak> {
         ControlFlow::Continue(())
     }
 
@@ -433,7 +414,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
-    fn exec_call_host(&mut self, host_func: Rc<HostFunction>, _func_ref: u32) -> ControlFlow<ReasonToBreak> {
+    fn exec_call_host(&mut self, host_func: Rc<HostFunction>, func_ref: u32) -> ControlFlow<ReasonToBreak> {
         let params = self.stack.values.pop_params(&host_func.ty.params);
         let res = host_func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params).to_cf()?;
         match res {
@@ -443,10 +424,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 self.check_should_suspend()?; // who knows how long we've spent in host function
                 ControlFlow::Continue(())
             }
-            #[cfg(feature = "async")]
             PotentialCoroCallResult::Suspended(suspend_reason, state) => {
                 self.suspended_host_coro =
-                    Some(SuspendedHostCoroState { coro_state: state, coro_orig_function: _func_ref });
+                    Some(SuspendedHostCoroState { coro_state: state, coro_orig_function: func_ref });
                 self.cf.incr_instr_ptr();
                 ReasonToBreak::Suspended(suspend_reason).into()
             }

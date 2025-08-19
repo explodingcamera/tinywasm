@@ -30,10 +30,6 @@ rust-version.workspace=true
 name="wasm-rust"
 test=false
 
-[[example]]
-name="host_coro"
-required-features=["async"]
-
 [dev-dependencies]
 wat={workspace=true}
 eyre={workspace=true}
