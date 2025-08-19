@@ -95,13 +95,13 @@ impl<R, State> PotentialCoroCallResult<R, State> {
             Self::Suspended(suspend, state) => PotentialCoroCallResult::Suspended(suspend, mapper(state)),
         }
     }
-    /// transform result with mapper if there is none - calls "otherwise".
+    /// transform result with res_mapper or state with state_mapper
     /// user_val passed to whichever is called and is guaranteed to be used
-    pub fn map<OutR, Usr, OutS>(
+    pub fn map<OutR, UserData, OutS>(
         self,
-        user_val: Usr,
-        res_mapper: impl FnOnce(R, Usr) -> OutR,
-        state_mapper: impl FnOnce(State, Usr) -> OutS,
+        user_val: UserData,
+        res_mapper: impl FnOnce(R, UserData) -> OutR,
+        state_mapper: impl FnOnce(State, UserData) -> OutS,
     ) -> PotentialCoroCallResult<OutR, OutS> {
         match self {
             Self::Return(res) => PotentialCoroCallResult::Return(res_mapper(res, user_val)),

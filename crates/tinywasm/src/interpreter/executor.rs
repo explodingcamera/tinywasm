@@ -17,7 +17,7 @@ use crate::*;
 
 pub(crate) enum ReasonToBreak {
     Errored(Error),
-    Suspended(SuspendReason),
+    Suspended(SuspendReason, Option<SuspendedHostCoroState>),
     Finished,
 }
 
@@ -40,18 +40,17 @@ pub(crate) struct SuspendedHostCoroState {
 pub(crate) struct Executor<'store, 'stack> {
     pub(crate) cf: CallFrame,
     pub(crate) module: ModuleInstance,
-    pub(crate) suspended_host_coro: Option<SuspendedHostCoroState>,
     pub(crate) store: &'store mut Store,
     pub(crate) stack: &'stack mut Stack,
 }
 
-pub(crate) type ExecOutcome = coro::CoroStateResumeResult<()>;
+pub(crate) type ExecOutcome = coro::PotentialCoroCallResult<(), Option<SuspendedHostCoroState>>;
 
 impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
         let current_frame = stack.call_stack.pop().expect("no call frame, this is a bug");
         let current_module = store.get_module_instance_raw(current_frame.module_addr());
-        Ok(Self { cf: current_frame, module: current_module, suspended_host_coro: None, stack, store })
+        Ok(Self { cf: current_frame, module: current_module, stack, store })
     }
 
     #[inline(always)]
@@ -60,38 +59,51 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             if let ControlFlow::Break(res) = self.exec_next() {
                 return match res {
                     ReasonToBreak::Errored(e) => Err(e),
-                    ReasonToBreak::Suspended(suspend_reason) => Ok(ExecOutcome::Suspended(suspend_reason)),
+                    ReasonToBreak::Suspended(suspend_reason, coro_state) => {
+                        Ok(ExecOutcome::Suspended(suspend_reason, coro_state))
+                    }
                     ReasonToBreak::Finished => Ok(ExecOutcome::Return(())),
                 };
             }
         }
     }
 
+    // on error running suspended_coro, returns it
+    // so that it could be retried later
     #[inline(always)]
-    pub(crate) fn resume(&mut self, res_arg: ResumeArgument) -> Result<ExecOutcome> {
-        if let Some(coro_state) = self.suspended_host_coro.as_mut() {
+    pub(crate) fn resume(
+        &mut self,
+        res_arg: ResumeArgument,
+        mut suspended_coro: Option<SuspendedHostCoroState>,
+    ) -> Result<ExecOutcome, (Error, Option<SuspendedHostCoroState>)> {
+        if let Some(coro_state) = suspended_coro.as_mut() {
             let ctx = FuncContext { store: self.store, module_addr: self.module.id() };
-            let host_res = coro_state.coro_state.resume(ctx, res_arg)?;
+            let host_res = match coro_state.coro_state.resume(ctx, res_arg) {
+                Ok(val) => val,
+                Err(err) => return Err((err, suspended_coro)),
+            };
+
             let res = match host_res {
                 CoroStateResumeResult::Return(res) => res,
                 CoroStateResumeResult::Suspended(suspend_reason) => {
-                    return Ok(ExecOutcome::Suspended(suspend_reason));
+                    return Ok(ExecOutcome::Suspended(suspend_reason, suspended_coro));
                 }
             };
             self.stack.values.extend_from_wasmvalues(&res);
-            self.suspended_host_coro = None;
 
             // we don't know how much time we spent in host function
-            if let ControlFlow::Break(ReasonToBreak::Suspended(reason)) = self.check_should_suspend() {
-                return Ok(ExecOutcome::Suspended(reason));
+            if let ControlFlow::Break(ReasonToBreak::Suspended(reason, coro_state)) = self.check_should_suspend() {
+                return Ok(ExecOutcome::Suspended(reason, coro_state));
             }
         }
 
         loop {
             if let ControlFlow::Break(res) = self.exec_next() {
                 return match res {
-                    ReasonToBreak::Errored(e) => Err(e),
-                    ReasonToBreak::Suspended(suspend_reason) => Ok(ExecOutcome::Suspended(suspend_reason)),
+                    ReasonToBreak::Errored(e) => Err((e, None)),
+                    ReasonToBreak::Suspended(suspend_reason, coro_state) => {
+                        Ok(ExecOutcome::Suspended(suspend_reason, coro_state))
+                    }
                     ReasonToBreak::Finished => Ok(ExecOutcome::Return(())),
                 };
             }
@@ -102,20 +114,20 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     /// called when execution loops back, because that might happen indefinite amount of times
     /// and before and after function calls, because even without loops or infinite recursion, wasm function calls
     /// can mutliply time spent in execution
-    /// execution may not be suspended in the middle of execution the funcion:
+    /// execution may not be suspended in the middle of execution the innsruction (without rolling back its effects):
     /// so only do it as the last thing or first thing in the intsruction execution
     #[must_use = "If this returns ControlFlow::Break, the caller should propagate it"]
     fn check_should_suspend(&mut self) -> ControlFlow<ReasonToBreak> {
         if let Some(flag) = &self.store.suspend_cond.suspend_flag {
             if flag.load(core::sync::atomic::Ordering::Acquire) {
-                return ReasonToBreak::Suspended(SuspendReason::SuspendedFlag).into();
+                return ReasonToBreak::Suspended(SuspendReason::SuspendedFlag, None).into();
             }
         }
 
         #[cfg(feature = "std")]
         if let Some(when) = &self.store.suspend_cond.timeout_instant {
             if crate::std::time::Instant::now() >= *when {
-                return ReasonToBreak::Suspended(SuspendReason::SuspendedEpoch).into();
+                return ReasonToBreak::Suspended(SuspendReason::SuspendedEpoch, None).into();
             }
         }
 
@@ -123,7 +135,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             let should_suspend = matches!(cb(self.store), ControlFlow::Break(()));
             self.store.suspend_cond.suspend_cb = Some(cb); // put it back
             if should_suspend {
-                return ReasonToBreak::Suspended(SuspendReason::SuspendedCallback).into();
+                return ReasonToBreak::Suspended(SuspendReason::SuspendedCallback, None).into();
             }
         }
 
@@ -425,10 +437,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 ControlFlow::Continue(())
             }
             PotentialCoroCallResult::Suspended(suspend_reason, state) => {
-                self.suspended_host_coro =
-                    Some(SuspendedHostCoroState { coro_state: state, coro_orig_function: func_ref });
+                let coro_state = Some(SuspendedHostCoroState { coro_state: state, coro_orig_function: func_ref });
                 self.cf.incr_instr_ptr();
-                ReasonToBreak::Suspended(suspend_reason).into()
+                ReasonToBreak::Suspended(suspend_reason, coro_state).into()
             }
         }
     }

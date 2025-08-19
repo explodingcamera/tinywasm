@@ -162,7 +162,7 @@ pub(crate) type TypedFuncHandleCallOutcome<R> = crate::coro::PotentialCoroCallRe
 
 #[derive(Debug)]
 struct SuspendedWasmFunc {
-    runtime: interpreter::SuspendedRuntime,
+    runtime: interpreter::SuspendedInterpreterRuntime,
     result_types: Box<[ValType]>,
 }
 impl SuspendedWasmFunc {
@@ -178,8 +178,8 @@ impl SuspendedWasmFunc {
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)] // Wasm is bigger, but also much more common variant
 enum SuspendedFuncInner {
-    Wasm(SuspendedWasmFunc),
-    Host(SuspendedHostCoroState),
+    Wasm(SuspendedWasmFunc), // could also have host coro-function in the stack, but with some wasm below
+    Host(SuspendedHostCoroState), // in case we directly called host coro-function bypassing wasm stack
 }
 
 /// handle to function that was suspended and can be resumed
