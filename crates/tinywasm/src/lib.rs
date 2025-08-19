@@ -93,19 +93,15 @@ pub(crate) mod log {
 mod error;
 #[cfg(not(feature = "async"))]
 #[allow(unused)]
-use {
-    coro::{CoroState, CoroStateResumeResult, PotentialCoroCallResult, SuspendReason},
-    func::{SuspendedFunc, SuspendedFuncTyped},
-};
+use coro::{CoroState, CoroStateResumeResult, PotentialCoroCallResult, SuspendReason};
 #[cfg(feature = "async")]
 pub use {
     coro::{CoroState, CoroStateResumeResult, PotentialCoroCallResult, SuspendReason},
-    func::{SuspendedFunc, SuspendedFuncTyped},
     module::IncompleteModule,
 };
 
 pub use error::*;
-pub use func::{FuncHandle, FuncHandleTyped};
+pub use func::{FuncHandle, FuncHandleTyped, SuspendedFunc};
 pub use imports::*;
 pub use instance::ModuleInstance;
 pub use module::Module;

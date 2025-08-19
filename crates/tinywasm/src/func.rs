@@ -215,11 +215,8 @@ impl crate::coro::CoroState<Vec<WasmValue>, &mut Store> for SuspendedFunc {
     }
 }
 
-/// A typed suspended function.
-/// Only returned value(s) are typed, yielded value and resume argument types are impossible to know
 #[cfg_attr(not(feature = "async"), allow(unused))]
 pub struct SuspendedFuncTyped<R> {
-    /// The underlying untyped suspended function
     pub func: SuspendedFunc,
     pub(crate) _marker: core::marker::PhantomData<R>,
 }

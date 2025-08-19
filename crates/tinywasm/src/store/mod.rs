@@ -14,9 +14,7 @@ mod memory;
 mod suspend_conditions;
 mod table;
 
-#[cfg(feature = "async")]
 pub use suspend_conditions::*;
-
 pub(crate) use {data::*, element::*, function::*, global::*, memory::*, table::*};
 
 // global store id counter
@@ -42,7 +40,6 @@ pub struct Store {
     // and (less obviously) to host functions called from store - for calling wasm callbacks and propagating this config to them
     // (or just complying with suspend conditions themselves)
     // alternatively it could be passed to function handles and passend into function context
-    #[cfg(feature = "async")]
     pub(crate) suspend_cond: SuspendConditions,
 }
 
@@ -99,7 +96,6 @@ impl Default for Store {
             module_instances: Vec::new(),
             data: StoreData::default(),
             runtime: Runtime::Default,
-            #[cfg(feature = "async")]
             suspend_cond: SuspendConditions::default(),
         }
     }
@@ -496,7 +492,6 @@ fn get_pair_mut<T>(slice: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut 
 }
 
 // suspend_conditions-related functions
-#[cfg(feature = "async")]
 impl Store {
     /// sets suspend conditions for store
     pub fn set_suspend_conditions(&mut self, val: SuspendConditions) {

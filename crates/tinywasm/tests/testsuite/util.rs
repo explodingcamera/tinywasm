@@ -2,7 +2,6 @@ use std::hash::Hasher;
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{bail, eyre, Result};
-#[cfg(feature = "test_async")]
 use tinywasm::{CoroState, SuspendConditions, SuspendReason};
 use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 use wasm_testsuite::wast;
@@ -16,7 +15,6 @@ pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
 }
 
 // due to imprecision it's not exact
-#[cfg(feature = "test_async")]
 fn make_sometimes_breaking_cb(probability: f64) -> impl FnMut(&tinywasm::Store) -> std::ops::ControlFlow<(), ()> {
     let mut counter = 0 as u64;
     let mut hasher = std::hash::DefaultHasher::new();
