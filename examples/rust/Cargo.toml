@@ -23,6 +23,10 @@ name="hello"
 path="src/hello.rs"
 
 [[bin]]
+name="host_fn"
+path="src/host_fn.rs"
+
+[[bin]]
 name="print"
 path="src/print.rs"
 

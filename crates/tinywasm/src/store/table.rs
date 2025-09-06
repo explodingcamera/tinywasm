@@ -134,7 +134,7 @@ impl TableInstance {
             .expect("error initializing table: function not found. This should have been caught by the validator")
     }
 
-    pub(crate) fn init(&mut self, offset: i32, init: &[TableElement]) -> Result<()> {
+    pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<()> {
         let offset = offset as usize;
         let end = offset.checked_add(init.len()).ok_or({
             Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
@@ -159,8 +159,8 @@ pub(crate) enum TableElement {
 impl From<Option<Addr>> for TableElement {
     fn from(addr: Option<Addr>) -> Self {
         match addr {
-            None => TableElement::Uninitialized,
-            Some(addr) => TableElement::Initialized(addr),
+            None => Self::Uninitialized,
+            Some(addr) => Self::Initialized(addr),
         }
     }
 }
@@ -168,15 +168,15 @@ impl From<Option<Addr>> for TableElement {
 impl TableElement {
     pub(crate) fn addr(&self) -> Option<Addr> {
         match self {
-            TableElement::Uninitialized => None,
-            TableElement::Initialized(addr) => Some(*addr),
+            Self::Uninitialized => None,
+            Self::Initialized(addr) => Some(*addr),
         }
     }
 
     pub(crate) fn map(self, f: impl FnOnce(Addr) -> Addr) -> Self {
         match self {
-            TableElement::Uninitialized => TableElement::Uninitialized,
-            TableElement::Initialized(addr) => TableElement::Initialized(f(addr)),
+            Self::Uninitialized => Self::Uninitialized,
+            Self::Initialized(addr) => Self::Initialized(f(addr)),
         }
     }
 }
@@ -250,8 +250,7 @@ mod tests {
             let elem = table_instance.get(i);
             assert!(
                 elem.is_ok() && matches!(elem.unwrap(), &TableElement::Initialized(_)),
-                "Element not initialized correctly at index {}",
-                i
+                "Element not initialized correctly at index {i}"
             );
         }
     }

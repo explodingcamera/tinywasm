@@ -2,6 +2,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::{fmt::Display, ops::ControlFlow};
 use tinywasm_types::FuncType;
+use tinywasm_types::archive::TwasmError;
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
@@ -10,6 +11,7 @@ use crate::{coro::UnexpectedSuspendError, interpreter};
 
 /// Errors that can occur for `TinyWasm` operations
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// A WebAssembly trap occurred
     Trap(Trap),
@@ -53,11 +55,15 @@ pub enum Error {
 
     #[cfg(feature = "parser")]
     /// A parsing error occurred
-    ParseError(ParseError),
+    Parser(ParseError),
+
+    /// A serialization error occurred
+    Twasm(TwasmError),
 }
 
 #[derive(Debug)]
 /// Errors that can occur when linking a WebAssembly module
+#[non_exhaustive]
 pub enum LinkingError {
     /// An unknown import was encountered
     UnknownImport {
@@ -90,6 +96,7 @@ impl LinkingError {
 /// A WebAssembly trap
 ///
 /// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
+#[non_exhaustive]
 pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,
@@ -181,6 +188,11 @@ impl From<LinkingError> for Error {
     }
 }
 
+impl From<TwasmError> for Error {
+    fn from(value: TwasmError) -> Self {
+        Self::Twasm(value)
+    }
+}
 impl From<Trap> for Error {
     fn from(value: Trap) -> Self {
         Self::Trap(value)
@@ -191,11 +203,12 @@ impl Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "parser")]
-            Self::ParseError(err) => write!(f, "error parsing module: {err:?}"),
+            Self::Parser(err) => write!(f, "error parsing module: {err:?}"),
 
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {err}"),
 
+            Self::Twasm(err) => write!(f, "serialization error: {err}"),
             Self::Trap(trap) => write!(f, "trap: {trap}"),
             Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
@@ -216,9 +229,9 @@ impl Display for Error {
 impl Display for LinkingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::UnknownImport { module, name } => write!(f, "unknown import: {}.{}", module, name),
+            Self::UnknownImport { module, name } => write!(f, "unknown import: {module}.{name}"),
             Self::IncompatibleImportType { module, name } => {
-                write!(f, "incompatible import type: {}.{}", module, name)
+                write!(f, "incompatible import type: {module}.{name}")
             }
         }
     }
@@ -254,7 +267,7 @@ impl core::error::Error for Error {}
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {
     fn from(value: tinywasm_parser::ParseError) -> Self {
-        Self::ParseError(value)
+        Self::Parser(value)
     }
 }
 

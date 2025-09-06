@@ -92,7 +92,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
                 ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
             }
             wasmparser::TypeRef::Tag(ty) => {
-                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")))
+                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
             }
         },
     })
@@ -157,7 +157,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
         wasmparser::ExternalKind::Memory => ExternalKind::Memory,
         wasmparser::ExternalKind::Global => ExternalKind::Global,
         wasmparser::ExternalKind::Tag => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)))
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)));
         }
     };
 
@@ -261,6 +261,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
         wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(*value)),
         wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
         wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
+        wasmparser::Operator::V128Const { value } => Ok(ConstInstruction::V128Const(value.i128())),
         wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
         op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {op:?}"))),
     }

@@ -2,8 +2,8 @@ use crate::coro::CoroState;
 use crate::interpreter;
 use crate::interpreter::executor::SuspendedHostCoroState;
 use crate::interpreter::stack::{CallFrame, Stack};
-use crate::{log, unlikely, Function};
 use crate::{Error, FuncContext, Result, Store};
+use crate::{Function, log, unlikely};
 use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ResumeArgument, ValType, WasmValue};
 
@@ -48,11 +48,11 @@ impl FuncHandle {
 
         // 5. For each value type and the corresponding value, check if types match
         if !(func_ty.params.iter().zip(params).enumerate().all(|(_i, (ty, param))| {
-            if ty != &param.val_type() {
-                log::error!("param type mismatch at index {}: expected {:?}, got {:?}", _i, ty, param);
-                false
-            } else {
+            if ty == &param.val_type() {
                 true
+            } else {
+                log::error!("param type mismatch at index {_i}: expected {ty:?}, got {param:?}");
+                false
             }
         })) {
             return Err(Error::Other("Type mismatch".into()));
@@ -80,7 +80,8 @@ impl FuncHandle {
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
-        let stack = Stack::new(call_frame);
+
+        let mut stack = Stack::new(call_frame, &store.config);
 
         // 9. Invoke the function instance
         let runtime = store.runtime();

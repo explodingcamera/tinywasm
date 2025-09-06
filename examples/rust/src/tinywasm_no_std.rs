@@ -16,11 +16,11 @@ static ALLOCATOR: AssumeSingleThreaded<FreeListAllocator> =
     unsafe { AssumeSingleThreaded::new(FreeListAllocator::new()) };
 
 #[link(wasm_import_module = "env")]
-extern "C" {
+unsafe extern "C" {
     fn printi32(x: i32);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     let _ = run();
 }
@@ -30,7 +30,7 @@ fn run() -> tinywasm::Result<()> {
     let mut imports = tinywasm::Imports::new();
 
     let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("./print.wasm"))?;
-    let twasm = res.serialize_twasm();
+    let twasm = res.serialize_twasm()?;
     let module = tinywasm::Module::parse_bytes(&twasm)?;
 
     imports.define(

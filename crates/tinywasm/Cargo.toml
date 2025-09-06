@@ -7,6 +7,8 @@ license.workspace=true
 authors.workspace=true
 repository.workspace=true
 rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
 readme="../../README.md"
 
 [lib]
@@ -20,24 +22,35 @@ tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
-wasm-testsuite={version="0.4.0"}
-indexmap="2.7"
-wast={workspace=true}
-wat={workspace=true}
-eyre={workspace=true}
-pretty_env_logger={workspace=true}
-criterion={workspace=true}
-owo-colors={version="4.0"}
-serde_json={version="1.0"}
-serde={version="1.0", features=["derive"]}
+wasm-testsuite.workspace=true
+indexmap.workspace=true
+wast.workspace=true
+wat.workspace=true
+eyre.workspace=true
+pretty_env_logger.workspace=true
+criterion.workspace=true
+owo-colors.workspace=true
+serde_json.workspace=true
+serde.workspace=true
 
 [features]
-default=["std", "parser", "logging", "archive"]
+default=["std", "parser", "logging", "archive", "canonicalize_nans"]
+
 logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
+
+# support for parsing WebAssembly
 parser=["dep:tinywasm-parser"]
+
+# support for "archiving" tinywasm bytecode
 archive=["tinywasm-types/archive"]
 test_async=[] #feels weird putting it here
+
+# canonicalize all NaN values to a single representation
+canonicalize_nans=[]
+
+# enable simd support (unstable / unfinished)
+unstable-simd=[]
 
 [[test]]
 name="test-wasm-1"
@@ -64,6 +77,10 @@ name="test-wasm-custom-page-sizes"
 harness=false
 
 [[test]]
+name="test-wasm-tail-call"
+harness=false
+
+[[test]]
 name="test-wasm-memory64"
 harness=false
 test=false
@@ -75,6 +92,11 @@ test=false
 
 [[test]]
 name="test-wasm-relaxed-simd"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-simd"
 harness=false
 test=false
 

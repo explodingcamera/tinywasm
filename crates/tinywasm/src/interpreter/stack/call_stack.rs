@@ -1,14 +1,14 @@
 use core::ops::ControlFlow;
 
 use super::BlockType;
+use crate::Trap;
 use crate::interpreter::executor::ReasonToBreak;
 use crate::interpreter::values::*;
-use crate::unlikely;
-use crate::Trap;
+use crate::{Error, unlikely};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};
-use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmValue};
+use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
 
 pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
@@ -72,6 +72,12 @@ impl CallFrame {
     }
 
     #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn data(&self) -> &WasmFunctionData {
+        &self.func_instance.data
+    }
+
+    #[inline]
     pub(crate) fn incr_instr_ptr(&mut self) {
         self.instr_ptr += 1;
     }
@@ -97,6 +103,20 @@ impl CallFrame {
             Some(instr) => instr,
             None => unreachable!("Instruction out of bounds, this is a bug"),
         }
+    }
+
+    pub(crate) fn reuse_for(
+        &mut self,
+        func: Rc<WasmFunction>,
+        locals: Locals,
+        block_depth: u32,
+        module_addr: ModuleInstanceAddr,
+    ) {
+        self.func_instance = func;
+        self.module_addr = module_addr;
+        self.locals = locals;
+        self.block_ptr = block_depth;
+        self.instr_ptr = 0; // Reset to function entry
     }
 
     /// Break to a block at the given index (relative to the current frame)

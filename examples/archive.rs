@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{parser::Parser, types::TinyWasmModule, Module, Store};
+use tinywasm::{Module, Store, parser::Parser, types::TinyWasmModule};
 
 const WASM: &str = r#"
 (module
@@ -11,12 +11,12 @@ const WASM: &str = r#"
 "#;
 
 fn main() -> Result<()> {
-    let wasm = wat::parse_str(WASM).expect("failed to parse wat");
+    let wasm = wat::parse_str(WASM).expect("Failed to parse WAT");
     let module = Parser::default().parse_module_bytes(wasm)?;
-    let twasm = module.serialize_twasm();
+    let twasm = module.serialize_twasm()?;
 
-    // now, you could e.g. write twasm to a file called `add.twasm`
-    // and load it later in a different program
+    // Now, you could e.g. write `twasm` to a file called `add.twasm`
+    // and load it later in a different program.
 
     let module: Module = TinyWasmModule::from_twasm(&twasm)?.into();
     let mut store = Store::default();

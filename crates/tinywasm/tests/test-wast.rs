@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::{bail, eyre, Result};
+use eyre::{Result, bail, eyre};
 use owo_colors::OwoColorize;
 use testsuite::TestSuite;
 

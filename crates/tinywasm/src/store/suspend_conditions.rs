@@ -16,13 +16,13 @@ pub struct SuspendConditions {
 
     /// instant at which execution should suspend
     /// can be used to control how much time will be spent in wasm without requiring other threads
-    /// such as for time-slice multitasking
-    /// uses rust standard library for checking time - so not available in no-std
+    /// such as for time-slice multitasking.
+    /// Uses rust standard library for checking time - so not available in no-std
     #[cfg(feature = "std")]
     pub timeout_instant: Option<crate::std::time::Instant>,
 
-    /// callback that returns [`ControlFlow::Break`]` when execution should suspend
-    /// can be used when above ways are insufficient or
+    /// Callback that returns [`ControlFlow::Break`]` when execution should suspend.
+    /// Can be used when above ways are insufficient or
     /// instead of [`timeout_instant`] in no-std builds, with your own clock function
     pub suspend_cb: Option<ShouldSuspendCb>,
 }

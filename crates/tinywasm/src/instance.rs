@@ -15,7 +15,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Debug)]
 pub(crate) struct ModuleInstanceInner {
     pub(crate) failed_to_instantiate: bool,
@@ -93,7 +93,7 @@ impl ModuleInstance {
             exports: module.0.exports,
         };
 
-        let instance = ModuleInstance::new(instance);
+        let instance = Self::new(instance);
         store.add_instance(instance.clone());
 
         match (elem_trapped, data_trapped) {
@@ -195,17 +195,17 @@ impl ModuleInstance {
     pub fn exported_memory<'a>(&self, store: &'a Store, name: &str) -> Result<MemoryRef<'a>> {
         let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
-            return Err(Error::Other(format!("Export is not a memory: {}", name)));
+            return Err(Error::Other(format!("Export is not a memory: {name}")));
         };
 
         self.memory(store, mem_addr)
     }
 
-    /// Get an exported memory by name
+    /// Get an exported memory by name (mutable)
     pub fn exported_memory_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRefMut<'a>> {
         let export = self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
         let ExternVal::Memory(mem_addr) = export else {
-            return Err(Error::Other(format!("Export is not a memory: {}", name)));
+            return Err(Error::Other(format!("Export is not a memory: {name}")));
         };
 
         self.memory_mut(store, mem_addr)

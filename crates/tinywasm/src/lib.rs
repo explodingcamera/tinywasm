@@ -5,7 +5,7 @@
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
-// #![cfg_attr(feature = "nightly", feature(portable_simd))]
+#![cfg_attr(feature = "unstable-simd", feature(portable_simd))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
@@ -69,13 +69,36 @@
 //! and other modules to be linked into the module when it is instantiated.
 //!
 //! See the [`Imports`] documentation for more information.
+//!
+//! ## Runtime Configuration
+//!
+//! For resource-constrained targets, you can configure the initial memory allocation:
+//!
+//! ```rust
+//! use tinywasm::{Store, StackConfig};
+//!
+//! // Create a store with minimal initial allocation (90% reduction in pre-allocated memory)
+//! let config = StackConfig::new()
+//!     .with_value_stack_32_init_size(1024)  // 1KB instead of 32KB
+//!     .with_value_stack_64_init_size(512)   // 512B instead of 16KB
+//!     .with_value_stack_128_init_size(256)  // 256B instead of 8KB
+//!     .with_value_stack_ref_init_size(128)  // 128B instead of 1KB
+
+//!     .with_block_stack_init_size(32);      // 32 instead of 128
+//! let store = Store::with_config(config);
+//!
+//! // Or create a partial configuration (only override what you need)
+//! let config = StackConfig::new()
+//!     .with_value_stack_32_init_size(2048); // Only override 32-bit stack size
+//! let store = Store::with_config(config);
+//! ```
 
 mod std;
 extern crate alloc;
 
 // log for logging (optional).
 #[cfg(feature = "logging")]
-#[allow(clippy::single_component_path_imports)]
+#[expect(clippy::single_component_path_imports)]
 use log;
 
 // noop fallback if logging is disabled.
@@ -111,6 +134,10 @@ mod store;
 /// Runtime for executing WebAssembly modules.
 pub mod interpreter;
 pub use interpreter::InterpreterRuntime;
+
+/// Configuration for the WebAssembly interpreter's stack preallocation.
+pub mod config;
+pub use config::StackConfig;
 
 #[cfg(feature = "parser")]
 /// Re-export of [`tinywasm_parser`]. Requires `parser` feature.

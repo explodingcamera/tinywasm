@@ -1,10 +1,10 @@
 mod testsuite;
 use eyre::Result;
 use testsuite::TestSuite;
-use wasm_testsuite::data::{spec, SpecVersion};
+use wasm_testsuite::data::{SpecVersion, spec};
 
 fn main() -> Result<()> {
-    if std::env::args().find(|x| x == "--enable").is_none() {
+    if !std::env::args().any(|x| &x == "--enable") {
         println!("Skipping wasm-3 tests, use --enable to run");
         return Ok(());
     }

@@ -7,13 +7,17 @@ license.workspace=true
 authors.workspace=true
 repository.workspace=true
 rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
 
 [dependencies]
 log={workspace=true, optional=true}
-rkyv={version="0.8.1", optional=true, default-features=false, features=["alloc", "bytecheck"]}
+postcard={version="1.1", optional=true, default-features=false, features=["alloc"]}
+serde={version="1.0", optional=true, default-features=false, features=["alloc"]}
 
 [features]
 default=["std", "logging", "archive"]
-std=["rkyv?/std"]
-archive=["dep:rkyv"]
+
+std=["serde?/std"]
+archive=["dep:postcard", "dep:serde"]
 logging=["dep:log"]

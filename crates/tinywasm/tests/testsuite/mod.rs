@@ -1,5 +1,5 @@
 #![allow(unused)]
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
 use std::io::{BufRead, Seek, SeekFrom};
@@ -41,7 +41,7 @@ impl TestSuite {
     pub fn print_errors(&self) {
         for (group_name, group) in &self.0 {
             let tests = &group.tests;
-            for (test_name, test) in tests.iter() {
+            for (test_name, test) in tests {
                 if let Err(e) = &test.result {
                     eprintln!(
                         "{} {} failed: {:?}",
@@ -79,13 +79,12 @@ impl TestSuite {
         let last_line = BufReader::new(&file).lines().last().transpose()?;
 
         // Check if the last line starts with the current commit
-        if let Some(last) = last_line {
-            if last.starts_with(version) {
+        if let Some(last) = last_line
+            && last.starts_with(version) {
                 // Truncate the file size to remove the last line
                 let len_to_truncate = last.len() as i64;
                 file.set_len(file.metadata()?.len() - len_to_truncate as u64 - 1)?;
             }
-        }
 
         // Seek to the end of the file for appending
         file.seek(SeekFrom::End(0))?;

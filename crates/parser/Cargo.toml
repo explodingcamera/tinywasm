@@ -7,9 +7,11 @@ license.workspace=true
 authors.workspace=true
 repository.workspace=true
 rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
 
 [dependencies]
-wasmparser={version="0.222", default-features=false, features=["validate", "features", "simd"]}
+wasmparser={workspace=true, features=["validate", "features", "simd"]}
 log={workspace=true, optional=true}
 tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false}
 

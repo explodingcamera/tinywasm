@@ -1,10 +1,11 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use core::default;
 use core::fmt::Debug;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
-use crate::{cold, Error, Function, ModuleInstance, Result, Trap};
+use crate::{Error, Function, ModuleInstance, Result, StackConfig, Trap, cold};
 
 mod data;
 mod element;
@@ -36,6 +37,8 @@ pub struct Store {
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
 
+    pub(crate) config: StackConfig,
+
     // idk where really to put it, but it should be accessible to host environment (obviously)
     // and (less obviously) to host functions called from store - for calling wasm callbacks and propagating this config to them
     // (or just complying with suspend conditions themselves)
@@ -63,6 +66,19 @@ impl Store {
     /// Create a new store
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new store with the given stack configuration
+    pub fn with_config(config: StackConfig) -> Self {
+        let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+        Self {
+            id,
+            module_instances: Vec::new(),
+            data: StoreData::default(),
+            runtime: Runtime::Default,
+            config,
+            suspend_cond: SuspendConditions::default(),
+        }
     }
 
     /// Get a module instance by the internal id
@@ -96,6 +112,7 @@ impl Default for Store {
             module_instances: Vec::new(),
             data: StoreData::default(),
             runtime: Runtime::Default,
+            config: StackConfig::default(),
             suspend_cond: SuspendConditions::default(),
         }
     }
@@ -257,9 +274,6 @@ impl Store {
         let mem_count = self.data.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.into_iter().enumerate() {
-            if let MemoryArch::I64 = mem.arch() {
-                return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
-            }
             self.data.memories.push(MemoryInstance::new(mem, idx));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
@@ -305,7 +319,9 @@ impl Store {
                 })?;
                 self.data.globals[addr as usize].value.get().unwrap_ref()
             }
-            _ => return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}"))),
+            ElementItem::Expr(item) => {
+                return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}")));
+            }
         };
 
         Ok(res)
@@ -339,7 +355,7 @@ impl Store {
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_i32_const(offset)?;
+                    let offset = self.eval_size_const(offset)?;
                     let table_addr = table_addrs
                         .get(table as usize)
                         .copied()
@@ -387,7 +403,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_i32_const(offset)?;
+                    let offset = self.eval_size_const(offset)?;
                     let Some(mem) = self.data.memories.get_mut(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
@@ -432,15 +448,18 @@ impl Store {
         Ok(self.data.funcs.len() as FuncAddr - 1)
     }
 
-    /// Evaluate a constant expression, only supporting i32 globals and i32.const
-    pub(crate) fn eval_i32_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i32> {
-        use tinywasm_types::ConstInstruction::*;
-        let val = match const_instr {
-            I32Const(i) => i,
-            GlobalGet(addr) => self.data.globals[addr as usize].value.get().unwrap_32() as i32,
-            _ => return Err(Error::Other("expected i32".to_string())),
-        };
-        Ok(val)
+    /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
+    pub(crate) fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
+        Ok(match const_instr {
+            ConstInstruction::I32Const(i) => i64::from(i),
+            ConstInstruction::I64Const(i) => i,
+            ConstInstruction::GlobalGet(addr) => match self.data.globals[addr as usize].value.get() {
+                TinyWasmValue::Value32(i) => i64::from(i),
+                TinyWasmValue::Value64(i) => i as i64,
+                o => return Err(Error::Other(format!("expected i32 or i64, got {o:?}"))),
+            },
+            o => return Err(Error::Other(format!("expected i32, got {o:?}"))),
+        })
     }
 
     /// Evaluate a constant expression
@@ -456,6 +475,7 @@ impl Store {
             F64Const(f) => (*f).into(),
             I32Const(i) => (*i).into(),
             I64Const(i) => (*i).into(),
+            V128Const(i) => (*i).into(),
             GlobalGet(addr) => {
                 let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
                     Error::Other(format!("global {addr} not found. This should have been caught by the validator"))

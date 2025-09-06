@@ -7,7 +7,7 @@ use core::fmt::Debug;
 
 use crate::coro::CoroState;
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
-use crate::{coro, log, LinkingError, MemoryRef, MemoryRefMut, PotentialCoroCallResult, Result};
+use crate::{LinkingError, MemoryRef, MemoryRefMut, PotentialCoroCallResult, Result, coro, log};
 use tinywasm_types::*;
 
 /// The internal representation of a function
@@ -80,11 +80,11 @@ impl FuncContext<'_> {
     }
 
     /// Get a reference to an exported memory
-    pub fn exported_memory(&mut self, name: &str) -> Result<MemoryRef<'_>> {
+    pub fn exported_memory(&self, name: &str) -> Result<MemoryRef<'_>> {
         self.module().exported_memory(self.store, name)
     }
 
-    /// Get a reference to an exported memory
+    /// Get a mutable reference to an exported memory
     pub fn exported_memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
         self.module().exported_memory_mut(self.store, name)
     }
@@ -156,8 +156,7 @@ impl Extern {
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Self {
         let _ty = ty.clone();
-        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| 
-            -> Result<InnerHostFunCallOutcome> {
+        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<InnerHostFunCallOutcome> {
             let _ty = _ty.clone();
             let result = func(ctx, args)?;
 
@@ -176,13 +175,11 @@ impl Extern {
         };
 
         Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(inner_func), ty: ty.clone() })))
-
     }
 
     /// Create a new typed function import
     pub fn typed_func_coro<P, R>(
-        func: impl Fn(FuncContext<'_>, P) -> Result<coro::PotentialCoroCallResult<R, Box<dyn HostCoroState>>>
-            + 'static,
+        func: impl Fn(FuncContext<'_>, P) -> Result<coro::PotentialCoroCallResult<R, Box<dyn HostCoroState>>> + 'static,
     ) -> Self
     where
         P: FromWasmValueTuple + ValTypesFromTuple,
@@ -191,7 +188,7 @@ impl Extern {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<InnerHostFunCallOutcome> {
             let args = P::from_wasm_value_tuple(args)?;
             let result = func(ctx, args)?;
-            Ok(result.map_result(|vals|{vals.into_wasm_value_tuple().to_vec()}))
+            Ok(result.map_result(|vals| vals.into_wasm_value_tuple().to_vec()))
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
@@ -207,7 +204,7 @@ impl Extern {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<InnerHostFunCallOutcome> {
             let args = P::from_wasm_value_tuple(args)?;
             let result = func(ctx, args)?;
-            Ok(InnerHostFunCallOutcome::Return(result.into_wasm_value_tuple().to_vec()))
+            Ok(InnerHostFunCallOutcome::Return(result.into_wasm_value_tuple()))
         };
 
         let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
@@ -300,7 +297,7 @@ impl ResolvedImports {
 impl Imports {
     /// Create a new empty import set
     pub fn new() -> Self {
-        Imports { values: BTreeMap::new(), modules: BTreeMap::new() }
+        Self { values: BTreeMap::new(), modules: BTreeMap::new() }
     }
 
     /// Merge two import sets
@@ -359,7 +356,7 @@ impl Imports {
         match (expected.size_max, actual.size_max) {
             (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
             (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
-                return Err(LinkingError::incompatible_import_type(import).into())
+                return Err(LinkingError::incompatible_import_type(import).into());
             }
             _ => {}
         }
@@ -376,7 +373,7 @@ impl Imports {
         Self::compare_types(import, &expected.arch(), &actual.arch())?;
 
         if actual.page_count_initial() > expected.page_count_initial()
-            && real_size.map_or(true, |size| actual.page_count_initial() > size as u64)
+            && real_size.is_none_or(|size| actual.page_count_initial() > size as u64)
         {
             return Err(LinkingError::incompatible_import_type(import).into());
         }

@@ -4,20 +4,28 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="222"
-wat="1.222"
+wast="236"
+wat="1.236"
+wasmparser={version="0.236", default-features=false}
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
-criterion={version="0.5", default-features=false, features=["cargo_bench_support", "rayon"]}
+criterion={version="0.7", default-features=false, features=["cargo_bench_support", "rayon"]}
+wasm-testsuite={version="0.5"}
+indexmap="2.10"
+owo-colors={version="4.2"}
+serde_json={version="1.0"}
+serde={version="1.0", features=["derive"]}
 
 [workspace.package]
 version="0.9.0-alpha.0"
-rust-version="1.81"
-edition="2021"
+rust-version="1.88"
+edition="2024"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
 repository="https://github.com/explodingcamera/tinywasm"
+categories=["wasm", "no-std"]
+keywords=["tinywasm"]
 
 [package]
 name="tinywasm-root"
@@ -31,9 +39,9 @@ name="wasm-rust"
 test=false
 
 [dev-dependencies]
-wat={workspace=true}
-eyre={workspace=true}
-pretty_env_logger={workspace=true}
+wat.workspace=true
+eyre.workspace=true
+pretty_env_logger.workspace=true
 tinywasm={path="crates/tinywasm"}
 
 [profile.bench]

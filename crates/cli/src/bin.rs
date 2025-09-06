@@ -4,7 +4,7 @@ use argh::FromArgs;
 use args::WasmArg;
 use eyre::Result;
 use log::{debug, info};
-use tinywasm::{types::WasmValue, Module};
+use tinywasm::{Module, types::WasmValue};
 
 use crate::args::to_wasm_args;
 mod args;
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
 
     match args.nested {
         TinyWasmSubcommand::Run(Run { wasm_file, engine, args, func }) => {
-            debug!("args: {:?}", args);
+            debug!("args: {args:?}");
 
             let path = cwd.join(wasm_file.clone());
             let module = match wasm_file.ends_with(".wat") {

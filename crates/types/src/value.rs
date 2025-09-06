@@ -17,31 +17,31 @@ pub enum WasmValue {
     /// A 64-bit float.
     F64(f64),
     // /// A 128-bit vector
-    V128(u128),
+    V128(i128),
 
     RefExtern(ExternRef),
     RefFunc(FuncRef),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ExternRef(Option<ExternAddr>);
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FuncRef(Option<FuncAddr>);
 
 impl Debug for ExternRef {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
-            Some(addr) => write!(f, "extern({:?})", addr),
+            Some(addr) => write!(f, "extern({addr:?})"),
             None => write!(f, "extern(null)"),
         }
     }
 }
 
 impl Debug for FuncRef {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
-            Some(addr) => write!(f, "func({:?})", addr),
+            Some(addr) => write!(f, "func({addr:?})"),
             None => write!(f, "func(null)"),
         }
     }
@@ -112,8 +112,9 @@ impl WasmValue {
             Self::I64(i) => ConstInstruction::I64Const(*i),
             Self::F32(i) => ConstInstruction::F32Const(*i),
             Self::F64(i) => ConstInstruction::F64Const(*i),
+            Self::V128(i) => ConstInstruction::V128Const(*i),
             Self::RefFunc(i) => ConstInstruction::RefFunc(i.addr()),
-            _ => unimplemented!("no const_instr for {:?}", self),
+            Self::RefExtern(_) => unimplemented!("no const_instr for RefExtern"),
         }
     }
 
@@ -137,6 +138,7 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::V128(a), Self::V128(b)) => a == b,
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
@@ -190,7 +192,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_v128(&self) -> Option<u128> {
+    pub fn as_v128(&self) -> Option<i128> {
         match self {
             Self::V128(i) => Some(*i),
             _ => None,
@@ -218,15 +220,15 @@ impl WasmValue {
 fn cold() {}
 
 impl Debug for WasmValue {
-    fn fmt(&self, f: &mut alloc::fmt::Formatter<'_>) -> alloc::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            WasmValue::I32(i) => write!(f, "i32({i})"),
-            WasmValue::I64(i) => write!(f, "i64({i})"),
-            WasmValue::F32(i) => write!(f, "f32({i})"),
-            WasmValue::F64(i) => write!(f, "f64({i})"),
-            WasmValue::V128(i) => write!(f, "v128({i:?})"),
-            WasmValue::RefExtern(i) => write!(f, "ref({i:?})"),
-            WasmValue::RefFunc(i) => write!(f, "func({i:?})"),
+            Self::I32(i) => write!(f, "i32({i})"),
+            Self::I64(i) => write!(f, "i64({i})"),
+            Self::F32(i) => write!(f, "f32({i})"),
+            Self::F64(i) => write!(f, "f64({i})"),
+            Self::V128(i) => write!(f, "v128({i:?})"),
+            Self::RefExtern(i) => write!(f, "ref({i:?})"),
+            Self::RefFunc(i) => write!(f, "func({i:?})"),
         }
     }
 }
@@ -249,7 +251,7 @@ impl WasmValue {
 
 /// Type of a WebAssembly value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "archive", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ValType {
     /// A 32-bit integer.
     I32,
@@ -276,7 +278,7 @@ impl ValType {
     #[doc(hidden)]
     #[inline]
     pub fn is_simd(&self) -> bool {
-        matches!(self, ValType::V128)
+        matches!(self, Self::V128)
     }
 }
 
@@ -309,4 +311,4 @@ macro_rules! impl_conversion_for_wasmvalue {
     }
 }
 
-impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, u128 => V128, ExternRef => RefExtern, FuncRef => RefFunc }
+impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, i128 => V128, ExternRef => RefExtern, FuncRef => RefFunc }

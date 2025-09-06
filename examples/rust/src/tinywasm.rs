@@ -2,11 +2,11 @@
 use tinywasm::{Extern, FuncContext};
 
 #[link(wasm_import_module = "env")]
-extern "C" {
+unsafe extern "C" {
     fn printi32(x: i32);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn hello() {
     let _ = run();
 }

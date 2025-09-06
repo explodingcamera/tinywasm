@@ -1,5 +1,5 @@
 use crate::log::debug;
-use crate::{conversion, ParseError, Result};
+use crate::{ParseError, Result, conversion};
 use alloc::string::ToString;
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::{
@@ -30,7 +30,7 @@ pub(crate) struct ModuleReader {
 }
 
 impl ModuleReader {
-    pub(crate) fn new() -> ModuleReader {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -125,12 +125,12 @@ impl ModuleReader {
                 self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
             CodeSectionStart { count, range, .. } => {
-                debug!("Found code section ({} functions)", count);
+                debug!("Found code section ({count} functions)");
                 if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
                 }
                 self.code.reserve(count as usize);
-                validator.code_section_start(count, &range)?;
+                validator.code_section_start(&range)?;
             }
             CodeSectionEntry(function) => {
                 debug!("Found code section entry");
