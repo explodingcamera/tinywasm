@@ -2,8 +2,9 @@ use core::ops::ControlFlow;
 
 use super::BlockType;
 use crate::Trap;
+use crate::interpreter::executor::ReasonToBreak;
 use crate::interpreter::values::*;
-use crate::{Error, unlikely};
+use crate::unlikely;
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};
@@ -28,9 +29,9 @@ impl CallStack {
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) -> ControlFlow<Option<Error>> {
+    pub(crate) fn push(&mut self, call_frame: CallFrame) -> ControlFlow<ReasonToBreak> {
         if unlikely((self.stack.len() + 1) >= MAX_CALL_STACK_SIZE) {
-            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+            return ControlFlow::Break(ReasonToBreak::Errored(Trap::CallStackOverflow.into()));
         }
         self.stack.push(call_frame);
         ControlFlow::Continue(())
@@ -120,18 +121,25 @@ impl CallFrame {
 
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
+    /// otherwise returns type if block it broke to
+    /// <div class="warning">
+    ///     if it returned Some (broke to block),
+    ///     it expects caller to increment instruction pointer after calling it:
+    ///     otherwise caller might exit block that's already exited or inter block caller's already in
+    /// </div>
     #[inline]
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,
         values: &mut super::ValueStack,
         blocks: &mut super::BlockStack,
-    ) -> Option<()> {
+    ) -> Option<BlockType> {
         let break_to = blocks.get_relative_to(break_to_relative, self.block_ptr)?;
 
+        let block_ty = break_to.ty;
         // instr_ptr points to the label instruction, but the next step
         // will increment it by 1 since we're changing the "current" instr_ptr
-        match break_to.ty {
+        match block_ty {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
                 self.instr_ptr = break_to.instr_ptr;
@@ -143,7 +151,7 @@ impl CallFrame {
                 if break_to_relative != 0 {
                     // we also want to trim the label stack to the loop (but not including the loop)
                     blocks.truncate(blocks.len() as u32 - break_to_relative);
-                    return Some(());
+                    return Some(BlockType::Loop);
                 }
             }
 
@@ -160,7 +168,7 @@ impl CallFrame {
             }
         }
 
-        Some(())
+        Some(block_ty)
     }
 
     #[inline]

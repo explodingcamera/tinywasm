@@ -1,5 +1,5 @@
-use crate::{Imports, ModuleInstance, Result, Store};
-use tinywasm_types::TinyWasmModule;
+use crate::{CoroState, Imports, ModuleInstance, PotentialCoroCallResult, Result, Store, SuspendedFunc};
+use tinywasm_types::{ResumeArgument, TinyWasmModule};
 
 /// A WebAssembly Module
 ///
@@ -55,5 +55,58 @@ impl Module {
         let instance = ModuleInstance::instantiate(store, self, imports)?;
         let _ = instance.start(store)?;
         Ok(instance)
+    }
+
+    /// same as [Self::instantiate] but accounts for possibility of start function suspending, in which case it returns
+    /// [PotentialCoroCallResult::Suspended]. You can call [CoroState::resume] on it at any time to resume instantiation
+    pub fn instantiate_coro(
+        self,
+        store: &mut Store,
+        imports: Option<Imports>,
+    ) -> Result<PotentialCoroCallResult<ModuleInstance, IncompleteModule>> {
+        let instance = ModuleInstance::instantiate(store, self, imports)?;
+        let core_res = match instance.start_coro(store)? {
+            Some(res) => res,
+            None => return Ok(PotentialCoroCallResult::Return(instance)),
+        };
+        Ok(match core_res {
+            crate::PotentialCoroCallResult::Return(_) => PotentialCoroCallResult::Return(instance),
+            crate::PotentialCoroCallResult::Suspended(suspend_reason, state) => {
+                PotentialCoroCallResult::Suspended(suspend_reason, IncompleteModule(Some(HitTheFloor(instance, state))))
+            }
+        })
+    }
+}
+
+/// a corostate that results in [ModuleInstance] when finished
+#[derive(Debug)]
+pub struct IncompleteModule(Option<HitTheFloor>);
+
+#[derive(Debug)]
+struct HitTheFloor(ModuleInstance, SuspendedFunc);
+
+impl CoroState<ModuleInstance, &mut Store> for IncompleteModule {
+    fn resume(&mut self, ctx: &mut Store, arg: ResumeArgument) -> Result<crate::CoroStateResumeResult<ModuleInstance>> {
+        let mut body: HitTheFloor = match self.0.take() {
+            Some(body) => body,
+            None => return Err(crate::Error::InvalidResume),
+        };
+        let coro_res = match body.1.resume(ctx, arg) {
+            Ok(res) => res,
+            Err(e) => {
+                self.0 = Some(body);
+                return Err(e);
+            }
+        };
+        match coro_res {
+            crate::CoroStateResumeResult::Return(_) => {
+                let res = body.0;
+                Ok(crate::CoroStateResumeResult::Return(res))
+            }
+            crate::CoroStateResumeResult::Suspended(suspend_reason) => {
+                self.0 = Some(body); // ...once told me
+                Ok(crate::CoroStateResumeResult::Suspended(suspend_reason))
+            }
+        }
     }
 }

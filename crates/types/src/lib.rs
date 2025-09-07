@@ -10,7 +10,7 @@
 
 extern crate alloc;
 use alloc::boxed::Box;
-use core::{fmt::Debug, ops::Range};
+use core::{any::Any, fmt::Debug, ops::Range};
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
@@ -420,3 +420,6 @@ pub enum ElementItem {
     Func(FuncAddr),
     Expr(ConstInstruction),
 }
+
+pub type YieldedValue = Option<Box<dyn Any>>;
+pub type ResumeArgument = Option<Box<dyn Any>>;

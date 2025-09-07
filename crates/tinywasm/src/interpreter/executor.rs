@@ -2,9 +2,10 @@
 #[allow(unused_imports)]
 use super::no_std_floats::NoStdFloatExt;
 
+use alloc::boxed::Box;
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
-
+use coro::SuspendReason;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
@@ -21,12 +22,36 @@ use super::stack::{BlockFrame, BlockType, Stack};
 use super::values::*;
 use crate::*;
 
+pub(crate) enum ReasonToBreak {
+    Errored(Error),
+    Suspended(SuspendReason, Option<SuspendedHostCoroState>),
+    Finished,
+}
+
+impl From<ReasonToBreak> for ControlFlow<ReasonToBreak> {
+    fn from(value: ReasonToBreak) -> Self {
+        ControlFlow::Break(value)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SuspendedHostCoroState {
+    pub(crate) coro_state: Box<dyn HostCoroState>,
+    // plug into used in store.get_func to get original function
+    // can be used for checking returned types
+    #[allow(dead_code)] // not implemented yet, but knowing context is useful
+    pub(crate) coro_orig_function: u32,
+}
+
+#[derive(Debug)]
 pub(crate) struct Executor<'store, 'stack> {
     pub(crate) cf: CallFrame,
     pub(crate) module: ModuleInstance,
     pub(crate) store: &'store mut Store,
     pub(crate) stack: &'stack mut Stack,
 }
+
+pub(crate) type ExecOutcome = coro::PotentialCoroCallResult<(), Option<SuspendedHostCoroState>>;
 
 impl<'store, 'stack> Executor<'store, 'stack> {
     pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
@@ -36,19 +61,96 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[inline(always)]
-    pub(crate) fn run_to_completion(&mut self) -> Result<()> {
+    pub(crate) fn run_to_suspension(&mut self) -> Result<ExecOutcome> {
         loop {
             if let ControlFlow::Break(res) = self.exec_next() {
                 return match res {
-                    Some(e) => Err(e),
-                    None => Ok(()),
+                    ReasonToBreak::Errored(e) => Err(e),
+                    ReasonToBreak::Suspended(suspend_reason, coro_state) => {
+                        Ok(ExecOutcome::Suspended(suspend_reason, coro_state))
+                    }
+                    ReasonToBreak::Finished => Ok(ExecOutcome::Return(())),
                 };
             }
         }
     }
 
+    // on error running suspended_coro, returns it
+    // so that it could be retried later
     #[inline(always)]
-    fn exec_next(&mut self) -> ControlFlow<Option<Error>> {
+    pub(crate) fn resume(
+        &mut self,
+        res_arg: ResumeArgument,
+        mut suspended_coro: Option<SuspendedHostCoroState>,
+    ) -> Result<ExecOutcome, (Error, Option<SuspendedHostCoroState>)> {
+        if let Some(coro_state) = suspended_coro.as_mut() {
+            let ctx = FuncContext { store: self.store, module_addr: self.module.id() };
+            let host_res = match coro_state.coro_state.resume(ctx, res_arg) {
+                Ok(val) => val,
+                Err(err) => return Err((err, suspended_coro)),
+            };
+
+            let res = match host_res {
+                CoroStateResumeResult::Return(res) => res,
+                CoroStateResumeResult::Suspended(suspend_reason) => {
+                    return Ok(ExecOutcome::Suspended(suspend_reason, suspended_coro));
+                }
+            };
+            self.stack.values.extend_from_wasmvalues(&res);
+
+            // we don't know how much time we spent in host function
+            if let ControlFlow::Break(ReasonToBreak::Suspended(reason, coro_state)) = self.check_should_suspend() {
+                return Ok(ExecOutcome::Suspended(reason, coro_state));
+            }
+        }
+
+        loop {
+            if let ControlFlow::Break(res) = self.exec_next() {
+                return match res {
+                    ReasonToBreak::Errored(e) => Err((e, None)),
+                    ReasonToBreak::Suspended(suspend_reason, coro_state) => {
+                        Ok(ExecOutcome::Suspended(suspend_reason, coro_state))
+                    }
+                    ReasonToBreak::Finished => Ok(ExecOutcome::Return(())),
+                };
+            }
+        }
+    }
+
+    /// for controlling how long execution spends in wasm
+    /// called when execution loops back, because that might happen indefinite amount of times
+    /// and before and after function calls, because even without loops or infinite recursion, wasm function calls
+    /// can mutliply time spent in execution
+    /// execution may not be suspended in the middle of execution the innstruction
+    /// so only do it before mutating any state
+    /// or after all state mutations including increasing instruction pointer
+    #[must_use = "If this returns ControlFlow::Break, the caller should propagate it"]
+    fn check_should_suspend(&mut self) -> ControlFlow<ReasonToBreak> {
+        if let Some(flag) = &self.store.suspend_cond.suspend_flag 
+            && flag.load(core::sync::atomic::Ordering::Acquire) {
+            return ReasonToBreak::Suspended(SuspendReason::SuspendedFlag, None).into();
+            
+        }
+
+        #[cfg(feature = "std")]
+        if let Some(when) = &self.store.suspend_cond.timeout_instant 
+            && crate::std::time::Instant::now() >= *when {
+            return ReasonToBreak::Suspended(SuspendReason::SuspendedEpoch, None).into();
+        }
+
+        if let Some(mut cb) = self.store.suspend_cond.suspend_cb.take() {
+            let should_suspend = matches!(cb(self.store), ControlFlow::Break(()));
+            self.store.suspend_cond.suspend_cb = Some(cb); // put it back
+            if should_suspend {
+                return ReasonToBreak::Suspended(SuspendReason::SuspendedCallback, None).into();
+            }
+        }
+
+        ControlFlow::Continue(())
+    }
+
+    #[inline(always)]
+    fn exec_next(&mut self) -> ControlFlow<ReasonToBreak> {
         use tinywasm_types::Instruction::*;
 
         #[rustfmt::skip]
@@ -722,7 +824,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             #[cfg(feature = "unstable-simd")] I32x4RelaxedDotI8x16I7x16AddS => unimplemented!(),
 
             #[allow(unreachable_patterns)]
-            i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
+            i => return ControlFlow::Break(ReasonToBreak::Errored(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
 
         self.cf.incr_instr_ptr();
@@ -730,15 +832,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     #[cold]
-    fn exec_unreachable(&self) -> ControlFlow<Option<Error>> {
-        ControlFlow::Break(Some(Trap::Unreachable.into()))
+    fn exec_unreachable(&self) -> ControlFlow<ReasonToBreak> {
+        ReasonToBreak::Errored(Trap::Unreachable.into()).into()
     }
 
     fn exec_call<const IS_RETURN_CALL: bool>(
         &mut self,
         wasm_func: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
         let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
 
         if IS_RETURN_CALL {
@@ -752,28 +854,43 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
-    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
+    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>, func_ref: u32) -> ControlFlow<ReasonToBreak> {
         let params = self.stack.values.pop_params(&host_func.ty.params);
         let res = host_func
             .clone()
             .call(FuncContext { store: self.store, module_addr: self.module.id() }, &params)
             .to_cf()?;
-        self.stack.values.extend_from_wasmvalues(&res);
-        self.cf.incr_instr_ptr();
-        ControlFlow::Continue(())
+        match res {
+            PotentialCoroCallResult::Return(results) => {
+                self.stack.values.extend_from_wasmvalues(&results);
+                self.cf.incr_instr_ptr();
+                self.check_should_suspend()?; // who knows how long we've spent in host function
+                ControlFlow::Continue(())
+            }
+            PotentialCoroCallResult::Suspended(suspend_reason, coro_state) => {
+                self.cf.incr_instr_ptr(); // so that when execution comes back, we'll be at next instruction already
+                ReasonToBreak::Suspended(
+                    suspend_reason,
+                    Some(SuspendedHostCoroState { coro_state, coro_orig_function: func_ref }),
+                )
+                .into()
+            }
+        }
     }
-    fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
+    fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<ReasonToBreak> {
+        self.check_should_suspend()?; // don't commit to function if we should be stopping now
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
         match func_inst.func.clone() {
             crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),
-            crate::Function::Host(host_func) => self.exec_call_host(host_func),
+            crate::Function::Host(host_func) => self.exec_call_host(host_func, v),
         }
     }
     fn exec_call_indirect<const IS_RETURN_CALL: bool>(
         &mut self,
         type_addr: u32,
         table_addr: u32,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
+        self.check_should_suspend()?; // check if we should suspend now before commiting to function
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr));
@@ -790,7 +907,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         match func_inst.func.clone() {
             crate::Function::Wasm(wasm_func) => {
                 if unlikely(wasm_func.ty != *call_ty) {
-                    return ControlFlow::Break(Some(
+                    return ControlFlow::Break(ReasonToBreak::Errored(
                         Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }
                             .into(),
                     ));
@@ -800,13 +917,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             }
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
-                    return ControlFlow::Break(Some(
+                    return ReasonToBreak::Errored(
                         Trap::IndirectCallTypeMismatch { actual: host_func.ty.clone(), expected: call_ty.clone() }
                             .into(),
-                    ));
+                    )
+                    .into();
                 }
 
-                self.exec_call_host(host_func)
+                self.exec_call_host(host_func, func_ref)
             }
         }
     }
@@ -845,52 +963,74 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             ty,
         });
     }
-    fn exec_br(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+    fn exec_br(&mut self, to: u32) -> ControlFlow<ReasonToBreak> {
+        let block_ty = self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks);
+        if block_ty.is_none() {
             return self.exec_return();
         }
 
         self.cf.incr_instr_ptr();
-        ControlFlow::Continue(())
-    }
-    fn exec_br_if(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.stack.values.pop::<i32>() != 0
-            && self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none()
-        {
-            return self.exec_return();
+
+        if matches!(block_ty, Some(BlockType::Loop)) {
+            self.check_should_suspend()?;
         }
-        self.cf.incr_instr_ptr();
         ControlFlow::Continue(())
     }
-    fn exec_brtable(&mut self, default: u32, len: u32) -> ControlFlow<Option<Error>> {
+    fn exec_br_if(&mut self, to: u32) -> ControlFlow<ReasonToBreak> {
+        let should_check_suspend = if self.stack.values.pop::<i32>() != 0 {
+            // condition says we should break
+            let block_ty = self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks);
+            if block_ty.is_none() {
+                return self.exec_return();
+            }
+            matches!(block_ty, Some(BlockType::Loop))
+        } else {
+            // condition says we shouldn't break
+            false
+        };
+
+        self.cf.incr_instr_ptr();
+
+        if should_check_suspend {
+            self.check_should_suspend()?;
+        }
+        ControlFlow::Continue(())
+    }
+    fn exec_brtable(&mut self, default: u32, len: u32) -> ControlFlow<ReasonToBreak> {
         let start = self.cf.instr_ptr() + 1;
         let end = start + len as usize;
         if end > self.cf.instructions().len() {
-            return ControlFlow::Break(Some(Error::Other(format!(
+            return ReasonToBreak::Errored(Error::Other(format!(
                 "br_table out of bounds: {} >= {}",
                 end,
                 self.cf.instructions().len()
-            ))));
+            )))
+            .into();
         }
 
         let idx = self.stack.values.pop::<i32>();
         let to = match self.cf.instructions()[start..end].get(idx as usize) {
             None => default,
             Some(Instruction::BrLabel(to)) => *to,
-            _ => return ControlFlow::Break(Some(Error::Other("br_table out of bounds".to_string()))),
+            _ => return ReasonToBreak::Errored(Error::Other("br_table out of bounds".to_string())).into(),
         };
 
-        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+        let block_ty = self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks);
+        if block_ty.is_none() {
             return self.exec_return();
         }
 
         self.cf.incr_instr_ptr();
+
+        if matches!(block_ty, Some(BlockType::Loop)) {
+            self.check_should_suspend()?;
+        }
         ControlFlow::Continue(())
     }
-    fn exec_return(&mut self) -> ControlFlow<Option<Error>> {
+    fn exec_return(&mut self) -> ControlFlow<ReasonToBreak> {
         let old = self.cf.block_ptr();
         match self.stack.call_stack.pop() {
-            None => return ControlFlow::Break(None),
+            None => return ReasonToBreak::Finished.into(),
             Some(cf) => self.cf = cf,
         }
 
@@ -899,6 +1039,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
 
         self.module.swap_with(self.cf.module_addr(), self.store);
+
+        self.check_should_suspend()?;
         ControlFlow::Continue(())
     }
     fn exec_end_block(&mut self) {
@@ -1055,17 +1197,18 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
         lane: u8,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
         let mut imm = self.stack.values.pop::<INTO>();
         let val = self.stack.values.pop::<i32>() as u64;
         let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
             cold();
-            return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
+            return ReasonToBreak::Errored(Error::Trap(Trap::MemoryOutOfBounds {
                 offset: val as usize,
                 len: LOAD_SIZE,
                 max: 0,
-            })));
+            }))
+            .into();
         };
         let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
         imm[lane as usize] = val;
@@ -1078,7 +1221,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
         cast: fn(LOAD) -> TARGET,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
 
         let addr = match mem.is_64bit() {
@@ -1088,7 +1231,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         let Some(Ok(addr)) = offset.checked_add(addr).map(|a| a.try_into()) else {
             cold();
-            return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
+            return ControlFlow::Break(ReasonToBreak::Errored(Error::Trap(Trap::MemoryOutOfBounds {
                 offset: addr as usize,
                 len: LOAD_SIZE,
                 max: 0,
@@ -1105,7 +1248,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
         lane: u8,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
         let val = self.stack.values.pop::<T>();
         let val = val[lane as usize].to_mem_bytes();
@@ -1116,7 +1259,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
-            return ControlFlow::Break(Some(e));
+            return ControlFlow::Break(ReasonToBreak::Errored(e));
         }
 
         ControlFlow::Continue(())
@@ -1127,7 +1270,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
         cast: fn(T) -> U,
-    ) -> ControlFlow<Option<Error>> {
+    ) -> ControlFlow<ReasonToBreak> {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
         let val = self.stack.values.pop::<T>();
         let val = (cast(val)).to_mem_bytes();
@@ -1138,7 +1281,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         };
 
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
-            return ControlFlow::Break(Some(e));
+            return ReasonToBreak::Errored(e).into();
         }
 
         ControlFlow::Continue(())

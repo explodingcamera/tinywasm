@@ -114,14 +114,16 @@ pub(crate) mod log {
 }
 
 mod error;
+pub use coro::{CoroState, CoroStateResumeResult, PotentialCoroCallResult, SuspendReason};
 pub use error::*;
-pub use func::{FuncHandle, FuncHandleTyped};
+pub use func::{FuncHandle, FuncHandleTyped, SuspendedFunc};
 pub use imports::*;
 pub use instance::ModuleInstance;
-pub use module::Module;
+pub use module::{IncompleteModule, Module};
 pub use reference::*;
 pub use store::*;
 
+mod coro;
 mod func;
 mod imports;
 mod instance;

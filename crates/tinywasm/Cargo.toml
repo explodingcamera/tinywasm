@@ -44,6 +44,7 @@ parser=["dep:tinywasm-parser"]
 
 # support for "archiving" tinywasm bytecode
 archive=["tinywasm-types/archive"]
+test_async=[] #feels weird putting it here
 
 # canonicalize all NaN values to a single representation
 canonicalize_nans=[]

@@ -2,7 +2,10 @@ use alloc::{boxed::Box, format, rc::Rc, string::ToString};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
-use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store};
+use crate::{
+    Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, PotentialCoroCallResult, Result,
+    Store, SuspendedFunc,
+};
 
 /// An instanciated WebAssembly module
 ///
@@ -262,5 +265,19 @@ impl ModuleInstance {
 
         let _ = func.call(store, &[])?;
         Ok(Some(()))
+    }
+
+    /// Invoke the start function of the module
+    ///
+    /// Returns None if the module has no start function
+    /// If start function suspends, returns SuspededFunc.
+    /// Only when it finishes can this module instance be considered instantiated
+    pub fn start_coro(&self, store: &mut Store) -> Result<Option<PotentialCoroCallResult<(), SuspendedFunc>>> {
+        let Some(func) = self.start_func(store)? else {
+            return Ok(None);
+        };
+
+        let res = func.call_coro(store, &[])?;
+        Ok(Some(res.map_result(|_| {})))
     }
 }

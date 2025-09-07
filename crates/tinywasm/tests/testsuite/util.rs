@@ -1,6 +1,8 @@
+use std::hash::Hasher;
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{Result, bail, eyre};
+use tinywasm::{CoroState, SuspendConditions, SuspendReason};
 use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
@@ -12,6 +14,24 @@ pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     info.unwrap_or(info_str.unwrap_or(&info_string.unwrap_or("unknown panic".to_owned())).to_string())
 }
 
+// due to imprecision it's not exact
+fn make_sometimes_breaking_cb(probability: f64) -> impl FnMut(&tinywasm::Store) -> std::ops::ControlFlow<(), ()> {
+    let mut counter = 0 as u64;
+    let mut hasher = std::hash::DefaultHasher::new();
+    let threshhold = (probability * (u64::MAX as f64)) as u64; // 2 lossy conversions
+
+    move |_| {
+        hasher.write_u64(counter);
+        counter += 1;
+        if hasher.finish() < threshhold {
+            std::ops::ControlFlow::Break(())
+        } else {
+            std::ops::ControlFlow::Continue(())
+        }
+    }
+}
+
+#[cfg(not(feature = "test_async"))]
 pub fn exec_fn_instance(
     instance: Option<&ModuleInstanceAddr>,
     store: &mut tinywasm::Store,
@@ -30,6 +50,66 @@ pub fn exec_fn_instance(
     func.call(store, args)
 }
 
+#[cfg(feature = "test_async")]
+pub fn exec_fn_instance(
+    instance: Option<&ModuleInstanceAddr>,
+    store: &mut tinywasm::Store,
+    name: &str,
+    args: &[tinywasm_types::WasmValue],
+) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+    let Some(instance) = instance else {
+        return Err(tinywasm::Error::Other("no instance found".to_string()));
+    };
+
+    let mut prev_reason = None;
+    store.update_suspend_conditions(|old_cond| {
+        prev_reason = Some(old_cond);
+        SuspendConditions::new().with_suspend_callback(Box::new(make_sometimes_breaking_cb(2.0 / 3.0)))
+    });
+    let res = || -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+        let Some(instance) = store.get_module_instance(*instance) else {
+            return Err(tinywasm::Error::Other("no instance found".to_string()));
+        };
+
+        let func = instance.exported_func_untyped(store, name)?;
+        let mut state = match func.call_coro(store, args)? {
+            tinywasm::PotentialCoroCallResult::Return(val) => return Ok(val),
+            tinywasm::PotentialCoroCallResult::Suspended(suspend_reason, state) => {
+                assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback));
+                state
+            }
+        };
+        loop {
+            match state.resume(store, None)? {
+                tinywasm::CoroStateResumeResult::Return(val) => return Ok(val),
+                tinywasm::CoroStateResumeResult::Suspended(suspend_reason) => {
+                    assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback))
+                }
+            }
+        }
+    }();
+    // restore store suspend conditions before returning error or success
+    store.set_suspend_conditions(prev_reason.unwrap());
+    res
+}
+
+#[cfg(not(feature = "test_async"))]
+pub fn exec_fn(
+    module: Option<&TinyWasmModule>,
+    name: &str,
+    args: &[tinywasm_types::WasmValue],
+    imports: Option<tinywasm::Imports>,
+) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+    let Some(module) = module else {
+        return Err(tinywasm::Error::Other("no module found".to_string()));
+    };
+    let mut store = tinywasm::Store::new();
+    let module = tinywasm::Module::from(module);
+    let instance = module.instantiate(&mut store, imports)?;
+    instance.exported_func_untyped(&store, name)?.call(&mut store, args)
+}
+
+#[cfg(feature = "test_async")]
 pub fn exec_fn(
     module: Option<&TinyWasmModule>,
     name: &str,
@@ -41,9 +121,40 @@ pub fn exec_fn(
     };
 
     let mut store = tinywasm::Store::new();
+
+    store.set_suspend_conditions(
+        SuspendConditions::new().with_suspend_callback(Box::new(make_sometimes_breaking_cb(2.0 / 3.0))),
+    );
+
     let module = tinywasm::Module::from(module);
-    let instance = module.instantiate(&mut store, imports)?;
-    instance.exported_func_untyped(&store, name)?.call(&mut store, args)
+    let instance = match module.instantiate_coro(&mut store, imports)? {
+        tinywasm::PotentialCoroCallResult::Return(res) => res,
+        tinywasm::PotentialCoroCallResult::Suspended(suspend_reason, mut state) => loop {
+            assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback));
+            match state.resume(&mut store, None)? {
+                tinywasm::CoroStateResumeResult::Return(res) => break res,
+                tinywasm::CoroStateResumeResult::Suspended(suspend_reason) => {
+                    assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback));
+                }
+            }
+        },
+    };
+
+    let mut state = match instance.exported_func_untyped(&store, name)?.call_coro(&mut store, args)? {
+        tinywasm::PotentialCoroCallResult::Return(r) => return Ok(r),
+        tinywasm::PotentialCoroCallResult::Suspended(suspend_reason, state) => {
+            assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback));
+            state
+        }
+    };
+    loop {
+        match state.resume(&mut store, None)? {
+            tinywasm::CoroStateResumeResult::Return(res) => return Ok(res),
+            tinywasm::CoroStateResumeResult::Suspended(suspend_reason) => {
+                assert!(matches!(suspend_reason, SuspendReason::SuspendedCallback))
+            }
+        }
+    }
 }
 
 pub fn catch_unwind_silent<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {

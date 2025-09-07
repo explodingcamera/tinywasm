@@ -11,8 +11,10 @@ mod element;
 mod function;
 mod global;
 mod memory;
+mod suspend_conditions;
 mod table;
 
+pub use suspend_conditions::*;
 pub(crate) use {data::*, element::*, function::*, global::*, memory::*, table::*};
 
 // global store id counter
@@ -33,7 +35,14 @@ pub struct Store {
 
     pub(crate) data: StoreData,
     pub(crate) runtime: Runtime,
+
     pub(crate) config: StackConfig,
+
+    // idk where really to put it, but it should be accessible to host environment (obviously)
+    // and (less obviously) to host functions called from store - for calling wasm callbacks and propagating this config to them
+    // (or just complying with suspend conditions themselves)
+    // alternatively it could be passed to function handles and passend into function context
+    pub(crate) suspend_cond: SuspendConditions,
 }
 
 impl Debug for Store {
@@ -61,7 +70,14 @@ impl Store {
     /// Create a new store with the given stack configuration
     pub fn with_config(config: StackConfig) -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-        Self { id, module_instances: Vec::new(), data: StoreData::default(), runtime: Runtime::Default, config }
+        Self {
+            id,
+            module_instances: Vec::new(),
+            data: StoreData::default(),
+            runtime: Runtime::Default,
+            config,
+            suspend_cond: SuspendConditions::default(),
+        }
     }
 
     /// Get a module instance by the internal id
@@ -96,6 +112,7 @@ impl Default for Store {
             data: StoreData::default(),
             runtime: Runtime::Default,
             config: StackConfig::default(),
+            suspend_cond: SuspendConditions::default(),
         }
     }
 }
@@ -491,4 +508,21 @@ fn get_pair_mut<T>(slice: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut 
     let (_, y) = rest.split_at_mut(second - first - 1);
     let pair = if i < j { (&mut x[0], &mut y[0]) } else { (&mut y[0], &mut x[0]) };
     Some(pair)
+}
+
+// suspend_conditions-related functions
+impl Store {
+    /// sets suspend conditions for store
+    pub fn set_suspend_conditions(&mut self, val: SuspendConditions) {
+        self.suspend_cond = val;
+    }
+    /// gets suspend conditions of store
+    pub fn get_suspend_conditions(&self) -> &SuspendConditions {
+        &self.suspend_cond
+    }
+    /// transforms suspend conditions for store using user-provided function
+    pub fn update_suspend_conditions(&mut self, mapper: impl FnOnce(SuspendConditions) -> SuspendConditions) {
+        let temp = core::mem::take(&mut self.suspend_cond);
+        self.suspend_cond = mapper(temp);
+    }
 }

@@ -58,7 +58,7 @@ pub(crate) struct BlockFrame {
     pub(crate) ty: BlockType,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum BlockType {
     Loop,
     If,

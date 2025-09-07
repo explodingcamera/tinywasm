@@ -7,6 +7,8 @@ use tinywasm_types::archive::TwasmError;
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
 
+use crate::{coro::UnexpectedSuspendError, interpreter};
+
 /// Errors that can occur for `TinyWasm` operations
 #[derive(Debug)]
 #[non_exhaustive]
@@ -36,6 +38,16 @@ pub enum Error {
 
     /// The store is not the one that the module instance was instantiated in
     InvalidStore,
+
+    /// ResumeArgument of wrong type was provided
+    InvalidResumeArgument,
+
+    /// Tried to resume on runtime when it's not suspended
+    InvalidResume,
+
+    /// Function unexpectedly yielded instead of returning
+    /// (for backwards compatibility with old api)
+    UnexpectedSuspend(UnexpectedSuspendError),
 
     #[cfg(feature = "std")]
     /// An I/O error occurred
@@ -206,6 +218,10 @@ impl Display for Error {
                 write!(f, "invalid host function return: expected={expected:?}, actual={actual:?}")
             }
             Self::InvalidStore => write!(f, "invalid store"),
+
+            Self::UnexpectedSuspend(_) => write!(f, "funtion yielded instead of returning"),
+            Self::InvalidResumeArgument => write!(f, "invalid resume argument supplied to suspended function"),
+            Self::InvalidResume => write!(f, "attempt to resume coroutine that has already finished"),
         }
     }
 }
@@ -259,14 +275,14 @@ impl From<tinywasm_parser::ParseError> for Error {
 pub type Result<T, E = Error> = crate::std::result::Result<T, E>;
 
 pub(crate) trait Controlify<T> {
-    fn to_cf(self) -> ControlFlow<Option<Error>, T>;
+    fn to_cf(self) -> ControlFlow<interpreter::executor::ReasonToBreak, T>;
 }
 
 impl<T> Controlify<T> for Result<T, Error> {
-    fn to_cf(self) -> ControlFlow<Option<Error>, T> {
+    fn to_cf(self) -> ControlFlow<interpreter::executor::ReasonToBreak, T> {
         match self {
             Ok(value) => ControlFlow::Continue(value),
-            Err(err) => ControlFlow::Break(Some(err)),
+            Err(err) => ControlFlow::Break(interpreter::executor::ReasonToBreak::Errored(err)),
         }
     }
 }
