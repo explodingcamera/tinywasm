@@ -68,7 +68,7 @@ impl<'_a> coro::CoroState<Stack, FuncContext<'_a>> for SuspendedInterpreterRunti
             }
         };
 
-        return Ok(match res {
+        Ok(match res {
             ExecOutcome::Return(()) => {
                 // we are finished
                 InterpreterRuntimeResumeOutcome::Return(stack)
@@ -79,7 +79,7 @@ impl<'_a> coro::CoroState<Stack, FuncContext<'_a>> for SuspendedInterpreterRunti
                 self.0 = Some(SuspendedInterpreterRuntimeBody::new(host_coro, stack, module, cf));
                 InterpreterRuntimeResumeOutcome::Suspended(suspend_reason)
             }
-        });
+        })
     }
 }
 

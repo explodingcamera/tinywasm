@@ -126,17 +126,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     /// or after all state mutations including increasing instruction pointer
     #[must_use = "If this returns ControlFlow::Break, the caller should propagate it"]
     fn check_should_suspend(&mut self) -> ControlFlow<ReasonToBreak> {
-        if let Some(flag) = &self.store.suspend_cond.suspend_flag {
-            if flag.load(core::sync::atomic::Ordering::Acquire) {
-                return ReasonToBreak::Suspended(SuspendReason::SuspendedFlag, None).into();
-            }
+        if let Some(flag) = &self.store.suspend_cond.suspend_flag 
+            && flag.load(core::sync::atomic::Ordering::Acquire) {
+            return ReasonToBreak::Suspended(SuspendReason::SuspendedFlag, None).into();
+            
         }
 
         #[cfg(feature = "std")]
-        if let Some(when) = &self.store.suspend_cond.timeout_instant {
-            if crate::std::time::Instant::now() >= *when {
-                return ReasonToBreak::Suspended(SuspendReason::SuspendedEpoch, None).into();
-            }
+        if let Some(when) = &self.store.suspend_cond.timeout_instant 
+            && crate::std::time::Instant::now() >= *when {
+            return ReasonToBreak::Suspended(SuspendReason::SuspendedEpoch, None).into();
         }
 
         if let Some(mut cb) = self.store.suspend_cond.suspend_cb.take() {
@@ -879,7 +878,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
     }
     fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<ReasonToBreak> {
-        self.check_should_suspend(); // don't commit to function if we should be stopping now
+        self.check_should_suspend()?; // don't commit to function if we should be stopping now
         let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
         match func_inst.func.clone() {
             crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),

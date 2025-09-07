@@ -4,7 +4,7 @@ use super::BlockType;
 use crate::Trap;
 use crate::interpreter::executor::ReasonToBreak;
 use crate::interpreter::values::*;
-use crate::{Error, unlikely};
+use crate::unlikely;
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec, vec::Vec};

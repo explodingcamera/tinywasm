@@ -1,5 +1,4 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
-use core::default;
 use core::fmt::Debug;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;

@@ -1,6 +1,4 @@
-use core::{default, fmt};
-
-use crate::SuspendConditions;
+use core::fmt;
 
 /// Default initial size for the 32-bit value stack (i32, f32 values).
 pub const DEFAULT_VALUE_STACK_32_INIT_SIZE: usize = 32 * 1024; // 32KB

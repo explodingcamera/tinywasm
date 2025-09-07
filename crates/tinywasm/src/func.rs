@@ -81,7 +81,7 @@ impl FuncHandle {
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
 
-        let mut stack = Stack::new(call_frame, &store.config);
+        let stack = Stack::new(call_frame, &store.config);
 
         // 9. Invoke the function instance
         let runtime = store.runtime();
