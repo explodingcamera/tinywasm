@@ -1,3 +1,6 @@
+> [!NOTE]
+> TinyWasm is currently on pause and not actively developed. _Eventually_ this may change but for now it is archived (as of October 2025).
+
 <div>
     <div>
         <a href=""><img align="left" src="https://raw.githubusercontent.com/explodingcamera/tinywasm/main/tinywasm.png" width="100px"></a>
@@ -22,7 +25,7 @@ TinyWasm passes all WebAssembly MVP tests from the [WebAssembly core testsuite](
 
 ## Safety
 
-Safety wise, TinyWasm doesn't use any unsafe code and is designed to be completly memory-safe. Untrusted WebAssembly code should not be able to crash the runtime or access memory outside of its sandbox, however currently there is no protection against infinite loops or excessive memory usage. Unvalidated Wasm and untrusted, precompilled twasm bytecode is safe to run too but can crash the runtime.
+Safety wise, TinyWasm doesn't use any unsafe code and is designed to be completely memory-safe. Untrusted WebAssembly code should not be able to crash the runtime or access memory outside of its sandbox, however currently there is no protection against infinite loops or excessive memory usage. Unvalidated Wasm and untrusted, precompilled twasm bytecode is safe to run too but can crash the runtime.
 
 ## Supported Proposals
 
