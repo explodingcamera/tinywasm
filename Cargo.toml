@@ -4,22 +4,22 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="239"
-wat="1.239"
-wasmparser={version="0.239", default-features=false}
+wast="242"
+wat="1.242"
+wasmparser={version="0.242", default-features=false}
 eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
 criterion={version="0.7", default-features=false, features=["cargo_bench_support", "rayon"]}
 wasm-testsuite={version="0.5"}
-indexmap="2.11"
+indexmap="2.12"
 owo-colors={version="4.2"}
 serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
 
 [workspace.package]
 version="0.9.0-alpha.0"
-rust-version="1.90"
+rust-version="1.91"
 edition="2024"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]

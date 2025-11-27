@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, interpreter::value128::Value128};
 
 use super::stack::{Locals, ValueStack};
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
@@ -6,11 +6,6 @@ use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
 pub(crate) type ValueRef = Option<u32>;
-
-#[cfg(feature = "unstable-simd")]
-pub(crate) type Value128 = core::simd::u8x16;
-#[cfg(not(feature = "unstable-simd"))]
-pub(crate) type Value128 = i128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A untyped WebAssembly value
@@ -112,12 +107,7 @@ impl TinyWasmValue {
             ValType::F64 => WasmValue::F64(f64::from_bits(self.unwrap_64())),
             ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.unwrap_ref())),
             ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
-
-            #[cfg(feature = "unstable-simd")]
-            ValType::V128 => WasmValue::V128(i128::from_le_bytes(self.unwrap_128().to_array())),
-
-            #[cfg(not(feature = "unstable-simd"))]
-            ValType::V128 => WasmValue::V128(self.unwrap_128()),
+            ValType::V128 => WasmValue::V128(self.unwrap_128().into()),
         }
     }
 }
@@ -131,12 +121,7 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::F64(v) => Self::Value64(v.to_bits()),
             WasmValue::RefExtern(v) => Self::ValueRef(v.addr()),
             WasmValue::RefFunc(v) => Self::ValueRef(v.addr()),
-
-            #[cfg(not(feature = "unstable-simd"))]
-            WasmValue::V128(v) => Self::Value128(*v),
-
-            #[cfg(feature = "unstable-simd")]
-            WasmValue::V128(v) => TinyWasmValue::Value128(v.to_le_bytes().into()),
+            WasmValue::V128(v) => Self::Value128((*v).into()),
         }
     }
 }
@@ -144,6 +129,12 @@ impl From<&WasmValue> for TinyWasmValue {
 impl From<WasmValue> for TinyWasmValue {
     fn from(value: WasmValue) -> Self {
         Self::from(&value)
+    }
+}
+
+impl From<i128> for TinyWasmValue {
+    fn from(value: i128) -> Self {
+        Self::Value128(Value128::from(value))
     }
 }
 
@@ -271,23 +262,4 @@ impl_internalvalue! {
     Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
     ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v
     Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
-}
-
-#[cfg(feature = "unstable-simd")]
-use core::simd::{num::SimdUint, *};
-
-#[cfg(feature = "unstable-simd")]
-impl_internalvalue! {
-    Value128, stack_128, locals_128, u8x16, i128, |v: i128| v.to_le_bytes().into(), |v: u8x16| i128::from_le_bytes(v.into())
-    Value128, stack_128, locals_128, u8x16, u128, |v: u128| v.to_le_bytes().into(), |v: u8x16| u128::from_le_bytes(v.into())
-    Value128, stack_128, locals_128, u8x16, i8x16, |v: i8x16| v.to_le_bytes(), |v: u8x16| v.cast()
-    Value128, stack_128, locals_128, u8x16, i16x8, |v: i16x8| v.to_le_bytes(), |v: u8x16| i16x8::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, i32x4, |v: i32x4| v.to_le_bytes(), |v: u8x16| i32x4::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, i64x2, |v: i64x2| v.to_le_bytes(), |v: u8x16| i64x2::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, f32x4, |v: f32x4| v.to_le_bytes(), |v: u8x16| f32x4::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, f64x2, |v: f64x2| v.to_le_bytes(), |v: u8x16| f64x2::from_le_bytes(v)
-
-    Value128, stack_128, locals_128, u8x16, u16x8, |v: u16x8| v.to_le_bytes(), |v: u8x16| u16x8::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, u32x4, |v: u32x4| v.to_le_bytes(), |v: u8x16| u32x4::from_le_bytes(v)
-    Value128, stack_128, locals_128, u8x16, u64x2, |v: u64x2| v.to_le_bytes(), |v: u8x16| u64x2::from_le_bytes(v)
 }

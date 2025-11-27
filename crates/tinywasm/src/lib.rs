@@ -5,7 +5,6 @@
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
-#![cfg_attr(feature = "unstable-simd", feature(portable_simd))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!
@@ -16,7 +15,7 @@
 //! ## Features
 //!- **`std`**\
 //!  Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
-//!- **`logging`**\
+//!- **`log`**\
 //!  Enables logging using the `log` crate. This is enabled by default.
 //!- **`parser`**\
 //!  Enables the `tinywasm-parser` crate. This is enabled by default.
@@ -97,12 +96,12 @@ mod std;
 extern crate alloc;
 
 // log for logging (optional).
-#[cfg(feature = "logging")]
+#[cfg(feature = "log")]
 #[expect(clippy::single_component_path_imports)]
 use log;
 
 // noop fallback if logging is disabled.
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "log"))]
 #[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );

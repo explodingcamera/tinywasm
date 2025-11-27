@@ -51,7 +51,6 @@ impl TinyWasmModule {
     /// Creates a `TinyWasmModule` from a slice of bytes.
     pub fn from_twasm(wasm: &[u8]) -> Result<Self, TwasmError> {
         let len = validate_magic(wasm)?;
-
         postcard::from_bytes(&wasm[len..]).map_err(TwasmError::InvalidArchive)
     }
 

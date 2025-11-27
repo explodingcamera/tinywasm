@@ -158,7 +158,7 @@ macro_rules! impl_visit_operator {
 
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
         #[cold]
-        fn $visit(&mut self $($(,$arg: $argty)*)?) {
+        fn $visit(&mut self $($(,_: $argty)*)?) {
             self.unsupported(stringify!($visit))
         }
     };

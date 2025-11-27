@@ -34,9 +34,9 @@ serde_json.workspace=true
 serde.workspace=true
 
 [features]
-default=["std", "parser", "logging", "archive", "canonicalize_nans"]
+default=["std", "parser", "log", "archive", "canonicalize_nans"]
 
-logging=["log", "tinywasm-parser?/logging", "tinywasm-types/logging"]
+log=["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 
 # support for parsing WebAssembly
@@ -47,9 +47,6 @@ archive=["tinywasm-types/archive"]
 
 # canonicalize all NaN values to a single representation
 canonicalize_nans=[]
-
-# enable simd support (unstable / unfinished)
-unstable-simd=[]
 
 [[test]]
 name="test-wasm-1"

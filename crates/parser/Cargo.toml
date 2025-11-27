@@ -16,6 +16,6 @@ log={workspace=true, optional=true}
 tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false}
 
 [features]
-default=["std", "logging"]
-logging=["log"]
+default=["std", "log"]
+log=["dep:log"]
 std=["tinywasm-types/std", "wasmparser/std"]

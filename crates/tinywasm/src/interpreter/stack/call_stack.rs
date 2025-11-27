@@ -2,7 +2,7 @@ use core::ops::ControlFlow;
 
 use super::BlockType;
 use crate::Trap;
-use crate::interpreter::values::*;
+use crate::interpreter::{Value128, values::*};
 use crate::{Error, unlikely};
 
 use alloc::boxed::Box;

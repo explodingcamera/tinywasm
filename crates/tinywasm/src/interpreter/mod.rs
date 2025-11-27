@@ -1,12 +1,14 @@
 pub(crate) mod executor;
 pub(crate) mod num_helpers;
 pub(crate) mod stack;
-mod values;
+pub(crate) mod value128;
+pub(crate) mod values;
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
 use crate::{Result, Store};
+pub(crate) use value128::*;
 pub use values::*;
 
 /// The main `TinyWasm` runtime.

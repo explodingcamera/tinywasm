@@ -62,7 +62,7 @@ $ tinywasm-cli --help
 
 - **`std`**\
   Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
-- **`logging`**\
+- **`log`**\
   Enables logging using the `log` crate. This is enabled by default.
 - **`parser`**\
   Enables the `tinywasm-parser` crate. This is enabled by default.

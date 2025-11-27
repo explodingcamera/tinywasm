@@ -21,12 +21,12 @@ const fn max_page_count(page_size: u64) -> u64 {
 }
 
 // log for logging (optional).
-#[cfg(feature = "logging")]
+#[cfg(feature = "log")]
 #[allow(clippy::single_component_path_imports, unused_imports)]
 use log;
 
 // noop fallback if logging is disabled.
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "log"))]
 #[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );

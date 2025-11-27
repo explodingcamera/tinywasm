@@ -111,7 +111,7 @@ pub(crate) struct StoreData {
     pub(crate) memories: Vec<MemoryInstance>,
     pub(crate) globals: Vec<GlobalInstance>,
     pub(crate) elements: Vec<ElementInstance>,
-    pub(crate) datas: Vec<DataInstance>,
+    pub(crate) data: Vec<DataInstance>,
 }
 
 impl Store {
@@ -199,7 +199,7 @@ impl Store {
     /// Get the data at the actual index in the store
     #[inline]
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
-        &mut self.data.datas[addr as usize]
+        &mut self.data.data[addr as usize]
     }
 
     /// Get the element at the actual index in the store
@@ -370,15 +370,15 @@ impl Store {
     }
 
     /// Add data to the store, returning their addresses in the store
-    pub(crate) fn init_datas(
+    pub(crate) fn init_data(
         &mut self,
         mem_addrs: &[MemAddr],
-        datas: Vec<Data>,
+        data: Vec<Data>,
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
-        let data_count = self.data.datas.len();
+        let data_count = self.data.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
-        for (i, data) in datas.into_iter().enumerate() {
+        for (i, data) in data.into_iter().enumerate() {
             let data_val = match data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
                     let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
@@ -399,7 +399,7 @@ impl Store {
                 tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
             };
 
-            self.data.datas.push(DataInstance::new(data_val, idx));
+            self.data.data.push(DataInstance::new(data_val, idx));
             data_addrs.push((i + data_count) as Addr);
         }
 

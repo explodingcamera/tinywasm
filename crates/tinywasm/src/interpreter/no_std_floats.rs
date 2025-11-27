@@ -1,3 +1,4 @@
+// see https://github.com/rust-lang/rust/issues/137578 :(
 pub(super) trait NoStdFloatExt {
     fn round(self) -> Self;
     fn ceil(self) -> Self;

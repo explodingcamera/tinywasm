@@ -6,7 +6,7 @@ It uses [my fork](https://crates.io/crates/tinywasm-wasmparser) of the [`wasmpar
 ## Features
 
 - `std`: Enables the use of `std` and `std::io` for parsing from files and streams.
-- `logging`: Enables logging of the parsing process using the `log` crate.
+- `log`: Enables logging of the parsing process using the `log` crate.
 
 ## Usage
 

@@ -13,12 +13,12 @@ extern crate alloc;
 extern crate std;
 
 // log for logging (optional).
-#[cfg(feature = "logging")]
+#[cfg(feature = "log")]
 #[allow(clippy::single_component_path_imports, unused_imports)]
 use log;
 
 // noop fallback if logging is disabled.
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "log"))]
 #[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
@@ -67,6 +67,7 @@ impl Parser {
             bulk_memory_opt: true,
             call_indirect_overlong: true,
 
+            custom_descriptors: false,
             cm_threading: false,
             extended_const: false,
             wide_arithmetic: false,

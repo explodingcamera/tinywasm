@@ -4,7 +4,7 @@ use tinywasm_types::*;
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
 use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut, Module, Result, Store};
 
-/// An instanciated WebAssembly module
+/// An instantiated WebAssembly module
 ///
 /// Backed by an Rc, so cloning is cheap
 ///
@@ -72,7 +72,7 @@ impl ModuleInstance {
         let global_addrs = store.init_globals(addrs.globals, module.0.globals.into(), &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;
-        let (data_addrs, data_trapped) = store.init_datas(&addrs.memories, module.0.data.into(), idx)?;
+        let (data_addrs, data_trapped) = store.init_data(&addrs.memories, module.0.data.into(), idx)?;
 
         let instance = ModuleInstanceInner {
             failed_to_instantiate: elem_trapped.is_some() || data_trapped.is_some(),
