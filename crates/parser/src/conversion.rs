@@ -94,6 +94,12 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
             wasmparser::TypeRef::Tag(ty) => {
                 return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
             }
+            _ => {
+                return Err(crate::ParseError::UnsupportedOperator(format!(
+                    "Unsupported import kind: {:?}",
+                    import.ty
+                )));
+            }
         },
     })
 }
@@ -156,7 +162,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
         wasmparser::ExternalKind::Table => ExternalKind::Table,
         wasmparser::ExternalKind::Memory => ExternalKind::Memory,
         wasmparser::ExternalKind::Global => ExternalKind::Global,
-        wasmparser::ExternalKind::Tag => {
+        wasmparser::ExternalKind::Tag | wasmparser::ExternalKind::FuncExact => {
             return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)));
         }
     };

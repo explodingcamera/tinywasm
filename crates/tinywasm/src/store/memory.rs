@@ -76,7 +76,7 @@ impl MemoryInstance {
         Ok(&self.data[addr..end])
     }
 
-    pub(crate) fn load_as<const SIZE: usize, T: MemLoadable<SIZE>>(&self, addr: usize) -> Result<T> {
+    pub(crate) fn load_as<const SIZE: usize, T: MemValue<SIZE>>(&self, addr: usize) -> Result<T> {
         let Some(end) = addr.checked_add(SIZE) else {
             return Err(self.trap_oob(addr, SIZE));
         };
@@ -152,14 +152,11 @@ impl MemoryInstance {
     }
 }
 
-/// A trait for types that can be stored in memory
-pub(crate) trait MemStorable<const N: usize> {
+/// A trait for types that can be converted to and from static byte arrays
+pub(crate) trait MemValue<const N: usize>: Copy + Sized {
     /// Store a value in memory
     fn to_mem_bytes(self) -> [u8; N];
-}
 
-/// A trait for types that can be loaded from memory
-pub(crate) trait MemLoadable<const N: usize>: Sized + Copy {
     /// Load a value from memory
     fn from_mem_bytes(bytes: [u8; N]) -> Self;
 }
@@ -167,14 +164,12 @@ pub(crate) trait MemLoadable<const N: usize>: Sized + Copy {
 macro_rules! impl_mem_traits {
     ($($ty:ty, $size:expr),*) => {
         $(
-            impl MemLoadable<$size> for $ty {
+            impl MemValue<$size> for $ty {
                 #[inline(always)]
                 fn from_mem_bytes(bytes: [u8; $size]) -> Self {
                     <$ty>::from_le_bytes(bytes.into())
                 }
-            }
 
-            impl MemStorable<$size> for $ty {
                 #[inline(always)]
                 fn to_mem_bytes(self) -> [u8; $size] {
                     self.to_le_bytes().into()

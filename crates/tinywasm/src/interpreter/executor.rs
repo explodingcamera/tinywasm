@@ -318,45 +318,45 @@ impl<'store, 'stack> Executor<'store, 'stack> {
              V128AnyTrue => self.stack.values.replace_top::<Value128, i32>(|v| Ok((v.reduce_or() != 0) as i32)).to_cf()?,
              I8x16Swizzle => self.stack.values.calculate_same::<Value128>(|a, s| Ok(a.swizzle(s))).to_cf()?,
 
-            //  V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
-            //  V128Load8x8S(_arg) => unimplemented!(),
-            //  V128Load8x8U(_arg) => unimplemented!(),
-            //  V128Load16x4S(_arg) => unimplemented!(),
-            //  V128Load16x4U(_arg) => unimplemented!(),
-            //  V128Load32x2S(_arg) => unimplemented!(),
-            //  V128Load32x2U(_arg) => unimplemented!(),
-            //  V128Load8Splat(_arg)  => unimplemented!(),
-            //  V128Load16Splat(_arg)  => unimplemented!(),
-            //  V128Load32Splat(_arg)  => unimplemented!(),
-            //  V128Load64Splat(_arg)  => unimplemented!(),
+             V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
+             V128Load8x8S(arg) => self.exec_mem_load::<i8, 1, Value128>(arg.mem_addr(), arg.offset(), Value128::extend_8_i8)?,
+             V128Load8x8U(_arg) => self.exec_mem_load::<u8, 1, Value128>(_arg.mem_addr(), _arg.offset(), Value128::extend_8_u8)?,
+             V128Load16x4S(_arg) => self.exec_mem_load::<i16, 2, Value128>(_arg.mem_addr(), _arg.offset(), Value128::extend_4_i16)?,
+             V128Load16x4U(_arg) => self.exec_mem_load::<u16, 2, Value128>(_arg.mem_addr(), _arg.offset(), Value128::extend_4_u16)?,
+             V128Load32x2S(_arg) => self.exec_mem_load::<i32, 4, Value128>(_arg.mem_addr(), _arg.offset(), Value128::extend_2_i32)?,
+             V128Load32x2U(_arg) => self.exec_mem_load::<u32, 4, Value128>(_arg.mem_addr(), _arg.offset(), Value128::extend_2_u32)?,
+             V128Load8Splat(_arg)  => self.exec_mem_load::<i8, 1, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i8)?,
+             V128Load16Splat(_arg)  => self.exec_mem_load::<i16, 2, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i16)?,
+             V128Load32Splat(_arg)  => self.exec_mem_load::<i32, 4, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i32)?,
+             V128Load64Splat(_arg)  => self.exec_mem_load::<i64, 8, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i64)?,
 
-            //  V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
+             V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
 
-            //  V128Store8Lane(arg, lane) => self.exec_mem_store_lane::<i8x16, i8, 1>(arg.mem_addr(), arg.offset(), *lane)?,
-            //  V128Store16Lane(arg, lane) => self.exec_mem_store_lane::<i16x8, i16, 2>(arg.mem_addr(), arg.offset(), *lane)?,
-            //  V128Store32Lane(arg, lane) => self.exec_mem_store_lane::<i32x4, i32, 4>(arg.mem_addr(), arg.offset(), *lane)?,
-            //  V128Store64Lane(arg, lane) => self.exec_mem_store_lane::<i64x2, i64, 8>(arg.mem_addr(), arg.offset(), *lane)?,
+             V128Store8Lane(arg, lane) => self.exec_mem_store_lane::<i8, 1>(arg.mem_addr(), arg.offset(), *lane)?,
+             V128Store16Lane(arg, lane) => self.exec_mem_store_lane::<i16, 2>(arg.mem_addr(), arg.offset(), *lane)?,
+             V128Store32Lane(arg, lane) => self.exec_mem_store_lane::<i32, 4>(arg.mem_addr(), arg.offset(), *lane)?,
+             V128Store64Lane(arg, lane) => self.exec_mem_store_lane::<i64, 8>(arg.mem_addr(), arg.offset(), *lane)?,
 
-            // // Load a single 32-bit or 64-bit element into the lowest bits of a v128 vector, and initialize all other bits of the v128 vector to zero.
-            //  V128Load32Zero(arg) => self.exec_mem_load::<i32, 4, Value128>(arg.mem_addr(), arg.offset(), |v|  {
-            //     let bytes = v.to_le_bytes();
-            //     u8x16::from_array([bytes[0], bytes[1], bytes[2], bytes[3], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-            // })?,
-            //  V128Load64Zero(arg) => self.exec_mem_load::<i64, 8, Value128>(arg.mem_addr(), arg.offset(), |v|  {
-            //     let bytes = v.to_le_bytes();
-            //     u8x16::from_array([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], 0, 0, 0, 0, 0, 0, 0, 0])
-            // })?,
+            // Load a single 32-bit or 64-bit element into the lowest bits of a v128 vector, and initialize all other bits of the v128 vector to zero.
+             V128Load32Zero(arg) => self.exec_mem_load::<i32, 4, Value128>(arg.mem_addr(), arg.offset(), |v|  {
+                let bytes = v.to_le_bytes();
+                Value128::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            })?,
+             V128Load64Zero(arg) => self.exec_mem_load::<i64, 8, Value128>(arg.mem_addr(), arg.offset(), |v|  {
+                let bytes = v.to_le_bytes();
+                Value128::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], 0, 0, 0, 0, 0, 0, 0, 0])
+            })?,
 
-            //  V128Const(arg) => self.exec_const::<Value128>( self.cf.data().v128_constants[*arg as usize].to_le_bytes().into()),
+             V128Const(arg) => self.exec_const::<Value128>( self.cf.data().v128_constants[*arg as usize].into()),
 
-            //  I8x16ExtractLaneS(lane) => self.stack.values.replace_top::<i8x16, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
-            //  I8x16ExtractLaneU(lane) => self.stack.values.replace_top::<u8x16, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
-            //  I16x8ExtractLaneS(lane) => self.stack.values.replace_top::<i16x8, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
-            //  I16x8ExtractLaneU(lane) => self.stack.values.replace_top::<u16x8, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
-            //  I32x4ExtractLane(lane) => self.stack.values.replace_top::<i32x4, i32>(|v| Ok(v[*lane as usize])).to_cf()?,
-            //  I64x2ExtractLane(lane) => self.stack.values.replace_top::<i64x2, i64>(|v| Ok(v[*lane as usize])).to_cf()?,
-            //  F32x4ExtractLane(lane) => self.stack.values.replace_top::<f32x4, f32>(|v| Ok(v[*lane as usize])).to_cf()?,
-            //  F64x2ExtractLane(lane) => self.stack.values.replace_top::<f64x2, f64>(|v| Ok(v[*lane as usize])).to_cf()?,
+            //  I8x16ExtractLaneS(lane) => self.stack.values.replace_top::<Value128, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            //  I8x16ExtractLaneU(lane) => self.stack.values.replace_top::<Value128, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            //  I16x8ExtractLaneS(lane) => self.stack.values.replace_top::<Value128, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            //  I16x8ExtractLaneU(lane) => self.stack.values.replace_top::<Value128, i32>(|v| Ok(v[*lane as usize] as i32)).to_cf()?,
+            //  I32x4ExtractLane(lane) => self.stack.values.replace_top::<Value128, i32>(|v| Ok(v[*lane as usize])).to_cf()?,
+            //  I64x2ExtractLane(lane) => self.stack.values.replace_top::<Value128, i64>(|v| Ok(v[*lane as usize])).to_cf()?,
+            //  F32x4ExtractLane(lane) => self.stack.values.replace_top::<Value128, f32>(|v| Ok(v[*lane as usize])).to_cf()?,
+            //  F64x2ExtractLane(lane) => self.stack.values.replace_top::<Value128, f64>(|v| Ok(v[*lane as usize])).to_cf()?,
 
             //  V128Load8Lane(arg, lane) => self.exec_mem_load_lane::<i8, i8x16, 1>(arg.mem_addr(), arg.offset(), *lane)?,
             //  V128Load16Lane(arg, lane) => self.exec_mem_load_lane::<i16, i16x8, 2>(arg.mem_addr(), arg.offset(), *lane)?,
@@ -1038,18 +1038,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         }
     }
 
-    // fn exec_mem_load_lane<
-    //     LOAD: MemLoadable<LOAD_SIZE>,
-    //     INTO: InternalValue + IndexMut<usize, Output = LOAD>,
-    //     const LOAD_SIZE: usize,
-    // >(
+    // fn exec_mem_load_lane<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
     //     &mut self,
     //     mem_addr: tinywasm_types::MemAddr,
     //     offset: u64,
     //     lane: u8,
     // ) -> ControlFlow<Option<Error>> {
     //     let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
-    //     let mut imm = self.stack.values.pop::<INTO>();
+    //     let mut imm = self.stack.values.pop::<Value128>().to_mem_bytes();
     //     let val = self.stack.values.pop::<i32>() as u64;
     //     let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
     //         cold();
@@ -1059,13 +1055,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     //             max: 0,
     //         })));
     //     };
-    //     let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
-    //     imm[lane as usize] = val;
-    //     self.stack.values.push(imm);
+    //     let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?.to_mem_bytes();
+
+    //     // imm[lane as usize] = val;
+
+    //     self.stack.values.push(Value128::from_mem_bytes(imm));
     //     ControlFlow::Continue(())
     // }
 
-    fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
+    fn exec_mem_load<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
@@ -1091,29 +1089,29 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ControlFlow::Continue(())
     }
 
-    // fn exec_mem_store_lane<T: InternalValue + Index<usize, Output = U>, U: MemStorable<N> + Copy, const N: usize>(
-    //     &mut self,
-    //     mem_addr: tinywasm_types::MemAddr,
-    //     offset: u64,
-    //     lane: u8,
-    // ) -> ControlFlow<Option<Error>> {
-    //     let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
-    //     let val = self.stack.values.pop::<T>();
-    //     let val = val[lane as usize].to_mem_bytes();
+    fn exec_mem_store_lane<U: MemValue<N> + Copy, const N: usize>(
+        &mut self,
+        mem_addr: tinywasm_types::MemAddr,
+        offset: u64,
+        lane: u8,
+    ) -> ControlFlow<Option<Error>> {
+        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
+        let val = self.stack.values.pop::<Value128>().to_mem_bytes();
+        let val = val[lane as usize].to_mem_bytes();
 
-    //     let addr = match mem.is_64bit() {
-    //         true => self.stack.values.pop::<i64>() as u64,
-    //         false => self.stack.values.pop::<i32>() as u32 as u64,
-    //     };
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
 
-    //     if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
-    //         return ControlFlow::Break(Some(e));
-    //     }
+        if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
+            return ControlFlow::Break(Some(e));
+        }
 
-    //     ControlFlow::Continue(())
-    // }
+        ControlFlow::Continue(())
+    }
 
-    fn exec_mem_store<T: InternalValue, U: MemStorable<N>, const N: usize>(
+    fn exec_mem_store<T: InternalValue, U: MemValue<N>, const N: usize>(
         &mut self,
         mem_addr: tinywasm_types::MemAddr,
         offset: u64,
