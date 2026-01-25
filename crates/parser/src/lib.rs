@@ -67,6 +67,8 @@ impl Parser {
             bulk_memory_opt: true,
             call_indirect_overlong: true,
 
+            compact_imports: false,
+            cm_map: false,
             custom_descriptors: false,
             cm_threading: false,
             extended_const: false,

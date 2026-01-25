@@ -147,7 +147,7 @@ impl ModuleReader {
 
                 debug!("Found import section");
                 validator.import_section(&reader)?;
-                self.imports = conversion::convert_module_imports(reader)?;
+                self.imports = conversion::convert_module_imports(reader.into_imports())?;
             }
             ExportSection(reader) => {
                 if !self.exports.is_empty() {
