@@ -89,7 +89,7 @@ impl Parser {
             cm_nested_names: false,
             cm_values: false,
             cm_error_context: false,
-            cm_fixed_size_list: false,
+            cm_fixed_length_lists: false,
             cm_gc: false,
         };
         Validator::new_with_features(features.into())
