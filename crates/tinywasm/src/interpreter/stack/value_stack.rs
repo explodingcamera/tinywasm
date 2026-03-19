@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{Result, StackConfig, interpreter::*};
+use crate::{interpreter::*, Result, StackConfig};
 
 use super::Locals;
 
@@ -63,18 +63,18 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn calculate_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
+    pub(crate) fn binary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate(self, func)
     }
 
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn calculate_same_3<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
+    pub(crate) fn ternary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate3(self, func)
     }
 
     #[inline]
-    pub(crate) fn calculate<T: InternalValue, U: InternalValue>(
+    pub(crate) fn binary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T, T) -> Result<U>,
     ) -> Result<()> {
@@ -86,7 +86,7 @@ impl ValueStack {
 
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn calculate_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
+    pub(crate) fn binary_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
         &mut self,
         func: impl FnOnce(A, B) -> Result<RES>,
     ) -> Result<()> {
@@ -97,7 +97,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn replace_top<T: InternalValue, U: InternalValue>(
+    pub(crate) fn unary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T) -> Result<U>,
     ) -> Result<()> {
@@ -107,7 +107,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn replace_top_same<T: InternalValue>(&mut self, func: impl Fn(T) -> Result<T>) -> Result<()> {
+    pub(crate) fn unary_same<T: InternalValue>(&mut self, func: impl Fn(T) -> Result<T>) -> Result<()> {
         T::replace_top(self, func)
     }
 

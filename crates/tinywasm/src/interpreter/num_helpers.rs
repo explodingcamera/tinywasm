@@ -37,7 +37,7 @@ macro_rules! checked_conv_float {
         $self
             .stack
             .values
-            .replace_top::<$from, $to>(|v| {
+            .unary::<$from, $to>(|v| {
                 let (min, max) = float_min_max!($from, $intermediate);
                 if unlikely(v.is_nan()) {
                     return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
