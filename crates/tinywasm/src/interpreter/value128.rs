@@ -1,90 +1,12 @@
 use super::num_helpers::TinywasmFloatExt;
 
+#[cfg(not(feature = "std"))]
+use super::no_std_floats::NoStdFloatExt;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Value128(i128);
 
 impl Value128 {
-    #[inline]
-    fn canonicalize_simd_f32_nan(x: f32) -> f32 {
-        #[cfg(feature = "canonicalize_nans")]
-        if x.is_nan() {
-            f32::NAN
-        } else {
-            x
-        }
-        #[cfg(not(feature = "canonicalize_nans"))]
-        x
-    }
-
-    #[inline]
-    fn canonicalize_simd_f64_nan(x: f64) -> f64 {
-        #[cfg(feature = "canonicalize_nans")]
-        if x.is_nan() {
-            f64::NAN
-        } else {
-            x
-        }
-        #[cfg(not(feature = "canonicalize_nans"))]
-        x
-    }
-
-    const fn saturate_i16_to_i8(x: i16) -> i8 {
-        if x > i8::MAX as i16 {
-            i8::MAX
-        } else if x < i8::MIN as i16 {
-            i8::MIN
-        } else {
-            x as i8
-        }
-    }
-
-    const fn saturate_i16_to_u8(x: i16) -> u8 {
-        if x <= 0 {
-            0
-        } else if x > u8::MAX as i16 {
-            u8::MAX
-        } else {
-            x as u8
-        }
-    }
-
-    const fn saturate_i32_to_i16(x: i32) -> i16 {
-        if x > i16::MAX as i32 {
-            i16::MAX
-        } else if x < i16::MIN as i32 {
-            i16::MIN
-        } else {
-            x as i16
-        }
-    }
-
-    const fn saturate_i32_to_u16(x: i32) -> u16 {
-        if x <= 0 {
-            0
-        } else if x > u16::MAX as i32 {
-            u16::MAX
-        } else {
-            x as u16
-        }
-    }
-
-    const fn replace_lane_bytes<const LANE_BYTES: usize>(
-        self,
-        lane: u8,
-        value: [u8; LANE_BYTES],
-        lane_count: u8,
-    ) -> Self {
-        debug_assert!(lane < lane_count);
-        let mut bytes = self.to_le_bytes();
-        let mut i = 0;
-        let start = lane as usize * LANE_BYTES;
-        while i < LANE_BYTES {
-            bytes[start + i] = value[i];
-            i += 1;
-        }
-        Self::from_le_bytes(bytes)
-    }
-
     pub const fn from_le_bytes(bytes: [u8; 16]) -> Self {
         Self(i128::from_le_bytes(bytes))
     }
@@ -228,6 +150,7 @@ impl Value128 {
         Self::from_f64x2([op(a[0], b[0]), op(a[1], b[1])])
     }
 
+    #[inline]
     pub const fn reduce_or(self) -> u8 {
         let mut result = 0u8;
         let bytes = self.to_le_bytes();
@@ -1045,8 +968,8 @@ impl Value128 {
         let mut out = [0i8; 16];
         let mut i = 0;
         while i < 8 {
-            out[i] = Self::saturate_i16_to_i8(av[i]);
-            out[i + 8] = Self::saturate_i16_to_i8(bv[i]);
+            out[i] = saturate_i16_to_i8(av[i]);
+            out[i + 8] = saturate_i16_to_i8(bv[i]);
             i += 1;
         }
         Self::from_i8x16(out)
@@ -1059,8 +982,8 @@ impl Value128 {
         let mut out = [0u8; 16];
         let mut i = 0;
         while i < 8 {
-            out[i] = Self::saturate_i16_to_u8(av[i]);
-            out[i + 8] = Self::saturate_i16_to_u8(bv[i]);
+            out[i] = saturate_i16_to_u8(av[i]);
+            out[i + 8] = saturate_i16_to_u8(bv[i]);
             i += 1;
         }
         Self::from_u8x16(out)
@@ -1073,8 +996,8 @@ impl Value128 {
         let mut out = [0i16; 8];
         let mut i = 0;
         while i < 4 {
-            out[i] = Self::saturate_i32_to_i16(av[i]);
-            out[i + 4] = Self::saturate_i32_to_i16(bv[i]);
+            out[i] = saturate_i32_to_i16(av[i]);
+            out[i + 4] = saturate_i32_to_i16(bv[i]);
             i += 1;
         }
         Self::from_i16x8(out)
@@ -1087,8 +1010,8 @@ impl Value128 {
         let mut out = [0u16; 8];
         let mut i = 0;
         while i < 4 {
-            out[i] = Self::saturate_i32_to_u16(av[i]);
-            out[i + 4] = Self::saturate_i32_to_u16(bv[i]);
+            out[i] = saturate_i32_to_u16(av[i]);
+            out[i + 4] = saturate_i32_to_u16(bv[i]);
             i += 1;
         }
         Self::from_u16x8(out)
@@ -1417,7 +1340,7 @@ impl Value128 {
         let mut out = [0i16; 8];
         let mut i = 0;
         while i < 8 {
-            let r = ((a[i] as i32 * b[i] as i32) + 0x4000) >> 15;
+            let r = ((a[i] as i32 * b[i] as i32) + (1 << 14)) >> 15; // 2^14: Q15 rounding
             out[i] = if r > i16::MAX as i32 {
                 i16::MAX
             } else if r < i16::MIN as i32 {
@@ -2051,7 +1974,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f32x4.eq")]
-    pub fn f32x4_eq(self, rhs: Self) -> Self {
+    pub const fn f32x4_eq(self, rhs: Self) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         let mut out = [0i32; 4];
@@ -2064,7 +1987,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f64x2.eq")]
-    pub fn f64x2_eq(self, rhs: Self) -> Self {
+    pub const fn f64x2_eq(self, rhs: Self) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         let mut out = [0i64; 2];
@@ -2077,7 +2000,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f32x4.ne")]
-    pub fn f32x4_ne(self, rhs: Self) -> Self {
+    pub const fn f32x4_ne(self, rhs: Self) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         let mut out = [0i32; 4];
@@ -2090,7 +2013,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f64x2.ne")]
-    pub fn f64x2_ne(self, rhs: Self) -> Self {
+    pub const fn f64x2_ne(self, rhs: Self) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         let mut out = [0i64; 2];
@@ -2103,7 +2026,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f32x4.lt")]
-    pub fn f32x4_lt(self, rhs: Self) -> Self {
+    pub const fn f32x4_lt(self, rhs: Self) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         let mut out = [0i32; 4];
@@ -2116,7 +2039,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f64x2.lt")]
-    pub fn f64x2_lt(self, rhs: Self) -> Self {
+    pub const fn f64x2_lt(self, rhs: Self) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         let mut out = [0i64; 2];
@@ -2129,17 +2052,17 @@ impl Value128 {
     }
 
     #[doc(alias = "f32x4.gt")]
-    pub fn f32x4_gt(self, rhs: Self) -> Self {
+    pub const fn f32x4_gt(self, rhs: Self) -> Self {
         rhs.f32x4_lt(self)
     }
 
     #[doc(alias = "f64x2.gt")]
-    pub fn f64x2_gt(self, rhs: Self) -> Self {
+    pub const fn f64x2_gt(self, rhs: Self) -> Self {
         rhs.f64x2_lt(self)
     }
 
     #[doc(alias = "f32x4.le")]
-    pub fn f32x4_le(self, rhs: Self) -> Self {
+    pub const fn f32x4_le(self, rhs: Self) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         let mut out = [0i32; 4];
@@ -2152,7 +2075,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f64x2.le")]
-    pub fn f64x2_le(self, rhs: Self) -> Self {
+    pub const fn f64x2_le(self, rhs: Self) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         let mut out = [0i64; 2];
@@ -2165,7 +2088,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f32x4.ge")]
-    pub fn f32x4_ge(self, rhs: Self) -> Self {
+    pub const fn f32x4_ge(self, rhs: Self) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         let mut out = [0i32; 4];
@@ -2178,7 +2101,7 @@ impl Value128 {
     }
 
     #[doc(alias = "f64x2.ge")]
-    pub fn f64x2_ge(self, rhs: Self) -> Self {
+    pub const fn f64x2_ge(self, rhs: Self) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         let mut out = [0i64; 2];
@@ -2192,42 +2115,42 @@ impl Value128 {
 
     #[doc(alias = "f32x4.ceil")]
     pub fn f32x4_ceil(self) -> Self {
-        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.ceil()))
+        self.map_f32x4(|x| canonicalize_simd_f32_nan(x.ceil()))
     }
 
     #[doc(alias = "f64x2.ceil")]
     pub fn f64x2_ceil(self) -> Self {
-        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.ceil()))
+        self.map_f64x2(|x| canonicalize_simd_f64_nan(x.ceil()))
     }
 
     #[doc(alias = "f32x4.floor")]
     pub fn f32x4_floor(self) -> Self {
-        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.floor()))
+        self.map_f32x4(|x| canonicalize_simd_f32_nan(x.floor()))
     }
 
     #[doc(alias = "f64x2.floor")]
     pub fn f64x2_floor(self) -> Self {
-        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.floor()))
+        self.map_f64x2(|x| canonicalize_simd_f64_nan(x.floor()))
     }
 
     #[doc(alias = "f32x4.trunc")]
     pub fn f32x4_trunc(self) -> Self {
-        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.trunc()))
+        self.map_f32x4(|x| canonicalize_simd_f32_nan(x.trunc()))
     }
 
     #[doc(alias = "f64x2.trunc")]
     pub fn f64x2_trunc(self) -> Self {
-        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.trunc()))
+        self.map_f64x2(|x| canonicalize_simd_f64_nan(x.trunc()))
     }
 
     #[doc(alias = "f32x4.nearest")]
     pub fn f32x4_nearest(self) -> Self {
-        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(TinywasmFloatExt::tw_nearest(x)))
+        self.map_f32x4(|x| canonicalize_simd_f32_nan(TinywasmFloatExt::tw_nearest(x)))
     }
 
     #[doc(alias = "f64x2.nearest")]
     pub fn f64x2_nearest(self) -> Self {
-        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(TinywasmFloatExt::tw_nearest(x)))
+        self.map_f64x2(|x| canonicalize_simd_f64_nan(TinywasmFloatExt::tw_nearest(x)))
     }
 
     #[doc(alias = "f32x4.abs")]
@@ -2252,52 +2175,52 @@ impl Value128 {
 
     #[doc(alias = "f32x4.sqrt")]
     pub fn f32x4_sqrt(self) -> Self {
-        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.sqrt()))
+        self.map_f32x4(|x| canonicalize_simd_f32_nan(x.sqrt()))
     }
 
     #[doc(alias = "f64x2.sqrt")]
     pub fn f64x2_sqrt(self) -> Self {
-        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.sqrt()))
+        self.map_f64x2(|x| canonicalize_simd_f64_nan(x.sqrt()))
     }
 
     #[doc(alias = "f32x4.add")]
     pub fn f32x4_add(self, rhs: Self) -> Self {
-        self.zip_f32x4(rhs, |a, b| Self::canonicalize_simd_f32_nan(a + b))
+        self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a + b))
     }
 
     #[doc(alias = "f64x2.add")]
     pub fn f64x2_add(self, rhs: Self) -> Self {
-        self.zip_f64x2(rhs, |a, b| Self::canonicalize_simd_f64_nan(a + b))
+        self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a + b))
     }
 
     #[doc(alias = "f32x4.sub")]
     pub fn f32x4_sub(self, rhs: Self) -> Self {
-        self.zip_f32x4(rhs, |a, b| Self::canonicalize_simd_f32_nan(a - b))
+        self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a - b))
     }
 
     #[doc(alias = "f64x2.sub")]
     pub fn f64x2_sub(self, rhs: Self) -> Self {
-        self.zip_f64x2(rhs, |a, b| Self::canonicalize_simd_f64_nan(a - b))
+        self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a - b))
     }
 
     #[doc(alias = "f32x4.mul")]
     pub fn f32x4_mul(self, rhs: Self) -> Self {
-        self.zip_f32x4(rhs, |a, b| Self::canonicalize_simd_f32_nan(a * b))
+        self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a * b))
     }
 
     #[doc(alias = "f64x2.mul")]
     pub fn f64x2_mul(self, rhs: Self) -> Self {
-        self.zip_f64x2(rhs, |a, b| Self::canonicalize_simd_f64_nan(a * b))
+        self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a * b))
     }
 
     #[doc(alias = "f32x4.div")]
     pub fn f32x4_div(self, rhs: Self) -> Self {
-        self.zip_f32x4(rhs, |a, b| Self::canonicalize_simd_f32_nan(a / b))
+        self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a / b))
     }
 
     #[doc(alias = "f64x2.div")]
     pub fn f64x2_div(self, rhs: Self) -> Self {
-        self.zip_f64x2(rhs, |a, b| Self::canonicalize_simd_f64_nan(a / b))
+        self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a / b))
     }
 
     #[doc(alias = "f32x4.min")]
@@ -2524,6 +2447,23 @@ impl Value128 {
     pub const fn extract_lane_f64(self, lane: u8) -> f64 {
         f64::from_bits(self.extract_lane_i64(lane) as u64)
     }
+
+    const fn replace_lane_bytes<const LANE_BYTES: usize>(
+        self,
+        lane: u8,
+        value: [u8; LANE_BYTES],
+        lane_count: u8,
+    ) -> Self {
+        debug_assert!(lane < lane_count);
+        let mut bytes = self.to_le_bytes();
+        let mut i = 0;
+        let start = lane as usize * LANE_BYTES;
+        while i < LANE_BYTES {
+            bytes[start + i] = value[i];
+            i += 1;
+        }
+        Self::from_le_bytes(bytes)
+    }
 }
 
 impl From<Value128> for i128 {
@@ -2567,12 +2507,80 @@ impl core::ops::BitXor for Value128 {
 }
 
 #[inline]
+const fn canonicalize_simd_f32_nan(x: f32) -> f32 {
+    #[cfg(feature = "canonicalize_nans")]
+    if x.is_nan() {
+        f32::NAN
+    } else {
+        x
+    }
+    #[cfg(not(feature = "canonicalize_nans"))]
+    x
+}
+
+#[inline]
+const fn canonicalize_simd_f64_nan(x: f64) -> f64 {
+    #[cfg(feature = "canonicalize_nans")]
+    if x.is_nan() {
+        f64::NAN
+    } else {
+        x
+    }
+    #[cfg(not(feature = "canonicalize_nans"))]
+    x
+}
+
+#[inline]
+const fn saturate_i16_to_i8(x: i16) -> i8 {
+    if x > i8::MAX as i16 {
+        i8::MAX
+    } else if x < i8::MIN as i16 {
+        i8::MIN
+    } else {
+        x as i8
+    }
+}
+
+#[inline]
+const fn saturate_i16_to_u8(x: i16) -> u8 {
+    if x <= 0 {
+        0
+    } else if x > u8::MAX as i16 {
+        u8::MAX
+    } else {
+        x as u8
+    }
+}
+
+#[inline]
+const fn saturate_i32_to_i16(x: i32) -> i16 {
+    if x > i16::MAX as i32 {
+        i16::MAX
+    } else if x < i16::MIN as i32 {
+        i16::MIN
+    } else {
+        x as i16
+    }
+}
+
+#[inline]
+const fn saturate_i32_to_u16(x: i32) -> u16 {
+    if x <= 0 {
+        0
+    } else if x > u16::MAX as i32 {
+        u16::MAX
+    } else {
+        x as u16
+    }
+}
+
+#[inline]
 fn trunc_sat_f32_to_i32(v: f32) -> i32 {
     if v.is_nan() {
         0
-    } else if v <= -2147483904.0_f32 {
+    } else if v <= i32::MIN as f32 - (1 << 8) as f32 {
         i32::MIN
-    } else if v >= 2147483648.0_f32 {
+    } else if v >= (i32::MAX as f32 + 1.0) {
         i32::MAX
     } else {
         v.trunc() as i32
@@ -2583,7 +2591,7 @@ fn trunc_sat_f32_to_i32(v: f32) -> i32 {
 fn trunc_sat_f32_to_u32(v: f32) -> u32 {
     if v.is_nan() || v <= -1.0_f32 {
         0
-    } else if v >= 4294967296.0_f32 {
+    } else if v >= (u32::MAX as f32 + 1.0) {
         u32::MAX
     } else {
         v.trunc() as u32
@@ -2594,9 +2602,9 @@ fn trunc_sat_f32_to_u32(v: f32) -> u32 {
 fn trunc_sat_f64_to_i32(v: f64) -> i32 {
     if v.is_nan() {
         0
-    } else if v <= -2147483649.0_f64 {
+    } else if v <= i32::MIN as f64 - 1.0_f64 {
         i32::MIN
-    } else if v >= 2147483648.0_f64 {
+    } else if v >= (i32::MAX as f64 + 1.0) {
         i32::MAX
     } else {
         v.trunc() as i32
@@ -2607,7 +2615,7 @@ fn trunc_sat_f64_to_i32(v: f64) -> i32 {
 fn trunc_sat_f64_to_u32(v: f64) -> u32 {
     if v.is_nan() || v <= -1.0_f64 {
         0
-    } else if v >= 4294967296.0_f64 {
+    } else if v >= (u32::MAX as f64 + 1.0) {
         u32::MAX
     } else {
         v.trunc() as u32

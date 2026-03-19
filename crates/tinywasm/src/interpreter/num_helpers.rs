@@ -9,20 +9,17 @@ where
 /// Doing the actual conversion from float to int is a bit tricky, because
 /// we need to check for overflow. This macro generates the min/max values
 /// for a specific conversion, which are then used in the actual conversion.
-/// Rust sadly doesn't have wrapping casts for floats yet, maybe never.
-/// Alternatively, <https://crates.io/crates/az> could be used for this but
-/// it's not worth the dependency. 
-#[rustfmt::skip] 
+/// Rust sadly doesn't have wrapping casts for floats yet.
+#[rustfmt::skip]
 macro_rules! float_min_max {
-    (f32, i32) => {(-2147483904.0_f32, 2147483648.0_f32)};
-    (f64, i32) => {(-2147483649.0_f64, 2147483648.0_f64)};
-    (f32, u32) => {(-1.0_f32, 4294967296.0_f32)}; // 2^32
-    (f64, u32) => {(-1.0_f64, 4294967296.0_f64)}; // 2^32
-    (f32, i64) => {(-9223373136366403584.0_f32, 9223372036854775808.0_f32)}; // 2^63 + 2^40 | 2^63
-    (f64, i64) => {(-9223372036854777856.0_f64, 9223372036854775808.0_f64)}; // 2^63 + 2^40 | 2^63
-    (f32, u64) => {(-1.0_f32, 18446744073709551616.0_f32)}; // 2^64
-    (f64, u64) => {(-1.0_f64, 18446744073709551616.0_f64)}; // 2^64
-    // other conversions are not allowed
+    (f32, i32) => {(i32::MIN as f32 - (1 << 8) as f32, i32::MAX as f32 + 1.0)}; // 2^8: f32 precision margin
+    (f64, i32) => {(i32::MIN as f64 - 1.0, i32::MAX as f64 + 1.0)};
+    (f32, u32) => {(-1.0_f32, u32::MAX as f32 + 1.0)};
+    (f64, u32) => {(-1.0_f64, u32::MAX as f64 + 1.0)};
+    (f32, i64) => {(i64::MIN as f32 - (1i64 << 40) as f32, i64::MAX as f32 + 1.0)}; // 2^40: f32 has 23 mantissa bits
+    (f64, i64) => {(i64::MIN as f64 - (1i64 << 11) as f64, i64::MAX as f64 + 1.0)}; // 2^11: f64 precision margin
+    (f32, u64) => {(-1.0_f32, u64::MAX as f32 + 1.0)};
+    (f64, u64) => {(-1.0_f64, u64::MAX as f64 + 1.0)};
     ($from:ty, $to:ty) => {compile_error!("invalid float conversion")};
 }
 
