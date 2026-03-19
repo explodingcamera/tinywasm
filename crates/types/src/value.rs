@@ -138,25 +138,77 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
-            (Self::V128(a), Self::V128(b)) => a == b,
+            (Self::V128(a), Self::V128(b)) => {
+                let a_bytes = a.to_le_bytes();
+                let b_bytes = b.to_le_bytes();
+                a_bytes == b_bytes || Self::v128_nan_eq(a_bytes, b_bytes)
+            }
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
                 if a.is_nan() && b.is_nan() {
-                    true // Both are NaN, treat them as equal
+                    true
                 } else {
                     a.to_bits() == b.to_bits()
                 }
             }
             (Self::F64(a), Self::F64(b)) => {
                 if a.is_nan() && b.is_nan() {
-                    true // Both are NaN, treat them as equal
+                    true
                 } else {
                     a.to_bits() == b.to_bits()
                 }
             }
             _ => false,
         }
+    }
+
+    fn v128_nan_eq(a: [u8; 16], b: [u8; 16]) -> bool {
+        let a_f32x4: [f32; 4] = [
+            f32::from_le_bytes([a[0], a[1], a[2], a[3]]),
+            f32::from_le_bytes([a[4], a[5], a[6], a[7]]),
+            f32::from_le_bytes([a[8], a[9], a[10], a[11]]),
+            f32::from_le_bytes([a[12], a[13], a[14], a[15]]),
+        ];
+        let b_f32x4: [f32; 4] = [
+            f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+            f32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+            f32::from_le_bytes([b[8], b[9], b[10], b[11]]),
+            f32::from_le_bytes([b[12], b[13], b[14], b[15]]),
+        ];
+
+        let all_nan_match = a_f32x4.iter().zip(b_f32x4.iter()).all(|(x, y)| {
+            if x.is_nan() && y.is_nan() {
+                true
+            } else if x.is_nan() || y.is_nan() {
+                false
+            } else {
+                x.to_bits() == y.to_bits()
+            }
+        });
+
+        if all_nan_match && a_f32x4.iter().any(|x| x.is_nan()) {
+            return true;
+        }
+
+        let a_f64x2: [f64; 2] = [
+            f64::from_le_bytes([a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]]),
+            f64::from_le_bytes([a[8], a[9], a[10], a[11], a[12], a[13], a[14], a[15]]),
+        ];
+        let b_f64x2: [f64; 2] = [
+            f64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
+            f64::from_le_bytes([b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]]),
+        ];
+
+        a_f64x2.iter().zip(b_f64x2.iter()).all(|(x, y)| {
+            if x.is_nan() && y.is_nan() {
+                true
+            } else if x.is_nan() || y.is_nan() {
+                false
+            } else {
+                x.to_bits() == y.to_bits()
+            }
+        }) && a_f64x2.iter().any(|x| x.is_nan())
     }
 
     #[doc(hidden)]

@@ -6,20 +6,26 @@ pub struct Value128(i128);
 impl Value128 {
     #[inline]
     fn canonicalize_simd_f32_nan(x: f32) -> f32 {
+        #[cfg(feature = "canonicalize_nans")]
         if x.is_nan() {
-            f32::from_bits(0x7fc0_0000)
+            f32::NAN
         } else {
             x
         }
+        #[cfg(not(feature = "canonicalize_nans"))]
+        x
     }
 
     #[inline]
     fn canonicalize_simd_f64_nan(x: f64) -> f64 {
+        #[cfg(feature = "canonicalize_nans")]
         if x.is_nan() {
-            f64::from_bits(0x7ff8_0000_0000_0000)
+            f64::NAN
         } else {
             x
         }
+        #[cfg(not(feature = "canonicalize_nans"))]
+        x
     }
 
     const fn saturate_i16_to_i8(x: i16) -> i8 {
@@ -2186,42 +2192,42 @@ impl Value128 {
 
     #[doc(alias = "f32x4.ceil")]
     pub fn f32x4_ceil(self) -> Self {
-        self.map_f32x4(f32::ceil)
+        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.ceil()))
     }
 
     #[doc(alias = "f64x2.ceil")]
     pub fn f64x2_ceil(self) -> Self {
-        self.map_f64x2(f64::ceil)
+        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.ceil()))
     }
 
     #[doc(alias = "f32x4.floor")]
     pub fn f32x4_floor(self) -> Self {
-        self.map_f32x4(f32::floor)
+        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.floor()))
     }
 
     #[doc(alias = "f64x2.floor")]
     pub fn f64x2_floor(self) -> Self {
-        self.map_f64x2(f64::floor)
+        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.floor()))
     }
 
     #[doc(alias = "f32x4.trunc")]
     pub fn f32x4_trunc(self) -> Self {
-        self.map_f32x4(f32::trunc)
+        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(x.trunc()))
     }
 
     #[doc(alias = "f64x2.trunc")]
     pub fn f64x2_trunc(self) -> Self {
-        self.map_f64x2(f64::trunc)
+        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(x.trunc()))
     }
 
     #[doc(alias = "f32x4.nearest")]
     pub fn f32x4_nearest(self) -> Self {
-        self.map_f32x4(TinywasmFloatExt::tw_nearest)
+        self.map_f32x4(|x| Self::canonicalize_simd_f32_nan(TinywasmFloatExt::tw_nearest(x)))
     }
 
     #[doc(alias = "f64x2.nearest")]
     pub fn f64x2_nearest(self) -> Self {
-        self.map_f64x2(TinywasmFloatExt::tw_nearest)
+        self.map_f64x2(|x| Self::canonicalize_simd_f64_nan(TinywasmFloatExt::tw_nearest(x)))
     }
 
     #[doc(alias = "f32x4.abs")]

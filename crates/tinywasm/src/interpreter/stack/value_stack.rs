@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{interpreter::*, Result, StackConfig};
+use crate::{Result, StackConfig, interpreter::*};
 
 use super::Locals;
 

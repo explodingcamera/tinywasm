@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryArch, MemoryType, ModuleInstanceAddr};
 
-use crate::{cold, interpreter::Value128, log, Error, Result};
+use crate::{Error, Result, cold, interpreter::Value128, log};
 
 /// A WebAssembly Memory Instance
 ///
