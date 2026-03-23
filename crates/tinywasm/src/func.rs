@@ -1,7 +1,7 @@
-use crate::interpreter::stack::{CallFrame, Stack};
-use crate::{Error, FuncContext, Result, Store};
+use crate::interpreter::stack::CallFrame;
+use crate::{Error, FuncContext, InterpreterRuntime, Result, Store};
 use crate::{Function, log, unlikely};
-use alloc::{boxed::Box, format, string::String, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
 #[derive(Debug)]
@@ -10,9 +10,6 @@ pub struct FuncHandle {
     pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) addr: u32,
     pub(crate) ty: FuncType,
-
-    /// The name of the function, if it has one
-    pub name: Option<String>,
 }
 
 impl FuncHandle {
@@ -48,35 +45,32 @@ impl FuncHandle {
             return Err(Error::Other("Type mismatch".into()));
         }
 
-        let func_inst = store.get_func(self.addr);
+        let func_inst = store.state.get_func(self.addr);
         let wasm_func = match &func_inst.func {
             Function::Host(host_func) => {
                 let host_func = host_func.clone();
                 let ctx = FuncContext { store, module_addr: self.module_addr };
                 return host_func.call(ctx, params);
             }
-            Function::Wasm(wasm_func) => wasm_func,
+            Function::Wasm(wasm_func) => wasm_func.clone(),
         };
 
         // 6. Let f be the dummy frame
-        let call_frame = CallFrame::new(wasm_func.clone(), func_inst.owner, params, 0);
+        let callframe = CallFrame::new(wasm_func, func_inst.owner, params, 0);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
-        let mut stack = Stack::new(call_frame, &store.config);
+        store.stack.initialize(callframe);
 
         // 9. Invoke the function instance
-        let runtime = store.runtime();
-        runtime.exec(store, &mut stack)?;
+        InterpreterRuntime::exec(store)?;
 
         // Once the function returns:
-        // let result_m = func_ty.results.len();
-
         // 1. Assert: m values are on the top of the stack (Ensured by validation)
-        // assert!(stack.values.len() >= result_m);
+        debug_assert!(store.stack.values.len() >= func_ty.results.len());
 
         // 2. Pop m values from the stack
-        let res = stack.values.pop_results(&func_ty.results);
+        let res = store.stack.values.pop_results(&func_ty.results);
 
         // The values are returned as the results of the invocation.
         Ok(res)
@@ -115,78 +109,6 @@ impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
     }
 }
 
-macro_rules! impl_into_wasm_value_tuple {
-    ($($T:ident),*) => {
-        impl<$($T),*> IntoWasmValueTuple for ($($T,)*)
-        where
-            $($T: Into<WasmValue>),*
-        {
-            #[allow(non_snake_case)]
-            #[inline]
-            fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
-                let ($($T,)*) = self;
-                vec![$($T.into(),)*]
-            }
-        }
-    }
-}
-
-macro_rules! impl_into_wasm_value_tuple_single {
-    ($T:ident) => {
-        impl IntoWasmValueTuple for $T {
-            #[inline]
-            fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
-                vec![self.into()]
-            }
-        }
-    };
-}
-
-macro_rules! impl_from_wasm_value_tuple {
-    ($($T:ident),*) => {
-        impl<$($T),*> FromWasmValueTuple for ($($T,)*)
-        where
-            $($T: TryFrom<WasmValue, Error = ()>),*
-        {
-            #[inline]
-            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
-                #[allow(unused_variables, unused_mut)]
-                let mut iter = values.iter();
-
-                Ok((
-                    $(
-                        $T::try_from(
-                            *iter.next()
-                            .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
-                        )
-                        .map_err(|e| Error::Other(format!("FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}", e,
-                    )))?,
-                    )*
-                ))
-            }
-        }
-    }
-}
-
-macro_rules! impl_from_wasm_value_tuple_single {
-    ($T:ident) => {
-        impl FromWasmValueTuple for $T {
-            #[inline]
-            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
-                #[allow(unused_variables, unused_mut)]
-                let mut iter = values.iter();
-                $T::try_from(*iter.next().ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?)
-                    .map_err(|e| {
-                        Error::Other(format!(
-                            "FromWasmValueTupleSingle: Could not convert WasmValue to expected type: {:?}",
-                            e
-                        ))
-                    })
-            }
-        }
-    };
-}
-
 pub trait ValTypesFromTuple {
     fn val_types() -> Box<[ValType]>;
 }
@@ -195,55 +117,123 @@ pub trait ToValType {
     fn to_val_type() -> ValType;
 }
 
-impl ToValType for i32 {
-    fn to_val_type() -> ValType {
-        ValType::I32
-    }
+macro_rules! impl_scalar_wasm_traits {
+    ($($T:ty => $val_ty:ident),+ $(,)?) => {
+        $(
+            impl ToValType for $T {
+                #[inline]
+                fn to_val_type() -> ValType {
+                    ValType::$val_ty
+                }
+            }
+
+            impl ValTypesFromTuple for $T {
+                #[inline]
+                fn val_types() -> Box<[ValType]> {
+                    Box::new([ValType::$val_ty])
+                }
+            }
+
+            impl IntoWasmValueTuple for $T {
+                #[inline]
+                fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+                    vec![self.into()]
+                }
+            }
+
+            impl FromWasmValueTuple for $T {
+                #[inline]
+                fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
+                    let value = *values
+                        .first()
+                        .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?;
+                    <$T>::try_from(value).map_err(|e| {
+                        Error::Other(format!(
+                            "FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}",
+                            e
+                        ))
+                    })
+                }
+            }
+        )+
+    };
 }
 
-impl ToValType for i64 {
-    fn to_val_type() -> ValType {
-        ValType::I64
-    }
-}
-
-impl ToValType for f32 {
-    fn to_val_type() -> ValType {
-        ValType::F32
-    }
-}
-
-impl ToValType for f64 {
-    fn to_val_type() -> ValType {
-        ValType::F64
-    }
-}
-
-impl ToValType for FuncRef {
-    fn to_val_type() -> ValType {
-        ValType::RefFunc
-    }
-}
-
-impl ToValType for ExternRef {
-    fn to_val_type() -> ValType {
-        ValType::RefExtern
-    }
-}
-
-macro_rules! impl_val_types_from_tuple {
-    ($($t:ident),+) => {
-        impl<$($t),+> ValTypesFromTuple for ($($t,)+)
+macro_rules! impl_tuple_traits {
+    ($($T:ident),+) => {
+        impl<$($T),+> ValTypesFromTuple for ($($T,)+)
         where
-            $($t: ToValType,)+
+            $($T: ToValType,)+
         {
             #[inline]
             fn val_types() -> Box<[ValType]> {
-                Box::new([$($t::to_val_type(),)+])
+                Box::new([$($T::to_val_type(),)+])
             }
         }
+
+        impl<$($T),+> IntoWasmValueTuple for ($($T,)+)
+        where
+            $($T: Into<WasmValue>,)+
+        {
+            #[allow(non_snake_case)]
+            #[inline]
+            fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+                let ($($T,)+) = self;
+                vec![$($T.into(),)+]
+            }
+        }
+
+        impl<$($T),+> FromWasmValueTuple for ($($T,)+)
+        where
+            $($T: TryFrom<WasmValue, Error = ()>,)+
+        {
+            #[inline]
+            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
+                let mut iter = values.iter();
+
+                Ok((
+                    $(
+                        $T::try_from(
+                            *iter.next()
+                            .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
+                        )
+                        .map_err(|e| Error::Other(format!(
+                            "FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}",
+                            e,
+                        )))?,
+                    )+
+                ))
+            }
+        }
+    }
+}
+
+macro_rules! impl_tuple {
+    ($macro:ident) => {
+        $macro!(T1);
+        $macro!(T1, T2);
+        $macro!(T1, T2, T3);
+        $macro!(T1, T2, T3, T4);
+        $macro!(T1, T2, T3, T4, T5);
+        $macro!(T1, T2, T3, T4, T5, T6);
+        $macro!(T1, T2, T3, T4, T5, T6, T7);
+        $macro!(T1, T2, T3, T4, T5, T6, T7, T8);
+        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
     };
 }
+
+impl_scalar_wasm_traits!(
+    i32 => I32,
+    i64 => I64,
+    f32 => F32,
+    f64 => F64,
+    FuncRef => RefFunc,
+    ExternRef => RefExtern,
+);
+impl_tuple!(impl_tuple_traits);
 
 impl ValTypesFromTuple for () {
     #[inline]
@@ -252,46 +242,16 @@ impl ValTypesFromTuple for () {
     }
 }
 
-impl<T: ToValType> ValTypesFromTuple for T {
+impl IntoWasmValueTuple for () {
     #[inline]
-    fn val_types() -> Box<[ValType]> {
-        Box::new([T::to_val_type()])
+    fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+        vec![]
     }
 }
 
-impl_from_wasm_value_tuple_single!(i32);
-impl_from_wasm_value_tuple_single!(i64);
-impl_from_wasm_value_tuple_single!(f32);
-impl_from_wasm_value_tuple_single!(f64);
-impl_from_wasm_value_tuple_single!(FuncRef);
-impl_from_wasm_value_tuple_single!(ExternRef);
-
-impl_into_wasm_value_tuple_single!(i32);
-impl_into_wasm_value_tuple_single!(i64);
-impl_into_wasm_value_tuple_single!(f32);
-impl_into_wasm_value_tuple_single!(f64);
-impl_into_wasm_value_tuple_single!(FuncRef);
-impl_into_wasm_value_tuple_single!(ExternRef);
-
-impl_val_types_from_tuple!(T1);
-impl_val_types_from_tuple!(T1, T2);
-impl_val_types_from_tuple!(T1, T2, T3);
-impl_val_types_from_tuple!(T1, T2, T3, T4);
-impl_val_types_from_tuple!(T1, T2, T3, T4, T5);
-impl_val_types_from_tuple!(T1, T2, T3, T4, T5, T6);
-
-impl_from_wasm_value_tuple!();
-impl_from_wasm_value_tuple!(T1);
-impl_from_wasm_value_tuple!(T1, T2);
-impl_from_wasm_value_tuple!(T1, T2, T3);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5);
-impl_from_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
-
-impl_into_wasm_value_tuple!();
-impl_into_wasm_value_tuple!(T1);
-impl_into_wasm_value_tuple!(T1, T2);
-impl_into_wasm_value_tuple!(T1, T2, T3);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5);
-impl_into_wasm_value_tuple!(T1, T2, T3, T4, T5, T6);
+impl FromWasmValueTuple for () {
+    #[inline]
+    fn from_wasm_value_tuple(_values: &[WasmValue]) -> Result<Self> {
+        Ok(())
+    }
+}

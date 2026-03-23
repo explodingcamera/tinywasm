@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{Result, StackConfig, interpreter::*};
+use crate::{Result, engine::Config, interpreter::*};
 
 use super::Locals;
 
@@ -14,13 +14,20 @@ pub(crate) struct ValueStack {
 }
 
 impl ValueStack {
-    pub(crate) fn new(config: &StackConfig) -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         Self {
-            stack_32: Vec::with_capacity(config.value_stack_32_init_size()),
-            stack_64: Vec::with_capacity(config.value_stack_64_init_size()),
-            stack_128: Vec::with_capacity(config.value_stack_128_init_size()),
-            stack_ref: Vec::with_capacity(config.value_stack_ref_init_size()),
+            stack_32: Vec::with_capacity(config.stack_32_init_size),
+            stack_64: Vec::with_capacity(config.stack_64_init_size),
+            stack_128: Vec::with_capacity(config.stack_128_init_size),
+            stack_ref: Vec::with_capacity(config.stack_ref_init_size),
         }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.stack_32.clear();
+        self.stack_64.clear();
+        self.stack_128.clear();
+        self.stack_ref.clear();
     }
 
     pub(crate) fn height(&self) -> StackLocation {
@@ -30,6 +37,10 @@ impl ValueStack {
             s128: self.stack_128.len() as u32,
             sref: self.stack_ref.len() as u32,
         }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.stack_32.len() + self.stack_64.len() + self.stack_128.len() + self.stack_ref.len()
     }
 
     #[inline]

@@ -9,16 +9,16 @@ mod no_std_floats;
 
 use crate::{Result, Store};
 pub(crate) use value128::*;
-pub use values::*;
+pub(crate) use values::*;
 
 /// The main `TinyWasm` runtime.
 ///
 /// This is the default runtime used by `TinyWasm`.
 #[derive(Debug, Default)]
-pub struct InterpreterRuntime {}
+pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {
-    pub(crate) fn exec(&self, store: &mut Store, stack: &mut stack::Stack) -> Result<()> {
-        executor::Executor::new(store, stack)?.run_to_completion()
+    pub(crate) fn exec(store: &mut Store) -> Result<()> {
+        executor::Executor::new(store)?.run_to_completion()
     }
 }

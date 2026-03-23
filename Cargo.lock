@@ -21,6 +21,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c880a97d28a3681c0267bd29cff89621202715b065127cd445fa0f0fe0aa2880"
+
+[[package]]
 name = "anes"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -646,6 +652,7 @@ dependencies = [
 name = "tinywasm"
 version = "0.9.0-alpha.0"
 dependencies = [
+ "allocator-api2",
  "criterion",
  "eyre",
  "indexmap",

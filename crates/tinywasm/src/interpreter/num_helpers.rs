@@ -32,6 +32,7 @@ macro_rules! checked_conv_float {
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
         $self
+            .store
             .stack
             .values
             .unary::<$from, $to>(|v| {

@@ -1,4 +1,4 @@
-use crate::{StackConfig, unlikely};
+use crate::{engine::Config, unlikely};
 use alloc::vec::Vec;
 
 use crate::interpreter::values::{StackHeight, StackLocation};
@@ -7,8 +7,12 @@ use crate::interpreter::values::{StackHeight, StackLocation};
 pub(crate) struct BlockStack(Vec<BlockFrame>);
 
 impl BlockStack {
-    pub(crate) fn new(config: &StackConfig) -> Self {
-        Self(Vec::with_capacity(config.block_stack_init_size()))
+    pub(crate) fn new(config: &Config) -> Self {
+        Self(Vec::with_capacity(config.block_stack_init_size))
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.0.clear();
     }
 
     #[inline(always)]

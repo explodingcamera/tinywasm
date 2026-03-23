@@ -9,26 +9,24 @@ use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
 use super::num_helpers::*;
-use super::stack::{BlockFrame, BlockType, Stack};
+use super::stack::{BlockFrame, BlockType};
 use super::values::*;
 use crate::interpreter::Value128;
 use crate::*;
 
-pub(crate) struct Executor<'store, 'stack> {
+pub(crate) struct Executor<'store> {
     pub(crate) cf: CallFrame,
     pub(crate) module: ModuleInstance,
     pub(crate) store: &'store mut Store,
-    pub(crate) stack: &'stack mut Stack,
 }
 
-impl<'store, 'stack> Executor<'store, 'stack> {
-    pub(crate) fn new(store: &'store mut Store, stack: &'stack mut Stack) -> Result<Self> {
-        let current_frame = stack.call_stack.pop().expect("no call frame, this is a bug");
+impl<'store> Executor<'store> {
+    pub(crate) fn new(store: &'store mut Store) -> Result<Self> {
+        let current_frame = store.stack.call_stack.pop().expect("no call frame, this is a bug");
         let current_module = store.get_module_instance_raw(current_frame.module_addr());
-        Ok(Self { cf: current_frame, module: current_module, stack, store })
+        Ok(Self { cf: current_frame, module: current_module, store })
     }
 
-    #[inline(always)]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         loop {
             if let ControlFlow::Break(res) = self.exec_next() {
@@ -46,31 +44,31 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
         macro_rules! stack_op {
             (simd_unary $method:ident) => {
-                self.stack.values.unary_same::<Value128>(|v| Ok(v.$method())).to_cf()?
+                self.store.stack.values.unary_same::<Value128>(|v| Ok(v.$method())).to_cf()?
             };
             (simd_binary $method:ident) => {
-                self.stack.values.binary_same::<Value128>(|a, b| Ok(a.$method(b))).to_cf()?
+                self.store.stack.values.binary_same::<Value128>(|a, b| Ok(a.$method(b))).to_cf()?
             };
             (unary $ty:ty, |$v:ident| $expr:expr) => {
-                self.stack.values.unary_same::<$ty>(|$v| Ok($expr)).to_cf()?
+                self.store.stack.values.unary_same::<$ty>(|$v| Ok($expr)).to_cf()?
             };
             (binary $ty:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.stack.values.binary_same::<$ty>(|$a, $b| Ok($expr)).to_cf()?
+                self.store.stack.values.binary_same::<$ty>(|$a, $b| Ok($expr)).to_cf()?
             };
             (binary_try $ty:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.stack.values.binary_same::<$ty>(|$a, $b| $expr).to_cf()?
+                self.store.stack.values.binary_same::<$ty>(|$a, $b| $expr).to_cf()?
             };
             (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {
-                self.stack.values.unary::<$from, $to>(|$v| Ok($expr)).to_cf()?
+                self.store.stack.values.unary::<$from, $to>(|$v| Ok($expr)).to_cf()?
             };
             (binary $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.stack.values.binary::<$from, $to>(|$a, $b| Ok($expr)).to_cf()?
+                self.store.stack.values.binary::<$from, $to>(|$a, $b| Ok($expr)).to_cf()?
             };
             (binary $a:ty, $b:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
-                self.stack.values.binary_diff::<$a, $b, $b>(|$lhs, $rhs| Ok($expr)).to_cf()?
+                self.store.stack.values.binary_diff::<$a, $b, $b>(|$lhs, $rhs| Ok($expr)).to_cf()?
             };
             (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
-                self.stack.values.binary_diff::<$a, $b, $res>(|$lhs, $rhs| Ok($expr)).to_cf()?
+                self.store.stack.values.binary_diff::<$a, $b, $res>(|$lhs, $rhs| Ok($expr)).to_cf()?
             };
         }
 
@@ -79,15 +77,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Nop | BrLabel(_) | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
             Unreachable => self.exec_unreachable()?,
 
-            Drop32 => self.stack.values.drop::<Value32>(),
-            Drop64 => self.stack.values.drop::<Value64>(),
-            Drop128 => self.stack.values.drop::<Value128>(),
-            DropRef => self.stack.values.drop::<ValueRef>(),
+            Drop32 => self.store.stack.values.drop::<Value32>(),
+            Drop64 => self.store.stack.values.drop::<Value64>(),
+            Drop128 => self.store.stack.values.drop::<Value128>(),
+            DropRef => self.store.stack.values.drop::<ValueRef>(),
 
-            Select32 => self.stack.values.select::<Value32>(),
-            Select64 => self.stack.values.select::<Value64>(),
-            Select128 => self.stack.values.select::<Value128>(),
-            SelectRef => self.stack.values.select::<ValueRef>(),
+            Select32 => self.store.stack.values.select::<Value32>(),
+            Select64 => self.store.stack.values.select::<Value64>(),
+            Select128 => self.store.stack.values.select::<Value128>(),
+            SelectRef => self.store.stack.values.select::<ValueRef>(),
 
             Call(v) => return self.exec_call_direct::<false>(*v),
             CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
@@ -352,7 +350,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             V128AndNot => stack_op!(binary Value128, |a, b| a.v128_andnot(b)),
             V128Or => stack_op!(binary Value128, |a, b| a.v128_or(b)),
             V128Xor => stack_op!(binary Value128, |a, b| a.v128_xor(b)),
-            V128Bitselect => self.stack.values.ternary_same::<Value128>(|v1, v2, c| Ok(Value128::v128_bitselect(v1, v2, c))).to_cf()?,
+            V128Bitselect => self.store.stack.values.ternary_same::<Value128>(|v1, v2, c| Ok(Value128::v128_bitselect(v1, v2, c))).to_cf()?,
             V128AnyTrue => stack_op!(unary Value128 => i32, |v| v.v128_any_true() as i32),
             I8x16Swizzle => stack_op!(binary Value128, |a, s| a.i8x16_swizzle(s)),
 
@@ -670,31 +668,31 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         wasm_func: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
-        let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+        let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
 
         if IS_RETURN_CALL {
-            self.cf.reuse_for(wasm_func, locals, self.stack.blocks.len() as u32, owner);
+            self.cf.reuse_for(wasm_func, locals, self.store.stack.blocks.len() as u32, owner);
         } else {
-            let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
+            let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.store.stack.blocks.len() as u32);
             self.cf.incr_instr_ptr(); // skip the call instruction
-            self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
+            self.store.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
         }
 
         self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
     fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
-        let params = self.stack.values.pop_params(&host_func.ty.params);
+        let params = self.store.stack.values.pop_params(&host_func.ty.params);
         let res = host_func
             .clone()
             .call(FuncContext { store: self.store, module_addr: self.module.id() }, &params)
             .to_cf()?;
-        self.stack.values.extend_from_wasmvalues(&res);
+        self.store.stack.values.extend_from_wasmvalues(&res);
         self.cf.incr_instr_ptr();
         ControlFlow::Continue(())
     }
     fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
-        let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
+        let func_inst = self.store.state.get_func(self.module.resolve_func_addr(v));
         match func_inst.func.clone() {
             crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),
             crate::Function::Host(host_func) => self.exec_call_host(host_func),
@@ -707,15 +705,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     ) -> ControlFlow<Option<Error>> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
-            let table = self.store.get_table(self.module.resolve_table_addr(table_addr));
-            let table_idx: u32 = self.stack.values.pop::<i32>() as u32;
+            let table_idx: u32 = self.store.stack.values.pop::<i32>() as u32;
+            let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
             let table = table.get(table_idx).map_err(|_| Trap::UndefinedElement { index: table_idx as usize }.into());
             let table = table.to_cf()?;
             table.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize }.into()).to_cf()?
         };
 
-        let func_inst = self.store.get_func(func_ref);
+        let func_inst = self.store.state.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
 
         match func_inst.func.clone() {
@@ -744,7 +742,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
         // truthy value is on the top of the stack, so enter the then block
-        if self.stack.values.pop::<i32>() != 0 {
+        if self.store.stack.values.pop::<i32>() != 0 {
             self.enter_block(end_offset, BlockType::If, (params, results));
             return;
         }
@@ -767,17 +765,17 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ((&*ty.params).into(), (&*ty.results).into())
     }
     fn enter_block(&mut self, end_instr_offset: u32, ty: BlockType, (params, results): (StackHeight, StackHeight)) {
-        self.stack.blocks.push(BlockFrame {
+        self.store.stack.blocks.push(BlockFrame {
             instr_ptr: self.cf.instr_ptr(),
             end_instr_offset,
-            stack_ptr: self.stack.values.height(),
+            stack_ptr: self.store.stack.values.height(),
             results,
             params,
             ty,
         });
     }
     fn exec_br(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+        if self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none() {
             return self.exec_return();
         }
 
@@ -785,8 +783,8 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ControlFlow::Continue(())
     }
     fn exec_br_if(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.stack.values.pop::<i32>() != 0
-            && self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none()
+        if self.store.stack.values.pop::<i32>() != 0
+            && self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none()
         {
             return self.exec_return();
         }
@@ -804,14 +802,14 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             ))));
         }
 
-        let idx = self.stack.values.pop::<i32>();
+        let idx = self.store.stack.values.pop::<i32>();
         let to = match self.cf.instructions()[start..end].get(idx as usize) {
             None => default,
             Some(Instruction::BrLabel(to)) => *to,
             _ => return ControlFlow::Break(Some(Error::Other("br_table out of bounds".to_string()))),
         };
 
-        if self.cf.break_to(to, &mut self.stack.values, &mut self.stack.blocks).is_none() {
+        if self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none() {
             return self.exec_return();
         }
 
@@ -820,64 +818,68 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
     fn exec_return(&mut self) -> ControlFlow<Option<Error>> {
         let old = self.cf.block_ptr();
-        match self.stack.call_stack.pop() {
+        match self.store.stack.call_stack.pop() {
             None => return ControlFlow::Break(None),
             Some(cf) => self.cf = cf,
         }
 
         if old > self.cf.block_ptr() {
-            self.stack.blocks.truncate(old);
+            self.store.stack.blocks.truncate(old);
         }
 
         self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
     fn exec_end_block(&mut self) {
-        let block = self.stack.blocks.pop();
-        self.stack.values.truncate_keep(block.stack_ptr, block.results);
+        let block = self.store.stack.blocks.pop();
+        self.store.stack.values.truncate_keep(block.stack_ptr, block.results);
     }
     fn exec_local_get<T: InternalValue>(&mut self, local_index: u16) {
         let v = self.cf.locals.get::<T>(local_index);
-        self.stack.values.push(v);
+        self.store.stack.values.push(v);
     }
     fn exec_local_set<T: InternalValue>(&mut self, local_index: u16) {
-        let v = self.stack.values.pop::<T>();
+        let v = self.store.stack.values.pop::<T>();
         self.cf.locals.set(local_index, v);
     }
     fn exec_local_tee<T: InternalValue>(&mut self, local_index: u16) {
-        let v = self.stack.values.peek::<T>();
+        let v = self.store.stack.values.peek::<T>();
         self.cf.locals.set(local_index, v);
     }
 
     fn exec_global_get(&mut self, global_index: u32) {
-        self.stack.values.push_dyn(self.store.get_global_val(self.module.resolve_global_addr(global_index)));
+        self.store
+            .stack
+            .values
+            .push_dyn(self.store.state.get_global_val(self.module.resolve_global_addr(global_index)));
     }
     fn exec_global_set<T: InternalValue>(&mut self, global_index: u32) {
-        self.store.set_global_val(self.module.resolve_global_addr(global_index), self.stack.values.pop::<T>().into());
+        let val = self.store.stack.values.pop::<T>().into();
+        self.store.state.set_global_val(self.module.resolve_global_addr(global_index), val);
     }
     fn exec_const<T: InternalValue>(&mut self, val: T) {
-        self.stack.values.push(val);
+        self.store.stack.values.push(val);
     }
     fn exec_ref_is_null(&mut self) {
-        let is_null = i32::from(self.stack.values.pop::<ValueRef>().is_none());
-        self.stack.values.push::<i32>(is_null);
+        let is_null = i32::from(self.store.stack.values.pop::<ValueRef>().is_none());
+        self.store.stack.values.push::<i32>(is_null);
     }
 
     fn exec_memory_size(&mut self, addr: u32) {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(addr));
+        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(addr));
 
         match mem.is_64bit() {
-            true => self.stack.values.push::<i64>(mem.page_count as i64),
-            false => self.stack.values.push::<i32>(mem.page_count as i32),
+            true => self.store.stack.values.push::<i64>(mem.page_count as i64),
+            false => self.store.stack.values.push::<i32>(mem.page_count as i32),
         }
     }
     fn exec_memory_grow(&mut self, addr: u32) {
-        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr));
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
         let prev_size = mem.page_count;
 
         let pages_delta = match mem.is_64bit() {
-            true => self.stack.values.pop::<i64>(),
-            false => i64::from(self.stack.values.pop::<i32>()),
+            true => self.store.stack.values.pop::<i64>(),
+            false => i64::from(self.store.stack.values.pop::<i32>()),
         };
 
         match (
@@ -887,52 +889,52 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 None => -1_i64,
             },
         ) {
-            (true, size) => self.stack.values.push::<i64>(size),
-            (false, size) => self.stack.values.push::<i32>(size as i32),
+            (true, size) => self.store.stack.values.push::<i64>(size),
+            (false, size) => self.store.stack.values.push::<i32>(size as i32),
         };
     }
 
     fn exec_memory_copy(&mut self, from: u32, to: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop();
-        let src: i32 = self.stack.values.pop();
-        let dst: i32 = self.stack.values.pop();
+        let size: i32 = self.store.stack.values.pop();
+        let src: i32 = self.store.stack.values.pop();
+        let dst: i32 = self.store.stack.values.pop();
 
         if from == to {
-            let mem_from = self.store.get_mem_mut(self.module.resolve_mem_addr(from));
+            let mem_from = self.store.state.get_mem_mut(self.module.resolve_mem_addr(from));
             // copy within the same memory
             mem_from.copy_within(dst as usize, src as usize, size as usize)?;
         } else {
             // copy between two memories
             let (mem_from, mem_to) =
-                self.store.get_mems_mut(self.module.resolve_mem_addr(from), self.module.resolve_mem_addr(to))?;
+                self.store.state.get_mems_mut(self.module.resolve_mem_addr(from), self.module.resolve_mem_addr(to))?;
 
             mem_from.copy_from_slice(dst as usize, mem_to.load(src as usize, size as usize)?)?;
         }
         Ok(())
     }
     fn exec_memory_fill(&mut self, addr: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop();
-        let val: i32 = self.stack.values.pop();
-        let dst: i32 = self.stack.values.pop();
+        let size: i32 = self.store.stack.values.pop();
+        let val: i32 = self.store.stack.values.pop();
+        let dst: i32 = self.store.stack.values.pop();
 
-        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr));
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
         mem.fill(dst as usize, size as usize, val as u8)
     }
     fn exec_memory_init(&mut self, data_index: u32, mem_index: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop();
-        let offset: i32 = self.stack.values.pop();
-        let dst: i32 = self.stack.values.pop();
+        let size: i32 = self.store.stack.values.pop();
+        let offset: i32 = self.store.stack.values.pop();
+        let dst: i32 = self.store.stack.values.pop();
 
         let data = self
             .store
-            .data
+            .state
             .data
             .get(self.module.resolve_data_addr(data_index) as usize)
             .ok_or_else(|| Error::Other("data not found".to_string()))?;
 
         let mem = self
             .store
-            .data
+            .state
             .memories
             .get_mut(self.module.resolve_mem_addr(mem_index) as usize)
             .ok_or_else(|| Error::Other("memory not found".to_string()))?;
@@ -951,27 +953,29 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])
     }
     fn exec_data_drop(&mut self, data_index: u32) {
-        self.store.get_data_mut(self.module.resolve_data_addr(data_index)).drop();
+        self.store.state.get_data_mut(self.module.resolve_data_addr(data_index)).drop();
     }
     fn exec_elem_drop(&mut self, elem_index: u32) {
-        self.store.get_elem_mut(self.module.resolve_elem_addr(elem_index)).drop();
+        self.store.state.get_elem_mut(self.module.resolve_elem_addr(elem_index)).drop();
     }
     fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop();
-        let src: i32 = self.stack.values.pop();
-        let dst: i32 = self.stack.values.pop();
+        let size: i32 = self.store.stack.values.pop();
+        let src: i32 = self.store.stack.values.pop();
+        let dst: i32 = self.store.stack.values.pop();
 
         if from == to {
             // copy within the same memory
-            self.store.get_table_mut(self.module.resolve_table_addr(from)).copy_within(
+            self.store.state.get_table_mut(self.module.resolve_table_addr(from)).copy_within(
                 dst as usize,
                 src as usize,
                 size as usize,
             )
         } else {
             // copy between two memories
-            let (table_from, table_to) =
-                self.store.get_tables_mut(self.module.resolve_table_addr(from), self.module.resolve_table_addr(to))?;
+            let (table_from, table_to) = self
+                .store
+                .state
+                .get_tables_mut(self.module.resolve_table_addr(from), self.module.resolve_table_addr(to))?;
             table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)
         }
     }
@@ -982,9 +986,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
         lane: u8,
     ) -> ControlFlow<Option<Error>> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
-        let mut imm = self.stack.values.pop::<Value128>().to_mem_bytes();
-        let val = self.stack.values.pop::<i32>() as u64;
+        let mut imm = self.store.stack.values.pop::<Value128>().to_mem_bytes();
+        let val = self.store.stack.values.pop::<i32>() as u64;
+        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
         let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
             cold();
             return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
@@ -998,7 +1002,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let offset = lane as usize * LOAD_SIZE;
         imm[offset..offset + LOAD_SIZE].copy_from_slice(&val);
 
-        self.stack.values.push(Value128::from_mem_bytes(imm));
+        self.store.stack.values.push(Value128::from_mem_bytes(imm));
         ControlFlow::Continue(())
     }
 
@@ -1008,11 +1012,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
         cast: fn(LOAD) -> TARGET,
     ) -> ControlFlow<Option<Error>> {
-        let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
+        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
 
         let addr = match mem.is_64bit() {
-            true => self.stack.values.pop::<i64>() as u64,
-            false => u64::from(self.stack.values.pop::<i32>() as u32),
+            true => self.store.stack.values.pop::<i64>() as u64,
+            false => u64::from(self.store.stack.values.pop::<i32>() as u32),
         };
 
         let Some(Ok(addr)) = offset.checked_add(addr).map(|a| a.try_into()) else {
@@ -1024,7 +1028,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             })));
         };
         let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
-        self.stack.values.push(cast(val));
+        self.store.stack.values.push(cast(val));
         ControlFlow::Continue(())
     }
 
@@ -1034,15 +1038,15 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
         lane: u8,
     ) -> ControlFlow<Option<Error>> {
-        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
-        let bytes = self.stack.values.pop::<Value128>().to_mem_bytes();
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
+        let bytes = self.store.stack.values.pop::<Value128>().to_mem_bytes();
         let lane_offset = lane as usize * N;
         let mut val = [0u8; N];
         val.copy_from_slice(&bytes[lane_offset..lane_offset + N]);
 
         let addr = match mem.is_64bit() {
-            true => self.stack.values.pop::<i64>() as u64,
-            false => self.stack.values.pop::<i32>() as u32 as u64,
+            true => self.store.stack.values.pop::<i64>() as u64,
+            false => self.store.stack.values.pop::<i32>() as u32 as u64,
         };
 
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
@@ -1058,13 +1062,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         offset: u64,
         cast: fn(T) -> U,
     ) -> ControlFlow<Option<Error>> {
-        let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
-        let val = self.stack.values.pop::<T>();
+        let val = self.store.stack.values.pop::<T>();
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
         let val = (cast(val)).to_mem_bytes();
 
         let addr = match mem.is_64bit() {
-            true => self.stack.values.pop::<i64>() as u64,
-            false => u64::from(self.stack.values.pop::<i32>() as u32),
+            true => self.store.stack.values.pop::<i64>() as u64,
+            false => u64::from(self.store.stack.values.pop::<i32>() as u32),
         };
 
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
@@ -1075,38 +1079,38 @@ impl<'store, 'stack> Executor<'store, 'stack> {
     }
 
     fn exec_table_get(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index));
-        let idx: i32 = self.stack.values.pop::<i32>();
+        let idx: i32 = self.store.stack.values.pop::<i32>();
+        let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
         let v = table.get_wasm_val(idx as u32)?;
-        self.stack.values.push_dyn(v.into());
+        self.store.stack.values.push_dyn(v.into());
         Ok(())
     }
     fn exec_table_set(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
-        let val = self.stack.values.pop::<ValueRef>();
-        let idx = self.stack.values.pop::<i32>() as u32;
+        let val = self.store.stack.values.pop::<ValueRef>();
+        let idx = self.store.stack.values.pop::<i32>() as u32;
+        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
         table.set(idx, val.into())
     }
     fn exec_table_size(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table(self.module.resolve_table_addr(table_index));
-        self.stack.values.push_dyn(table.size().into());
+        let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
+        self.store.stack.values.push_dyn(table.size().into());
         Ok(())
     }
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<()> {
-        let size: i32 = self.stack.values.pop(); // n
-        let offset: i32 = self.stack.values.pop(); // s
-        let dst: i32 = self.stack.values.pop(); // d
+        let size: i32 = self.store.stack.values.pop(); // n
+        let offset: i32 = self.store.stack.values.pop(); // s
+        let dst: i32 = self.store.stack.values.pop(); // d
 
         let elem = self
             .store
-            .data
+            .state
             .elements
             .get(self.module.resolve_elem_addr(elem_index) as usize)
             .ok_or_else(|| Error::Other("element not found".to_string()))?;
 
         let table = self
             .store
-            .data
+            .state
             .tables
             .get_mut(self.module.resolve_table_addr(table_index) as usize)
             .ok_or_else(|| Error::Other("table not found".to_string()))?;
@@ -1133,25 +1137,25 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         table.init(i64::from(dst), &items[offset as usize..(offset + size) as usize])
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
+        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
         let sz = table.size();
 
-        let n = self.stack.values.pop::<i32>();
-        let val = self.stack.values.pop::<ValueRef>();
+        let n = self.store.stack.values.pop::<i32>();
+        let val = self.store.stack.values.pop::<ValueRef>();
 
         match table.grow(n, val.into()) {
-            Ok(()) => self.stack.values.push(sz),
-            Err(_) => self.stack.values.push(-1_i32),
+            Ok(()) => self.store.stack.values.push(sz),
+            Err(_) => self.store.stack.values.push(-1_i32),
         }
 
         Ok(())
     }
     fn exec_table_fill(&mut self, table_index: u32) -> Result<()> {
-        let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
+        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
 
-        let n = self.stack.values.pop::<i32>();
-        let val = self.stack.values.pop::<ValueRef>();
-        let i = self.stack.values.pop::<i32>();
+        let n = self.store.stack.values.pop::<i32>();
+        let val = self.store.stack.values.pop::<ValueRef>();
+        let i = self.store.stack.values.pop::<i32>();
 
         if unlikely(i + n > table.size()) {
             return Err(Error::Trap(Trap::TableOutOfBounds {

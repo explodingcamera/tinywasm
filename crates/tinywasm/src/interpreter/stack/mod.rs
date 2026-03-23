@@ -6,7 +6,7 @@ pub(crate) use block_stack::{BlockFrame, BlockStack, BlockType};
 pub(crate) use call_stack::{CallFrame, CallStack, Locals};
 pub(crate) use value_stack::ValueStack;
 
-use crate::StackConfig;
+use crate::engine::Config;
 
 /// A WebAssembly Stack
 #[derive(Debug)]
@@ -17,11 +17,14 @@ pub(crate) struct Stack {
 }
 
 impl Stack {
-    pub(crate) fn new(call_frame: CallFrame, config: &StackConfig) -> Self {
-        Self {
-            values: ValueStack::new(config),
-            blocks: BlockStack::new(config),
-            call_stack: CallStack::new(call_frame),
-        }
+    pub(crate) fn new(config: &Config) -> Self {
+        Self { values: ValueStack::new(config), blocks: BlockStack::new(config), call_stack: CallStack::new(config) }
+    }
+
+    /// Initialize the stack with the given call frame (used for starting execution)
+    pub(crate) fn initialize(&mut self, callframe: CallFrame) {
+        self.blocks.clear();
+        self.values.clear();
+        self.call_stack.reset(callframe);
     }
 }

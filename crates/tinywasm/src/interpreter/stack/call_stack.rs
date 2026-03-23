@@ -6,7 +6,7 @@ use crate::interpreter::{Value128, values::*};
 use crate::{Error, unlikely};
 
 use alloc::boxed::Box;
-use alloc::{rc::Rc, vec, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
 use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
 
 pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
@@ -18,8 +18,13 @@ pub(crate) struct CallStack {
 
 impl CallStack {
     #[inline]
-    pub(crate) fn new(initial_frame: CallFrame) -> Self {
-        Self { stack: vec![initial_frame] }
+    pub(crate) fn new(config: &crate::engine::Config) -> Self {
+        Self { stack: Vec::with_capacity(config.call_stack_init_size) }
+    }
+
+    pub(crate) fn reset(&mut self, call_frame: CallFrame) {
+        self.stack.clear();
+        self.stack.push(call_frame);
     }
 
     #[inline]

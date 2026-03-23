@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, rc::Rc, string::ToString};
+use alloc::{boxed::Box, format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
@@ -174,8 +174,8 @@ impl ModuleInstance {
             return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
-        let ty = store.get_func(func_addr).func.ty();
-        Ok(FuncHandle { addr: func_addr, module_addr: self.id(), name: Some(name.to_string()), ty: ty.clone() })
+        let ty = store.state.get_func(func_addr).func.ty();
+        Ok(FuncHandle { addr: func_addr, module_addr: self.id(), ty: ty.clone() })
     }
 
     /// Get a typed exported function by name
@@ -210,13 +210,13 @@ impl ModuleInstance {
 
     /// Get a memory by address
     pub fn memory<'a>(&self, store: &'a Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
-        let mem = store.get_mem(self.resolve_mem_addr(addr));
+        let mem = store.state.get_mem(self.resolve_mem_addr(addr));
         Ok(MemoryRef(mem))
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
-        let mem = store.get_mem_mut(self.resolve_mem_addr(addr));
+        let mem = store.state.get_mem_mut(self.resolve_mem_addr(addr));
         Ok(MemoryRefMut(mem))
     }
 
@@ -244,10 +244,10 @@ impl ModuleInstance {
         };
 
         let func_addr = self.resolve_func_addr(func_index);
-        let func_inst = store.get_func(func_addr);
+        let func_inst = store.state.get_func(func_addr);
         let ty = func_inst.func.ty();
 
-        Ok(Some(FuncHandle { module_addr: self.id(), addr: func_addr, ty: ty.clone(), name: None }))
+        Ok(Some(FuncHandle { module_addr: self.id(), addr: func_addr, ty: ty.clone() }))
     }
 
     /// Invoke the start function of the module
