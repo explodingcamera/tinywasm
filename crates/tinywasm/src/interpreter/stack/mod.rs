@@ -23,8 +23,8 @@ impl Stack {
 
     /// Initialize the stack with the given call frame (used for starting execution)
     pub(crate) fn initialize(&mut self, callframe: CallFrame) {
-        self.blocks.clear();
         self.values.clear();
+        self.blocks.clear();
         self.call_stack.reset(callframe);
     }
 }

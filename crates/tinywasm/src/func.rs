@@ -70,7 +70,8 @@ impl FuncHandle {
         debug_assert!(store.stack.values.len() >= func_ty.results.len());
 
         // 2. Pop m values from the stack
-        let res = store.stack.values.pop_results(&func_ty.results);
+        let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results.iter().rev()).collect(); // pop in reverse order since the stack is LIFO
+        res.reverse(); // reverse to get the original order
 
         // The values are returned as the results of the invocation.
         Ok(res)

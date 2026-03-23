@@ -116,7 +116,7 @@ impl Parser {
     /// Parse a [`TinyWasmModule`] from a file. Requires `std` feature.
     pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<TinyWasmModule> {
         use alloc::format;
-        let f = crate::std::fs::File::open(path.clone())
+        let f = crate::std::fs::File::open(&path)
             .map_err(|e| ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
 
         let mut reader = crate::std::io::BufReader::new(f);

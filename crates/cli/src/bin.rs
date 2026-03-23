@@ -84,7 +84,7 @@ fn main() -> Result<()> {
         TinyWasmSubcommand::Run(Run { wasm_file, engine, args, func }) => {
             debug!("args: {args:?}");
 
-            let path = cwd.join(wasm_file.clone());
+            let path = cwd.join(&wasm_file);
             let module = match wasm_file.ends_with(".wat") {
                 #[cfg(feature = "wat")]
                 true => {

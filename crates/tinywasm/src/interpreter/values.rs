@@ -70,7 +70,7 @@ impl TinyWasmValue {
     pub fn unwrap_32(&self) -> Value32 {
         match self {
             Self::Value32(v) => *v,
-            _ => unreachable!("Expected Value32"),
+            _ => panic!("Expected Value32"),
         }
     }
 
@@ -78,7 +78,7 @@ impl TinyWasmValue {
     pub fn unwrap_64(&self) -> Value64 {
         match self {
             Self::Value64(v) => *v,
-            _ => unreachable!("Expected Value64"),
+            _ => panic!("Expected Value64"),
         }
     }
 
@@ -86,7 +86,7 @@ impl TinyWasmValue {
     pub fn unwrap_128(&self) -> Value128 {
         match self {
             Self::Value128(v) => *v,
-            _ => unreachable!("Expected Value128"),
+            _ => panic!("Expected Value128"),
         }
     }
 
@@ -94,7 +94,7 @@ impl TinyWasmValue {
     pub fn unwrap_ref(&self) -> ValueRef {
         match self {
             Self::ValueRef(v) => *v,
-            _ => unreachable!("Expected ValueRef"),
+            _ => panic!("Expected ValueRef"),
         }
     }
 

@@ -122,14 +122,12 @@ impl ValueStack {
         T::replace_top(self, func)
     }
 
-    pub(crate) fn pop_params(&mut self, val_types: &[ValType]) -> Vec<WasmValue> {
-        val_types.iter().map(|val_type| self.pop_wasmvalue(*val_type)).collect::<Vec<_>>()
-    }
-
-    pub(crate) fn pop_results(&mut self, val_types: &[ValType]) -> Vec<WasmValue> {
-        let mut results = val_types.iter().rev().map(|val_type| self.pop_wasmvalue(*val_type)).collect::<Vec<_>>();
-        results.reverse();
-        results
+    #[inline]
+    pub(crate) fn pop_types<'a>(
+        &'a mut self,
+        val_types: impl IntoIterator<Item = &'a ValType>,
+    ) -> impl core::iter::Iterator<Item = WasmValue> {
+        val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
 
     #[inline]
@@ -168,7 +166,7 @@ impl ValueStack {
 
     pub(crate) fn truncate_keep(&mut self, to: StackLocation, keep: StackHeight) {
         #[inline(always)]
-        fn truncate_keep<T: Copy + Default>(data: &mut Vec<T>, n: u32, end_keep: u32) {
+        fn truncate_keep<T>(data: &mut Vec<T>, n: u32, end_keep: u32) {
             let len = data.len() as u32;
             if len <= n {
                 return; // No need to truncate if the current size is already less than or equal to total_to_keep
@@ -205,7 +203,15 @@ impl ValueStack {
 
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
         for value in values {
-            self.push_dyn(value.into());
+            match value {
+                WasmValue::I32(v) => self.stack_32.push(*v as u32),
+                WasmValue::I64(v) => self.stack_64.push(*v as u64),
+                WasmValue::F32(v) => self.stack_32.push(v.to_bits()),
+                WasmValue::F64(v) => self.stack_64.push(v.to_bits()),
+                WasmValue::RefExtern(v) => self.stack_ref.push(v.addr()),
+                WasmValue::RefFunc(v) => self.stack_ref.push(v.addr()),
+                WasmValue::V128(v) => self.stack_128.push((*v).into()),
+            }
         }
     }
 }

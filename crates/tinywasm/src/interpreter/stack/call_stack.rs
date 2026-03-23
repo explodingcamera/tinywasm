@@ -176,14 +176,10 @@ impl CallFrame {
         block_ptr: u32,
     ) -> Self {
         let locals = {
-            let mut locals_32 = Vec::new();
-            locals_32.reserve_exact(wasm_func_inst.locals.c32 as usize);
-            let mut locals_64 = Vec::new();
-            locals_64.reserve_exact(wasm_func_inst.locals.c64 as usize);
-            let mut locals_128 = Vec::new();
-            locals_128.reserve_exact(wasm_func_inst.locals.c128 as usize);
-            let mut locals_ref = Vec::new();
-            locals_ref.reserve_exact(wasm_func_inst.locals.cref as usize);
+            let mut locals_32 = Vec::with_capacity(wasm_func_inst.locals.c32 as usize);
+            let mut locals_64 = Vec::with_capacity(wasm_func_inst.locals.c64 as usize);
+            let mut locals_128 = Vec::with_capacity(wasm_func_inst.locals.c128 as usize);
+            let mut locals_ref = Vec::with_capacity(wasm_func_inst.locals.cref as usize);
 
             for p in params {
                 match p.into() {

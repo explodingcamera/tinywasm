@@ -20,7 +20,6 @@ log={workspace=true, optional=true}
 tinywasm-parser={version="0.9.0-alpha.0", path="../parser", default-features=false, optional=true}
 tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false}
 libm={version="0.2", default-features=false}
-allocator-api2={version="0.4", optional=true}
 
 [dev-dependencies]
 wasm-testsuite.workspace=true
@@ -48,9 +47,6 @@ archive=["tinywasm-types/archive"]
 
 # canonicalize all NaN values to a single representation
 canonicalize_nans=[]
-
-# support for the allocator-api2 crate
-allocator-api2=["dep:allocator-api2"]
 
 [[test]]
 name="test-wasm-1"
