@@ -4,7 +4,7 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!

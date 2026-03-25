@@ -7,7 +7,7 @@ use crate::{Error, unlikely};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec::Vec};
-use tinywasm_types::{Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
+use tinywasm_types::{ArcSlice, Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
 
 pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
@@ -22,9 +22,8 @@ impl CallStack {
         Self { stack: Vec::with_capacity(config.call_stack_init_size) }
     }
 
-    pub(crate) fn reset(&mut self, call_frame: CallFrame) {
+    pub(crate) fn clear(&mut self) {
         self.stack.clear();
-        self.stack.push(call_frame);
     }
 
     #[inline]
@@ -81,14 +80,14 @@ impl CallFrame {
         &self.func_instance.data
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn incr_instr_ptr(&mut self) {
         self.instr_ptr += 1;
     }
 
     #[inline]
-    pub(crate) fn jump(&mut self, offset: usize) {
-        self.instr_ptr += offset;
+    pub(crate) fn jump(&mut self, offset: u32) {
+        self.instr_ptr += offset as usize;
     }
 
     #[inline]
@@ -96,17 +95,18 @@ impl CallFrame {
         self.module_addr
     }
 
+    #[inline(always)]
+    pub(crate) fn fetch_instr(&self) -> &Instruction {
+        self
+            .func_instance
+            .instructions
+            .get(self.instr_ptr)
+            .unwrap_or_else(|| unreachable!("Instruction pointer out of bounds, this is a bug"))
+    }
+
     #[inline]
     pub(crate) fn block_ptr(&self) -> u32 {
         self.block_ptr
-    }
-
-    #[inline(always)]
-    pub(crate) fn fetch_instr(&self) -> &Instruction {
-        match self.func_instance.instructions.get(self.instr_ptr) {
-            Some(instr) => instr,
-            None => unreachable!("Instruction out of bounds, this is a bug"),
-        }
     }
 
     pub(crate) fn reuse_for(
@@ -139,7 +139,7 @@ impl CallFrame {
         match break_to.ty {
             BlockType::Loop => {
                 // this is a loop, so we want to jump back to the start of the loop
-                self.instr_ptr = break_to.instr_ptr;
+                self.instr_ptr = break_to.instr_ptr as usize;
 
                 // We also want to push the params to the stack
                 values.truncate_keep(break_to.stack_ptr, break_to.params);
@@ -158,7 +158,7 @@ impl CallFrame {
                 values.truncate_keep(break_to.stack_ptr, break_to.results);
 
                 // (the inst_ptr will be incremented by 1 before the next instruction is executed)
-                self.instr_ptr = break_to.instr_ptr + break_to.end_instr_offset as usize;
+                self.instr_ptr = (break_to.instr_ptr + break_to.end_instr_offset) as usize;
 
                 // we also want to trim the label stack, including the block
                 blocks.truncate(blocks.len() as u32 - (break_to_relative + 1));
@@ -170,16 +170,16 @@ impl CallFrame {
 
     #[inline]
     pub(crate) fn new(
-        wasm_func_inst: Rc<WasmFunction>,
-        owner: ModuleInstanceAddr,
+        func_instance: Rc<WasmFunction>,
+        module_addr: ModuleInstanceAddr,
         params: &[WasmValue],
         block_ptr: u32,
     ) -> Self {
         let locals = {
-            let mut locals_32 = Vec::with_capacity(wasm_func_inst.locals.c32 as usize);
-            let mut locals_64 = Vec::with_capacity(wasm_func_inst.locals.c64 as usize);
-            let mut locals_128 = Vec::with_capacity(wasm_func_inst.locals.c128 as usize);
-            let mut locals_ref = Vec::with_capacity(wasm_func_inst.locals.cref as usize);
+            let mut locals_32 = Vec::with_capacity(func_instance.locals.c32 as usize);
+            let mut locals_64 = Vec::with_capacity(func_instance.locals.c64 as usize);
+            let mut locals_128 = Vec::with_capacity(func_instance.locals.c128 as usize);
+            let mut locals_ref = Vec::with_capacity(func_instance.locals.cref as usize);
 
             for p in params {
                 match p.into() {
@@ -190,10 +190,10 @@ impl CallFrame {
                 }
             }
 
-            locals_32.resize_with(wasm_func_inst.locals.c32 as usize, Default::default);
-            locals_64.resize_with(wasm_func_inst.locals.c64 as usize, Default::default);
-            locals_128.resize_with(wasm_func_inst.locals.c128 as usize, Default::default);
-            locals_ref.resize_with(wasm_func_inst.locals.cref as usize, Default::default);
+            locals_32.resize_with(func_instance.locals.c32 as usize, Default::default);
+            locals_64.resize_with(func_instance.locals.c64 as usize, Default::default);
+            locals_128.resize_with(func_instance.locals.c128 as usize, Default::default);
+            locals_ref.resize_with(func_instance.locals.cref as usize, Default::default);
 
             Locals {
                 locals_32: locals_32.into_boxed_slice(),
@@ -203,21 +203,21 @@ impl CallFrame {
             }
         };
 
-        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
+        Self { instr_ptr: 0, func_instance, module_addr, block_ptr, locals }
     }
 
     #[inline]
     pub(crate) fn new_raw(
-        wasm_func_inst: Rc<WasmFunction>,
-        owner: ModuleInstanceAddr,
+        func_instance: Rc<WasmFunction>,
+        module_addr: ModuleInstanceAddr,
         locals: Locals,
         block_ptr: u32,
     ) -> Self {
-        Self { instr_ptr: 0, func_instance: wasm_func_inst, module_addr: owner, block_ptr, locals }
+        Self { instr_ptr: 0, func_instance, module_addr, block_ptr, locals }
     }
 
     #[inline]
-    pub(crate) fn instructions(&self) -> &[Instruction] {
+    pub(crate) fn instructions(&self) -> &ArcSlice<Instruction> {
         &self.func_instance.instructions
     }
 }

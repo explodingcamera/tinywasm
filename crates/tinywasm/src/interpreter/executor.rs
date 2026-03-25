@@ -22,10 +22,9 @@ pub(crate) struct Executor<'store> {
 }
 
 impl<'store> Executor<'store> {
-    pub(crate) fn new(store: &'store mut Store) -> Result<Self> {
-        let current_frame = store.stack.call_stack.pop().expect("no call frame, this is a bug");
-        let current_module = store.get_module_instance_raw(current_frame.module_addr());
-        Ok(Self { cf: current_frame, module: current_module, store })
+    pub(crate) fn new(store: &'store mut Store, cf: CallFrame) -> Result<Self> {
+        let module = store.get_module_instance_raw(cf.module_addr());
+        Ok(Self { module, store, cf })
     }
 
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
@@ -104,22 +103,22 @@ impl<'store> Executor<'store> {
             BrTable(default, len) => return self.exec_brtable(*default, *len),
             Return => return self.exec_return(),
             EndBlockFrame => self.exec_end_block(),
-            LocalGet32(local_index) => self.exec_local_get::<Value32>(*local_index),
-            LocalGet64(local_index) => self.exec_local_get::<Value64>(*local_index),
-            LocalGet128(local_index) => self.exec_local_get::<Value128>(*local_index),
-            LocalGetRef(local_index) => self.exec_local_get::<ValueRef>(*local_index),
-            LocalSet32(local_index) => self.exec_local_set::<Value32>(*local_index),
-            LocalSet64(local_index) => self.exec_local_set::<Value64>(*local_index),
-            LocalSet128(local_index) => self.exec_local_set::<Value128>(*local_index),
-            LocalSetRef(local_index) => self.exec_local_set::<ValueRef>(*local_index),
-            LocalCopy32(from, to) => self.exec_local_copy::<Value32>(*from, *to),
-            LocalCopy64(from, to) => self.exec_local_copy::<Value64>(*from, *to),
-            LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
-            LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
-            LocalTee32(local_index) => self.exec_local_tee::<Value32>(*local_index),
-            LocalTee64(local_index) => self.exec_local_tee::<Value64>(*local_index),
-            LocalTee128(local_index) => self.exec_local_tee::<Value128>(*local_index),
-            LocalTeeRef(local_index) => self.exec_local_tee::<ValueRef>(*local_index),
+            LocalGet32(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value32>(*local_index)),
+            LocalGet64(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value64>(*local_index)),
+            LocalGet128(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value128>(*local_index)),
+            LocalGetRef(local_index) => self.store.stack.values.push(self.cf.locals.get::<ValueRef>(*local_index)),
+            LocalSet32(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value32>()),
+            LocalSet64(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value64>()),
+            LocalSet128(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value128>()),
+            LocalSetRef(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<ValueRef>()),
+            LocalCopy32(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value32>(*from)),
+            LocalCopy64(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value64>(*from)),
+            LocalCopy128(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value128>(*from)),
+            LocalCopyRef(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<ValueRef>(*from)),
+            LocalTee32(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value32>()),
+            LocalTee64(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value64>()),
+            LocalTee128(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value128>()),
+            LocalTeeRef(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<ValueRef>()),
             GlobalGet(global_index) => self.exec_global_get(*global_index),
             GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index),
             GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
@@ -567,11 +566,11 @@ impl<'store> Executor<'store> {
         wasm_func: Rc<WasmFunction>,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
-        let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-
         if IS_RETURN_CALL {
+            let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
             self.cf.reuse_for(wasm_func, locals, self.store.stack.blocks.len() as u32, owner);
         } else {
+            let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
             let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.store.stack.blocks.len() as u32);
             self.cf.incr_instr_ptr(); // skip the call instruction
             self.store.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
@@ -580,7 +579,7 @@ impl<'store> Executor<'store> {
         self.module.swap_with(self.cf.module_addr(), self.store);
         ControlFlow::Continue(())
     }
-    fn exec_call_host(&mut self, host_func: &Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
+    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
         let params = self.store.stack.values.pop_types(&host_func.ty.params).collect::<Box<_>>();
         let res = host_func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params).to_cf()?;
         self.store.stack.values.extend_from_wasmvalues(&res);
@@ -589,9 +588,9 @@ impl<'store> Executor<'store> {
     }
     fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
         let func_inst = self.store.state.get_func(self.module.resolve_func_addr(v));
-        match func_inst.func.clone() {
-            crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),
-            crate::Function::Host(host_func) => self.exec_call_host(&host_func),
+        match &func_inst.func {
+            crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_inst.owner),
+            crate::Function::Host(host_func) => self.exec_call_host(host_func.clone()),
         }
     }
     fn exec_call_indirect<const IS_RETURN_CALL: bool>(
@@ -612,26 +611,26 @@ impl<'store> Executor<'store> {
         let func_inst = self.store.state.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
 
-        match func_inst.func.clone() {
+        match &func_inst.func {
             crate::Function::Wasm(wasm_func) => {
-                if unlikely(wasm_func.ty != *call_ty) {
+                if wasm_func.ty != *call_ty {
                     return ControlFlow::Break(Some(
                         Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }
                             .into(),
                     ));
                 }
 
-                self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner)
+                self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_inst.owner)
             }
             crate::Function::Host(host_func) => {
-                if unlikely(host_func.ty != *call_ty) {
+                if host_func.ty != *call_ty {
                     return ControlFlow::Break(Some(
                         Trap::IndirectCallTypeMismatch { actual: host_func.ty.clone(), expected: call_ty.clone() }
                             .into(),
                     ));
                 }
 
-                self.exec_call_host(&host_func)
+                self.exec_call_host(host_func.clone())
             }
         }
     }
@@ -645,16 +644,16 @@ impl<'store> Executor<'store> {
 
         // falsy value is on the top of the stack
         if else_offset == 0 {
-            self.cf.jump(end_offset as usize);
+            self.cf.jump(end_offset);
             return;
         }
 
-        self.cf.jump(else_offset as usize);
+        self.cf.jump(else_offset);
         self.enter_block(end_offset - else_offset, BlockType::Else, (params, results));
     }
     fn exec_else(&mut self, end_offset: u32) {
         self.exec_end_block();
-        self.cf.jump(end_offset as usize);
+        self.cf.jump(end_offset);
     }
     fn resolve_functype(&self, idx: u32) -> (StackHeight, StackHeight) {
         let ty = self.module.func_ty(idx);
@@ -662,7 +661,7 @@ impl<'store> Executor<'store> {
     }
     fn enter_block(&mut self, end_instr_offset: u32, ty: BlockType, (params, results): (StackHeight, StackHeight)) {
         self.store.stack.blocks.push(BlockFrame {
-            instr_ptr: self.cf.instr_ptr(),
+            instr_ptr: self.cf.instr_ptr() as u32,
             end_instr_offset,
             stack_ptr: self.store.stack.values.height(),
             results,
@@ -729,18 +728,6 @@ impl<'store> Executor<'store> {
     fn exec_end_block(&mut self) {
         let block = self.store.stack.blocks.pop();
         self.store.stack.values.truncate_keep(block.stack_ptr, block.results);
-    }
-    fn exec_local_get<T: InternalValue>(&mut self, local_index: u16) {
-        let v = self.cf.locals.get::<T>(local_index);
-        self.store.stack.values.push(v);
-    }
-    fn exec_local_set<T: InternalValue>(&mut self, local_index: u16) {
-        let v = self.store.stack.values.pop::<T>();
-        self.cf.locals.set(local_index, v);
-    }
-    fn exec_local_tee<T: InternalValue>(&mut self, local_index: u16) {
-        let v = self.store.stack.values.peek::<T>();
-        self.cf.locals.set(local_index, v);
     }
 
     fn exec_global_get(&mut self, global_index: u32) {
@@ -830,7 +817,7 @@ impl<'store> Executor<'store> {
 
         let data_len = data.data.as_ref().map_or(0, |d| d.len());
 
-        if unlikely(((size + offset) as usize > data_len) || ((dst + size) as usize > mem.len())) {
+        if ((size + offset) as usize > data_len) || ((dst + size) as usize > mem.len()) {
             return Err(Trap::MemoryOutOfBounds { offset: offset as usize, len: size as usize, max: data_len }.into());
         }
 
@@ -999,7 +986,7 @@ impl<'store> Executor<'store> {
         let elem_len = elem.items.as_ref().map_or(0, alloc::vec::Vec::len);
         let table_len = table.size();
 
-        if unlikely(size < 0 || ((size + offset) as usize > elem_len) || ((dst + size) > table_len)) {
+        if size < 0 || ((size + offset) as usize > elem_len) || ((dst + size) > table_len) {
             return Err(Trap::TableOutOfBounds { offset: offset as usize, len: size as usize, max: elem_len }.into());
         }
 
@@ -1038,7 +1025,7 @@ impl<'store> Executor<'store> {
         let val = self.store.stack.values.pop::<ValueRef>();
         let i = self.store.stack.values.pop::<i32>();
 
-        if unlikely(i + n > table.size()) {
+        if i + n > table.size() {
             return Err(Error::Trap(Trap::TableOutOfBounds {
                 offset: i as usize,
                 len: n as usize,
@@ -1051,10 +1038,5 @@ impl<'store> Executor<'store> {
         }
 
         table.fill(self.module.func_addrs(), i as usize, n as usize, val.into())
-    }
-
-    fn exec_local_copy<T: InternalValue>(&mut self, from: u16, to: u16) {
-        let v = self.cf.locals.get::<T>(from);
-        self.cf.locals.set(to, v);
     }
 }

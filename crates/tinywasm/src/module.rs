@@ -5,17 +5,17 @@ use tinywasm_types::TinyWasmModule;
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
 #[derive(Debug, Clone)]
-pub struct Module(pub(crate) TinyWasmModule);
+pub struct Module(pub(crate) alloc::sync::Arc<TinyWasmModule>);
 
 impl From<&TinyWasmModule> for Module {
     fn from(data: &TinyWasmModule) -> Self {
-        Self(data.clone())
+        Self(alloc::sync::Arc::new(data.clone()))
     }
 }
 
 impl From<TinyWasmModule> for Module {
     fn from(data: TinyWasmModule) -> Self {
-        Self(data)
+        Self(alloc::sync::Arc::new(data))
     }
 }
 

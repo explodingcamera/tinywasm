@@ -9,3 +9,4 @@ flamegraph.svg
 /.idea
 /*.iml
 profile.json
+profile.json.gz

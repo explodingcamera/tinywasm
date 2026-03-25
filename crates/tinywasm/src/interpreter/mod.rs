@@ -7,7 +7,7 @@ pub(crate) mod values;
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
-use crate::{Result, Store};
+use crate::{Result, Store, interpreter::stack::CallFrame};
 pub(crate) use value128::*;
 pub(crate) use values::*;
 
@@ -18,7 +18,7 @@ pub(crate) use values::*;
 pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {
-    pub(crate) fn exec(store: &mut Store) -> Result<()> {
-        executor::Executor::new(store)?.run_to_completion()
+    pub(crate) fn exec(store: &mut Store, cf: CallFrame) -> Result<()> {
+        executor::Executor::new(store, cf)?.run_to_completion()
     }
 }

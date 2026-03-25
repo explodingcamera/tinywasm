@@ -363,7 +363,7 @@ impl Imports {
     ) -> Result<ResolvedImports> {
         let mut imports = ResolvedImports::new();
 
-        for import in &module.0.imports {
+        for import in &*module.0.imports {
             let val = self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))?;
 
             match val {

@@ -1,4 +1,4 @@
-use crate::{engine::Config, unlikely};
+use crate::engine::Config;
 use alloc::vec::Vec;
 
 use crate::interpreter::values::{StackHeight, StackLocation};
@@ -31,7 +31,7 @@ impl BlockStack {
         let len = (self.0.len() as u32) - offset;
 
         // the vast majority of wasm functions don't use break to return
-        if unlikely(index >= len) {
+        if index >= len {
             return None;
         }
 
@@ -52,7 +52,7 @@ impl BlockStack {
 
 #[derive(Debug)]
 pub(crate) struct BlockFrame {
-    pub(crate) instr_ptr: usize, // position of the instruction pointer when the block was entered
+    pub(crate) instr_ptr: u32, // position of the instruction pointer when the block was entered
     pub(crate) end_instr_offset: u32, // position of the end instruction of the block
 
     pub(crate) stack_ptr: StackLocation, // stack pointer when the block was entered

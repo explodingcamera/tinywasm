@@ -68,7 +68,7 @@ pub enum Instruction {
     Block(EndOffset), 
     BlockWithType(ValType, EndOffset),
     BlockWithFuncType(TypeAddr, EndOffset),
- 
+
     Loop(EndOffset),
     LoopWithType(ValType, EndOffset),
     LoopWithFuncType(TypeAddr, EndOffset),
@@ -141,7 +141,7 @@ pub enum Instruction {
     RefNull(ValType),
     RefFunc(FuncAddr),
     RefIsNull,
- 
+
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
     I32Eqz, I32Eq, I32Ne, I32LtS, I32LtU, I32GtS, I32GtU, I32LeS, I32LeU, I32GeS, I32GeU,

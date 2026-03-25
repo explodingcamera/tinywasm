@@ -1,4 +1,5 @@
-use alloc::{boxed::Box, format, rc::Rc};
+use alloc::boxed::Box;
+use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple};
@@ -20,7 +21,7 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) store_id: usize,
     pub(crate) idx: ModuleInstanceAddr,
 
-    pub(crate) types: Box<[FuncType]>,
+    pub(crate) types: ArcSlice<FuncType>,
 
     pub(crate) func_addrs: Box<[FuncAddr]>,
     pub(crate) table_addrs: Box<[TableAddr]>,
@@ -30,8 +31,8 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) data_addrs: Box<[DataAddr]>,
 
     pub(crate) func_start: Option<FuncAddr>,
-    pub(crate) imports: Box<[Import]>,
-    pub(crate) exports: Box<[Export]>,
+    pub(crate) imports: ArcSlice<Import>,
+    pub(crate) exports: ArcSlice<Export>,
 }
 
 impl ModuleInstance {
@@ -65,20 +66,20 @@ impl ModuleInstance {
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
 
-        addrs.funcs.extend(store.init_funcs(module.0.funcs.into(), idx)?);
-        addrs.tables.extend(store.init_tables(module.0.table_types.into(), idx)?);
-        addrs.memories.extend(store.init_memories(module.0.memory_types.into(), idx)?);
+        addrs.funcs.extend(store.init_funcs(&module.0.funcs, idx)?);
+        addrs.tables.extend(store.init_tables(&module.0.table_types, idx)?);
+        addrs.memories.extend(store.init_memories(&module.0.memory_types, idx)?);
 
-        let global_addrs = store.init_globals(addrs.globals, module.0.globals.into(), &addrs.funcs, idx)?;
+        let global_addrs = store.init_globals(addrs.globals, &module.0.globals, &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;
-        let (data_addrs, data_trapped) = store.init_data(&addrs.memories, module.0.data.into(), idx)?;
+        let (data_addrs, data_trapped) = store.init_data(&addrs.memories, &module.0.data, idx)?;
 
         let instance = ModuleInstanceInner {
             failed_to_instantiate: elem_trapped.is_some() || data_trapped.is_some(),
             store_id: store.id(),
             idx,
-            types: module.0.func_types,
+            types: module.0.func_types.clone(),
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
@@ -86,8 +87,8 @@ impl ModuleInstance {
             elem_addrs,
             data_addrs,
             func_start: module.0.start_func,
-            imports: module.0.imports,
-            exports: module.0.exports,
+            imports: module.0.imports.clone(),
+            exports: module.0.exports.clone(),
         };
 
         let instance = Self::new(instance);

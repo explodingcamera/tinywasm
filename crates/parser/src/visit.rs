@@ -2,7 +2,7 @@ use crate::Result;
 
 use crate::conversion::{convert_heaptype, convert_valtype};
 use alloc::string::ToString;
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use tinywasm_types::{Instruction, MemoryArg, WasmFunctionData};
 use wasmparser::{
     FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, VisitSimdOperator, WasmModuleResources,
@@ -37,7 +37,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     validator: FuncValidator<R>,
     body: FunctionBody<'_>,
     local_addr_map: Vec<u32>,
-) -> Result<(Box<[Instruction]>, WasmFunctionData, FuncValidatorAllocations)> {
+) -> Result<(alloc::sync::Arc<[Instruction]>, WasmFunctionData, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
     let mut builder = FunctionBuilder::new(remaining, validator, local_addr_map);
@@ -52,7 +52,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     }
 
     Ok((
-        builder.instructions.into_boxed_slice(),
+        alloc::sync::Arc::from(builder.instructions),
         WasmFunctionData { v128_constants: builder.v128_constants.into_boxed_slice() },
         builder.validator.into_allocations(),
     ))

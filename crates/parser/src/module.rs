@@ -1,14 +1,15 @@
 use crate::log::debug;
 use crate::{ParseError, Result, conversion};
 use alloc::string::ToString;
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::sync::Arc;
+use alloc::{format, vec::Vec};
 use tinywasm_types::{
-    Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule, ValueCounts,
-    ValueCountsSmall, WasmFunction, WasmFunctionData,
+    ArcSlice, Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule,
+    ValueCounts, ValueCountsSmall, WasmFunction, WasmFunctionData,
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
-pub(crate) type Code = (Box<[Instruction]>, WasmFunctionData, ValueCounts);
+pub(crate) type Code = (Arc<[Instruction]>, WasmFunctionData, ValueCounts);
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {
@@ -195,25 +196,24 @@ impl ModuleReader {
             .map(|((instructions, data, locals), ty_idx)| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
                 let params = ValueCountsSmall::from(&ty.params);
-                WasmFunction { instructions, data, locals, params, ty }
+                WasmFunction { instructions: ArcSlice(instructions), data, locals, params, ty }
             })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect::<Vec<_>>();
 
         let globals = self.globals;
         let table_types = self.table_types;
 
         Ok(TinyWasmModule {
-            funcs,
-            func_types: self.func_types.into_boxed_slice(),
-            globals: globals.into_boxed_slice(),
-            table_types: table_types.into_boxed_slice(),
-            imports: self.imports.into_boxed_slice(),
+            funcs: funcs.into(),
+            func_types: self.func_types.into(),
+            globals: globals.into(),
+            table_types: table_types.into(),
+            imports: self.imports.into(),
             start_func: self.start_func,
-            data: self.data.into_boxed_slice(),
-            exports: self.exports.into_boxed_slice(),
-            elements: self.elements.into_boxed_slice(),
-            memory_types: self.memory_types.into_boxed_slice(),
+            data: self.data.into(),
+            exports: self.exports.into(),
+            elements: self.elements.into(),
+            memory_types: self.memory_types.into(),
         })
     }
 }

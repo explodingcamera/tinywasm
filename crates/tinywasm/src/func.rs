@@ -60,10 +60,10 @@ impl FuncHandle {
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack (Not needed since the call frame owns the values)
-        store.stack.initialize(callframe);
+        store.stack.clear();
 
         // 9. Invoke the function instance
-        InterpreterRuntime::exec(store)?;
+        InterpreterRuntime::exec(store, callframe)?;
 
         // Once the function returns:
         // 1. Assert: m values are on the top of the stack (Ensured by validation)

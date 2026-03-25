@@ -21,10 +21,9 @@ impl Stack {
         Self { values: ValueStack::new(config), blocks: BlockStack::new(config), call_stack: CallStack::new(config) }
     }
 
-    /// Initialize the stack with the given call frame (used for starting execution)
-    pub(crate) fn initialize(&mut self, callframe: CallFrame) {
+    pub(crate) fn clear(&mut self) {
         self.values.clear();
         self.blocks.clear();
-        self.call_stack.reset(callframe);
+        self.call_stack.clear();
     }
 }

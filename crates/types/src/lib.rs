@@ -9,8 +9,11 @@
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
 extern crate alloc;
-use alloc::boxed::Box;
-use core::{fmt::Debug, ops::Range};
+use alloc::{boxed::Box, sync::Arc};
+use core::{
+    fmt::Debug,
+    ops::{Deref, Range},
+};
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
@@ -73,47 +76,47 @@ pub struct TinyWasmModule {
     /// Optimized and validated WebAssembly functions
     ///
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
-    pub funcs: Box<[WasmFunction]>,
+    pub funcs: ArcSlice<WasmFunction>,
 
     /// A vector of type definitions, indexed by `TypeAddr`
     ///
     /// Corresponds to the `type` section of the original WebAssembly module.
-    pub func_types: Box<[FuncType]>,
+    pub func_types: ArcSlice<FuncType>,
 
     /// Exported items of the WebAssembly module.
     ///
     /// Corresponds to the `export` section of the original WebAssembly module.
-    pub exports: Box<[Export]>,
+    pub exports: ArcSlice<Export>,
 
     /// Global components of the WebAssembly module.
     ///
     /// Corresponds to the `global` section of the original WebAssembly module.
-    pub globals: Box<[Global]>,
+    pub globals: ArcSlice<Global>,
 
     /// Table components of the WebAssembly module used to initialize tables.
     ///
     /// Corresponds to the `table` section of the original WebAssembly module.
-    pub table_types: Box<[TableType]>,
+    pub table_types: ArcSlice<TableType>,
 
     /// Memory components of the WebAssembly module used to initialize memories.
     ///
     /// Corresponds to the `memory` section of the original WebAssembly module.
-    pub memory_types: Box<[MemoryType]>,
+    pub memory_types: ArcSlice<MemoryType>,
 
     /// Imports of the WebAssembly module.
     ///
     /// Corresponds to the `import` section of the original WebAssembly module.
-    pub imports: Box<[Import]>,
+    pub imports: ArcSlice<Import>,
 
     /// Data segments of the WebAssembly module.
     ///
     /// Corresponds to the `data` section of the original WebAssembly module.
-    pub data: Box<[Data]>,
+    pub data: ArcSlice<Data>,
 
     /// Element segments of the WebAssembly module.
     ///
     /// Corresponds to the `elem` section of the original WebAssembly module.
-    pub elements: Box<[Element]>,
+    pub elements: ArcSlice<Element>,
 }
 
 /// A WebAssembly External Kind.
@@ -249,11 +252,55 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunction {
-    pub instructions: Box<[Instruction]>,
+    pub instructions: ArcSlice<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub params: ValueCountsSmall,
     pub ty: FuncType,
+}
+
+#[derive(Clone, PartialEq)]
+#[doc(hidden)]
+// wrapper around Arc<[T]> to support serde serialization and deserialization
+pub struct ArcSlice<T>(pub Arc<[T]>);
+
+impl<T> From<alloc::vec::Vec<T>> for ArcSlice<T> {
+    fn from(vec: alloc::vec::Vec<T>) -> Self {
+        Self(Arc::from(vec))
+    }
+}
+
+impl<T> Default for ArcSlice<T> {
+    fn default() -> Self {
+        Self(Arc::from([]))
+    }
+}
+
+impl<T> Deref for ArcSlice<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+impl<T: Debug> Debug for ArcSlice<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.as_ref().fmt(f)
+    }
+}
+
+impl<T: serde::Serialize + Debug> serde::Serialize for ArcSlice<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de> + Debug> serde::Deserialize<'de> for ArcSlice<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec: alloc::vec::Vec<T> = alloc::vec::Vec::deserialize(deserializer)?;
+        Ok(Self(Arc::from(vec)))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

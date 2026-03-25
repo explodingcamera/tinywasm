@@ -220,33 +220,33 @@ impl Store {
 // Linking related functions
 impl Store {
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
+    pub(crate) fn init_funcs(&mut self, funcs: &[WasmFunction], idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.state.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
-        for (i, func) in funcs.into_iter().enumerate() {
-            self.state.funcs.push(FunctionInstance::new_wasm(func, idx));
+        for (i, func) in funcs.iter().enumerate() {
+            self.state.funcs.push(FunctionInstance::new_wasm(func.clone(), idx));
             func_addrs.push((i + func_count) as FuncAddr);
         }
         Ok(func_addrs)
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn init_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
+    pub(crate) fn init_tables(&mut self, tables: &[TableType], idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
         let table_count = self.state.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
-        for (i, table) in tables.into_iter().enumerate() {
-            self.state.tables.push(TableInstance::new(table, idx));
+        for (i, table) in tables.iter().enumerate() {
+            self.state.tables.push(TableInstance::new(table.clone(), idx));
             table_addrs.push((i + table_count) as TableAddr);
         }
         Ok(table_addrs)
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_memories(&mut self, memories: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
+    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.state.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
-        for (i, mem) in memories.into_iter().enumerate() {
-            self.state.memories.push(MemoryInstance::new(mem, idx));
+        for (i, mem) in memories.iter().enumerate() {
+            self.state.memories.push(MemoryInstance::new(*mem, idx));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)
@@ -256,7 +256,7 @@ impl Store {
     pub(crate) fn init_globals(
         &mut self,
         mut imported_globals: Vec<GlobalAddr>,
-        new_globals: Vec<Global>,
+        new_globals: &[Global],
         func_addrs: &[FuncAddr],
         idx: ModuleInstanceAddr,
     ) -> Result<Vec<Addr>> {
@@ -363,12 +363,12 @@ impl Store {
     pub(crate) fn init_data(
         &mut self,
         mem_addrs: &[MemAddr],
-        data: Vec<Data>,
+        data: &[Data],
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.state.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
-        for (i, data) in data.into_iter().enumerate() {
+        for (i, data) in data.iter().enumerate() {
             let data_val = match data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
                     let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
