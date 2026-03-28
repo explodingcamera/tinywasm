@@ -1,8 +1,8 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::{fmt::Display, ops::ControlFlow};
-use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
+use tinywasm_types::FuncType;
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
@@ -121,6 +121,12 @@ pub enum Trap {
     /// Call stack overflow
     CallStackOverflow,
 
+    /// Block stack overflow
+    BlockStackOverflow,
+
+    /// Value stack overflow
+    ValueStackOverflow,
+
     /// An undefined element was encountered
     UndefinedElement {
         /// The element index
@@ -153,6 +159,8 @@ impl Trap {
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
+            Self::BlockStackOverflow => "block stack exhausted",
+            Self::ValueStackOverflow => "value stack exhausted",
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
@@ -235,6 +243,8 @@ impl Display for Trap {
             Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::CallStackOverflow => write!(f, "call stack exhausted"),
+            Self::BlockStackOverflow => write!(f, "block stack exhausted"),
+            Self::ValueStackOverflow => write!(f, "value stack exhausted"),
             Self::UndefinedElement { index } => write!(f, "undefined element: index={index}"),
             Self::UninitializedElement { index } => {
                 write!(f, "uninitialized element: index={index}")

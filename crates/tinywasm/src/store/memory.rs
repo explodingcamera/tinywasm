@@ -33,7 +33,7 @@ impl MemoryInstance {
         matches!(self.kind.arch(), MemoryArch::I64)
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn len(&self) -> usize {
         self.data.len()
     }

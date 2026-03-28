@@ -1,25 +1,108 @@
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{Result, engine::Config, interpreter::*};
+use crate::{Result, Trap, engine::Config, interpreter::*};
 
 use super::Locals;
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
-    pub(crate) stack_32: Vec<Value32>,
-    pub(crate) stack_64: Vec<Value64>,
-    pub(crate) stack_128: Vec<Value128>,
-    pub(crate) stack_ref: Vec<ValueRef>,
+    pub(crate) stack_32: Stack<Value32>,
+    pub(crate) stack_64: Stack<Value64>,
+    pub(crate) stack_128: Stack<Value128>,
+    pub(crate) stack_ref: Stack<ValueRef>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Stack<T> {
+    data: Box<[T]>,
+    len: usize,
+}
+
+impl<T: Copy + Default> Stack<T> {
+    pub(crate) fn with_size(size: usize) -> Self {
+        let mut data = Vec::with_capacity(size);
+        data.resize_with(size, T::default);
+        Self { data: data.into_boxed_slice(), len: 0 }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    pub(crate) fn push(&mut self, value: T) -> Result<()> {
+        if self.len >= self.data.len() {
+            return Err(Trap::ValueStackOverflow.into());
+        }
+
+        self.data[self.len] = value;
+        self.len += 1;
+        Ok(())
+    }
+
+    pub(crate) fn pop(&mut self) -> T {
+        if self.len == 0 {
+            unreachable!("ValueStack underflow, this is a bug");
+        }
+
+        self.len -= 1;
+        self.data[self.len]
+    }
+
+    pub(crate) fn last(&self) -> &T {
+        if self.len == 0 {
+            unreachable!("ValueStack underflow, this is a bug");
+        }
+        &self.data[self.len - 1]
+    }
+
+    pub(crate) fn last_mut(&mut self) -> &mut T {
+        if self.len == 0 {
+            unreachable!("ValueStack underflow, this is a bug");
+        }
+        &mut self.data[self.len - 1]
+    }
+
+    pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
+        if self.len <= n {
+            return;
+        }
+
+        let keep_tail = end_keep.min(self.len - n);
+        if keep_tail == 0 {
+            self.len = n;
+            return;
+        }
+
+        let tail_start = self.len - keep_tail;
+        self.data.copy_within(tail_start..self.len, n);
+        self.len = n + keep_tail;
+    }
+
+    pub(crate) fn pop_to_locals(&mut self, param_count: usize, local_count: usize) -> Box<[T]> {
+        let mut locals = alloc::vec![T::default(); local_count].into_boxed_slice();
+        let start =
+            self.len.checked_sub(param_count).unwrap_or_else(|| unreachable!("value stack underflow, this is a bug"));
+        debug_assert!(param_count <= local_count, "param count exceeds local count");
+
+        locals[..param_count].copy_from_slice(&self.data[start..self.len]);
+        self.len = start;
+        locals
+    }
 }
 
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
-            stack_32: Vec::with_capacity(config.stack_32_init_size),
-            stack_64: Vec::with_capacity(config.stack_64_init_size),
-            stack_128: Vec::with_capacity(config.stack_128_init_size),
-            stack_ref: Vec::with_capacity(config.stack_ref_init_size),
+            stack_32: Stack::with_size(config.stack_32_size),
+            stack_64: Stack::with_size(config.stack_64_size),
+            stack_128: Stack::with_size(config.stack_128_size),
+            stack_ref: Stack::with_size(config.stack_ref_size),
         }
     }
 
@@ -43,86 +126,73 @@ impl ValueStack {
         self.stack_32.len() + self.stack_64.len() + self.stack_128.len() + self.stack_ref.len()
     }
 
-    #[inline]
     pub(crate) fn peek<T: InternalValue>(&self) -> T {
         T::stack_peek(self)
     }
 
-    #[inline]
     pub(crate) fn pop<T: InternalValue>(&mut self) -> T {
         T::stack_pop(self)
     }
 
-    #[inline]
-    pub(crate) fn push<T: InternalValue>(&mut self, value: T) {
-        T::stack_push(self, value);
+    pub(crate) fn push<T: InternalValue>(&mut self, value: T) -> Result<()> {
+        T::stack_push(self, value)
     }
 
-    #[inline]
     pub(crate) fn drop<T: InternalValue>(&mut self) {
         T::stack_pop(self);
     }
 
-    #[inline]
-    pub(crate) fn select<T: InternalValue>(&mut self) {
+    pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
         let cond: i32 = self.pop();
         let val2: T = self.pop();
         if cond == 0 {
             self.drop::<T>();
-            self.push(val2);
+            self.push(val2)?;
         }
+        Ok(())
     }
 
-    #[inline]
     pub(crate) fn binary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate(self, func)
     }
 
-    #[inline]
-    #[allow(dead_code)]
     pub(crate) fn ternary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate3(self, func)
     }
 
-    #[inline]
     pub(crate) fn binary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T, T) -> Result<U>,
     ) -> Result<()> {
         let v2 = T::stack_pop(self);
         let v1 = T::stack_pop(self);
-        U::stack_push(self, func(v1, v2)?);
+        U::stack_push(self, func(v1, v2)?)?;
         Ok(())
     }
 
-    #[inline]
-    #[allow(dead_code)]
     pub(crate) fn binary_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
         &mut self,
         func: impl FnOnce(A, B) -> Result<RES>,
     ) -> Result<()> {
         let v2 = B::stack_pop(self);
         let v1 = A::stack_pop(self);
-        RES::stack_push(self, func(v1, v2)?);
+        RES::stack_push(self, func(v1, v2)?)?;
         Ok(())
     }
 
-    #[inline]
     pub(crate) fn unary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T) -> Result<U>,
     ) -> Result<()> {
         let v1 = T::stack_pop(self);
-        U::stack_push(self, func(v1)?);
+        U::stack_push(self, func(v1)?)?;
         Ok(())
     }
 
-    #[inline]
     pub(crate) fn unary_same<T: InternalValue>(&mut self, func: impl Fn(T) -> Result<T>) -> Result<()> {
         T::replace_top(self, func)
     }
 
-    #[inline]
     pub(crate) fn pop_types<'a>(
         &'a mut self,
         val_types: impl IntoIterator<Item = &'a ValType>,
@@ -130,63 +200,30 @@ impl ValueStack {
         val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
 
-    #[inline]
     pub(crate) fn pop_locals(&mut self, pc: ValueCountsSmall, lc: ValueCounts) -> Locals {
         Locals {
-            locals_32: {
-                let mut locals_32 = { alloc::vec![Value32::default(); lc.c32 as usize].into_boxed_slice() };
-                locals_32[0..pc.c32 as usize]
-                    .copy_from_slice(&self.stack_32[(self.stack_32.len() - pc.c32 as usize)..]);
-                self.stack_32.truncate(self.stack_32.len() - pc.c32 as usize);
-                locals_32
-            },
-            locals_64: {
-                let mut locals_64 = { alloc::vec![Value64::default(); lc.c64 as usize].into_boxed_slice() };
-                locals_64[0..pc.c64 as usize]
-                    .copy_from_slice(&self.stack_64[(self.stack_64.len() - pc.c64 as usize)..]);
-                self.stack_64.truncate(self.stack_64.len() - pc.c64 as usize);
-                locals_64
-            },
-            locals_128: {
-                let mut locals_128 = { alloc::vec![Value128::default(); lc.c128 as usize].into_boxed_slice() };
-                locals_128[0..pc.c128 as usize]
-                    .copy_from_slice(&self.stack_128[(self.stack_128.len() - pc.c128 as usize)..]);
-                self.stack_128.truncate(self.stack_128.len() - pc.c128 as usize);
-                locals_128
-            },
-            locals_ref: {
-                let mut locals_ref = { alloc::vec![ValueRef::default(); lc.cref as usize].into_boxed_slice() };
-                locals_ref[0..pc.cref as usize]
-                    .copy_from_slice(&self.stack_ref[(self.stack_ref.len() - pc.cref as usize)..]);
-                self.stack_ref.truncate(self.stack_ref.len() - pc.cref as usize);
-                locals_ref
-            },
+            locals_32: self.stack_32.pop_to_locals(pc.c32 as usize, lc.c32 as usize),
+            locals_64: self.stack_64.pop_to_locals(pc.c64 as usize, lc.c64 as usize),
+            locals_128: self.stack_128.pop_to_locals(pc.c128 as usize, lc.c128 as usize),
+            locals_ref: self.stack_ref.pop_to_locals(pc.cref as usize, lc.cref as usize),
         }
     }
 
     pub(crate) fn truncate_keep(&mut self, to: StackLocation, keep: StackHeight) {
-        #[inline(always)]
-        fn truncate_keep<T>(data: &mut Vec<T>, n: u32, end_keep: u32) {
-            let len = data.len() as u32;
-            if len <= n {
-                return; // No need to truncate if the current size is already less than or equal to total_to_keep
-            }
-            data.drain((n as usize)..(len - end_keep) as usize);
-        }
-
-        truncate_keep(&mut self.stack_32, to.s32, u32::from(keep.s32));
-        truncate_keep(&mut self.stack_64, to.s64, u32::from(keep.s64));
-        truncate_keep(&mut self.stack_128, to.s128, u32::from(keep.s128));
-        truncate_keep(&mut self.stack_ref, to.sref, u32::from(keep.sref));
+        self.stack_32.truncate_keep(to.s32 as usize, usize::from(keep.s32));
+        self.stack_64.truncate_keep(to.s64 as usize, usize::from(keep.s64));
+        self.stack_128.truncate_keep(to.s128 as usize, usize::from(keep.s128));
+        self.stack_ref.truncate_keep(to.sref as usize, usize::from(keep.sref));
     }
 
-    pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) {
+    pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<()> {
         match value {
-            TinyWasmValue::Value32(v) => self.stack_32.push(v),
-            TinyWasmValue::Value64(v) => self.stack_64.push(v),
-            TinyWasmValue::Value128(v) => self.stack_128.push(v),
-            TinyWasmValue::ValueRef(v) => self.stack_ref.push(v),
+            TinyWasmValue::Value32(v) => self.stack_32.push(v)?,
+            TinyWasmValue::Value64(v) => self.stack_64.push(v)?,
+            TinyWasmValue::Value128(v) => self.stack_128.push(v)?,
+            TinyWasmValue::ValueRef(v) => self.stack_ref.push(v)?,
         }
+        Ok(())
     }
 
     pub(crate) fn pop_wasmvalue(&mut self, val_type: ValType) -> WasmValue {
@@ -201,17 +238,18 @@ impl ValueStack {
         }
     }
 
-    pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) {
+    pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) -> Result<()> {
         for value in values {
             match value {
-                WasmValue::I32(v) => self.stack_32.push(*v as u32),
-                WasmValue::I64(v) => self.stack_64.push(*v as u64),
-                WasmValue::F32(v) => self.stack_32.push(v.to_bits()),
-                WasmValue::F64(v) => self.stack_64.push(v.to_bits()),
-                WasmValue::RefExtern(v) => self.stack_ref.push(v.addr()),
-                WasmValue::RefFunc(v) => self.stack_ref.push(v.addr()),
-                WasmValue::V128(v) => self.stack_128.push((*v).into()),
+                WasmValue::I32(v) => self.stack_32.push(*v as u32)?,
+                WasmValue::I64(v) => self.stack_64.push(*v as u64)?,
+                WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
+                WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
+                WasmValue::RefExtern(v) => self.stack_ref.push(v.addr())?,
+                WasmValue::RefFunc(v) => self.stack_ref.push(v.addr())?,
+                WasmValue::V128(v) => self.stack_128.push((*v).into())?,
             }
         }
+        Ok(())
     }
 }

@@ -1,15 +1,10 @@
-use core::ops::ControlFlow;
-
 use super::BlockType;
-use crate::Trap;
 use crate::interpreter::{Value128, values::*};
-use crate::{Error, unlikely};
+use crate::{Result, Trap, unlikely};
 
 use alloc::boxed::Box;
 use alloc::{rc::Rc, vec::Vec};
 use tinywasm_types::{ArcSlice, Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
-
-pub(crate) const MAX_CALL_STACK_SIZE: usize = 1024;
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -17,27 +12,25 @@ pub(crate) struct CallStack {
 }
 
 impl CallStack {
-    #[inline]
     pub(crate) fn new(config: &crate::engine::Config) -> Self {
-        Self { stack: Vec::with_capacity(config.call_stack_init_size) }
+        Self { stack: Vec::with_capacity(config.call_stack_size) }
     }
 
     pub(crate) fn clear(&mut self) {
         self.stack.clear();
     }
 
-    #[inline]
     pub(crate) fn pop(&mut self) -> Option<CallFrame> {
         self.stack.pop()
     }
 
-    #[inline]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) -> ControlFlow<Option<Error>> {
-        if unlikely((self.stack.len() + 1) >= MAX_CALL_STACK_SIZE) {
-            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
+        if unlikely(self.stack.len() >= self.stack.capacity()) {
+            return Err(Trap::CallStackOverflow.into());
         }
+
         self.stack.push(call_frame);
-        ControlFlow::Continue(())
+        Ok(())
     }
 }
 
@@ -69,42 +62,34 @@ impl Locals {
 }
 
 impl CallFrame {
-    #[inline]
     pub(crate) fn instr_ptr(&self) -> usize {
         self.instr_ptr
     }
 
-    #[inline]
-    #[allow(dead_code)]
     pub(crate) fn data(&self) -> &WasmFunctionData {
         &self.func_instance.data
     }
 
-    #[inline(always)]
     pub(crate) fn incr_instr_ptr(&mut self) {
         self.instr_ptr += 1;
     }
 
-    #[inline]
     pub(crate) fn jump(&mut self, offset: u32) {
         self.instr_ptr += offset as usize;
     }
 
-    #[inline]
     pub(crate) fn module_addr(&self) -> ModuleInstanceAddr {
         self.module_addr
     }
 
     #[inline(always)]
     pub(crate) fn fetch_instr(&self) -> &Instruction {
-        self
-            .func_instance
-            .instructions
-            .get(self.instr_ptr)
-            .unwrap_or_else(|| unreachable!("Instruction pointer out of bounds, this is a bug"))
+        match self.func_instance.instructions.get(self.instr_ptr) {
+            Some(instr) => instr,
+            None => unreachable!("Instruction pointer out of bounds, this is a bug"),
+        }
     }
 
-    #[inline]
     pub(crate) fn block_ptr(&self) -> u32 {
         self.block_ptr
     }
@@ -125,7 +110,6 @@ impl CallFrame {
 
     /// Break to a block at the given index (relative to the current frame)
     /// Returns `None` if there is no block at the given index (e.g. if we need to return, this is handled by the caller)
-    #[inline]
     pub(crate) fn break_to(
         &mut self,
         break_to_relative: u32,
@@ -168,7 +152,6 @@ impl CallFrame {
         Some(())
     }
 
-    #[inline]
     pub(crate) fn new(
         func_instance: Rc<WasmFunction>,
         module_addr: ModuleInstanceAddr,
@@ -206,7 +189,6 @@ impl CallFrame {
         Self { instr_ptr: 0, func_instance, module_addr, block_ptr, locals }
     }
 
-    #[inline]
     pub(crate) fn new_raw(
         func_instance: Rc<WasmFunction>,
         module_addr: ModuleInstanceAddr,

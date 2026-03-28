@@ -1,4 +1,4 @@
-use crate::{Result, interpreter::value128::Value128};
+use crate::{interpreter::value128::Value128, Result};
 
 use super::stack::{Locals, ValueStack};
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
@@ -100,14 +100,19 @@ impl TinyWasmValue {
 
     /// Attaches a type to the value (panics if the size of the value is not the same as the type)
     pub fn attach_type(&self, ty: ValType) -> WasmValue {
-        match ty {
-            ValType::I32 => WasmValue::I32(self.unwrap_32() as i32),
-            ValType::I64 => WasmValue::I64(self.unwrap_64() as i64),
-            ValType::F32 => WasmValue::F32(f32::from_bits(self.unwrap_32())),
-            ValType::F64 => WasmValue::F64(f64::from_bits(self.unwrap_64())),
-            ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.unwrap_ref())),
-            ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.unwrap_ref())),
-            ValType::V128 => WasmValue::V128(self.unwrap_128().into()),
+        match (self, ty) {
+            (Self::Value32(v), ValType::I32) => WasmValue::I32(*v as i32),
+            (Self::Value64(v), ValType::I64) => WasmValue::I64(*v as i64),
+            (Self::Value32(v), ValType::F32) => WasmValue::F32(f32::from_bits(*v)),
+            (Self::Value64(v), ValType::F64) => WasmValue::F64(f64::from_bits(*v)),
+            (Self::ValueRef(v), ValType::RefExtern) => WasmValue::RefExtern(ExternRef::new(*v)),
+            (Self::ValueRef(v), ValType::RefFunc) => WasmValue::RefFunc(FuncRef::new(*v)),
+            (Self::Value128(v), ValType::V128) => WasmValue::V128((*v).into()),
+
+            (_, ValType::I32 | ValType::F32) => panic!("Expected Value32"),
+            (_, ValType::I64 | ValType::F64) => panic!("Expected Value64"),
+            (_, ValType::RefExtern | ValType::RefFunc) => panic!("Expected ValueRef"),
+            (_, ValType::V128) => panic!("Expected Value128"),
         }
     }
 }
@@ -144,7 +149,7 @@ mod sealed {
 }
 
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
-    fn stack_push(stack: &mut ValueStack, value: Self);
+    fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()>;
     fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
@@ -177,63 +182,42 @@ macro_rules! impl_internalvalue {
             }
 
             impl InternalValue for $outer {
-                #[inline(always)]
-                fn stack_push(stack: &mut ValueStack, value: Self) {
-                    stack.$stack.push($to_internal(value));
+                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()> {
+                    stack.$stack.push($to_internal(value))
                 }
 
-                #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
-                    match stack.$stack.pop() {
-                        Some(v) => $to_outer(v),
-                        None => unreachable!("ValueStack underflow, this is a bug"),
-                    }
+                    $to_outer(stack.$stack.pop())
                 }
 
-                #[inline(always)]
                 fn stack_peek(stack: &ValueStack) -> Self {
-                    match stack.$stack.last() {
-                        Some(v) => $to_outer(*v),
-                        None => unreachable!("ValueStack underflow, this is a bug"),
-                    }
+                    $to_outer(*stack.$stack.last())
                 }
 
-                #[inline(always)]
                 fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()> {
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
-                    let (Some(v1), Some(v2)) = (v1, v2) else {
-                         unreachable!("ValueStack underflow, this is a bug");
-                    };
 
                     *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
-                    return Ok(())
+                    Ok(())
                 }
 
-                #[inline(always)]
                 fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()> {
                     let v3 = stack.$stack.pop();
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
-                    let (Some(v1), Some(v2), Some(v3)) = (v1, v2, v3) else {
-                         unreachable!("ValueStack underflow, this is a bug");
-                    };
 
                     *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2), $to_outer(v3))?);
-                    return Ok(())
+                    Ok(())
                 }
 
-                #[inline(always)]
                 fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()> {
-                    let Some(v) = stack.$stack.last_mut() else {
-                        unreachable!("ValueStack underflow, this is a bug");
-                    };
+                    let v = stack.$stack.last_mut();
 
                     *v = $to_internal(func($to_outer(*v))?);
                     Ok(())
                 }
 
-                #[inline(always)]
                 fn local_get(locals: &Locals, index: LocalAddr) -> Self {
                     match locals.$locals.get(index as usize) {
                         Some(v) => $to_outer(*v),
@@ -241,7 +225,6 @@ macro_rules! impl_internalvalue {
                     }
                 }
 
-                #[inline(always)]
                 fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) {
                     match locals.$locals.get_mut(index as usize) {
                         Some(v) => *v = $to_internal(value),

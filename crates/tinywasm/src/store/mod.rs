@@ -5,7 +5,7 @@ use tinywasm_types::*;
 
 use crate::interpreter::TinyWasmValue;
 use crate::interpreter::stack::Stack;
-use crate::{Engine, Error, Function, ModuleInstance, Result, Trap, cold};
+use crate::{Engine, Error, Function, ModuleInstance, Result, Trap};
 
 mod data;
 mod element;
@@ -94,25 +94,31 @@ pub(crate) struct State {
 
 impl State {
     /// Get the function at the actual index in the store
-    #[inline]
     pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
-        &self.funcs[addr as usize]
+        match self.funcs.get(addr as usize) {
+            Some(func) => func,
+            None => unreachable!("function {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the memory at the actual index in the store
-    #[inline]
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
-        &self.memories[addr as usize]
+        match self.memories.get(addr as usize) {
+            Some(mem) => mem,
+            None => unreachable!("memory {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the memory at the actual index in the store
     #[inline(always)]
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
-        &mut self.memories[addr as usize]
+        match self.memories.get_mut(addr as usize) {
+            Some(mem) => mem,
+            None => unreachable!("memory {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the memory at the actual index in the store
-    #[inline(always)]
     pub(crate) fn get_mems_mut(
         &mut self,
         addr: MemAddr,
@@ -120,27 +126,27 @@ impl State {
     ) -> Result<(&mut MemoryInstance, &mut MemoryInstance)> {
         match get_pair_mut(&mut self.memories, addr as usize, addr2 as usize) {
             Some(mems) => Ok(mems),
-            None => {
-                cold();
-                Err(Self::not_found_error("memory"))
-            }
+            None => unreachable!("memory {addr} or {addr2} not found. This should be unreachable"),
         }
     }
 
     /// Get the table at the actual index in the store
-    #[inline]
     pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
-        &self.tables[addr as usize]
+        match self.tables.get(addr as usize) {
+            Some(table) => table,
+            None => unreachable!("table {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the table at the actual index in the store
-    #[inline]
     pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
-        &mut self.tables[addr as usize]
+        match self.tables.get_mut(addr as usize) {
+            Some(table) => table,
+            None => unreachable!("table {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get two mutable tables at the actual index in the store
-    #[inline]
     pub(crate) fn get_tables_mut(
         &mut self,
         addr: TableAddr,
@@ -148,44 +154,48 @@ impl State {
     ) -> Result<(&mut TableInstance, &mut TableInstance)> {
         match get_pair_mut(&mut self.tables, addr as usize, addr2 as usize) {
             Some(tables) => Ok(tables),
-            None => {
-                cold();
-                Err(Self::not_found_error("table"))
-            }
+            None => unreachable!("table {addr} or {addr2} not found. This should be unreachable"),
         }
     }
 
     /// Get the data at the actual index in the store
-    #[inline]
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
-        &mut self.data[addr as usize]
+        match self.data.get_mut(addr as usize) {
+            Some(data) => data,
+            None => unreachable!("data {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the element at the actual index in the store
-    #[inline]
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
-        &mut self.elements[addr as usize]
+        match self.elements.get_mut(addr as usize) {
+            Some(elem) => elem,
+            None => unreachable!("element {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the global at the actual index in the store
-    #[inline]
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
-        &self.globals[addr as usize]
+        match self.globals.get(addr as usize) {
+            Some(global) => global,
+            None => unreachable!("global {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
-        self.globals[addr as usize].value.get()
+        match self.globals.get(addr as usize) {
+            Some(global) => global.value.get(),
+            None => unreachable!("global {addr} not found. This should be unreachable"),
+        }
     }
 
     /// Set the global at the actual index in the store
     pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) {
-        self.globals[addr as usize].value.set(value);
-    }
-
-    #[cold]
-    fn not_found_error(name: &str) -> Error {
-        Error::Other(format!("{name} not found"))
+        match self.globals.get_mut(addr as usize) {
+            Some(global) => global.value.set(value),
+            None => unreachable!("global {addr} not found. This should be unreachable"),
+        }
     }
 }
 
@@ -421,7 +431,7 @@ impl Store {
     }
 
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
-    pub(crate) fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
+    fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
         Ok(match const_instr {
             ConstInstruction::I32Const(i) => i64::from(i),
             ConstInstruction::I64Const(i) => i,
@@ -435,7 +445,7 @@ impl Store {
     }
 
     /// Evaluate a constant expression
-    pub(crate) fn eval_const(
+    fn eval_const(
         &self,
         const_instr: &tinywasm_types::ConstInstruction,
         module_global_addrs: &[Addr],

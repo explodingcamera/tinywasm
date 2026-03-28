@@ -157,7 +157,6 @@ macro_rules! impl_visit_operator {
     (@@tail_call $($rest:tt)* ) => {};
 
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
-        #[cold]
         fn $visit(&mut self $($(,_: $argty)*)?) {
             self.unsupported(stringify!($visit))
         }
@@ -203,7 +202,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::V128 => Instruction::GlobalSet128(global_index),
                 wasmparser::ValType::Ref(_) => Instruction::GlobalSetRef(global_index),
             }),
-            _ => self.visit_unreachable(),
+            _ => {
+                {
+                    self.visit_unreachable();
+                };
+            }
         }
     }
 
@@ -217,7 +220,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::V128 => Instruction::Drop128,
                 wasmparser::ValType::Ref(_) => Instruction::DropRef,
             }),
-            _ => self.visit_unreachable(),
+            _ => {
+                self.visit_unreachable();
+            }
         }
     }
 
@@ -225,7 +230,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         match self.validator.get_operand_type(1) {
             Some(Some(t)) => self.visit_typed_select(t),
             _ => self.visit_unreachable(),
-        }
+        };
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
@@ -245,7 +250,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::V128 => Instruction::LocalGet128(resolved_idx),
                 wasmparser::ValType::Ref(_) => Instruction::LocalGetRef(resolved_idx),
             }),
-            _ => self.visit_unreachable(),
+            _ => {
+                self.visit_unreachable();
+            }
         }
     }
 
@@ -276,7 +283,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                     wasmparser::ValType::V128 => Instruction::LocalCopy128(from, resolved_idx),
                     wasmparser::ValType::Ref(_) => Instruction::LocalCopyRef(from, resolved_idx),
                 }),
-                _ => self.visit_unreachable(),
+                _ => {
+                    self.visit_unreachable();
+                }
             }
             return;
         }
@@ -290,7 +299,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::V128 => Instruction::LocalSet128(resolved_idx),
                 wasmparser::ValType::Ref(_) => Instruction::LocalSetRef(resolved_idx),
             }),
-            _ => self.visit_unreachable(),
+            _ => {
+                self.visit_unreachable();
+            }
         }
     }
 
@@ -311,7 +322,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
                 wasmparser::ValType::Ref(_) => Instruction::LocalTeeRef(resolved_idx),
             }),
-            _ => self.visit_unreachable(),
+            _ => {
+                self.visit_unreachable();
+            }
         }
     }
 
@@ -483,7 +496,6 @@ macro_rules! impl_visit_simd_operator {
 
     (@@simd $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
-        #[cold]
         fn $visit(&mut self $($(,$arg: $argty)*)?) {
             self.unsupported(stringify!($visit))
         }
