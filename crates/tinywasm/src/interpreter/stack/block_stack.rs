@@ -2,14 +2,13 @@ use crate::engine::Config;
 use alloc::vec::Vec;
 
 use crate::interpreter::values::{StackHeight, StackLocation};
-use crate::{Result, Trap};
 
 #[derive(Debug)]
 pub(crate) struct BlockStack(Vec<BlockFrame>);
 
 impl BlockStack {
     pub(crate) fn new(config: &Config) -> Self {
-        Self(Vec::with_capacity(config.block_stack_size))
+        Self(Vec::with_capacity(config.block_stack_initial_size))
     }
 
     pub(crate) fn clear(&mut self) {
@@ -20,20 +19,15 @@ impl BlockStack {
         self.0.len()
     }
 
-    pub(crate) fn push(&mut self, block: BlockFrame) -> Result<()> {
-        if self.0.len() >= self.0.capacity() {
-            return Err(Trap::BlockStackOverflow.into());
-        }
-
+    pub(crate) fn push(&mut self, block: BlockFrame) {
         self.0.push(block);
-        Ok(())
     }
 
     /// get the label at the given index, where 0 is the top of the stack
     pub(crate) fn get_relative_to(&self, index: u32, offset: u32) -> Option<&BlockFrame> {
-        let len = (self.0.len() as u32) - offset;
+        let len = (self.0.len() as u32).checked_sub(offset)?;
 
-        // the vast majority of wasm functions don't use break to return
+        // the vast majority of wasm functions don't use break to return, but it is allowed in the spec
         if index >= len {
             return None;
         }

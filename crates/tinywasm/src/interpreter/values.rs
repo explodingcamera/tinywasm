@@ -1,4 +1,4 @@
-use crate::{interpreter::value128::Value128, Result};
+use crate::{Result, interpreter::value128::Value128};
 
 use super::stack::{Locals, ValueStack};
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};

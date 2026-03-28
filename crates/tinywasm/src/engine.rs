@@ -52,10 +52,10 @@ pub const DEFAULT_VALUE_STACK_128_SIZE: usize = 4 * 1024; // 4k slots
 pub const DEFAULT_VALUE_STACK_REF_SIZE: usize = 4 * 1024; // 4k slots
 
 /// Default initial size for the block stack (control frames).
-pub const DEFAULT_BLOCK_STACK_SIZE: usize = 1024; // 1024 frames
+pub const DEFAULT_BLOCK_STACK_SIZE: usize = 2048; // 1024 frames
 
 /// Default initial size for the call stack (function frames).
-pub const DEFAULT_CALL_STACK_SIZE: usize = 1024; // 1024 frames
+pub const DEFAULT_CALL_STACK_SIZE: usize = 2048; // 1024 frames
 
 /// Configuration for the WebAssembly interpreter
 #[derive(Debug, Clone)]
@@ -71,8 +71,9 @@ pub struct Config {
     pub stack_ref_size: usize,
     /// Initial size of the call stack.
     pub call_stack_size: usize,
-    /// Initial size of the control stack (block stack).
-    pub block_stack_size: usize,
+
+    /// Initial size of the block stack.
+    pub block_stack_initial_size: usize,
 }
 
 impl Config {
@@ -90,7 +91,7 @@ impl Default for Config {
             stack_128_size: DEFAULT_VALUE_STACK_128_SIZE,
             stack_ref_size: DEFAULT_VALUE_STACK_REF_SIZE,
             call_stack_size: DEFAULT_CALL_STACK_SIZE,
-            block_stack_size: DEFAULT_BLOCK_STACK_SIZE,
+            block_stack_initial_size: DEFAULT_BLOCK_STACK_SIZE,
         }
     }
 }

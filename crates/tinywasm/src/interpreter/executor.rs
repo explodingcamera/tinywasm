@@ -88,16 +88,16 @@ impl<'store> Executor<'store> {
             CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
             ReturnCall(v) => return self.exec_call_direct::<true>(*v),
             ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
-            If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())).to_cf()?,
-            IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())).to_cf()?,
-            IfWithFuncType(ty, end, el) => self.exec_if(*end, *el, self.resolve_functype(*ty)).to_cf()?,
+            If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())),
+            IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())),
+            IfWithFuncType(ty, end, el) => self.exec_if(*end, *el, self.resolve_functype(*ty)),
             Else(end_offset) => self.exec_else(*end_offset),
-            Loop(end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), StackHeight::default())).to_cf()?,
-            LoopWithType(ty, end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), (*ty).into())).to_cf()?,
-            LoopWithFuncType(ty, end) => self.enter_block(*end, BlockType::Loop, self.resolve_functype(*ty)).to_cf()?,
-            Block(end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), StackHeight::default())).to_cf()?,
-            BlockWithType(ty, end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), (*ty).into())).to_cf()?,
-            BlockWithFuncType(ty, end) => self.enter_block(*end, BlockType::Block, self.resolve_functype(*ty)).to_cf()?,
+            Loop(end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), StackHeight::default())),
+            LoopWithType(ty, end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), (*ty).into())),
+            LoopWithFuncType(ty, end) => self.enter_block(*end, BlockType::Loop, self.resolve_functype(*ty)),
+            Block(end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), StackHeight::default())),
+            BlockWithType(ty, end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), (*ty).into())),
+            BlockWithFuncType(ty, end) => self.enter_block(*end, BlockType::Block, self.resolve_functype(*ty)),
             Br(v) => return self.exec_br(*v),
             BrIf(v) => return self.exec_br_if(*v),
             BrTable(default, len) => return self.exec_brtable(*default, *len),
@@ -635,26 +635,21 @@ impl<'store> Executor<'store> {
         }
     }
 
-    fn exec_if(
-        &mut self,
-        else_offset: u32,
-        end_offset: u32,
-        (params, results): (StackHeight, StackHeight),
-    ) -> Result<()> {
+    fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
         // truthy value is on the top of the stack, so enter the then block
         if self.store.stack.values.pop::<i32>() != 0 {
-            self.enter_block(end_offset, BlockType::If, (params, results))?;
-            return Ok(());
+            self.enter_block(end_offset, BlockType::If, (params, results));
+            return;
         }
 
         // falsy value is on the top of the stack
         if else_offset == 0 {
             self.cf.jump(end_offset);
-            return Ok(());
+            return;
         }
 
         self.cf.jump(else_offset);
-        self.enter_block(end_offset - else_offset, BlockType::Else, (params, results))
+        self.enter_block(end_offset - else_offset, BlockType::Else, (params, results));
     }
     fn exec_else(&mut self, end_offset: u32) {
         self.exec_end_block();
@@ -664,12 +659,7 @@ impl<'store> Executor<'store> {
         let ty = self.module.func_ty(idx);
         ((&*ty.params).into(), (&*ty.results).into())
     }
-    fn enter_block(
-        &mut self,
-        end_instr_offset: u32,
-        ty: BlockType,
-        (params, results): (StackHeight, StackHeight),
-    ) -> Result<()> {
+    fn enter_block(&mut self, end_instr_offset: u32, ty: BlockType, (params, results): (StackHeight, StackHeight)) {
         self.store.stack.blocks.push(BlockFrame {
             instr_ptr: self.cf.instr_ptr() as u32,
             end_instr_offset,

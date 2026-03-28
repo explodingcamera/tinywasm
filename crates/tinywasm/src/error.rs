@@ -1,8 +1,8 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::{fmt::Display, ops::ControlFlow};
-use tinywasm_types::archive::TwasmError;
 use tinywasm_types::FuncType;
+use tinywasm_types::archive::TwasmError;
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
