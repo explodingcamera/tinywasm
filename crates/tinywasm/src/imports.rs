@@ -68,7 +68,9 @@ impl FuncContext<'_> {
 
     /// Get a reference to the module instance
     pub fn module(&self) -> crate::ModuleInstance {
-        self.store.get_module_instance_raw(self.module_addr)
+        self.store.get_module_instance(self.module_addr).unwrap_or_else(|| {
+            unreachable!("invalid module instance address in host function context: {}", self.module_addr)
+        })
     }
 
     /// Get a reference to an exported memory

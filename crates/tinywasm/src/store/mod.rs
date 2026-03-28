@@ -1,8 +1,10 @@
+use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::fmt::Debug;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
+use crate::instance::ModuleInstanceInner;
 use crate::interpreter::TinyWasmValue;
 use crate::interpreter::stack::Stack;
 use crate::{Engine, Error, Function, ModuleInstance, Result, Trap};
@@ -30,7 +32,7 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
     id: usize,
-    module_instances: Vec<ModuleInstance>,
+    module_instances: Vec<Rc<ModuleInstanceInner>>,
 
     pub(crate) engine: Engine,
     pub(crate) state: State,
@@ -50,17 +52,18 @@ impl Debug for Store {
 
 impl Store {
     /// Create a new store
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(engine: Engine) -> Self {
+        let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+        Self { id, module_instances: Vec::new(), state: State::default(), stack: Stack::new(engine.config()), engine }
     }
 
     /// Get a module instance by the internal id
-    pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<&ModuleInstance> {
-        self.module_instances.get(addr as usize)
+    pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<ModuleInstance> {
+        Some(ModuleInstance(self.module_instances.get(addr as usize)?.clone()))
     }
 
-    pub(crate) fn get_module_instance_raw(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
-        self.module_instances[addr as usize].clone()
+    pub(crate) fn get_module_instance_raw(&self, addr: ModuleInstanceAddr) -> &Rc<ModuleInstanceInner> {
+        &self.module_instances[addr as usize]
     }
 }
 
@@ -72,9 +75,7 @@ impl PartialEq for Store {
 
 impl Default for Store {
     fn default() -> Self {
-        let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-        let engine = Engine::default();
-        Self { id, module_instances: Vec::new(), state: State::default(), stack: Stack::new(engine.config()), engine }
+        Self::new(Engine::default())
     }
 }
 
@@ -101,6 +102,19 @@ impl State {
         }
     }
 
+    /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
+    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Rc<WasmFunction> {
+        match self.funcs.get(addr as usize) {
+            Some(func) => match &func.func {
+                Function::Wasm(wasm_func) => wasm_func,
+                Function::Host(_) => unreachable!(
+                    "expected a wasm function at address {addr}, but found a host function. This should be unreachable"
+                ),
+            },
+            None => unreachable!("function {addr} not found. This should be unreachable"),
+        }
+    }
+
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
         match self.memories.get(addr as usize) {
@@ -110,7 +124,6 @@ impl State {
     }
 
     /// Get the memory at the actual index in the store
-    #[inline(always)]
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
         match self.memories.get_mut(addr as usize) {
             Some(mem) => mem,
@@ -209,8 +222,8 @@ impl Store {
         self.module_instances.len() as ModuleInstanceAddr
     }
 
-    pub(crate) fn add_instance(&mut self, instance: ModuleInstance) {
-        assert!(instance.id() == self.module_instances.len() as ModuleInstanceAddr);
+    pub(crate) fn add_instance(&mut self, instance: Rc<ModuleInstanceInner>) {
+        assert!(instance.idx == self.module_instances.len() as ModuleInstanceAddr);
         self.module_instances.push(instance);
     }
 

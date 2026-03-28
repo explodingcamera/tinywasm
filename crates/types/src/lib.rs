@@ -170,7 +170,6 @@ pub enum ExternVal {
 }
 
 impl ExternVal {
-    #[inline]
     pub fn kind(&self) -> ExternalKind {
         match self {
             Self::Func(_) => ExternalKind::Func,
@@ -180,7 +179,6 @@ impl ExternVal {
         }
     }
 
-    #[inline]
     pub fn new(kind: ExternalKind, addr: Addr) -> Self {
         match kind {
             ExternalKind::Func => Self::Func(addr),
@@ -418,7 +416,6 @@ pub enum ImportKind {
 }
 
 impl From<&ImportKind> for ExternalKind {
-    #[inline]
     fn from(kind: &ImportKind) -> Self {
         match kind {
             ImportKind::Function(_) => Self::Func,

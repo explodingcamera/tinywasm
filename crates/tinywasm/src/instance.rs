@@ -35,20 +35,68 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) exports: ArcSlice<Export>,
 }
 
-impl ModuleInstance {
-    // drop the module instance reference and swap it with another one
-    #[inline]
-    pub(crate) fn swap(&mut self, other: Self) {
-        self.0 = other.0;
-    }
-
-    #[inline]
-    pub(crate) fn swap_with(&mut self, other_addr: ModuleInstanceAddr, store: &mut Store) {
-        if other_addr != self.id() {
-            self.swap(store.get_module_instance_raw(other_addr))
+impl ModuleInstanceInner {
+    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
+        match self.types.get(addr as usize) {
+            Some(ty) => ty,
+            None => unreachable!("invalid function address: {addr}"),
         }
     }
 
+    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
+        &self.func_addrs
+    }
+
+    // resolve a function address to the global store address
+    pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
+        match self.func_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid function address: {addr}"),
+        }
+    }
+
+    // resolve a table address to the global store address
+    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
+        match self.table_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid table address: {addr}"),
+        }
+    }
+
+    // resolve a memory address to the global store address
+    pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
+        match self.mem_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid memory address: {addr}"),
+        }
+    }
+
+    // resolve a data address to the global store address
+    pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
+        match self.data_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid data address: {addr}"),
+        }
+    }
+
+    // resolve a memory address to the global store address
+    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
+        match self.elem_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid element address: {addr}"),
+        }
+    }
+
+    // resolve a global address to the global store address
+    pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
+        match self.global_addrs.get(addr as usize) {
+            Some(addr) => *addr,
+            None => unreachable!("invalid global address: {addr}"),
+        }
+    }
+}
+
+impl ModuleInstance {
     /// Get the module instance's address
     #[inline]
     pub fn id(&self) -> ModuleInstanceAddr {
@@ -91,12 +139,12 @@ impl ModuleInstance {
             exports: module.0.exports.clone(),
         };
 
-        let instance = Self::new(instance);
+        let instance = Rc::new(instance);
         store.add_instance(instance.clone());
 
         match (elem_trapped, data_trapped) {
             (Some(trap), _) | (_, Some(trap)) => Err(trap.into()),
-            _ => Ok(instance),
+            _ => Ok(ModuleInstance(instance)),
         }
     }
 
@@ -111,57 +159,6 @@ impl ModuleInstance {
         };
 
         Some(ExternVal::new(exports.kind, *addr))
-    }
-
-    #[inline]
-    pub(crate) fn new(inner: ModuleInstanceInner) -> Self {
-        Self(Rc::new(inner))
-    }
-
-    #[inline]
-    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
-        &self.0.types[addr as usize]
-    }
-
-    #[inline]
-    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
-        &self.0.func_addrs
-    }
-
-    // resolve a function address to the global store address
-    #[inline]
-    pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        self.0.func_addrs[addr as usize]
-    }
-
-    // resolve a table address to the global store address
-    #[inline]
-    pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        self.0.table_addrs[addr as usize]
-    }
-
-    // resolve a memory address to the global store address
-    #[inline]
-    pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        self.0.mem_addrs[addr as usize]
-    }
-
-    // resolve a data address to the global store address
-    #[inline]
-    pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
-        self.0.data_addrs[addr as usize]
-    }
-
-    // resolve a memory address to the global store address
-    #[inline]
-    pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        self.0.elem_addrs[addr as usize]
-    }
-
-    // resolve a global address to the global store address
-    #[inline]
-    pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
-        self.0.global_addrs[addr as usize]
     }
 
     /// Get an exported function by name
@@ -211,13 +208,13 @@ impl ModuleInstance {
 
     /// Get a memory by address
     pub fn memory<'a>(&self, store: &'a Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
-        let mem = store.state.get_mem(self.resolve_mem_addr(addr));
+        let mem = store.state.get_mem(self.0.resolve_mem_addr(addr));
         Ok(MemoryRef(mem))
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
-        let mem = store.state.get_mem_mut(self.resolve_mem_addr(addr));
+        let mem = store.state.get_mem_mut(self.0.resolve_mem_addr(addr));
         Ok(MemoryRefMut(mem))
     }
 
@@ -244,7 +241,7 @@ impl ModuleInstance {
             }
         };
 
-        let func_addr = self.resolve_func_addr(func_index);
+        let func_addr = self.0.resolve_func_addr(func_index);
         let func_inst = store.state.get_func(func_addr);
         let ty = func_inst.func.ty();
 

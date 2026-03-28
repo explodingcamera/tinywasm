@@ -3,8 +3,8 @@ use crate::interpreter::{Value128, values::*};
 use crate::{Result, Trap, unlikely};
 
 use alloc::boxed::Box;
-use alloc::{rc::Rc, vec::Vec};
-use tinywasm_types::{ArcSlice, Instruction, LocalAddr, ModuleInstanceAddr, WasmFunction, WasmFunctionData, WasmValue};
+use alloc::vec::Vec;
+use tinywasm_types::{FuncAddr, LocalAddr, ModuleInstanceAddr, ValueCounts, WasmValue};
 
 #[derive(Debug)]
 pub(crate) struct CallStack {
@@ -36,11 +36,11 @@ impl CallStack {
 
 #[derive(Debug)]
 pub(crate) struct CallFrame {
-    instr_ptr: usize,
-    func_instance: Rc<WasmFunction>,
-    block_ptr: u32,
-    module_addr: ModuleInstanceAddr,
+    pub(crate) instr_ptr: usize,
+    pub(crate) block_ptr: u32,
     pub(crate) locals: Locals,
+    pub(crate) module_addr: ModuleInstanceAddr,
+    pub(crate) func_addr: FuncAddr,
 }
 
 #[derive(Debug)]
@@ -62,12 +62,46 @@ impl Locals {
 }
 
 impl CallFrame {
-    pub(crate) fn instr_ptr(&self) -> usize {
-        self.instr_ptr
+    pub(crate) fn new(func_addr: FuncAddr, module_addr: ModuleInstanceAddr, locals: Locals, block_ptr: u32) -> Self {
+        Self { instr_ptr: 0, func_addr, module_addr, block_ptr, locals }
     }
 
-    pub(crate) fn data(&self) -> &WasmFunctionData {
-        &self.func_instance.data
+    pub(crate) fn new_with_params(
+        local_count: ValueCounts,
+        func_addr: FuncAddr,
+        module_addr: ModuleInstanceAddr,
+        params: &[WasmValue],
+        block_ptr: u32,
+    ) -> Self {
+        let locals = {
+            let mut locals_32 = Vec::with_capacity(local_count.c32 as usize);
+            let mut locals_64 = Vec::with_capacity(local_count.c64 as usize);
+            let mut locals_128 = Vec::with_capacity(local_count.c128 as usize);
+            let mut locals_ref = Vec::with_capacity(local_count.cref as usize);
+
+            for p in params {
+                match p.into() {
+                    TinyWasmValue::Value32(v) => locals_32.push(v),
+                    TinyWasmValue::Value64(v) => locals_64.push(v),
+                    TinyWasmValue::Value128(v) => locals_128.push(v),
+                    TinyWasmValue::ValueRef(v) => locals_ref.push(v),
+                }
+            }
+
+            locals_32.resize_with(local_count.c32 as usize, Default::default);
+            locals_64.resize_with(local_count.c64 as usize, Default::default);
+            locals_128.resize_with(local_count.c128 as usize, Default::default);
+            locals_ref.resize_with(local_count.cref as usize, Default::default);
+
+            Locals {
+                locals_32: locals_32.into_boxed_slice(),
+                locals_64: locals_64.into_boxed_slice(),
+                locals_128: locals_128.into_boxed_slice(),
+                locals_ref: locals_ref.into_boxed_slice(),
+            }
+        };
+
+        Self::new(func_addr, module_addr, locals, block_ptr)
     }
 
     pub(crate) fn incr_instr_ptr(&mut self) {
@@ -78,30 +112,14 @@ impl CallFrame {
         self.instr_ptr += offset as usize;
     }
 
-    pub(crate) fn module_addr(&self) -> ModuleInstanceAddr {
-        self.module_addr
-    }
-
-    #[inline(always)]
-    pub(crate) fn fetch_instr(&self) -> &Instruction {
-        match self.func_instance.instructions.get(self.instr_ptr) {
-            Some(instr) => instr,
-            None => unreachable!("Instruction pointer out of bounds, this is a bug"),
-        }
-    }
-
-    pub(crate) fn block_ptr(&self) -> u32 {
-        self.block_ptr
-    }
-
     pub(crate) fn reuse_for(
         &mut self,
-        func: Rc<WasmFunction>,
+        func_addr: FuncAddr,
         locals: Locals,
         block_depth: u32,
         module_addr: ModuleInstanceAddr,
     ) {
-        self.func_instance = func;
+        self.func_addr = func_addr;
         self.module_addr = module_addr;
         self.locals = locals;
         self.block_ptr = block_depth;
@@ -150,56 +168,5 @@ impl CallFrame {
         }
 
         Some(())
-    }
-
-    pub(crate) fn new(
-        func_instance: Rc<WasmFunction>,
-        module_addr: ModuleInstanceAddr,
-        params: &[WasmValue],
-        block_ptr: u32,
-    ) -> Self {
-        let locals = {
-            let mut locals_32 = Vec::with_capacity(func_instance.locals.c32 as usize);
-            let mut locals_64 = Vec::with_capacity(func_instance.locals.c64 as usize);
-            let mut locals_128 = Vec::with_capacity(func_instance.locals.c128 as usize);
-            let mut locals_ref = Vec::with_capacity(func_instance.locals.cref as usize);
-
-            for p in params {
-                match p.into() {
-                    TinyWasmValue::Value32(v) => locals_32.push(v),
-                    TinyWasmValue::Value64(v) => locals_64.push(v),
-                    TinyWasmValue::Value128(v) => locals_128.push(v),
-                    TinyWasmValue::ValueRef(v) => locals_ref.push(v),
-                }
-            }
-
-            locals_32.resize_with(func_instance.locals.c32 as usize, Default::default);
-            locals_64.resize_with(func_instance.locals.c64 as usize, Default::default);
-            locals_128.resize_with(func_instance.locals.c128 as usize, Default::default);
-            locals_ref.resize_with(func_instance.locals.cref as usize, Default::default);
-
-            Locals {
-                locals_32: locals_32.into_boxed_slice(),
-                locals_64: locals_64.into_boxed_slice(),
-                locals_128: locals_128.into_boxed_slice(),
-                locals_ref: locals_ref.into_boxed_slice(),
-            }
-        };
-
-        Self { instr_ptr: 0, func_instance, module_addr, block_ptr, locals }
-    }
-
-    pub(crate) fn new_raw(
-        func_instance: Rc<WasmFunction>,
-        module_addr: ModuleInstanceAddr,
-        locals: Locals,
-        block_ptr: u32,
-    ) -> Self {
-        Self { instr_ptr: 0, func_instance, module_addr, block_ptr, locals }
-    }
-
-    #[inline]
-    pub(crate) fn instructions(&self) -> &ArcSlice<Instruction> {
-        &self.func_instance.instructions
     }
 }

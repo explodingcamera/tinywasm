@@ -28,18 +28,14 @@ impl MemoryInstance {
         }
     }
 
-    #[inline]
     pub(crate) fn is_64bit(&self) -> bool {
         matches!(self.kind.arch(), MemoryArch::I64)
     }
 
-    #[inline]
     pub(crate) fn len(&self) -> usize {
         self.data.len()
     }
 
-    #[inline(never)]
-    #[cold]
     fn trap_oob(&self, addr: usize, len: usize) -> Error {
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
     }
@@ -96,7 +92,7 @@ impl MemoryInstance {
         if end > self.data.len() {
             return Err(self.trap_oob(addr, len));
         }
-        self.data[addr..end].fill_with(|| val);
+        self.data[addr..end].fill(val);
         Ok(())
     }
 
@@ -128,7 +124,6 @@ impl MemoryInstance {
         Ok(())
     }
 
-    #[inline]
     pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
         let current_pages = self.page_count;
         let new_pages = current_pages as i64 + pages_delta;
@@ -165,12 +160,10 @@ macro_rules! impl_mem_traits {
     ($($ty:ty, $size:expr),*) => {
         $(
             impl MemValue<$size> for $ty {
-                #[inline(always)]
                 fn from_mem_bytes(bytes: [u8; $size]) -> Self {
                     <$ty>::from_le_bytes(bytes.into())
                 }
 
-                #[inline(always)]
                 fn to_mem_bytes(self) -> [u8; $size] {
                     self.to_le_bytes().into()
                 }

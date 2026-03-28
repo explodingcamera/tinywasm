@@ -9,18 +9,18 @@ pub(super) trait NoStdFloatExt {
 
 #[rustfmt::skip]
 impl NoStdFloatExt for f64 {
-    #[inline] fn round(self) -> Self { libm::round(self) }
-    #[inline] fn ceil(self) -> Self { libm::ceil(self) }
-    #[inline] fn floor(self) -> Self { libm::floor(self) }
-    #[inline] fn trunc(self) -> Self { libm::trunc(self) }
-    #[inline] fn sqrt(self) -> Self { libm::sqrt(self) }
+    fn round(self) -> Self { libm::round(self) }
+    fn ceil(self) -> Self { libm::ceil(self) }
+    fn floor(self) -> Self { libm::floor(self) }
+    fn trunc(self) -> Self { libm::trunc(self) }
+    fn sqrt(self) -> Self { libm::sqrt(self) }
 }
 
 #[rustfmt::skip]
 impl NoStdFloatExt for f32 {
-    #[inline] fn round(self) -> Self { libm::roundf(self) }
-    #[inline] fn ceil(self) -> Self { libm::ceilf(self) }
-    #[inline] fn floor(self) -> Self { libm::floorf(self) }
-    #[inline] fn trunc(self) -> Self { libm::truncf(self) }
-    #[inline] fn sqrt(self) -> Self { libm::sqrtf(self) }
+    fn round(self) -> Self { libm::roundf(self) }
+    fn ceil(self) -> Self { libm::ceilf(self) }
+    fn floor(self) -> Self { libm::floorf(self) }
+    fn trunc(self) -> Self { libm::truncf(self) }
+    fn sqrt(self) -> Self { libm::sqrtf(self) }
 }

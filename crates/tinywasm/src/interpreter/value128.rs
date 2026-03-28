@@ -124,33 +124,28 @@ impl Value128 {
         Self::from_le_bytes([x[0].to_bits().to_le_bytes()[0], x[0].to_bits().to_le_bytes()[1], x[0].to_bits().to_le_bytes()[2], x[0].to_bits().to_le_bytes()[3], x[0].to_bits().to_le_bytes()[4], x[0].to_bits().to_le_bytes()[5], x[0].to_bits().to_le_bytes()[6], x[0].to_bits().to_le_bytes()[7], x[1].to_bits().to_le_bytes()[0], x[1].to_bits().to_le_bytes()[1], x[1].to_bits().to_le_bytes()[2], x[1].to_bits().to_le_bytes()[3], x[1].to_bits().to_le_bytes()[4], x[1].to_bits().to_le_bytes()[5], x[1].to_bits().to_le_bytes()[6], x[1].to_bits().to_le_bytes()[7]])
     }
 
-    #[inline]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
         let lanes = self.as_f32x4();
         Self::from_f32x4([op(lanes[0]), op(lanes[1]), op(lanes[2]), op(lanes[3])])
     }
 
-    #[inline]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         Self::from_f32x4([op(a[0], b[0]), op(a[1], b[1]), op(a[2], b[2]), op(a[3], b[3])])
     }
 
-    #[inline]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
         let lanes = self.as_f64x2();
         Self::from_f64x2([op(lanes[0]), op(lanes[1])])
     }
 
-    #[inline]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         Self::from_f64x2([op(a[0], b[0]), op(a[1], b[1])])
     }
 
-    #[inline]
     pub const fn reduce_or(self) -> u8 {
         let mut result = 0u8;
         let bytes = self.to_le_bytes();
@@ -2506,7 +2501,6 @@ impl core::ops::BitXor for Value128 {
     }
 }
 
-#[inline]
 const fn canonicalize_simd_f32_nan(x: f32) -> f32 {
     #[cfg(feature = "canonicalize_nans")]
     if x.is_nan() {
@@ -2518,7 +2512,6 @@ const fn canonicalize_simd_f32_nan(x: f32) -> f32 {
     x
 }
 
-#[inline]
 const fn canonicalize_simd_f64_nan(x: f64) -> f64 {
     #[cfg(feature = "canonicalize_nans")]
     if x.is_nan() {
@@ -2530,7 +2523,6 @@ const fn canonicalize_simd_f64_nan(x: f64) -> f64 {
     x
 }
 
-#[inline]
 const fn saturate_i16_to_i8(x: i16) -> i8 {
     if x > i8::MAX as i16 {
         i8::MAX
@@ -2541,7 +2533,6 @@ const fn saturate_i16_to_i8(x: i16) -> i8 {
     }
 }
 
-#[inline]
 const fn saturate_i16_to_u8(x: i16) -> u8 {
     if x <= 0 {
         0
@@ -2552,7 +2543,6 @@ const fn saturate_i16_to_u8(x: i16) -> u8 {
     }
 }
 
-#[inline]
 const fn saturate_i32_to_i16(x: i32) -> i16 {
     if x > i16::MAX as i32 {
         i16::MAX
@@ -2563,7 +2553,6 @@ const fn saturate_i32_to_i16(x: i32) -> i16 {
     }
 }
 
-#[inline]
 const fn saturate_i32_to_u16(x: i32) -> u16 {
     if x <= 0 {
         0
@@ -2574,7 +2563,6 @@ const fn saturate_i32_to_u16(x: i32) -> u16 {
     }
 }
 
-#[inline]
 fn trunc_sat_f32_to_i32(v: f32) -> i32 {
     if v.is_nan() {
         0
@@ -2587,7 +2575,6 @@ fn trunc_sat_f32_to_i32(v: f32) -> i32 {
     }
 }
 
-#[inline]
 fn trunc_sat_f32_to_u32(v: f32) -> u32 {
     if v.is_nan() || v <= -1.0_f32 {
         0
@@ -2598,7 +2585,6 @@ fn trunc_sat_f32_to_u32(v: f32) -> u32 {
     }
 }
 
-#[inline]
 fn trunc_sat_f64_to_i32(v: f64) -> i32 {
     if v.is_nan() {
         0
@@ -2611,7 +2597,6 @@ fn trunc_sat_f64_to_i32(v: f64) -> i32 {
     }
 }
 
-#[inline]
 fn trunc_sat_f64_to_u32(v: f64) -> u32 {
     if v.is_nan() || v <= -1.0_f64 {
         0

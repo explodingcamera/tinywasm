@@ -197,7 +197,6 @@ macro_rules! impl_internalvalue {
                 fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()> {
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
-
                     *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2))?);
                     Ok(())
                 }
@@ -206,14 +205,12 @@ macro_rules! impl_internalvalue {
                     let v3 = stack.$stack.pop();
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
-
                     *v1 = $to_internal(func($to_outer(*v1), $to_outer(v2), $to_outer(v3))?);
                     Ok(())
                 }
 
                 fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()> {
                     let v = stack.$stack.last_mut();
-
                     *v = $to_internal(func($to_outer(*v))?);
                     Ok(())
                 }

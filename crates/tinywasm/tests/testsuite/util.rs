@@ -40,7 +40,7 @@ pub fn exec_fn(
         return Err(tinywasm::Error::Other("no module found".to_string()));
     };
 
-    let mut store = tinywasm::Store::new();
+    let mut store = tinywasm::Store::default();
     let module = tinywasm::Module::from(module);
     let instance = module.instantiate(&mut store, imports)?;
     instance.exported_func_untyped(&store, name)?.call(&mut store, args)

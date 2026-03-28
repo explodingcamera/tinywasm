@@ -57,16 +57,12 @@ impl ModuleRegistry {
         }
     }
 
-    fn get<'a>(
-        &self,
-        module_id: Option<wast::token::Id<'_>>,
-        store: &'a tinywasm::Store,
-    ) -> Option<&'a ModuleInstance> {
+    fn get(&self, module_id: Option<wast::token::Id<'_>>, store: &tinywasm::Store) -> Option<ModuleInstance> {
         let addr = self.get_idx(module_id)?;
         store.get_module_instance(*addr)
     }
 
-    fn last<'a>(&self, store: &'a tinywasm::Store) -> Option<&'a ModuleInstance> {
+    fn last(&self, store: &tinywasm::Store) -> Option<ModuleInstance> {
         store.get_module_instance(*self.last_module.as_ref()?)
     }
 }
