@@ -1,0 +1,12 @@
+(module
+  (func (export "as-if-then") (param i32 i32) (result i32)
+    (block (result i32)
+      (if (result i32) (local.get 0)
+        (then (br 1 (i32.const 3)))
+        (else (local.get 1))
+      )
+    )
+  )
+)
+(assert_return (invoke "as-if-then" (i32.const 0) (i32.const 6)) (i32.const 6))
+(assert_return (invoke "as-if-then" (i32.const 1) (i32.const 6)) (i32.const 3))

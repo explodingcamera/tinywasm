@@ -1,4 +1,4 @@
-use super::{FuncAddr, GlobalAddr, LabelAddr, LocalAddr, TableAddr, TypeAddr, ValType};
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValType};
 use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
@@ -23,11 +23,6 @@ impl MemoryArg {
     }
 }
 
-type BrTableDefault = u32;
-type BrTableLen = u32;
-type EndOffset = u32;
-type ElseOffset = u32;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstInstruction {
@@ -46,43 +41,26 @@ pub enum ConstInstruction {
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
 /// Wasm Bytecode can map to multiple of these instructions.
 ///
-/// # Differences to the spec
-/// * `br_table` stores the jump labels in the following `br_label` instructions to keep this enum small.
-/// * Lables/Blocks: we store the label end offset in the instruction itself and use `EndBlockFrame` to mark the end of a block.
-///   This makes it easier to implement the label stack iteratively.
-///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-// should be kept as small as possible (16 bytes max)
 #[rustfmt::skip]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
-    // LocalsStore32(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore64(LocalAddr, LocalAddr, u32, MemAddr), LocalsStore128(LocalAddr, LocalAddr, u32, MemAddr), LocalsStoreRef(LocalAddr, LocalAddr, u32, MemAddr),
 
-    // > Control Instructions
+    // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
-
-    Block(EndOffset), 
-    BlockWithType(ValType, EndOffset),
-    BlockWithFuncType(TypeAddr, EndOffset),
-
-    Loop(EndOffset),
-    LoopWithType(ValType, EndOffset),
-    LoopWithFuncType(TypeAddr, EndOffset),
-
-    If(ElseOffset, EndOffset),
-    IfWithType(ValType, ElseOffset, EndOffset),
-    IfWithFuncType(TypeAddr, ElseOffset, EndOffset),
-
-    Else(EndOffset),
-    EndBlockFrame,
-    Br(LabelAddr),
-    BrIf(LabelAddr),
-    BrTable(BrTableDefault, BrTableLen), // has to be followed by multiple BrLabel instructions
-    BrLabel(LabelAddr),
+    Jump(u32),
+    JumpIfZero(u32),
+    DropKeepSmall { base32: u8, keep32: u8, base64: u8, keep64: u8, base128: u8, keep128: u8, base_ref: u8, keep_ref: u8 },
+    DropKeep32(u16, u16),
+    DropKeep64(u16, u16),
+    DropKeep128(u16, u16),
+    DropKeepRef(u16, u16),
+    BranchTable(u32, u32),       // (default_landing_pad_ip, target_count) — followed by BranchTableTarget entries
+    BranchTableTarget(u32),      // (landing_pad_ip)
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),

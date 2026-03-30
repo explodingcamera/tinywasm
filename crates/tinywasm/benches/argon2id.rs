@@ -5,6 +5,10 @@ use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.opt.wasm");
 
+fn init_log() {
+    let _ = pretty_env_logger::formatted_timed_builder().filter_level(log::LevelFilter::Off).try_init();
+}
+
 fn argon2id_parse() -> Result<TinyWasmModule> {
     let parser = tinywasm_parser::Parser::new();
     let data = parser.parse_module_bytes(WASM)?;
@@ -30,6 +34,7 @@ fn argon2id_run(module: TinyWasmModule) -> Result<()> {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
+    init_log();
     let module = argon2id_parse().expect("argon2id_parse");
     let twasm = argon2id_to_twasm(&module).expect("argon2id_to_twasm");
 

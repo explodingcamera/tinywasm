@@ -4,7 +4,7 @@ use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall,
 
 use crate::{Result, Trap, engine::Config, interpreter::*};
 
-use super::Locals;
+use super::{Locals, StackBase};
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
@@ -74,6 +74,7 @@ impl<T: Copy + Default> Stack<T> {
         }
 
         let keep_tail = end_keep.min(self.len - n);
+
         if keep_tail == 0 {
             self.len = n;
             return;
@@ -113,17 +114,17 @@ impl ValueStack {
         self.stack_ref.clear();
     }
 
-    pub(crate) fn height(&self) -> StackLocation {
-        StackLocation {
-            s32: self.stack_32.len() as u32,
-            s64: self.stack_64.len() as u32,
-            s128: self.stack_128.len() as u32,
-            sref: self.stack_ref.len() as u32,
-        }
-    }
-
     pub(crate) fn len(&self) -> usize {
         self.stack_32.len() + self.stack_64.len() + self.stack_128.len() + self.stack_ref.len()
+    }
+
+    pub(crate) fn height(&self) -> StackBase {
+        StackBase {
+            s32: u32::try_from(self.stack_32.len()).expect("stack32 height overflow"),
+            s64: u32::try_from(self.stack_64.len()).expect("stack64 height overflow"),
+            s128: u32::try_from(self.stack_128.len()).expect("stack128 height overflow"),
+            sref: u32::try_from(self.stack_ref.len()).expect("stack_ref height overflow"),
+        }
     }
 
     pub(crate) fn peek<T: InternalValue>(&self) -> T {
@@ -207,13 +208,6 @@ impl ValueStack {
             locals_128: self.stack_128.pop_to_locals(pc.c128 as usize, lc.c128 as usize),
             locals_ref: self.stack_ref.pop_to_locals(pc.cref as usize, lc.cref as usize),
         }
-    }
-
-    pub(crate) fn truncate_keep(&mut self, to: StackLocation, keep: StackHeight) {
-        self.stack_32.truncate_keep(to.s32 as usize, usize::from(keep.s32));
-        self.stack_64.truncate_keep(to.s64 as usize, usize::from(keep.s64));
-        self.stack_128.truncate_keep(to.s128 as usize, usize::from(keep.s128));
-        self.stack_ref.truncate_keep(to.sref as usize, usize::from(keep.sref));
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<()> {

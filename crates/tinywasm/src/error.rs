@@ -121,9 +121,6 @@ pub enum Trap {
     /// Call stack overflow
     CallStackOverflow,
 
-    /// Block stack overflow
-    BlockStackOverflow,
-
     /// Value stack overflow
     ValueStackOverflow,
 
@@ -159,7 +156,6 @@ impl Trap {
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
-            Self::BlockStackOverflow => "block stack exhausted",
             Self::ValueStackOverflow => "value stack exhausted",
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
@@ -243,7 +239,6 @@ impl Display for Trap {
             Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::CallStackOverflow => write!(f, "call stack exhausted"),
-            Self::BlockStackOverflow => write!(f, "block stack exhausted"),
             Self::ValueStackOverflow => write!(f, "value stack exhausted"),
             Self::UndefinedElement { index } => write!(f, "undefined element: index={index}"),
             Self::UninitializedElement { index } => {

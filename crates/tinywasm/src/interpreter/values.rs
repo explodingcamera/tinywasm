@@ -20,51 +20,6 @@ pub enum TinyWasmValue {
     ValueRef(ValueRef),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct StackLocation {
-    pub(crate) s32: u32,
-    pub(crate) s64: u32,
-    pub(crate) s128: u32,
-    pub(crate) sref: u32,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct StackHeight {
-    pub(crate) s32: u16,
-    pub(crate) s64: u16,
-    pub(crate) s128: u16,
-    pub(crate) sref: u16,
-}
-
-impl From<ValType> for StackHeight {
-    fn from(value: ValType) -> Self {
-        match value {
-            ValType::I32 | ValType::F32 => Self { s32: 1, ..Default::default() },
-            ValType::I64 | ValType::F64 => Self { s64: 1, ..Default::default() },
-            ValType::V128 => Self { s128: 1, ..Default::default() },
-            ValType::RefExtern | ValType::RefFunc => Self { sref: 1, ..Default::default() },
-        }
-    }
-}
-
-impl From<&[ValType]> for StackHeight {
-    fn from(value: &[ValType]) -> Self {
-        let mut s32 = 0;
-        let mut s64 = 0;
-        let mut s128 = 0;
-        let mut sref = 0;
-        for val_type in value {
-            match val_type {
-                ValType::I32 | ValType::F32 => s32 += 1,
-                ValType::I64 | ValType::F64 => s64 += 1,
-                ValType::V128 => s128 += 1,
-                ValType::RefExtern | ValType::RefFunc => sref += 1,
-            }
-        }
-        Self { s32, s64, s128, sref }
-    }
-}
-
 impl TinyWasmValue {
     /// Asserts that the value is a 32-bit value and returns it (panics if the value is the wrong size)
     pub fn unwrap_32(&self) -> Value32 {

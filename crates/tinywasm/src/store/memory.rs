@@ -125,25 +125,29 @@ impl MemoryInstance {
     }
 
     pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
+        if pages_delta < 0 {
+            log::debug!("memory.grow failed: negative delta {}", pages_delta);
+            return None;
+        }
+
         let current_pages = self.page_count;
-        let new_pages = current_pages as i64 + pages_delta;
+        let pages_delta = usize::try_from(pages_delta).ok()?;
+        let new_pages = current_pages.checked_add(pages_delta)?;
 
-        if new_pages < 0 || new_pages as usize > self.max_pages() {
+        if new_pages > self.max_pages() {
             log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, self.max_pages());
-            log::debug!("{} {}", self.kind.page_count_max(), self.kind.page_size());
             return None;
         }
 
-        let new_size = (new_pages as u64 * self.kind.page_size()) as usize;
-        if new_size as u64 > self.kind.max_size() {
+        let new_size = (new_pages as u64).checked_mul(self.kind.page_size())?;
+        if new_size > self.kind.max_size() {
+            log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
             return None;
         }
 
-        // Zero initialize the new pages
-        self.data.reserve_exact(new_size);
-        self.data.resize_with(new_size, Default::default);
-        self.page_count = new_pages as usize;
-        Some(current_pages as i64)
+        self.data.resize(usize::try_from(new_size).ok()?, 0);
+        self.page_count = new_pages;
+        i64::try_from(current_pages).ok()
     }
 }
 
@@ -247,6 +251,15 @@ mod memory_instance_tests {
         let mut memory = create_test_memory();
         assert_eq!(memory.grow(1), Some(1));
         assert_eq!(memory.grow(1), None);
+    }
+
+    #[test]
+    fn test_memory_grow_negative_delta() {
+        let mut memory = create_test_memory();
+        let original_pages = memory.page_count;
+
+        assert_eq!(memory.grow(-1), None);
+        assert_eq!(memory.page_count, original_pages);
     }
 
     #[test]

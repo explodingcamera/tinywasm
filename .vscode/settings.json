@@ -1,8 +1,0 @@
-{
-    "search.exclude": {
-        "**/wasm-testsuite/data": true
-    },
-    "rust-analyzer.linkedProjects": [
-        "./Cargo.toml",
-    ],
-}

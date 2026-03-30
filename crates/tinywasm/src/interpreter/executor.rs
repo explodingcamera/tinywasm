@@ -10,7 +10,6 @@ use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
 use super::num_helpers::*;
-use super::stack::{BlockFrame, BlockType};
 use super::values::*;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
@@ -88,7 +87,7 @@ impl<'store> Executor<'store> {
 
         #[rustfmt::skip]
         match next {
-            Nop | BrLabel(_) | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
+            Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
             Unreachable => return ControlFlow::Break(Some(Trap::Unreachable.into())),
             Drop32 => self.store.stack.values.drop::<Value32>(),
             Drop64 => self.store.stack.values.drop::<Value64>(),
@@ -102,21 +101,70 @@ impl<'store> Executor<'store> {
             CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
             ReturnCall(v) => return self.exec_call_direct::<true>(*v),
             ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
-            If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())),
-            IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())),
-            IfWithFuncType(ty, end, el) => self.exec_if(*end, *el, self.resolve_functype(*ty)),
-            Else(end_offset) => self.exec_else(*end_offset),
-            Loop(end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), StackHeight::default())),
-            LoopWithType(ty, end) => self.enter_block(*end, BlockType::Loop, (StackHeight::default(), (*ty).into())),
-            LoopWithFuncType(ty, end) => self.enter_block(*end, BlockType::Loop, self.resolve_functype(*ty)),
-            Block(end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), StackHeight::default())),
-            BlockWithType(ty, end) => self.enter_block(*end, BlockType::Block, (StackHeight::default(), (*ty).into())),
-            BlockWithFuncType(ty, end) => self.enter_block(*end, BlockType::Block, self.resolve_functype(*ty)),
-            Br(v) => return self.exec_br(*v),
-            BrIf(v) => return self.exec_br_if(*v),
-            BrTable(default, len) => return self.exec_brtable(*default, *len),
+            Jump(ip) => {
+                self.cf.instr_ptr = *ip as usize;
+                return ControlFlow::Continue(());
+            }
+            JumpIfZero(ip) => {
+                let cond = self.store.stack.values.pop::<i32>();
+
+                if cond == 0 {
+                    self.cf.instr_ptr = *ip as usize;
+                } else {
+                    self.cf.incr_instr_ptr();
+                }
+                return ControlFlow::Continue(());
+            }
+            DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
+                let b32 = self.cf.stack_base.s32 as usize + *base32 as usize;
+                let k32 = *keep32 as usize;
+                self.store.stack.values.stack_32.truncate_keep(b32, k32);
+                let b64 = self.cf.stack_base.s64 as usize + *base64 as usize;
+                let k64 = *keep64 as usize;
+                self.store.stack.values.stack_64.truncate_keep(b64, k64);
+                let b128 = self.cf.stack_base.s128 as usize + *base128 as usize;
+                let k128 = *keep128 as usize;
+                self.store.stack.values.stack_128.truncate_keep(b128, k128);
+                let bref = self.cf.stack_base.sref as usize + *base_ref as usize;
+                let kref = *keep_ref as usize;
+                self.store.stack.values.stack_ref.truncate_keep(bref, kref);
+            }
+            DropKeep32(base, keep) => {
+                let b = self.cf.stack_base.s32 as usize + *base as usize;
+                let k = *keep as usize;
+                self.store.stack.values.stack_32.truncate_keep(b, k);
+            }
+            DropKeep64(base, keep) => {
+                let b = self.cf.stack_base.s64 as usize + *base as usize;
+                let k = *keep as usize;
+                self.store.stack.values.stack_64.truncate_keep(b, k);
+            }
+            DropKeep128(base, keep) => {
+                let b = self.cf.stack_base.s128 as usize + *base as usize;
+                let k = *keep as usize;
+                self.store.stack.values.stack_128.truncate_keep(b, k);
+            }
+            DropKeepRef(base, keep) => {
+                let b = self.cf.stack_base.sref as usize + *base as usize;
+                let k = *keep as usize;
+                self.store.stack.values.stack_ref.truncate_keep(b, k);
+            }
+            BranchTable(default_ip, len) => {
+                let idx = self.store.stack.values.pop::<i32>();
+                let start = self.cf.instr_ptr + 1;
+
+                let target_ip = if idx >= 0 && (idx as u32) < *len {
+                    match self.instructions.0.get(start + idx as usize) {
+                        Some(Instruction::BranchTableTarget(ip)) => *ip,
+                        _ => *default_ip,
+                    }
+                } else {
+                    *default_ip
+                };
+                self.cf.instr_ptr = target_ip as usize;
+                return ControlFlow::Continue(());
+            }
             Return => return self.exec_return(),
-            EndBlockFrame => self.exec_end_block(),
             LocalGet32(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value32>(*local_index)).to_cf()?,
             LocalGet64(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value64>(*local_index)).to_cf()?,
             LocalGet128(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value128>(*local_index)).to_cf()?,
@@ -588,10 +636,12 @@ impl<'store> Executor<'store> {
 
         if IS_RETURN_CALL {
             let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-            self.cf.reuse_for(func_addr, locals, self.store.stack.blocks.len() as u32, owner);
+            let stack_base = self.store.stack.values.height();
+            self.cf.reuse_for(func_addr, locals, owner, stack_base);
         } else {
             let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-            let new_call_frame = CallFrame::new(func_addr, owner, locals, self.store.stack.blocks.len() as u32);
+            let stack_base = self.store.stack.values.height();
+            let new_call_frame = CallFrame::new(func_addr, owner, locals, stack_base);
             self.cf.incr_instr_ptr(); // skip the call instruction
             self.store.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame)).to_cf()?;
         }
@@ -661,84 +711,7 @@ impl<'store> Executor<'store> {
         }
     }
 
-    fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
-        // truthy value is on the top of the stack, so enter the then block
-        if self.store.stack.values.pop::<i32>() != 0 {
-            self.enter_block(end_offset, BlockType::If, (params, results));
-            return;
-        }
-
-        // falsy value is on the top of the stack
-        if else_offset == 0 {
-            self.cf.jump(end_offset);
-            return;
-        }
-
-        self.cf.jump(else_offset);
-        self.enter_block(end_offset - else_offset, BlockType::Else, (params, results));
-    }
-    fn exec_else(&mut self, end_offset: u32) {
-        self.exec_end_block();
-        self.cf.jump(end_offset);
-    }
-    fn resolve_functype(&self, idx: u32) -> (StackHeight, StackHeight) {
-        let ty = self.module.func_ty(idx);
-        ((&*ty.params).into(), (&*ty.results).into())
-    }
-    fn enter_block(&mut self, end_instr_offset: u32, ty: BlockType, (params, results): (StackHeight, StackHeight)) {
-        self.store.stack.blocks.push(BlockFrame {
-            instr_ptr: self.cf.instr_ptr as u32,
-            end_instr_offset,
-            stack_ptr: self.store.stack.values.height(),
-            results,
-            params,
-            ty,
-        })
-    }
-    fn exec_br(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none() {
-            return self.exec_return();
-        }
-
-        self.cf.incr_instr_ptr();
-        ControlFlow::Continue(())
-    }
-    fn exec_br_if(&mut self, to: u32) -> ControlFlow<Option<Error>> {
-        if self.store.stack.values.pop::<i32>() != 0
-            && self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none()
-        {
-            return self.exec_return();
-        }
-        self.cf.incr_instr_ptr();
-        ControlFlow::Continue(())
-    }
-    fn exec_brtable(&mut self, default: u32, len: u32) -> ControlFlow<Option<Error>> {
-        let start = self.cf.instr_ptr + 1;
-        let end = start + len as usize;
-        if end > self.func.instructions.len() {
-            return ControlFlow::Break(Some(Error::Other(format!(
-                "br_table out of bounds: {} >= {}",
-                end,
-                self.func.instructions.len()
-            ))));
-        }
-
-        let idx = self.store.stack.values.pop::<i32>();
-        let to = match self.func.instructions[start..end].get(idx as usize) {
-            None => default,
-            Some(Instruction::BrLabel(to)) => *to,
-            _ => return ControlFlow::Break(Some(Error::Other("br_table out of bounds".to_string()))),
-        };
-
-        if self.cf.break_to(to, &mut self.store.stack.values, &mut self.store.stack.blocks).is_none() {
-            return self.exec_return();
-        }
-
-        self.cf.incr_instr_ptr();
-        ControlFlow::Continue(())
-    }
     fn exec_return(&mut self) -> ControlFlow<Option<Error>> {
-        let old = self.cf.block_ptr;
         let Some(cf) = self.store.stack.call_stack.pop() else { return ControlFlow::Break(None) };
 
         if cf.func_addr != self.cf.func_addr {
@@ -750,18 +723,9 @@ impl<'store> Executor<'store> {
             }
         }
 
-        if old > cf.block_ptr {
-            self.store.stack.blocks.truncate(old);
-        }
-
         self.cf = cf;
         ControlFlow::Continue(())
     }
-    fn exec_end_block(&mut self) {
-        let block = self.store.stack.blocks.pop();
-        self.store.stack.values.truncate_keep(block.stack_ptr, block.results);
-    }
-
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
         self.store.stack.values.push_dyn(self.store.state.get_global_val(self.module.resolve_global_addr(global_index)))
     }

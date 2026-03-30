@@ -56,7 +56,7 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let callframe = CallFrame::new_with_params(wasm_func.locals, self.addr, func_inst.owner, params, 0);
+        let callframe = CallFrame::new_with_params(wasm_func.locals, self.addr, func_inst.owner, params);
 
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack

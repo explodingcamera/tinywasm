@@ -155,7 +155,6 @@ pub type ConstIdx = Addr;
 // additional internal addresses
 pub type TypeAddr = Addr;
 pub type LocalAddr = u16; // there can't be more than 50.000 locals in a function
-pub type LabelAddr = Addr;
 pub type ModuleInstanceAddr = Addr;
 
 /// A WebAssembly External Value.
@@ -288,12 +287,14 @@ impl<T: Debug> Debug for ArcSlice<T> {
     }
 }
 
+#[cfg(feature = "archive")]
 impl<T: serde::Serialize + Debug> serde::Serialize for ArcSlice<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_ref().serialize(serializer)
     }
 }
 
+#[cfg(feature = "archive")]
 impl<'de, T: serde::Deserialize<'de> + Debug> serde::Deserialize<'de> for ArcSlice<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let vec: alloc::vec::Vec<T> = alloc::vec::Vec::deserialize(deserializer)?;
