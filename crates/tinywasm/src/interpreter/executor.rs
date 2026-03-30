@@ -17,7 +17,6 @@ use crate::*;
 
 pub(crate) struct Executor<'store> {
     cf: CallFrame,
-    instructions: ArcSlice<Instruction>,
     func: Rc<WasmFunction>,
     module: Rc<ModuleInstanceInner>,
     store: &'store mut Store,
@@ -27,8 +26,7 @@ impl<'store> Executor<'store> {
     pub(crate) fn new(store: &'store mut Store, cf: CallFrame) -> Result<Self> {
         let module = store.get_module_instance_raw(cf.module_addr).clone();
         let func = store.state.get_wasm_func(cf.func_addr).clone();
-        let instructions = func.instructions.clone();
-        Ok(Self { module, store, cf, func, instructions })
+        Ok(Self { module, store, cf, func })
     }
 
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
@@ -76,12 +74,12 @@ impl<'store> Executor<'store> {
             };
         }
 
-        let next = match self.instructions.0.get(self.cf.instr_ptr) {
+        let next = match self.func.instructions.0.get(self.cf.instr_ptr) {
             Some(instr) => instr,
             None => unreachable!(
                 "Instruction pointer out of bounds: {} ({} instructions)",
                 self.cf.instr_ptr,
-                self.instructions.0.len()
+                self.func.instructions.0.len()
             ),
         };
 
@@ -116,36 +114,36 @@ impl<'store> Executor<'store> {
                 return ControlFlow::Continue(());
             }
             DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                let b32 = self.cf.stack_base.s32 as usize + *base32 as usize;
+                let b32 = self.cf.stack_base.s32 + *base32 as usize;
                 let k32 = *keep32 as usize;
                 self.store.stack.values.stack_32.truncate_keep(b32, k32);
-                let b64 = self.cf.stack_base.s64 as usize + *base64 as usize;
+                let b64 = self.cf.stack_base.s64 + *base64 as usize;
                 let k64 = *keep64 as usize;
                 self.store.stack.values.stack_64.truncate_keep(b64, k64);
-                let b128 = self.cf.stack_base.s128 as usize + *base128 as usize;
+                let b128 = self.cf.stack_base.s128 + *base128 as usize;
                 let k128 = *keep128 as usize;
                 self.store.stack.values.stack_128.truncate_keep(b128, k128);
-                let bref = self.cf.stack_base.sref as usize + *base_ref as usize;
+                let bref = self.cf.stack_base.sref + *base_ref as usize;
                 let kref = *keep_ref as usize;
                 self.store.stack.values.stack_ref.truncate_keep(bref, kref);
             }
             DropKeep32(base, keep) => {
-                let b = self.cf.stack_base.s32 as usize + *base as usize;
+                let b = self.cf.stack_base.s32 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_32.truncate_keep(b, k);
             }
             DropKeep64(base, keep) => {
-                let b = self.cf.stack_base.s64 as usize + *base as usize;
+                let b = self.cf.stack_base.s64 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_64.truncate_keep(b, k);
             }
             DropKeep128(base, keep) => {
-                let b = self.cf.stack_base.s128 as usize + *base as usize;
+                let b = self.cf.stack_base.s128 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_128.truncate_keep(b, k);
             }
             DropKeepRef(base, keep) => {
-                let b = self.cf.stack_base.sref as usize + *base as usize;
+                let b = self.cf.stack_base.sref + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_ref.truncate_keep(b, k);
             }
@@ -154,7 +152,7 @@ impl<'store> Executor<'store> {
                 let start = self.cf.instr_ptr + 1;
 
                 let target_ip = if idx >= 0 && (idx as u32) < *len {
-                    match self.instructions.0.get(start + idx as usize) {
+                    match self.func.instructions.0.get(start + idx as usize) {
                         Some(Instruction::BranchTableTarget(ip)) => *ip,
                         _ => *default_ip,
                     }
@@ -629,9 +627,8 @@ impl<'store> Executor<'store> {
         func_addr: FuncAddr,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
-        if self.func != wasm_func {
+        if !Rc::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func.clone();
-            self.instructions = wasm_func.instructions.clone();
         }
 
         if IS_RETURN_CALL {
@@ -716,7 +713,6 @@ impl<'store> Executor<'store> {
 
         if cf.func_addr != self.cf.func_addr {
             self.func = self.store.state.get_wasm_func(cf.func_addr).clone();
-            self.instructions = self.func.instructions.clone();
 
             if cf.module_addr != self.module.idx {
                 self.module = self.store.get_module_instance_raw(cf.module_addr).clone();
@@ -751,14 +747,14 @@ impl<'store> Executor<'store> {
     }
     fn exec_memory_grow(&mut self, addr: u32) -> Result<()> {
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
-        let prev_size = mem.page_count;
-        let pages_delta = match mem.is_64bit() {
+        let is_64bit = mem.is_64bit();
+        let pages_delta = match is_64bit {
             true => self.store.stack.values.pop::<i64>(),
             false => i64::from(self.store.stack.values.pop::<i32>()),
         };
 
-        let size = mem.grow(pages_delta).map(|_| prev_size as i64).unwrap_or(-1);
-        match mem.is_64bit() {
+        let size = mem.grow(pages_delta).unwrap_or(-1);
+        match is_64bit {
             true => self.store.stack.values.push::<i64>(size)?,
             false => self.store.stack.values.push::<i32>(size as i32)?,
         };

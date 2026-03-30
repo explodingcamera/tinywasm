@@ -86,6 +86,11 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     pub(crate) fn pop_to_locals(&mut self, param_count: usize, local_count: usize) -> Box<[T]> {
+        if local_count == 0 {
+            debug_assert!(param_count == 0, "param count exceeds local count");
+            return Box::new([]);
+        }
+
         let mut locals = alloc::vec![T::default(); local_count].into_boxed_slice();
         let start =
             self.len.checked_sub(param_count).unwrap_or_else(|| unreachable!("value stack underflow, this is a bug"));
@@ -120,10 +125,10 @@ impl ValueStack {
 
     pub(crate) fn height(&self) -> StackBase {
         StackBase {
-            s32: u32::try_from(self.stack_32.len()).expect("stack32 height overflow"),
-            s64: u32::try_from(self.stack_64.len()).expect("stack64 height overflow"),
-            s128: u32::try_from(self.stack_128.len()).expect("stack128 height overflow"),
-            sref: u32::try_from(self.stack_ref.len()).expect("stack_ref height overflow"),
+            s32: self.stack_32.len(),
+            s64: self.stack_64.len(),
+            s128: self.stack_128.len(),
+            sref: self.stack_ref.len(),
         }
     }
 

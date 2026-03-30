@@ -59,14 +59,14 @@ pub enum Instruction {
     DropKeep64(u16, u16),
     DropKeep128(u16, u16),
     DropKeepRef(u16, u16),
-    BranchTable(u32, u32),       // (default_landing_pad_ip, target_count) — followed by BranchTableTarget entries
+    BranchTable(u32, u32),       // (default_landing_pad_ip, target_count) - followed by BranchTableTarget entries
     BranchTableTarget(u32),      // (landing_pad_ip)
     Return,
     Call(FuncAddr),
     CallIndirect(TypeAddr, TableAddr),
     ReturnCall(FuncAddr),
     ReturnCallIndirect(TypeAddr, TableAddr),
- 
+
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
     Drop32, Select32,

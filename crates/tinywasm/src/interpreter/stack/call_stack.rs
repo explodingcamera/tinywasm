@@ -44,10 +44,10 @@ pub(crate) struct CallFrame {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct StackBase {
-    pub(crate) s32: u32,
-    pub(crate) s64: u32,
-    pub(crate) s128: u32,
-    pub(crate) sref: u32,
+    pub(crate) s32: usize,
+    pub(crate) s64: usize,
+    pub(crate) s128: usize,
+    pub(crate) sref: usize,
 }
 
 #[derive(Debug)]

@@ -54,10 +54,6 @@ impl MemoryInstance {
         Ok(())
     }
 
-    pub(crate) fn max_pages(&self) -> usize {
-        self.kind.page_count_max().try_into().unwrap_or(usize::MAX)
-    }
-
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
         let Some(end) = addr.checked_add(len) else {
             cold();
@@ -133,9 +129,10 @@ impl MemoryInstance {
         let current_pages = self.page_count;
         let pages_delta = usize::try_from(pages_delta).ok()?;
         let new_pages = current_pages.checked_add(pages_delta)?;
+        let max_pages = self.kind.page_count_max().try_into().unwrap_or(usize::MAX);
 
-        if new_pages > self.max_pages() {
-            log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, self.max_pages());
+        if new_pages > max_pages {
+            log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
             return None;
         }
 
@@ -145,7 +142,12 @@ impl MemoryInstance {
             return None;
         }
 
-        self.data.resize(usize::try_from(new_size).ok()?, 0);
+        let new_size = usize::try_from(new_size).ok()?;
+        if new_size == self.data.len() {
+            return i64::try_from(current_pages).ok();
+        }
+
+        self.data.resize(new_size, 0);
         self.page_count = new_pages;
         i64::try_from(current_pages).ok()
     }
