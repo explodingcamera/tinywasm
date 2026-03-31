@@ -1,6 +1,7 @@
 use crate::{Result, interpreter::value128::Value128};
 
-use super::stack::ValueStack;
+use super::stack::{CallFrame, ValueStack};
+use tinywasm_types::LocalAddr;
 use tinywasm_types::{ExternRef, FuncRef, ValType, WasmValue};
 
 pub(crate) type Value32 = u32;
@@ -105,6 +106,12 @@ mod sealed {
 
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()>;
+    fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self
+    where
+        Self: Sized;
+    fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self)
+    where
+        Self: Sized;
     fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()>
     where
         Self: Sized;
@@ -124,7 +131,7 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
 }
 
 macro_rules! impl_internalvalue {
-    ($( $variant:ident, $stack:ident, $internal:ty, $outer:ty, $to_internal:expr, $to_outer:expr )*) => {
+    ($( $variant:ident, $stack:ident, $stack_base:ident, $outer:ty, $to_internal:expr, $to_outer:expr )*) => {
         $(
             impl sealed::Sealed for $outer {}
 
@@ -138,6 +145,16 @@ macro_rules! impl_internalvalue {
                 #[inline]
                 fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()> {
                     stack.$stack.push($to_internal(value))
+                }
+
+                #[inline]
+                fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
+                    $to_outer(stack.$stack.get(frame.locals_base.$stack_base + index as usize))
+                }
+
+                #[inline]
+                fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
+                    stack.$stack.set(frame.locals_base.$stack_base + index as usize, $to_internal(value));
                 }
 
                 #[inline]
@@ -179,12 +196,12 @@ macro_rules! impl_internalvalue {
 }
 
 impl_internalvalue! {
-    Value32, stack_32, u32, u32, |v| v, |v| v
-    Value64, stack_64, u64, u64, |v| v, |v| v
-    Value32, stack_32, u32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
-    Value64, stack_64, u64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
-    Value32, stack_32, u32, f32, f32::to_bits, f32::from_bits
-    Value64, stack_64, u64, f64, f64::to_bits, f64::from_bits
-    ValueRef, stack_ref, ValueRef, ValueRef, |v| v, |v| v
-    Value128, stack_128, Value128, Value128, |v| v, |v| v
+    Value32, stack_32, s32, u32, |v| v, |v| v
+    Value64, stack_64, s64, u64, |v| v, |v| v
+    Value32, stack_32, s32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
+    Value64, stack_64, s64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
+    Value32, stack_32, s32, f32, f32::to_bits, f32::from_bits
+    Value64, stack_64, s64, f64, f64::to_bits, f64::from_bits
+    ValueRef, stack_ref, sref, ValueRef, |v| v, |v| v
+    Value128, stack_128, s128, Value128, |v| v, |v| v
 }

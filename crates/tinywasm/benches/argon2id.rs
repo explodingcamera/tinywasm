@@ -31,11 +31,11 @@ fn argon2id_run(module: TinyWasmModule) -> Result<()> {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = argon2id_parse().expect("argon2id_parse");
-    let twasm = argon2id_to_twasm(&module).expect("argon2id_to_twasm");
+    let _twasm = argon2id_to_twasm(&module).expect("argon2id_to_twasm");
 
-    c.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
-    c.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(&module)));
-    c.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(&twasm)));
+    // c.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
+    // c.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(&module)));
+    // c.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(&twasm)));
     c.bench_function("argon2id", |b| b.iter(|| argon2id_run(module.clone())));
 }
 

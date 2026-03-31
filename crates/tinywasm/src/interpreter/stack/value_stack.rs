@@ -268,43 +268,13 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn local_get_32(&self, frame: &CallFrame, index: LocalAddr) -> Value32 {
-        self.stack_32.get(frame.locals_base.s32 + index as usize)
+    pub(crate) fn local_get<T: InternalValue>(&self, frame: &CallFrame, index: LocalAddr) -> T {
+        T::local_get(self, frame, index)
     }
 
     #[inline]
-    pub(crate) fn local_get_64(&self, frame: &CallFrame, index: LocalAddr) -> Value64 {
-        self.stack_64.get(frame.locals_base.s64 + index as usize)
-    }
-
-    #[inline]
-    pub(crate) fn local_get_128(&self, frame: &CallFrame, index: LocalAddr) -> Value128 {
-        self.stack_128.get(frame.locals_base.s128 + index as usize)
-    }
-
-    #[inline]
-    pub(crate) fn local_get_ref(&self, frame: &CallFrame, index: LocalAddr) -> ValueRef {
-        self.stack_ref.get(frame.locals_base.sref + index as usize)
-    }
-
-    #[inline]
-    pub(crate) fn local_set_32(&mut self, frame: &CallFrame, index: LocalAddr, value: Value32) {
-        self.stack_32.set(frame.locals_base.s32 + index as usize, value);
-    }
-
-    #[inline]
-    pub(crate) fn local_set_64(&mut self, frame: &CallFrame, index: LocalAddr, value: Value64) {
-        self.stack_64.set(frame.locals_base.s64 + index as usize, value);
-    }
-
-    #[inline]
-    pub(crate) fn local_set_128(&mut self, frame: &CallFrame, index: LocalAddr, value: Value128) {
-        self.stack_128.set(frame.locals_base.s128 + index as usize, value);
-    }
-
-    #[inline]
-    pub(crate) fn local_set_ref(&mut self, frame: &CallFrame, index: LocalAddr, value: ValueRef) {
-        self.stack_ref.set(frame.locals_base.sref + index as usize, value);
+    pub(crate) fn local_set<T: InternalValue>(&mut self, frame: &CallFrame, index: LocalAddr, value: T) {
+        T::local_set(self, frame, index, value);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<()> {

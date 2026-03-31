@@ -72,6 +72,10 @@ impl<'store> Executor<'store> {
             (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
                 self.store.stack.values.binary_diff::<$a, $b, $res>(|$lhs, $rhs| Ok($expr)).to_cf()?
             };
+            (local_set_pop $ty:ty, $local_index:expr) => {{
+                let val = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.local_set(&self.cf, *$local_index, val);
+            }};
         }
 
         let next = match self.func.instructions.0.get(self.cf.instr_ptr) {
@@ -166,58 +170,58 @@ impl<'store> Executor<'store> {
                 return ControlFlow::Continue(());
             }
             Return => return self.exec_return(),
-            LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_32(&self.cf, *local_index)).to_cf()?,
-            LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_64(&self.cf, *local_index)).to_cf()?,
-            LocalGet128(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_128(&self.cf, *local_index)).to_cf()?,
-            LocalGetRef(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_ref(&self.cf, *local_index)).to_cf()?,
-            LocalSet32(local_index) => {
-                let val = self.store.stack.values.pop::<Value32>();
-                self.store.stack.values.local_set_32(&self.cf, *local_index, val);
+            LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value32>(&self.cf, *local_index)).to_cf()?,
+            LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value64>(&self.cf, *local_index)).to_cf()?,
+            LocalGet128(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value128>(&self.cf, *local_index)).to_cf()?,
+            LocalGetRef(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<ValueRef>(&self.cf, *local_index)).to_cf()?,
+            LocalSet32(local_index) => stack_op!(local_set_pop Value32, local_index),
+            LocalSet64(local_index) => stack_op!(local_set_pop Value64, local_index),
+            LocalSet128(local_index) => stack_op!(local_set_pop Value128, local_index),
+            LocalSetRef(local_index) => stack_op!(local_set_pop ValueRef, local_index),
+            LocalCopy32(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value32>(&self.cf, *from)),
+            LocalCopy64(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value64>(&self.cf, *from)),
+            LocalCopy128(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value128>(&self.cf, *from)),
+            LocalCopyRef(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<ValueRef>(&self.cf, *from)),
+            I32AddLocals(a, b) => self.store.stack.values.push(
+                self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)),
+            ).to_cf()?,
+            I64AddLocals(a, b) => self.store.stack.values.push(
+                self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)),
+            ).to_cf()?,
+            I32AddConst(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
+            I64AddConst(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
+            I32StoreLocalLocal(m, addr_local, value_local) => {
+                let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
+                let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, *addr_local));
+                let value = self.store.stack.values.local_get::<u32>(&self.cf, *value_local).to_mem_bytes();
+                if let Err(e) = mem.store((m.offset() + addr) as usize, value.len(), &value) {
+                    return ControlFlow::Break(Some(e));
+                }
             }
-            LocalSet64(local_index) => {
-                let val = self.store.stack.values.pop::<Value64>();
-                self.store.stack.values.local_set_64(&self.cf, *local_index, val);
+            I32LoadLocalTee(m, addr_local, dst_local) => {
+                let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
+                let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, *addr_local));
+                let Some(Ok(addr)) = m.offset().checked_add(addr).map(|a| a.try_into()) else {
+                    return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
+                        offset: addr as usize,
+                        len: 4,
+                        max: 0,
+                    })));
+                };
+                let value = mem.load_as::<4, i32>(addr).to_cf()?;
+                self.store.stack.values.local_set(&self.cf, *dst_local, value);
+                self.store.stack.values.push(value).to_cf()?;
             }
-            LocalSet128(local_index) => {
-                let val = self.store.stack.values.pop::<Value128>();
-                self.store.stack.values.local_set_128(&self.cf, *local_index, val);
+            I64XorRotlConst(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
+            I64XorRotlConstTee(c, local_index) => {
+                self.store.stack.values.binary_same::<i64>(|lhs, rhs| Ok((lhs ^ rhs).rotate_left(*c as u32))).to_cf()?;
+                let val = self.store.stack.values.peek::<i64>();
+                self.store.stack.values.local_set(&self.cf, *local_index, val);
             }
-            LocalSetRef(local_index) => {
-                let val = self.store.stack.values.pop::<ValueRef>();
-                self.store.stack.values.local_set_ref(&self.cf, *local_index, val);
-            }
-            LocalCopy32(from, to) => {
-                let val = self.store.stack.values.local_get_32(&self.cf, *from);
-                self.store.stack.values.local_set_32(&self.cf, *to, val);
-            }
-            LocalCopy64(from, to) => {
-                let val = self.store.stack.values.local_get_64(&self.cf, *from);
-                self.store.stack.values.local_set_64(&self.cf, *to, val);
-            }
-            LocalCopy128(from, to) => {
-                let val = self.store.stack.values.local_get_128(&self.cf, *from);
-                self.store.stack.values.local_set_128(&self.cf, *to, val);
-            }
-            LocalCopyRef(from, to) => {
-                let val = self.store.stack.values.local_get_ref(&self.cf, *from);
-                self.store.stack.values.local_set_ref(&self.cf, *to, val);
-            }
-            LocalTee32(local_index) => {
-                let val = self.store.stack.values.peek::<Value32>();
-                self.store.stack.values.local_set_32(&self.cf, *local_index, val);
-            }
-            LocalTee64(local_index) => {
-                let val = self.store.stack.values.peek::<Value64>();
-                self.store.stack.values.local_set_64(&self.cf, *local_index, val);
-            }
-            LocalTee128(local_index) => {
-                let val = self.store.stack.values.peek::<Value128>();
-                self.store.stack.values.local_set_128(&self.cf, *local_index, val);
-            }
-            LocalTeeRef(local_index) => {
-                let val = self.store.stack.values.peek::<ValueRef>();
-                self.store.stack.values.local_set_ref(&self.cf, *local_index, val);
-            }
+            LocalTee32(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value32>()),
+            LocalTee64(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value64>()),
+            LocalTee128(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value128>()),
+            LocalTeeRef(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<ValueRef>()),
             GlobalGet(global_index) => self.exec_global_get(*global_index).to_cf()?,
             GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index),
             GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
