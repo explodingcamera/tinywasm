@@ -169,7 +169,8 @@ pub enum ExternVal {
 }
 
 impl ExternVal {
-    pub fn kind(&self) -> ExternalKind {
+    #[inline]
+    pub const fn kind(&self) -> ExternalKind {
         match self {
             Self::Func(_) => ExternalKind::Func,
             Self::Table(_) => ExternalKind::Table,
@@ -178,7 +179,8 @@ impl ExternVal {
         }
     }
 
-    pub fn new(kind: ExternalKind, addr: Addr) -> Self {
+    #[inline]
+    pub const fn new(kind: ExternalKind, addr: Addr) -> Self {
         match kind {
             ExternalKind::Func => Self::Func(addr),
             ExternalKind::Table => Self::Table(addr),
@@ -217,6 +219,7 @@ pub struct ValueCountsSmall {
 }
 
 impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCounts {
+    #[inline]
     fn from(types: T) -> Self {
         let mut counts = Self::default();
         for ty in types {
@@ -232,6 +235,7 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCounts {
 }
 
 impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
+    #[inline]
     fn from(types: T) -> Self {
         let mut counts = Self::default();
         for ty in types {
@@ -363,31 +367,42 @@ pub struct MemoryType {
 }
 
 impl MemoryType {
-    pub fn new(arch: MemoryArch, page_count_initial: u64, page_count_max: Option<u64>, page_size: Option<u64>) -> Self {
+    pub const fn new(
+        arch: MemoryArch,
+        page_count_initial: u64,
+        page_count_max: Option<u64>,
+        page_size: Option<u64>,
+    ) -> Self {
         Self { arch, page_count_initial, page_count_max, page_size }
     }
 
-    pub fn arch(&self) -> MemoryArch {
+    #[inline]
+    pub const fn arch(&self) -> MemoryArch {
         self.arch
     }
 
-    pub fn page_count_initial(&self) -> u64 {
+    #[inline]
+    pub const fn page_count_initial(&self) -> u64 {
         self.page_count_initial
     }
 
-    pub fn page_count_max(&self) -> u64 {
-        self.page_count_max.unwrap_or_else(|| max_page_count(self.page_size()))
+    #[inline]
+    pub const fn page_count_max(&self) -> u64 {
+        if let Some(page_count_max) = self.page_count_max { page_count_max } else { max_page_count(self.page_size()) }
     }
 
-    pub fn page_size(&self) -> u64 {
-        self.page_size.unwrap_or(MEM_PAGE_SIZE)
+    #[inline]
+    pub const fn page_size(&self) -> u64 {
+        if let Some(page_size) = self.page_size { page_size } else { MEM_PAGE_SIZE }
     }
 
-    pub fn initial_size(&self) -> u64 {
+    #[inline]
+    pub const fn initial_size(&self) -> u64 {
         self.page_count_initial * self.page_size()
     }
 
-    pub fn max_size(&self) -> u64 {
+    #[inline]
+    pub const fn max_size(&self) -> u64 {
         self.page_count_max() * self.page_size()
     }
 }

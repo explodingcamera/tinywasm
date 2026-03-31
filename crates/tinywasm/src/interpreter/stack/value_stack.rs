@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use tinywasm_types::{ExternRef, FuncRef, ValType, ValueCounts, ValueCountsSmall, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
 use crate::{Result, Trap, engine::Config, interpreter::*};
 
-use super::{Locals, StackBase};
+use super::{CallFrame, StackBase};
 
 #[derive(Debug)]
 pub(crate) struct ValueStack {
@@ -68,6 +68,20 @@ impl<T: Copy + Default> Stack<T> {
         &mut self.data[self.len - 1]
     }
 
+    pub(crate) fn get(&self, index: usize) -> T {
+        match self.data.get(index) {
+            Some(v) => *v,
+            None => unreachable!("Stack index out of bounds, this is a bug"),
+        }
+    }
+
+    pub(crate) fn set(&mut self, index: usize, value: T) {
+        match self.data.get_mut(index) {
+            Some(v) => *v = value,
+            None => unreachable!("Stack index out of bounds, this is a bug"),
+        }
+    }
+
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         if self.len <= n {
             return;
@@ -85,20 +99,19 @@ impl<T: Copy + Default> Stack<T> {
         self.len = n + keep_tail;
     }
 
-    pub(crate) fn pop_to_locals(&mut self, param_count: usize, local_count: usize) -> Box<[T]> {
-        if local_count == 0 {
-            debug_assert!(param_count == 0, "param count exceeds local count");
-            return Box::new([]);
-        }
-
-        let mut locals = alloc::vec![T::default(); local_count].into_boxed_slice();
+    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<(usize, usize)> {
+        debug_assert!(param_count <= local_count, "param count exceeds local count");
         let start =
             self.len.checked_sub(param_count).unwrap_or_else(|| unreachable!("value stack underflow, this is a bug"));
-        debug_assert!(param_count <= local_count, "param count exceeds local count");
 
-        locals[..param_count].copy_from_slice(&self.data[start..self.len]);
-        self.len = start;
-        locals
+        let end = start + local_count;
+        if end > self.data.len() {
+            return Err(Trap::ValueStackOverflow.into());
+        }
+
+        self.data[(start + param_count)..end].fill(T::default());
+        self.len = end;
+        Ok((start, end))
     }
 }
 
@@ -121,15 +134,6 @@ impl ValueStack {
 
     pub(crate) fn len(&self) -> usize {
         self.stack_32.len() + self.stack_64.len() + self.stack_128.len() + self.stack_ref.len()
-    }
-
-    pub(crate) fn height(&self) -> StackBase {
-        StackBase {
-            s32: self.stack_32.len(),
-            s64: self.stack_64.len(),
-            s128: self.stack_128.len(),
-            sref: self.stack_ref.len(),
-        }
     }
 
     pub(crate) fn peek<T: InternalValue>(&self) -> T {
@@ -206,13 +210,77 @@ impl ValueStack {
         val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
 
-    pub(crate) fn pop_locals(&mut self, pc: ValueCountsSmall, lc: ValueCounts) -> Locals {
-        Locals {
-            locals_32: self.stack_32.pop_to_locals(pc.c32 as usize, lc.c32 as usize),
-            locals_64: self.stack_64.pop_to_locals(pc.c64 as usize, lc.c64 as usize),
-            locals_128: self.stack_128.pop_to_locals(pc.c128 as usize, lc.c128 as usize),
-            locals_ref: self.stack_ref.pop_to_locals(pc.cref as usize, lc.cref as usize),
-        }
+    pub(crate) fn enter_locals(
+        &mut self,
+        params: ValueCountsSmall,
+        locals: ValueCounts,
+    ) -> Result<(StackBase, StackBase, ValueCountsSmall)> {
+        let stack_offset = ValueCountsSmall {
+            c32: u16::try_from(locals.c32).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+            c64: u16::try_from(locals.c64).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+            c128: u16::try_from(locals.c128).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+            cref: u16::try_from(locals.cref).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+        };
+
+        let (locals_base32, stack_base32) = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
+        let (locals_base64, stack_base64) = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
+        let (locals_base128, stack_base128) =
+            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
+        let (locals_baseref, stack_baseref) =
+            self.stack_ref.enter_locals(params.cref as usize, locals.cref as usize)?;
+
+        Ok((
+            StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128, sref: locals_baseref },
+            StackBase { s32: stack_base32, s64: stack_base64, s128: stack_base128, sref: stack_baseref },
+            stack_offset,
+        ))
+    }
+
+    pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCountsSmall) {
+        self.stack_32.truncate_keep(base.s32, keep.c32 as usize);
+        self.stack_64.truncate_keep(base.s64, keep.c64 as usize);
+        self.stack_128.truncate_keep(base.s128, keep.c128 as usize);
+        self.stack_ref.truncate_keep(base.sref, keep.cref as usize);
+    }
+
+    #[inline]
+    pub(crate) fn local_get_32(&self, frame: &CallFrame, index: LocalAddr) -> Value32 {
+        self.stack_32.get(frame.locals_base.s32 + index as usize)
+    }
+
+    #[inline]
+    pub(crate) fn local_get_64(&self, frame: &CallFrame, index: LocalAddr) -> Value64 {
+        self.stack_64.get(frame.locals_base.s64 + index as usize)
+    }
+
+    #[inline]
+    pub(crate) fn local_get_128(&self, frame: &CallFrame, index: LocalAddr) -> Value128 {
+        self.stack_128.get(frame.locals_base.s128 + index as usize)
+    }
+
+    #[inline]
+    pub(crate) fn local_get_ref(&self, frame: &CallFrame, index: LocalAddr) -> ValueRef {
+        self.stack_ref.get(frame.locals_base.sref + index as usize)
+    }
+
+    #[inline]
+    pub(crate) fn local_set_32(&mut self, frame: &CallFrame, index: LocalAddr, value: Value32) {
+        self.stack_32.set(frame.locals_base.s32 + index as usize, value);
+    }
+
+    #[inline]
+    pub(crate) fn local_set_64(&mut self, frame: &CallFrame, index: LocalAddr, value: Value64) {
+        self.stack_64.set(frame.locals_base.s64 + index as usize, value);
+    }
+
+    #[inline]
+    pub(crate) fn local_set_128(&mut self, frame: &CallFrame, index: LocalAddr, value: Value128) {
+        self.stack_128.set(frame.locals_base.s128 + index as usize, value);
+    }
+
+    #[inline]
+    pub(crate) fn local_set_ref(&mut self, frame: &CallFrame, index: LocalAddr, value: ValueRef) {
+        self.stack_ref.set(frame.locals_base.sref + index as usize, value);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<()> {

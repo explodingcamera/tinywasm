@@ -28,15 +28,15 @@ impl MemoryInstance {
         }
     }
 
-    pub(crate) fn is_64bit(&self) -> bool {
+    pub(crate) const fn is_64bit(&self) -> bool {
         matches!(self.kind.arch(), MemoryArch::I64)
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.data.len()
     }
 
-    fn trap_oob(&self, addr: usize, len: usize) -> Error {
+    const fn trap_oob(&self, addr: usize, len: usize) -> Error {
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
     }
 
@@ -166,10 +166,12 @@ macro_rules! impl_mem_traits {
     ($($ty:ty, $size:expr),*) => {
         $(
             impl MemValue<$size> for $ty {
+                #[inline(always)]
                 fn from_mem_bytes(bytes: [u8; $size]) -> Self {
                     <$ty>::from_le_bytes(bytes.into())
                 }
 
+                #[inline(always)]
                 fn to_mem_bytes(self) -> [u8; $size] {
                     self.to_le_bytes().into()
                 }

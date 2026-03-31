@@ -114,36 +114,36 @@ impl<'store> Executor<'store> {
                 return ControlFlow::Continue(());
             }
             DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                let b32 = self.cf.stack_base.s32 + *base32 as usize;
+                let b32 = self.cf.stack_base().s32 + *base32 as usize;
                 let k32 = *keep32 as usize;
                 self.store.stack.values.stack_32.truncate_keep(b32, k32);
-                let b64 = self.cf.stack_base.s64 + *base64 as usize;
+                let b64 = self.cf.stack_base().s64 + *base64 as usize;
                 let k64 = *keep64 as usize;
                 self.store.stack.values.stack_64.truncate_keep(b64, k64);
-                let b128 = self.cf.stack_base.s128 + *base128 as usize;
+                let b128 = self.cf.stack_base().s128 + *base128 as usize;
                 let k128 = *keep128 as usize;
                 self.store.stack.values.stack_128.truncate_keep(b128, k128);
-                let bref = self.cf.stack_base.sref + *base_ref as usize;
+                let bref = self.cf.stack_base().sref + *base_ref as usize;
                 let kref = *keep_ref as usize;
                 self.store.stack.values.stack_ref.truncate_keep(bref, kref);
             }
             DropKeep32(base, keep) => {
-                let b = self.cf.stack_base.s32 + *base as usize;
+                let b = self.cf.stack_base().s32 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_32.truncate_keep(b, k);
             }
             DropKeep64(base, keep) => {
-                let b = self.cf.stack_base.s64 + *base as usize;
+                let b = self.cf.stack_base().s64 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_64.truncate_keep(b, k);
             }
             DropKeep128(base, keep) => {
-                let b = self.cf.stack_base.s128 + *base as usize;
+                let b = self.cf.stack_base().s128 + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_128.truncate_keep(b, k);
             }
             DropKeepRef(base, keep) => {
-                let b = self.cf.stack_base.sref + *base as usize;
+                let b = self.cf.stack_base().sref + *base as usize;
                 let k = *keep as usize;
                 self.store.stack.values.stack_ref.truncate_keep(b, k);
             }
@@ -163,22 +163,58 @@ impl<'store> Executor<'store> {
                 return ControlFlow::Continue(());
             }
             Return => return self.exec_return(),
-            LocalGet32(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value32>(*local_index)).to_cf()?,
-            LocalGet64(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value64>(*local_index)).to_cf()?,
-            LocalGet128(local_index) => self.store.stack.values.push(self.cf.locals.get::<Value128>(*local_index)).to_cf()?,
-            LocalGetRef(local_index) => self.store.stack.values.push(self.cf.locals.get::<ValueRef>(*local_index)).to_cf()?,
-            LocalSet32(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value32>()),
-            LocalSet64(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value64>()),
-            LocalSet128(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<Value128>()),
-            LocalSetRef(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.pop::<ValueRef>()),
-            LocalCopy32(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value32>(*from)),
-            LocalCopy64(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value64>(*from)),
-            LocalCopy128(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<Value128>(*from)),
-            LocalCopyRef(from, to) => self.cf.locals.set(*to, self.cf.locals.get::<ValueRef>(*from)),
-            LocalTee32(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value32>()),
-            LocalTee64(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value64>()),
-            LocalTee128(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<Value128>()),
-            LocalTeeRef(local_index) => self.cf.locals.set(*local_index, self.store.stack.values.peek::<ValueRef>()),
+            LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_32(&self.cf, *local_index)).to_cf()?,
+            LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_64(&self.cf, *local_index)).to_cf()?,
+            LocalGet128(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_128(&self.cf, *local_index)).to_cf()?,
+            LocalGetRef(local_index) => self.store.stack.values.push(self.store.stack.values.local_get_ref(&self.cf, *local_index)).to_cf()?,
+            LocalSet32(local_index) => {
+                let val = self.store.stack.values.pop::<Value32>();
+                self.store.stack.values.local_set_32(&self.cf, *local_index, val);
+            }
+            LocalSet64(local_index) => {
+                let val = self.store.stack.values.pop::<Value64>();
+                self.store.stack.values.local_set_64(&self.cf, *local_index, val);
+            }
+            LocalSet128(local_index) => {
+                let val = self.store.stack.values.pop::<Value128>();
+                self.store.stack.values.local_set_128(&self.cf, *local_index, val);
+            }
+            LocalSetRef(local_index) => {
+                let val = self.store.stack.values.pop::<ValueRef>();
+                self.store.stack.values.local_set_ref(&self.cf, *local_index, val);
+            }
+            LocalCopy32(from, to) => {
+                let val = self.store.stack.values.local_get_32(&self.cf, *from);
+                self.store.stack.values.local_set_32(&self.cf, *to, val);
+            }
+            LocalCopy64(from, to) => {
+                let val = self.store.stack.values.local_get_64(&self.cf, *from);
+                self.store.stack.values.local_set_64(&self.cf, *to, val);
+            }
+            LocalCopy128(from, to) => {
+                let val = self.store.stack.values.local_get_128(&self.cf, *from);
+                self.store.stack.values.local_set_128(&self.cf, *to, val);
+            }
+            LocalCopyRef(from, to) => {
+                let val = self.store.stack.values.local_get_ref(&self.cf, *from);
+                self.store.stack.values.local_set_ref(&self.cf, *to, val);
+            }
+            LocalTee32(local_index) => {
+                let val = self.store.stack.values.peek::<Value32>();
+                self.store.stack.values.local_set_32(&self.cf, *local_index, val);
+            }
+            LocalTee64(local_index) => {
+                let val = self.store.stack.values.peek::<Value64>();
+                self.store.stack.values.local_set_64(&self.cf, *local_index, val);
+            }
+            LocalTee128(local_index) => {
+                let val = self.store.stack.values.peek::<Value128>();
+                self.store.stack.values.local_set_128(&self.cf, *local_index, val);
+            }
+            LocalTeeRef(local_index) => {
+                let val = self.store.stack.values.peek::<ValueRef>();
+                self.store.stack.values.local_set_ref(&self.cf, *local_index, val);
+            }
             GlobalGet(global_index) => self.exec_global_get(*global_index).to_cf()?,
             GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index),
             GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
@@ -627,20 +663,35 @@ impl<'store> Executor<'store> {
         func_addr: FuncAddr,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
+        if !IS_RETURN_CALL && self.store.stack.call_stack.is_full() {
+            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+        }
+
         if !Rc::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func.clone();
         }
 
         if IS_RETURN_CALL {
-            let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-            let stack_base = self.store.stack.values.height();
-            self.cf.reuse_for(func_addr, locals, owner, stack_base);
+            self.store.stack.values.truncate_keep_counts(self.cf.locals_base, wasm_func.params);
+        }
+
+        let (locals_base, _stack_base, stack_offset) =
+            match self.store.stack.values.enter_locals(wasm_func.params, wasm_func.locals) {
+                Ok(v) => v,
+                Err(Error::Trap(Trap::ValueStackOverflow)) if !IS_RETURN_CALL => {
+                    return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+                }
+                Err(err) => return ControlFlow::Break(Some(err)),
+            };
+
+        let new_call_frame = CallFrame::new(func_addr, owner, locals_base, stack_offset);
+
+        if IS_RETURN_CALL {
+            self.cf = new_call_frame;
         } else {
-            let locals = self.store.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-            let stack_base = self.store.stack.values.height();
-            let new_call_frame = CallFrame::new(func_addr, owner, locals, stack_base);
             self.cf.incr_instr_ptr(); // skip the call instruction
-            self.store.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame)).to_cf()?;
+            self.store.stack.call_stack.push(self.cf).to_cf()?;
+            self.cf = new_call_frame;
         }
 
         if self.cf.module_addr != self.module.idx {
@@ -709,6 +760,9 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_return(&mut self) -> ControlFlow<Option<Error>> {
+        let result_counts = ValueCountsSmall::from(self.func.ty.results.iter());
+        self.store.stack.values.truncate_keep_counts(self.cf.locals_base, result_counts);
+
         let Some(cf) = self.store.stack.call_stack.pop() else { return ControlFlow::Break(None) };
 
         if cf.func_addr != self.cf.func_addr {
@@ -718,7 +772,6 @@ impl<'store> Executor<'store> {
                 self.module = self.store.get_module_instance_raw(cf.module_addr).clone();
             }
         }
-
         self.cf = cf;
         ControlFlow::Continue(())
     }

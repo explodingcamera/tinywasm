@@ -1,7 +1,7 @@
 use crate::{Result, interpreter::value128::Value128};
 
-use super::stack::{Locals, ValueStack};
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, WasmValue};
+use super::stack::ValueStack;
+use tinywasm_types::{ExternRef, FuncRef, ValType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -121,12 +121,10 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
     fn stack_peek(stack: &ValueStack) -> Self
     where
         Self: Sized;
-    fn local_get(locals: &Locals, index: LocalAddr) -> Self;
-    fn local_set(locals: &mut Locals, index: LocalAddr, value: Self);
 }
 
 macro_rules! impl_internalvalue {
-    ($( $variant:ident, $stack:ident, $locals:ident, $internal:ty, $outer:ty, $to_internal:expr, $to_outer:expr )*) => {
+    ($( $variant:ident, $stack:ident, $internal:ty, $outer:ty, $to_internal:expr, $to_outer:expr )*) => {
         $(
             impl sealed::Sealed for $outer {}
 
@@ -137,18 +135,22 @@ macro_rules! impl_internalvalue {
             }
 
             impl InternalValue for $outer {
+                #[inline]
                 fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()> {
                     stack.$stack.push($to_internal(value))
                 }
 
+                #[inline]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
                     $to_outer(stack.$stack.pop())
                 }
 
+                #[inline]
                 fn stack_peek(stack: &ValueStack) -> Self {
                     $to_outer(*stack.$stack.last())
                 }
 
+                #[inline]
                 fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()> {
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
@@ -156,6 +158,7 @@ macro_rules! impl_internalvalue {
                     Ok(())
                 }
 
+                #[inline]
                 fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()> {
                     let v3 = stack.$stack.pop();
                     let v2 = stack.$stack.pop();
@@ -164,24 +167,11 @@ macro_rules! impl_internalvalue {
                     Ok(())
                 }
 
+                #[inline]
                 fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()> {
                     let v = stack.$stack.last_mut();
                     *v = $to_internal(func($to_outer(*v))?);
                     Ok(())
-                }
-
-                fn local_get(locals: &Locals, index: LocalAddr) -> Self {
-                    match locals.$locals.get(index as usize) {
-                        Some(v) => $to_outer(*v),
-                        None => unreachable!("Local variable out of bounds, this is a bug"),
-                    }
-                }
-
-                fn local_set(locals: &mut Locals, index: LocalAddr, value: Self) {
-                    match locals.$locals.get_mut(index as usize) {
-                        Some(v) => *v = $to_internal(value),
-                        None => unreachable!("Local variable out of bounds, this is a bug"),
-                    }
                 }
             }
         )*
@@ -189,12 +179,12 @@ macro_rules! impl_internalvalue {
 }
 
 impl_internalvalue! {
-    Value32, stack_32, locals_32, u32, u32, |v| v, |v| v
-    Value64, stack_64, locals_64, u64, u64, |v| v, |v| v
-    Value32, stack_32, locals_32, u32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
-    Value64, stack_64, locals_64, u64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
-    Value32, stack_32, locals_32, u32, f32, f32::to_bits, f32::from_bits
-    Value64, stack_64, locals_64, u64, f64, f64::to_bits, f64::from_bits
-    ValueRef, stack_ref, locals_ref, ValueRef, ValueRef, |v| v, |v| v
-    Value128, stack_128, locals_128, Value128, Value128, |v| v, |v| v
+    Value32, stack_32, u32, u32, |v| v, |v| v
+    Value64, stack_64, u64, u64, |v| v, |v| v
+    Value32, stack_32, u32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
+    Value64, stack_64, u64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
+    Value32, stack_32, u32, f32, f32::to_bits, f32::from_bits
+    Value64, stack_64, u64, f64, f64::to_bits, f64::from_bits
+    ValueRef, stack_ref, ValueRef, ValueRef, |v| v, |v| v
+    Value128, stack_128, Value128, Value128, |v| v, |v| v
 }

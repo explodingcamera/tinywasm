@@ -124,28 +124,33 @@ impl Value128 {
         Self::from_le_bytes([x[0].to_bits().to_le_bytes()[0], x[0].to_bits().to_le_bytes()[1], x[0].to_bits().to_le_bytes()[2], x[0].to_bits().to_le_bytes()[3], x[0].to_bits().to_le_bytes()[4], x[0].to_bits().to_le_bytes()[5], x[0].to_bits().to_le_bytes()[6], x[0].to_bits().to_le_bytes()[7], x[1].to_bits().to_le_bytes()[0], x[1].to_bits().to_le_bytes()[1], x[1].to_bits().to_le_bytes()[2], x[1].to_bits().to_le_bytes()[3], x[1].to_bits().to_le_bytes()[4], x[1].to_bits().to_le_bytes()[5], x[1].to_bits().to_le_bytes()[6], x[1].to_bits().to_le_bytes()[7]])
     }
 
+    #[inline(always)]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
         let lanes = self.as_f32x4();
         Self::from_f32x4([op(lanes[0]), op(lanes[1]), op(lanes[2]), op(lanes[3])])
     }
 
+    #[inline(always)]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         Self::from_f32x4([op(a[0], b[0]), op(a[1], b[1]), op(a[2], b[2]), op(a[3], b[3])])
     }
 
+    #[inline(always)]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
         let lanes = self.as_f64x2();
         Self::from_f64x2([op(lanes[0]), op(lanes[1])])
     }
 
+    #[inline(always)]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
         Self::from_f64x2([op(a[0], b[0]), op(a[1], b[1])])
     }
 
+    #[inline]
     pub const fn reduce_or(self) -> u8 {
         let mut result = 0u8;
         let bytes = self.to_le_bytes();

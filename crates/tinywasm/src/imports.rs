@@ -122,17 +122,17 @@ pub enum Extern {
 
 impl Extern {
     /// Create a new global import
-    pub fn global(val: WasmValue, mutable: bool) -> Self {
+    pub const fn global(val: WasmValue, mutable: bool) -> Self {
         Self::Global { ty: GlobalType { ty: val.val_type(), mutable }, val }
     }
 
     /// Create a new table import
-    pub fn table(ty: TableType, init: WasmValue) -> Self {
+    pub const fn table(ty: TableType, init: WasmValue) -> Self {
         Self::Table { ty, init }
     }
 
     /// Create a new memory import
-    pub fn memory(ty: MemoryType) -> Self {
+    pub const fn memory(ty: MemoryType) -> Self {
         Self::Memory { ty }
     }
 
@@ -180,7 +180,7 @@ impl Extern {
     }
 
     /// Get the kind of the external value
-    pub fn kind(&self) -> ExternalKind {
+    pub const fn kind(&self) -> ExternalKind {
         match self {
             Self::Global { .. } => ExternalKind::Global,
             Self::Table { .. } => ExternalKind::Table,
@@ -257,14 +257,14 @@ pub(crate) struct ResolvedImports {
 }
 
 impl ResolvedImports {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { globals: Vec::new(), tables: Vec::new(), memories: Vec::new(), funcs: Vec::new() }
     }
 }
 
 impl Imports {
     /// Create a new empty import set
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { values: BTreeMap::new(), modules: BTreeMap::new() }
     }
 

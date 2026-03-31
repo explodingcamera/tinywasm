@@ -106,7 +106,7 @@ impl ExternRef {
 impl WasmValue {
     #[doc(hidden)]
     #[inline]
-    pub fn const_instr(&self) -> ConstInstruction {
+    pub const fn const_instr(&self) -> ConstInstruction {
         match self {
             Self::I32(i) => ConstInstruction::I32Const(*i),
             Self::I64(i) => ConstInstruction::I64Const(*i),
@@ -114,13 +114,13 @@ impl WasmValue {
             Self::F64(i) => ConstInstruction::F64Const(*i),
             Self::V128(i) => ConstInstruction::V128Const(*i),
             Self::RefFunc(i) => ConstInstruction::RefFunc(i.addr()),
-            Self::RefExtern(_) => unimplemented!("no const_instr for RefExtern"),
+            Self::RefExtern(i) => ConstInstruction::RefExtern(i.addr()),
         }
     }
 
     /// Get the default value for a given type.
     #[inline]
-    pub fn default_for(ty: ValType) -> Self {
+    pub const fn default_for(ty: ValType) -> Self {
         match ty {
             ValType::I32 => Self::I32(0),
             ValType::I64 => Self::I64(0),
@@ -212,7 +212,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_i32(&self) -> Option<i32> {
+    pub const fn as_i32(&self) -> Option<i32> {
         match self {
             Self::I32(i) => Some(*i),
             _ => None,
@@ -220,7 +220,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_i64(&self) -> Option<i64> {
+    pub const fn as_i64(&self) -> Option<i64> {
         match self {
             Self::I64(i) => Some(*i),
             _ => None,
@@ -228,7 +228,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_f32(&self) -> Option<f32> {
+    pub const fn as_f32(&self) -> Option<f32> {
         match self {
             Self::F32(i) => Some(*i),
             _ => None,
@@ -236,7 +236,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_f64(&self) -> Option<f64> {
+    pub const fn as_f64(&self) -> Option<f64> {
         match self {
             Self::F64(i) => Some(*i),
             _ => None,
@@ -244,7 +244,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_v128(&self) -> Option<i128> {
+    pub const fn as_v128(&self) -> Option<i128> {
         match self {
             Self::V128(i) => Some(*i),
             _ => None,
@@ -252,7 +252,7 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_ref_extern(&self) -> Option<ExternRef> {
+    pub const fn as_ref_extern(&self) -> Option<ExternRef> {
         match self {
             Self::RefExtern(ref_extern) => Some(*ref_extern),
             _ => None,
@@ -260,16 +260,13 @@ impl WasmValue {
     }
 
     #[doc(hidden)]
-    pub fn as_ref_func(&self) -> Option<FuncRef> {
+    pub const fn as_ref_func(&self) -> Option<FuncRef> {
         match self {
             Self::RefFunc(ref_func) => Some(*ref_func),
             _ => None,
         }
     }
 }
-
-#[cold]
-fn cold() {}
 
 impl Debug for WasmValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -288,7 +285,7 @@ impl Debug for WasmValue {
 impl WasmValue {
     /// Get the type of a [`WasmValue`]
     #[inline]
-    pub fn val_type(&self) -> ValType {
+    pub const fn val_type(&self) -> ValType {
         match self {
             Self::I32(_) => ValType::I32,
             Self::I64(_) => ValType::I64,
@@ -323,13 +320,13 @@ pub enum ValType {
 
 impl ValType {
     #[inline]
-    pub fn default_value(&self) -> WasmValue {
+    pub const fn default_value(&self) -> WasmValue {
         WasmValue::default_for(*self)
     }
 
     #[doc(hidden)]
     #[inline]
-    pub fn is_simd(&self) -> bool {
+    pub const fn is_simd(&self) -> bool {
         matches!(self, Self::V128)
     }
 }
@@ -354,7 +351,6 @@ macro_rules! impl_conversion_for_wasmvalue {
                     if let WasmValue::$variant(i) = value {
                         Ok(i)
                     } else {
-                        cold();
                         Err(())
                     }
                 }

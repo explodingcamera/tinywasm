@@ -6,8 +6,8 @@ exclude_wat=("tinywasm")
 out_dir="./target/wasm32-unknown-unknown/wasm"
 dest_dir="out"
 
-rust_features="+reference-types,+bulk-memory,+mutable-globals,+multivalue,+sign-ext,+nontrapping-fptoint"
-wasmopt_features="--enable-reference-types --enable-bulk-memory --enable-mutable-globals --enable-multivalue --enable-sign-ext --enable-nontrapping-float-to-int"
+rust_features="+simd128,+reference-types,+bulk-memory,+mutable-globals,+multivalue,+sign-ext,+nontrapping-fptoint"
+wasmopt_features="--enable-simd --enable-reference-types --enable-bulk-memory --enable-mutable-globals --enable-multivalue --enable-sign-ext --enable-nontrapping-float-to-int"
 
 # ensure out dir exists
 mkdir -p "$dest_dir"

@@ -56,11 +56,14 @@ impl FuncHandle {
         };
 
         // 6. Let f be the dummy frame
-        let callframe = CallFrame::new_with_params(wasm_func.locals, self.addr, func_inst.owner, params);
-
         // 7. Push the frame f to the call stack
         // & 8. Push the values to the stack
         store.stack.clear();
+        store.stack.values.extend_from_wasmvalues(params)?;
+        let (locals_base, _stack_base, stack_offset) =
+            store.stack.values.enter_locals(wasm_func.params, wasm_func.locals)?;
+        let callframe = CallFrame::new(self.addr, func_inst.owner, locals_base, stack_offset);
+
         // 9. Invoke the function instance
         InterpreterRuntime::exec(store, callframe)?;
 

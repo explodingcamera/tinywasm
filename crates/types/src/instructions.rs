@@ -4,22 +4,26 @@ use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct MemoryArg([u8; 12]);
+#[repr(Rust, packed)]
+pub struct MemoryArg {
+    offset: u64,
+    mem_addr: MemAddr,
+}
 
 impl MemoryArg {
-    pub fn new(offset: u64, mem_addr: MemAddr) -> Self {
-        let mut bytes = [0; 12];
-        bytes[0..8].copy_from_slice(&offset.to_le_bytes());
-        bytes[8..12].copy_from_slice(&mem_addr.to_le_bytes());
-        Self(bytes)
+    #[inline]
+    pub const fn new(offset: u64, mem_addr: MemAddr) -> Self {
+        Self { offset, mem_addr }
     }
 
-    pub fn offset(&self) -> u64 {
-        u64::from_le_bytes(self.0[0..8].try_into().expect("invalid offset"))
+    #[inline]
+    pub const fn offset(self) -> u64 {
+        self.offset
     }
 
-    pub fn mem_addr(&self) -> MemAddr {
-        MemAddr::from_le_bytes(self.0[8..12].try_into().expect("invalid mem_addr"))
+    #[inline]
+    pub const fn mem_addr(self) -> MemAddr {
+        self.mem_addr
     }
 }
 

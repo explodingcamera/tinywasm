@@ -62,8 +62,12 @@ impl Store {
         Some(ModuleInstance(self.module_instances.get(addr as usize)?.clone()))
     }
 
+    #[inline]
     pub(crate) fn get_module_instance_raw(&self, addr: ModuleInstanceAddr) -> &Rc<ModuleInstanceInner> {
-        &self.module_instances[addr as usize]
+        match self.module_instances.get(addr as usize) {
+            Some(instance) => instance,
+            None => unreachable!("module instance {addr} not found. This should be unreachable"),
+        }
     }
 }
 

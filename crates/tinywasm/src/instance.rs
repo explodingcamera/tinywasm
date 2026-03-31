@@ -36,6 +36,7 @@ pub(crate) struct ModuleInstanceInner {
 }
 
 impl ModuleInstanceInner {
+    #[inline]
     pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
         match self.types.get(addr as usize) {
             Some(ty) => ty,
@@ -43,11 +44,13 @@ impl ModuleInstanceInner {
         }
     }
 
+    #[inline]
     pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
         &self.func_addrs
     }
 
     // resolve a function address to the global store address
+    #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         match self.func_addrs.get(addr as usize) {
             Some(addr) => *addr,
@@ -56,6 +59,7 @@ impl ModuleInstanceInner {
     }
 
     // resolve a table address to the global store address
+    #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
         match self.table_addrs.get(addr as usize) {
             Some(addr) => *addr,
@@ -64,6 +68,7 @@ impl ModuleInstanceInner {
     }
 
     // resolve a memory address to the global store address
+    #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
         match self.mem_addrs.get(addr as usize) {
             Some(addr) => *addr,
@@ -72,6 +77,7 @@ impl ModuleInstanceInner {
     }
 
     // resolve a data address to the global store address
+    #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
         match self.data_addrs.get(addr as usize) {
             Some(addr) => *addr,
@@ -80,6 +86,7 @@ impl ModuleInstanceInner {
     }
 
     // resolve a memory address to the global store address
+    #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
         match self.elem_addrs.get(addr as usize) {
             Some(addr) => *addr,
@@ -88,6 +95,7 @@ impl ModuleInstanceInner {
     }
 
     // resolve a global address to the global store address
+    #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
         match self.global_addrs.get(addr as usize) {
             Some(addr) => *addr,

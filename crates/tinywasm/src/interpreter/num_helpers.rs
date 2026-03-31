@@ -70,6 +70,7 @@ macro_rules! impl_wasm_float_ops {
     ($($t:ty)*) => ($(
         impl TinywasmFloatExt for $t {
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fnearest
+            #[inline]
             fn tw_nearest(self) -> Self {
                 match self {
                     #[cfg(not(feature = "canonicalize_nans"))]
@@ -94,6 +95,7 @@ macro_rules! impl_wasm_float_ops {
 
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fmin
             // Based on f32::minimum (which is not yet stable)
+            #[inline]
             fn tw_minimum(self, other: Self) -> Self {
                 match self.partial_cmp(&other) {
                     Some(core::cmp::Ordering::Less) => self,
@@ -108,6 +110,7 @@ macro_rules! impl_wasm_float_ops {
 
             // https://webassembly.github.io/spec/core/exec/numerics.html#op-fmax
             // Based on f32::maximum (which is not yet stable)
+            #[inline]
             fn tw_maximum(self, other: Self) -> Self {
                 match self.partial_cmp(&other) {
                     Some(core::cmp::Ordering::Greater) => self,
@@ -135,18 +138,22 @@ pub(crate) trait WasmIntOps {
 macro_rules! impl_wrapping_self_sh {
     ($($t:ty)*) => ($(
         impl WasmIntOps for $t {
+            #[inline]
             fn wasm_shl(self, rhs: Self) -> Self {
                 self.wrapping_shl(rhs as u32)
             }
 
+            #[inline]
             fn wasm_shr(self, rhs: Self) -> Self {
                 self.wrapping_shr(rhs as u32)
             }
 
+            #[inline]
             fn wasm_rotl(self, rhs: Self) -> Self {
                 self.rotate_left(rhs as u32)
             }
 
+            #[inline]
             fn wasm_rotr(self, rhs: Self) -> Self {
                 self.rotate_right(rhs as u32)
             }
