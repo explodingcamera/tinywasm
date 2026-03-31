@@ -1,4 +1,4 @@
-use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValType};
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValType, ValueCountsSmall};
 use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
@@ -79,6 +79,7 @@ pub enum Instruction {
     Drop64, Select64,
     Drop128, Select128,
     DropRef, SelectRef,
+    SelectMulti(ValueCountsSmall),
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>

@@ -113,6 +113,22 @@ impl<T: Copy + Default> Stack<T> {
         self.len = end;
         Ok((start, end))
     }
+
+    pub(crate) fn select_many(&mut self, count: usize, condition: bool) {
+        if count == 0 {
+            return;
+        }
+        if self.len < count * 2 {
+            unreachable!("Stack underflow, this is a bug");
+        }
+
+        if !condition {
+            let start = self.len - (count * 2);
+            let second_start = self.len - count;
+            self.data.copy_within(second_start..self.len, start);
+        }
+        self.len -= count;
+    }
 }
 
 impl ValueStack {
@@ -160,6 +176,14 @@ impl ValueStack {
             self.push(val2)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn select_multi(&mut self, counts: ValueCountsSmall) {
+        let condition = self.pop::<i32>() != 0;
+        self.stack_32.select_many(counts.c32 as usize, condition);
+        self.stack_64.select_many(counts.c64 as usize, condition);
+        self.stack_128.select_many(counts.c128 as usize, condition);
+        self.stack_ref.select_many(counts.cref as usize, condition);
     }
 
     pub(crate) fn binary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {

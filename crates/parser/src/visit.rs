@@ -161,16 +161,10 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
     }
 
     fn stack_base_at_frame(&self, depth: usize) -> StackBase {
-        let frame = match self.validator.get_control_frame(depth) {
-            Some(f) => f,
-            None => return StackBase::default(),
-        };
-        let height = frame.height;
-        let current = self.validator.operand_stack_height() as usize;
-
+        let Some(frame) = self.validator.get_control_frame(depth) else { return StackBase::default() };
         let mut base = StackBase::default();
-        for i in 0..height {
-            let depth_from_top = current - 1 - i;
+        for i in 0..frame.height {
+            let depth_from_top = self.validator.operand_stack_height() as usize - 1 - i;
             if let Some(Some(ty)) = self.validator.get_operand_type(depth_from_top) {
                 match ty {
                     wasmparser::ValType::I32 | wasmparser::ValType::F32 => base.s32 += 1,
@@ -186,10 +180,6 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
     fn unsupported(&mut self, name: &str) {
         self.errors.push(crate::ParseError::UnsupportedOperator(name.to_string()));
-    }
-
-    fn current_ip(&self) -> u32 {
-        self.instructions.len() as u32
     }
 
     fn is_unreachable(&self) -> bool {
@@ -231,24 +221,20 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         }
     }
 
-    fn patch_jump(&mut self, jump_ip: usize, target: u32) {
+    fn patch_jump(&mut self, jump_ip: usize, target: usize) {
         if let Instruction::Jump(ip) = &mut self.instructions[jump_ip] {
-            *ip = target;
+            *ip = target as u32;
         }
     }
 
-    fn patch_jump_if_zero(&mut self, jump_ip: usize, target: u32) {
+    fn patch_jump_if_zero(&mut self, jump_ip: usize, target: usize) {
         if let Instruction::JumpIfZero(ip) = &mut self.instructions[jump_ip] {
-            *ip = target;
+            *ip = target as u32;
         }
     }
 
     fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16, u16) {
-        let mut c32: u16 = 0;
-        let mut c64: u16 = 0;
-        let mut c128: u16 = 0;
-        let mut cref: u16 = 0;
-
+        let (mut c32, mut c64, mut c128, mut cref) = (0, 0, 0, 0);
         for ty in label_types {
             match ty {
                 wasmparser::ValType::I32 | wasmparser::ValType::F32 => c32 += 1,
@@ -266,9 +252,8 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
             return;
         }
 
-        let frame = match self.validator.get_control_frame(label_depth as usize) {
-            Some(f) => f,
-            None => return,
+        let Some(frame) = self.validator.get_control_frame(label_depth as usize) else {
+            return;
         };
 
         let base = self.stack_base_at_frame(label_depth as usize);
@@ -295,6 +280,76 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
                 match frame.kind {
                     FrameKind::Loop => func_ty.params().to_vec(),
                     _ => func_ty.results().to_vec(),
+                }
+            }
+        }
+    }
+
+    fn emit_branch_jump_or_return(&mut self, depth: u32) {
+        if let Some(ctx_idx) = self.get_ctx_idx(depth) {
+            let jump_ip = self.instructions.len();
+            self.instructions.push(Instruction::Jump(0));
+            self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip);
+        } else {
+            self.instructions.push(Instruction::Return);
+        }
+    }
+
+    fn emit_br_table_pad(&mut self, depth: u32) -> (usize, usize, bool) {
+        let pad_start = self.instructions.len();
+        let frame = if self.is_unreachable() { None } else { self.validator.get_control_frame(depth as usize) };
+        let Some(frame) = frame else {
+            let ip = self.instructions.len();
+            self.instructions.push(Instruction::Return);
+            return (pad_start, ip, true);
+        };
+
+        let base = self.stack_base_at_frame(depth as usize);
+        let label_types: Vec<_> = self.label_types_for_frame(frame);
+        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
+        self.emit_dropkeep(base, c32, c64, c128, cref);
+
+        let jump_ip = self.instructions.len();
+        self.instructions.push(Instruction::Jump(0));
+        (pad_start, jump_ip, false)
+    }
+
+    fn patch_branch_jump_or_return(&mut self, depth: u32, jump_ip: usize) {
+        let Some(frame) = self.validator.get_control_frame(depth as usize) else {
+            self.instructions[jump_ip] = Instruction::Return;
+            return;
+        };
+        let Some(ctx_idx) = self.get_ctx_idx(depth) else {
+            self.instructions[jump_ip] = Instruction::Return;
+            return;
+        };
+
+        match frame.kind {
+            FrameKind::Loop => {
+                if let Instruction::Jump(target) = &mut self.instructions[jump_ip] {
+                    *target = self.ctx_stack[ctx_idx].start_ip as u32;
+                }
+            }
+            _ => self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip),
+        }
+    }
+
+    fn patch_end_jumps(&mut self, ctx: LoweringCtx, end_ip: usize) {
+        match ctx.kind {
+            BlockKind::Block | BlockKind::Loop => {
+                let target = if matches!(ctx.kind, BlockKind::Loop) { ctx.start_ip } else { end_ip };
+                for jump_ip in ctx.branch_jumps {
+                    self.patch_jump(jump_ip, target);
+                }
+            }
+            BlockKind::If => {
+                if let Some((&cond_jump_ip, branch_jumps)) = ctx.branch_jumps.split_first() {
+                    if !ctx.has_else {
+                        self.patch_jump_if_zero(cond_jump_ip, end_ip);
+                    }
+                    for &jump_ip in branch_jumps {
+                        self.patch_jump(jump_ip, end_ip);
+                    }
                 }
             }
         }
@@ -335,7 +390,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     define_operands! {
         // basic instructions
-        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_call(Call, u32), visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable), visit_nop(Nop), visit_return(Return), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU), visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS), visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU), visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU), visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq), visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz), visit_i32_popcnt(I32Popcnt), visit_i32_add(I32Add), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS), visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS), visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt), visit_i64_add(I64Add), visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU), visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU), visit_i64_rotl(I64Rotl), visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc), visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div), visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil), visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub), visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64), visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U), visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U), visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U), visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S), visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32), visit_i32_reinterpret_f32(I32ReinterpretF32), visit_i64_reinterpret_f64(I64ReinterpretF64), visit_f32_reinterpret_i32(F32ReinterpretI32), visit_f64_reinterpret_i64(F64ReinterpretI64),
+        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_call(Call, u32), visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable), visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU), visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS), visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU), visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU), visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq), visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz), visit_i32_popcnt(I32Popcnt), visit_i32_add(I32Add), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS), visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS), visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt), visit_i64_add(I64Add), visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU), visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU), visit_i64_rotl(I64Rotl), visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc), visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div), visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil), visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub), visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64), visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U), visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U), visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U), visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S), visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32), visit_i32_reinterpret_f32(I32ReinterpretF32), visit_i64_reinterpret_f64(I64ReinterpretF64), visit_f32_reinterpret_i32(F32ReinterpretI32), visit_f64_reinterpret_i64(F64ReinterpretI64),
 
         // sign_extension
         visit_i32_extend8_s(I32Extend8S), visit_i32_extend16_s(I32Extend16S), visit_i64_extend8_s(I64Extend8S), visit_i64_extend16_s(I64Extend16S), visit_i64_extend32_s(I64Extend32S),
@@ -389,6 +444,24 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             Some(Some(t)) => self.visit_typed_select(t),
             _ => self.visit_unreachable(),
         };
+    }
+
+    fn visit_return(&mut self) -> Self::Output {
+        if let Some(instr) = self.instructions.last_mut() {
+            match instr {
+                Instruction::Call(addr) => {
+                    *instr = Instruction::ReturnCall(*addr);
+                    return;
+                }
+                Instruction::CallIndirect(ty, table) => {
+                    *instr = Instruction::ReturnCallIndirect(*ty, *table);
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        self.instructions.push(Instruction::Return);
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
@@ -487,7 +560,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_block(&mut self, _blockty: wasmparser::BlockType) -> Self::Output {
-        let start_ip = self.current_ip() as usize;
+        let start_ip = self.instructions.len();
         self.ctx_stack.push(LoweringCtx {
             kind: BlockKind::Block,
             has_else: false,
@@ -497,14 +570,14 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_loop(&mut self, _ty: wasmparser::BlockType) -> Self::Output {
-        let start_ip = self.current_ip() as usize;
+        let start_ip = self.instructions.len();
         self.ctx_stack.push(LoweringCtx { kind: BlockKind::Loop, has_else: false, start_ip, branch_jumps: Vec::new() });
     }
 
     fn visit_if(&mut self, _ty: wasmparser::BlockType) -> Self::Output {
-        let cond_jump_ip = self.current_ip() as usize;
+        let cond_jump_ip = self.instructions.len();
         self.instructions.push(Instruction::JumpIfZero(0));
-        let start_ip = self.current_ip() as usize;
+        let start_ip = self.instructions.len();
         self.ctx_stack.push(LoweringCtx {
             kind: BlockKind::If,
             has_else: false,
@@ -514,81 +587,37 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_else(&mut self) -> Self::Output {
-        let Some(cond_jump_ip) = self
-            .ctx_stack
-            .last()
-            .and_then(|ctx| if matches!(ctx.kind, BlockKind::If) { Some(ctx.branch_jumps[0]) } else { None })
-        else {
-            return;
+        let last_if = self.ctx_stack.last().filter(|ctx| matches!(ctx.kind, BlockKind::If));
+        if let Some(cond_jump_ip) = last_if.map(|ctx| ctx.branch_jumps[0]) {
+            let jump_ip = self.instructions.len();
+            self.instructions.push(Instruction::Jump(0));
+            if let Some(ctx) = self.ctx_stack.last_mut() {
+                ctx.has_else = true;
+                ctx.branch_jumps.push(jump_ip);
+                self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
+            };
         };
-
-        let jump_ip = self.current_ip() as usize;
-        self.instructions.push(Instruction::Jump(0));
-
-        let after_jump_ip = self.current_ip();
-        let Some(ctx) = self.ctx_stack.last_mut() else {
-            return;
-        };
-        ctx.has_else = true;
-        ctx.branch_jumps.push(jump_ip);
-        self.patch_jump_if_zero(cond_jump_ip, after_jump_ip);
     }
 
     fn visit_end(&mut self) -> Self::Output {
-        if self.ctx_stack.is_empty() {
+        if let Some(ctx) = self.ctx_stack.pop() {
+            self.patch_end_jumps(ctx, self.instructions.len());
+        } else {
             self.instructions.push(Instruction::Return);
-            return;
-        }
-
-        let ctx = self.ctx_stack.pop().unwrap();
-        let end_ip = self.current_ip();
-
-        match ctx.kind {
-            BlockKind::Block | BlockKind::Loop => {
-                let target = if matches!(ctx.kind, BlockKind::Loop) { ctx.start_ip as u32 } else { end_ip };
-                for &jump_ip in &ctx.branch_jumps {
-                    self.patch_jump(jump_ip, target);
-                }
-            }
-            BlockKind::If => {
-                let cond_jump_ip = ctx.branch_jumps[0];
-                if !ctx.has_else {
-                    self.patch_jump_if_zero(cond_jump_ip, end_ip);
-                }
-                for &jump_ip in &ctx.branch_jumps[1..] {
-                    self.patch_jump(jump_ip, end_ip);
-                }
-            }
         }
     }
 
     fn visit_br(&mut self, depth: u32) -> Self::Output {
         self.emit_dropkeep_to_label(depth);
-
-        if let Some(ctx_idx) = self.get_ctx_idx(depth) {
-            let jump_ip = self.current_ip() as usize;
-            self.instructions.push(Instruction::Jump(0));
-            self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip);
-        } else {
-            self.instructions.push(Instruction::Return);
-        }
+        self.emit_branch_jump_or_return(depth);
     }
 
     fn visit_br_if(&mut self, depth: u32) -> Self::Output {
-        let cond_jump_ip = self.current_ip() as usize;
+        let cond_jump_ip = self.instructions.len();
         self.instructions.push(Instruction::JumpIfZero(0));
-
         self.emit_dropkeep_to_label(depth);
-
-        if let Some(ctx_idx) = self.get_ctx_idx(depth) {
-            let jump_ip = self.current_ip() as usize;
-            self.instructions.push(Instruction::Jump(0));
-            self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip);
-        } else {
-            self.instructions.push(Instruction::Return);
-        }
-
-        self.patch_jump_if_zero(cond_jump_ip, self.current_ip());
+        self.emit_branch_jump_or_return(depth);
+        self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
     }
 
     fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Self::Output {
@@ -601,20 +630,20 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         let len = ts.len() as u32;
         let target_depths: Vec<u32> = ts;
 
-        let header_ip = self.current_ip() as usize;
+        let header_ip = self.instructions.len();
         self.instructions.push(Instruction::BranchTable(0, len));
 
-        let target_table_ip = self.current_ip() as usize;
+        let target_table_ip = self.instructions.len();
         for _ in 0..len {
             self.instructions.push(Instruction::BranchTableTarget(0));
         }
-        let default_target_ip = self.current_ip() as usize;
+        let default_target_ip = self.instructions.len();
         self.instructions.push(Instruction::BranchTableTarget(0));
 
         let mut seen = alloc::collections::BTreeMap::<u32, usize>::new();
         struct PadInfo {
             depth: u32,
-            pad_start: u32,
+            pad_start: usize,
             jump_or_ret_ip: usize,
             is_return: bool,
         }
@@ -626,70 +655,37 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             }
             seen.insert(depth, pads.len());
 
-            let pad_start = self.current_ip();
-
-            let frame = if self.is_unreachable() { None } else { self.validator.get_control_frame(depth as usize) };
-            let Some(frame) = frame else {
-                let ip = self.current_ip() as usize;
-                self.instructions.push(Instruction::Return);
-                pads.push(PadInfo { depth, pad_start, jump_or_ret_ip: ip, is_return: true });
-                continue;
-            };
-
-            let base = self.stack_base_at_frame(depth as usize);
-            let label_types: Vec<_> = self.label_types_for_frame(frame);
-            let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
-
-            self.emit_dropkeep(base, c32, c64, c128, cref);
-
-            let jump_ip = self.current_ip() as usize;
-            self.instructions.push(Instruction::Jump(0));
-            pads.push(PadInfo { depth, pad_start, jump_or_ret_ip: jump_ip, is_return: false });
+            let (pad_start, jump_or_ret_ip, is_return) = self.emit_br_table_pad(depth);
+            pads.push(PadInfo { depth, pad_start, jump_or_ret_ip, is_return });
         }
 
         for (i, &depth) in target_depths.iter().enumerate() {
             let pad_idx = seen[&depth];
             if let Instruction::BranchTableTarget(ip) = &mut self.instructions[target_table_ip + i] {
-                *ip = pads[pad_idx].pad_start;
+                *ip = pads[pad_idx].pad_start as u32;
             }
         }
 
         let default_pad_idx = seen[&default_depth];
         if let Instruction::BranchTableTarget(ip) = &mut self.instructions[default_target_ip] {
-            *ip = pads[default_pad_idx].pad_start;
+            *ip = pads[default_pad_idx].pad_start as u32;
         }
         if let Instruction::BranchTable(default_ip, _) = &mut self.instructions[header_ip] {
-            *default_ip = pads[default_pad_idx].pad_start;
+            *default_ip = pads[default_pad_idx].pad_start as u32;
         }
 
         for pad in &pads {
             if pad.is_return {
                 continue;
             }
-            let Some(frame) = self.validator.get_control_frame(pad.depth as usize) else {
-                self.instructions[pad.jump_or_ret_ip] = Instruction::Return;
-                continue;
-            };
-            let Some(ctx_idx) = self.get_ctx_idx(pad.depth) else {
-                self.instructions[pad.jump_or_ret_ip] = Instruction::Return;
-                continue;
-            };
-            match frame.kind {
-                FrameKind::Loop => {
-                    if let Instruction::Jump(target) = &mut self.instructions[pad.jump_or_ret_ip] {
-                        *target = self.ctx_stack[ctx_idx].start_ip as u32;
-                    }
-                }
-                _ => {
-                    self.ctx_stack[ctx_idx].branch_jumps.push(pad.jump_or_ret_ip);
-                }
-            }
+            self.patch_branch_jump_or_return(pad.depth, pad.jump_or_ret_ip);
         }
     }
 
     fn visit_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
         self.instructions.push(Instruction::CallIndirect(ty, table));
     }
+
     fn visit_return_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
         self.instructions.push(Instruction::ReturnCallIndirect(ty, table));
     }
@@ -715,19 +711,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         self.instructions.push(Instruction::RefIsNull);
     }
 
-    fn visit_typed_select_multi(&mut self, _tys: Vec<wasmparser::ValType>) -> Self::Output {
-        self.errors.push(crate::ParseError::UnsupportedOperator(
-            "Typed select with multiple types is not supported".to_string(),
-        ));
-
-        // self.instructions.extend(tys.into_iter().map(|ty| match ty {
-        //     wasmparser::ValType::I32 => Instruction::Select32,
-        //     wasmparser::ValType::F32 => Instruction::Select32,
-        //     wasmparser::ValType::I64 => Instruction::Select64,
-        //     wasmparser::ValType::F64 => Instruction::Select64,
-        //     wasmparser::ValType::V128 => Instruction::Select128,
-        //     wasmparser::ValType::Ref(_) => Instruction::SelectRef,
-        // }));
+    fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
+        let (c32, c64, c128, cref) = Self::label_keep_counts(&tys);
+        self.instructions.push(Instruction::SelectMulti(tinywasm_types::ValueCountsSmall { c32, c64, c128, cref }));
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {

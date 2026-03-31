@@ -95,6 +95,7 @@ impl<'store> Executor<'store> {
             Select64 => self.store.stack.values.select::<Value64>().to_cf()?,
             Select128 => self.store.stack.values.select::<Value128>().to_cf()?,
             SelectRef => self.store.stack.values.select::<ValueRef>().to_cf()?,
+            SelectMulti(counts) => self.store.stack.values.select_multi(*counts),
             Call(v) => return self.exec_call_direct::<false>(*v),
             CallSelf => return self.exec_call_self::<false>(),
             CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
