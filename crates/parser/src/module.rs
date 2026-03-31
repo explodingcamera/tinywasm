@@ -1,11 +1,11 @@
 use crate::log::debug;
-use crate::{ParseError, Result, conversion};
+use crate::{conversion, ParseError, Result};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::{format, vec::Vec};
 use tinywasm_types::{
-    ArcSlice, Data, Element, Export, FuncType, Global, Import, Instruction, MemoryType, TableType, TinyWasmModule,
-    ValueCounts, ValueCountsSmall, WasmFunction, WasmFunctionData,
+    ArcSlice, Data, Element, Export, FuncType, Global, Import, ImportKind, Instruction, MemoryType, TableType,
+    TinyWasmModule, ValueCounts, ValueCountsSmall, WasmFunction, WasmFunctionData,
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
@@ -31,6 +31,16 @@ pub(crate) struct ModuleReader {
 }
 
 impl ModuleReader {
+    fn apply_instruction_rewrites(instructions: &mut [Instruction], self_func_addr: u32) {
+        for instr in instructions.iter_mut() {
+            if matches!(instr, Instruction::Call(addr) if *addr == self_func_addr) {
+                *instr = Instruction::CallSelf;
+            } else if matches!(instr, Instruction::ReturnCall(addr) if *addr == self_func_addr) {
+                *instr = Instruction::ReturnCallSelf;
+            }
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self::default()
     }
@@ -189,14 +199,22 @@ impl ModuleReader {
             return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
         }
 
+        let imported_func_count =
+            self.imports.iter().filter(|i| matches!(&i.kind, ImportKind::Function(_))).count() as u32;
+
         let funcs = self
             .code
             .into_iter()
             .zip(self.code_type_addrs)
-            .map(|((instructions, data, locals), ty_idx)| {
+            .enumerate()
+            .map(|(func_idx, ((instructions, data, locals), ty_idx))| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
                 let params = ValueCountsSmall::from(&ty.params);
-                WasmFunction { instructions: ArcSlice(instructions), data, locals, params, ty }
+                let self_func_addr = imported_func_count + func_idx as u32;
+                let mut instructions = instructions.to_vec();
+                Self::apply_instruction_rewrites(&mut instructions, self_func_addr);
+
+                WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
             })
             .collect::<Vec<_>>();
 

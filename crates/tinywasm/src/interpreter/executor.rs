@@ -96,8 +96,10 @@ impl<'store> Executor<'store> {
             Select128 => self.store.stack.values.select::<Value128>().to_cf()?,
             SelectRef => self.store.stack.values.select::<ValueRef>().to_cf()?,
             Call(v) => return self.exec_call_direct::<false>(*v),
+            CallSelf => return self.exec_call_self::<false>(),
             CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
             ReturnCall(v) => return self.exec_call_direct::<true>(*v),
+            ReturnCallSelf => return self.exec_call_self::<true>(),
             ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
             Jump(ip) => {
                 self.cf.instr_ptr = *ip as usize;
@@ -717,6 +719,40 @@ impl<'store> Executor<'store> {
             crate::Function::Host(host_func) => self.exec_call_host(host_func.clone()),
         }
     }
+
+    fn exec_call_self<const IS_RETURN_CALL: bool>(&mut self) -> ControlFlow<Option<Error>> {
+        if !IS_RETURN_CALL && self.store.stack.call_stack.is_full() {
+            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+        }
+
+        let params = self.func.params;
+        let locals = self.func.locals;
+
+        if IS_RETURN_CALL {
+            self.store.stack.values.truncate_keep_counts(self.cf.locals_base, params);
+        }
+
+        let (locals_base, _stack_base, stack_offset) = match self.store.stack.values.enter_locals(params, locals) {
+            Ok(v) => v,
+            Err(Error::Trap(Trap::ValueStackOverflow)) if !IS_RETURN_CALL => {
+                return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
+            }
+            Err(err) => return ControlFlow::Break(Some(err)),
+        };
+
+        let new_call_frame = CallFrame::new(self.cf.func_addr, self.cf.module_addr, locals_base, stack_offset);
+
+        if IS_RETURN_CALL {
+            self.cf = new_call_frame;
+        } else {
+            self.cf.incr_instr_ptr();
+            self.store.stack.call_stack.push(self.cf).to_cf()?;
+            self.cf = new_call_frame;
+        }
+
+        ControlFlow::Continue(())
+    }
+
     fn exec_call_indirect<const IS_RETURN_CALL: bool>(
         &mut self,
         type_addr: u32,

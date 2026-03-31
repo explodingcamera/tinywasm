@@ -67,8 +67,10 @@ pub enum Instruction {
     BranchTableTarget(u32),      // (landing_pad_ip)
     Return,
     Call(FuncAddr),
+    CallSelf,
     CallIndirect(TypeAddr, TableAddr),
     ReturnCall(FuncAddr),
+    ReturnCallSelf,
     ReturnCallIndirect(TypeAddr, TableAddr),
 
     // > Parametric Instructions
