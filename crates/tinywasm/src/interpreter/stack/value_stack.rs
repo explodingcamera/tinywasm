@@ -172,7 +172,7 @@ impl ValueStack {
         T::stack_pop(self);
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
         let cond: i32 = self.pop();
         let val2: T = self.pop();
@@ -192,51 +192,51 @@ impl ValueStack {
         self.stack_ref.select_many(counts.cref as usize, condition);
     }
 
-    #[inline]
-    pub(crate) fn binary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
-        T::stack_calculate(self, func)
+    #[inline(always)]
+    pub(crate) fn unary<T: InternalValue>(&mut self, func: impl FnOnce(T) -> Result<T>) -> Result<()> {
+        T::stack_apply1(self, func)
     }
 
-    #[inline]
-    pub(crate) fn ternary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
-        T::stack_calculate3(self, func)
-    }
-
-    #[inline]
-    pub(crate) fn binary<T: InternalValue, U: InternalValue>(
+    #[inline(always)]
+    pub(crate) fn unary_into<IN: InternalValue, OUT: InternalValue>(
         &mut self,
-        func: impl FnOnce(T, T) -> Result<U>,
+        func: impl FnOnce(IN) -> Result<OUT>,
     ) -> Result<()> {
-        let v2 = T::stack_pop(self);
-        let v1 = T::stack_pop(self);
-        U::stack_push(self, func(v1, v2)?)?;
+        let v = IN::stack_pop(self);
+        OUT::stack_push(self, func(v)?)?;
         Ok(())
     }
 
-    #[inline]
-    pub(crate) fn binary_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
+    #[inline(always)]
+    pub(crate) fn binary<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
+        T::stack_apply2(self, func)
+    }
+
+    #[inline(always)]
+    pub(crate) fn binary_into<IN: InternalValue, OUT: InternalValue>(
         &mut self,
-        func: impl FnOnce(A, B) -> Result<RES>,
+        func: impl FnOnce(IN, IN) -> Result<OUT>,
     ) -> Result<()> {
-        let v2 = B::stack_pop(self);
-        let v1 = A::stack_pop(self);
-        RES::stack_push(self, func(v1, v2)?)?;
+        let rhs = IN::stack_pop(self);
+        let lhs = IN::stack_pop(self);
+        OUT::stack_push(self, func(lhs, rhs)?)?;
         Ok(())
     }
 
-    #[inline]
-    pub(crate) fn unary<T: InternalValue, U: InternalValue>(
+    #[inline(always)]
+    pub(crate) fn binary_mixed<A: InternalValue, B: InternalValue, OUT: InternalValue>(
         &mut self,
-        func: impl FnOnce(T) -> Result<U>,
+        func: impl FnOnce(A, B) -> Result<OUT>,
     ) -> Result<()> {
-        let v1 = T::stack_pop(self);
-        U::stack_push(self, func(v1)?)?;
+        let rhs = B::stack_pop(self);
+        let lhs = A::stack_pop(self);
+        OUT::stack_push(self, func(lhs, rhs)?)?;
         Ok(())
     }
 
-    #[inline]
-    pub(crate) fn unary_same<T: InternalValue>(&mut self, func: impl Fn(T) -> Result<T>) -> Result<()> {
-        T::replace_top(self, func)
+    #[inline(always)]
+    pub(crate) fn ternary<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
+        T::stack_apply3(self, func)
     }
 
     pub(crate) fn pop_types<'a>(

@@ -268,6 +268,7 @@ pub(crate) trait Controlify<T> {
 }
 
 impl<T> Controlify<T> for Result<T, Error> {
+    #[inline(always)]
     fn to_cf(self) -> ControlFlow<Option<Error>, T> {
         match self {
             Ok(value) => ControlFlow::Continue(value),

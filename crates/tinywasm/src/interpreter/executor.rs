@@ -14,7 +14,6 @@ use super::values::*;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
 use crate::*;
-
 pub(crate) struct Executor<'store> {
     cf: CallFrame,
     func: Rc<WasmFunction>,
@@ -45,35 +44,22 @@ impl<'store> Executor<'store> {
         use tinywasm_types::Instruction::*;
 
         macro_rules! stack_op {
-            (simd_unary $method:ident) => {
-                self.store.stack.values.unary_same::<Value128>(|v| Ok(v.$method())).to_cf()?
-            };
-            (simd_binary $method:ident) => {
-                self.store.stack.values.binary_same::<Value128>(|a, b| Ok(a.$method(b))).to_cf()?
-            };
-            (unary $ty:ty, |$v:ident| $expr:expr) => {
-                self.store.stack.values.unary_same::<$ty>(|$v| Ok($expr)).to_cf()?
-            };
-            (binary $ty:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.store.stack.values.binary_same::<$ty>(|$a, $b| Ok($expr)).to_cf()?
-            };
-            (binary_try $ty:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.store.stack.values.binary_same::<$ty>(|$a, $b| $expr).to_cf()?
-            };
-            (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {
-                self.store.stack.values.unary::<$from, $to>(|$v| Ok($expr)).to_cf()?
-            };
-            (binary $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => {
-                self.store.stack.values.binary::<$from, $to>(|$a, $b| Ok($expr)).to_cf()?
-            };
-            (binary $a:ty, $b:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
-                self.store.stack.values.binary_diff::<$a, $b, $b>(|$lhs, $rhs| Ok($expr)).to_cf()?
-            };
-            (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
-                self.store.stack.values.binary_diff::<$a, $b, $res>(|$lhs, $rhs| Ok($expr)).to_cf()?
-            };
+            (simd_unary $method:ident) => { stack_op!(unary Value128, |v| v.$method()) };
+            (simd_binary $method:ident) => { stack_op!(binary Value128, |a, b| a.$method(b)) };
+            (unary $ty:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary::<$ty>(|$v| Ok($expr)).to_cf()? };
+            (binary $ty:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary::<$ty>(|$a, $b| Ok($expr)).to_cf()? };
+            (binary try $ty:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary::<$ty>(|$a, $b| $expr).to_cf()? };
+            (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary_into::<$from, $to>(|$v| Ok($expr)).to_cf()? };
+            (binary $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary_into::<$from, $to>(|$a, $b| Ok($expr)).to_cf()? };
+            (binary $a:ty, $b:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { stack_op!(binary $a, $b => $b, |$lhs, $rhs| $expr) };
+            (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { self.store.stack.values.binary_mixed::<$a, $b, $res>(|$lhs, $rhs| Ok($expr)).to_cf()? };
+            (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => { self.store.stack.values.ternary::<$ty>(|$a, $b, $c| Ok($expr)).to_cf()? };
             (local_set_pop $ty:ty, $local_index:expr) => {{
                 let val = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.local_set(&self.cf, *$local_index, val);
+            }};
+            (local_tee $ty:ty, $local_index:expr) => {{
+                let val = self.store.stack.values.peek::<$ty>();
                 self.store.stack.values.local_set(&self.cf, *$local_index, val);
             }};
         }
@@ -89,7 +75,7 @@ impl<'store> Executor<'store> {
 
         #[rustfmt::skip]
         match next {
-            Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 | BranchTableTarget {..} => {}
+            Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
             Unreachable => return ControlFlow::Break(Some(Trap::Unreachable.into())),
             Drop32 => self.store.stack.values.drop::<Value32>(),
             Drop64 => self.store.stack.values.drop::<Value64>(),
@@ -106,20 +92,8 @@ impl<'store> Executor<'store> {
             ReturnCall(v) => return self.exec_call_direct::<true>(*v),
             ReturnCallSelf => return self.exec_call_self::<true>(),
             ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
-            Jump(ip) => {
-                self.cf.instr_ptr = *ip;
-                return ControlFlow::Continue(());
-            }
-            JumpIfZero(ip) => {
-                let cond = self.store.stack.values.pop::<i32>();
-
-                if cond == 0 {
-                    self.cf.instr_ptr = *ip;
-                } else {
-                    self.cf.incr_instr_ptr();
-                }
-                return ControlFlow::Continue(());
-            }
+            Jump(ip) => return self.exec_jump(*ip),
+            JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { return ControlFlow::Continue(()); },
             DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
                 let b32 = self.cf.stack_base().s32 + *base32 as u32;
                 let k32 = *keep32 as usize;
@@ -154,21 +128,8 @@ impl<'store> Executor<'store> {
                 let k = *keep as usize;
                 self.store.stack.values.stack_ref.truncate_keep(b as usize, k);
             }
-            BranchTable(default_ip, len) => {
-                let idx = self.store.stack.values.pop::<i32>();
-                let start = self.cf.instr_ptr + 1;
-
-                let target_ip = if idx >= 0 && (idx as u32) < *len {
-                    match self.func.instructions.0.get((start + idx as u32) as usize) {
-                        Some(Instruction::BranchTableTarget(ip)) => *ip,
-                        _ => *default_ip,
-                    }
-                } else {
-                    *default_ip
-                };
-                self.cf.instr_ptr = target_ip;
-                return ControlFlow::Continue(());
-            }
+            BranchTable(default_ip, len) => return self.exec_branch_table(*default_ip, *len),
+            BranchTableTarget {..} => {},
             Return => return self.exec_return(),
             LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value32>(&self.cf, *local_index)).to_cf()?,
             LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value64>(&self.cf, *local_index)).to_cf()?,
@@ -214,14 +175,13 @@ impl<'store> Executor<'store> {
             }
             I64XorRotlConst(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
             I64XorRotlConstTee(c, local_index) => {
-                self.store.stack.values.binary_same::<i64>(|lhs, rhs| Ok((lhs ^ rhs).rotate_left(*c as u32))).to_cf()?;
-                let val = self.store.stack.values.peek::<i64>();
-                self.store.stack.values.local_set(&self.cf, *local_index, val);
+                stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32));
+                stack_op!(local_tee i64, local_index);
             }
-            LocalTee32(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value32>()),
-            LocalTee64(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value64>()),
-            LocalTee128(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<Value128>()),
-            LocalTeeRef(local_index) => self.store.stack.values.local_set(&self.cf, *local_index, self.store.stack.values.peek::<ValueRef>()),
+            LocalTee32(local_index) => stack_op!(local_tee Value32, local_index),
+            LocalTee64(local_index) => stack_op!(local_tee Value64, local_index),
+            LocalTee128(local_index) => stack_op!(local_tee Value128, local_index),
+            LocalTeeRef(local_index) => stack_op!(local_tee ValueRef, local_index),
             GlobalGet(global_index) => self.exec_global_get(*global_index).to_cf()?,
             GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index),
             GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
@@ -279,14 +239,14 @@ impl<'store> Executor<'store> {
             I64Mul => stack_op!(binary i64, |a, b| a.wrapping_mul(b)),
             F32Mul => stack_op!(binary f32, |a, b| a * b),
             F64Mul => stack_op!(binary f64, |a, b| a * b),
-            I32DivS => stack_op!(binary_try i32, |a, b| a.wasm_checked_div(b)),
-            I64DivS => stack_op!(binary_try i64, |a, b| a.wasm_checked_div(b)),
-            I32DivU => stack_op!(binary_try u32, |a, b| a.checked_div(b).ok_or_else(trap_0)),
-            I64DivU => stack_op!(binary_try u64, |a, b| a.checked_div(b).ok_or_else(trap_0)),
-            I32RemS => stack_op!(binary_try i32, |a, b| a.checked_wrapping_rem(b)),
-            I64RemS => stack_op!(binary_try i64, |a, b| a.checked_wrapping_rem(b)),
-            I32RemU => stack_op!(binary_try u32, |a, b| a.checked_wrapping_rem(b)),
-            I64RemU => stack_op!(binary_try u64, |a, b| a.checked_wrapping_rem(b)),
+            I32DivS => stack_op!(binary try i32, |a, b| a.wasm_checked_div(b)),
+            I64DivS => stack_op!(binary try i64, |a, b| a.wasm_checked_div(b)),
+            I32DivU => stack_op!(binary try u32, |a, b| a.checked_div(b).ok_or_else(trap_0)),
+            I64DivU => stack_op!(binary try u64, |a, b| a.checked_div(b).ok_or_else(trap_0)),
+            I32RemS => stack_op!(binary try i32, |a, b| a.checked_wrapping_rem(b)),
+            I64RemS => stack_op!(binary try i64, |a, b| a.checked_wrapping_rem(b)),
+            I32RemU => stack_op!(binary try u32, |a, b| a.checked_wrapping_rem(b)),
+            I64RemU => stack_op!(binary try u64, |a, b| a.checked_wrapping_rem(b)),
             I32And => stack_op!(binary i32, |a, b| a & b),
             I64And => stack_op!(binary i64, |a, b| a & b),
             I32Or => stack_op!(binary i32, |a, b| a | b),
@@ -424,7 +384,7 @@ impl<'store> Executor<'store> {
             V128AndNot => stack_op!(binary Value128, |a, b| a.v128_andnot(b)),
             V128Or => stack_op!(binary Value128, |a, b| a.v128_or(b)),
             V128Xor => stack_op!(binary Value128, |a, b| a.v128_xor(b)),
-            V128Bitselect => self.store.stack.values.ternary_same::<Value128>(|v1, v2, c| Ok(Value128::v128_bitselect(v1, v2, c))).to_cf()?,
+            V128Bitselect => stack_op!(ternary Value128, |v1, v2, c| Value128::v128_bitselect(v1, v2, c)),
             V128AnyTrue => stack_op!(unary Value128 => i32, |v| v.v128_any_true() as i32),
             I8x16Swizzle => stack_op!(binary Value128, |a, s| a.i8x16_swizzle(s)),
             V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
@@ -658,6 +618,39 @@ impl<'store> Executor<'store> {
         };
 
         self.cf.incr_instr_ptr();
+        ControlFlow::Continue(())
+    }
+
+    #[inline(always)]
+    fn exec_jump(&mut self, ip: u32) -> ControlFlow<Option<Error>> {
+        self.cf.instr_ptr = ip;
+        ControlFlow::Continue(())
+    }
+
+    #[inline(always)]
+    fn exec_jump_if_zero(&mut self, ip: u32) -> bool {
+        if self.store.stack.values.pop::<i32>() == 0 {
+            self.cf.instr_ptr = ip;
+            return true;
+        }
+        false
+    }
+
+    #[inline(always)]
+    fn exec_branch_table(&mut self, default_ip: u32, len: u32) -> ControlFlow<Option<Error>> {
+        let idx = self.store.stack.values.pop::<i32>();
+        let start = self.cf.instr_ptr + 1;
+
+        let target_ip = if idx >= 0 && (idx as u32) < len {
+            match self.func.instructions.0.get((start + idx as u32) as usize) {
+                Some(Instruction::BranchTableTarget(ip)) => *ip,
+                _ => default_ip,
+            }
+        } else {
+            default_ip
+        };
+
+        self.cf.instr_ptr = target_ip;
         ControlFlow::Continue(())
     }
 
@@ -943,6 +936,7 @@ impl<'store> Executor<'store> {
         ControlFlow::Continue(())
     }
 
+    #[inline(always)]
     fn exec_mem_load<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
         mem_addr: tinywasm_types::MemAddr,
@@ -951,18 +945,28 @@ impl<'store> Executor<'store> {
     ) -> ControlFlow<Option<Error>> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
 
-        let addr = match mem.is_64bit() {
-            true => self.store.stack.values.pop::<i64>() as u64,
-            false => u64::from(self.store.stack.values.pop::<i32>() as u32),
+        let base: u64 = if mem.is_64bit() {
+            self.store.stack.values.pop::<i64>() as u64
+        } else {
+            self.store.stack.values.pop::<i32>() as u32 as u64
         };
 
-        let Some(Ok(addr)) = offset.checked_add(addr).map(|a| a.try_into()) else {
+        let Some(addr) = base.checked_add(offset) else {
             return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
-                offset: addr as usize,
+                offset: base as usize,
                 len: LOAD_SIZE,
                 max: 0,
             })));
         };
+
+        let Ok(addr) = usize::try_from(addr) else {
+            return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
+                offset: base as usize,
+                len: LOAD_SIZE,
+                max: 0,
+            })));
+        };
+
         let val = mem.load_as::<LOAD_SIZE, LOAD>(addr).to_cf()?;
         self.store.stack.values.push(cast(val)).to_cf()?;
         ControlFlow::Continue(())

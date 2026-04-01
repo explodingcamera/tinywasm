@@ -154,7 +154,7 @@ impl MemoryInstance {
 }
 
 /// A trait for types that can be converted to and from static byte arrays
-pub(crate) trait MemValue<const N: usize>: Copy + Sized {
+pub(crate) trait MemValue<const N: usize>: Copy + Default {
     /// Store a value in memory
     fn to_mem_bytes(self) -> [u8; N];
 
@@ -168,12 +168,12 @@ macro_rules! impl_mem_traits {
             impl MemValue<$size> for $ty {
                 #[inline(always)]
                 fn from_mem_bytes(bytes: [u8; $size]) -> Self {
-                    <$ty>::from_le_bytes(bytes.into())
+                    <$ty>::from_le_bytes(bytes)
                 }
 
                 #[inline(always)]
                 fn to_mem_bytes(self) -> [u8; $size] {
-                    self.to_le_bytes().into()
+                    self.to_le_bytes()
                 }
             }
         )*

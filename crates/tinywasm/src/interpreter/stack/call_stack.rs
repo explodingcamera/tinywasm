@@ -69,6 +69,7 @@ impl CallFrame {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn incr_instr_ptr(&mut self) {
         self.instr_ptr += 1;
     }
