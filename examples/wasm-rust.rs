@@ -72,7 +72,7 @@ fn main() -> Result<()> {
 }
 
 fn tinywasm() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/tinywasm.opt.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/tinywasm.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -102,7 +102,7 @@ fn tinywasm_no_std() -> Result<()> {
 }
 
 fn hello() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/hello.opt.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/hello.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -151,7 +151,7 @@ fn host_fn() -> Result<()> {
 }
 
 fn printi32() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/print.opt.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/print.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -172,7 +172,7 @@ fn printi32() -> Result<()> {
 }
 
 fn fibonacci() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/fibonacci.opt.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/fibonacci.wasm")?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
@@ -185,7 +185,7 @@ fn fibonacci() -> Result<()> {
 }
 
 fn argon2id() -> Result<()> {
-    let module = Module::parse_file("./examples/rust/out/argon2id.opt.wasm")?;
+    let module = Module::parse_file("./examples/rust/out/argon2id.wasm")?;
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;

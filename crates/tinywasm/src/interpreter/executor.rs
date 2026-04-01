@@ -3,7 +3,7 @@
 use super::no_std_floats::NoStdFloatExt;
 
 use alloc::boxed::Box;
-use alloc::{format, rc::Rc, string::ToString};
+use alloc::{rc::Rc, string::ToString};
 use core::ops::ControlFlow;
 
 use interpreter::stack::CallFrame;
@@ -78,7 +78,7 @@ impl<'store> Executor<'store> {
             }};
         }
 
-        let next = match self.func.instructions.0.get(self.cf.instr_ptr) {
+        let next = match self.func.instructions.0.get(self.cf.instr_ptr as usize) {
             Some(instr) => instr,
             None => unreachable!(
                 "Instruction pointer out of bounds: {} ({} instructions)",
@@ -89,7 +89,7 @@ impl<'store> Executor<'store> {
 
         #[rustfmt::skip]
         match next {
-            Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
+            Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 | BranchTableTarget {..} => {}
             Unreachable => return ControlFlow::Break(Some(Trap::Unreachable.into())),
             Drop32 => self.store.stack.values.drop::<Value32>(),
             Drop64 => self.store.stack.values.drop::<Value64>(),
@@ -107,66 +107,66 @@ impl<'store> Executor<'store> {
             ReturnCallSelf => return self.exec_call_self::<true>(),
             ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
             Jump(ip) => {
-                self.cf.instr_ptr = *ip as usize;
+                self.cf.instr_ptr = *ip;
                 return ControlFlow::Continue(());
             }
             JumpIfZero(ip) => {
                 let cond = self.store.stack.values.pop::<i32>();
 
                 if cond == 0 {
-                    self.cf.instr_ptr = *ip as usize;
+                    self.cf.instr_ptr = *ip;
                 } else {
                     self.cf.incr_instr_ptr();
                 }
                 return ControlFlow::Continue(());
             }
             DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                let b32 = self.cf.stack_base().s32 + *base32 as usize;
+                let b32 = self.cf.stack_base().s32 + *base32 as u32;
                 let k32 = *keep32 as usize;
-                self.store.stack.values.stack_32.truncate_keep(b32, k32);
-                let b64 = self.cf.stack_base().s64 + *base64 as usize;
+                self.store.stack.values.stack_32.truncate_keep(b32 as usize, k32);
+                let b64 = self.cf.stack_base().s64 + *base64 as u32;
                 let k64 = *keep64 as usize;
-                self.store.stack.values.stack_64.truncate_keep(b64, k64);
-                let b128 = self.cf.stack_base().s128 + *base128 as usize;
+                self.store.stack.values.stack_64.truncate_keep(b64 as usize, k64);
+                let b128 = self.cf.stack_base().s128 + *base128 as u32;
                 let k128 = *keep128 as usize;
-                self.store.stack.values.stack_128.truncate_keep(b128, k128);
-                let bref = self.cf.stack_base().sref + *base_ref as usize;
+                self.store.stack.values.stack_128.truncate_keep(b128 as usize, k128);
+                let bref = self.cf.stack_base().sref + *base_ref as u32;
                 let kref = *keep_ref as usize;
-                self.store.stack.values.stack_ref.truncate_keep(bref, kref);
+                self.store.stack.values.stack_ref.truncate_keep(bref as usize, kref);
             }
             DropKeep32(base, keep) => {
-                let b = self.cf.stack_base().s32 + *base as usize;
+                let b = self.cf.stack_base().s32 + *base as u32;
                 let k = *keep as usize;
-                self.store.stack.values.stack_32.truncate_keep(b, k);
+                self.store.stack.values.stack_32.truncate_keep(b as usize, k);
             }
             DropKeep64(base, keep) => {
-                let b = self.cf.stack_base().s64 + *base as usize;
+                let b = self.cf.stack_base().s64 + *base as u32;
                 let k = *keep as usize;
-                self.store.stack.values.stack_64.truncate_keep(b, k);
+                self.store.stack.values.stack_64.truncate_keep(b as usize, k);
             }
             DropKeep128(base, keep) => {
-                let b = self.cf.stack_base().s128 + *base as usize;
+                let b = self.cf.stack_base().s128 + *base as u32;
                 let k = *keep as usize;
-                self.store.stack.values.stack_128.truncate_keep(b, k);
+                self.store.stack.values.stack_128.truncate_keep(b as usize, k);
             }
             DropKeepRef(base, keep) => {
-                let b = self.cf.stack_base().sref + *base as usize;
+                let b = self.cf.stack_base().sref + *base as u32;
                 let k = *keep as usize;
-                self.store.stack.values.stack_ref.truncate_keep(b, k);
+                self.store.stack.values.stack_ref.truncate_keep(b as usize, k);
             }
             BranchTable(default_ip, len) => {
                 let idx = self.store.stack.values.pop::<i32>();
                 let start = self.cf.instr_ptr + 1;
 
                 let target_ip = if idx >= 0 && (idx as u32) < *len {
-                    match self.func.instructions.0.get(start + idx as usize) {
+                    match self.func.instructions.0.get((start + idx as u32) as usize) {
                         Some(Instruction::BranchTableTarget(ip)) => *ip,
                         _ => *default_ip,
                     }
                 } else {
                     *default_ip
                 };
-                self.cf.instr_ptr = target_ip as usize;
+                self.cf.instr_ptr = target_ip;
                 return ControlFlow::Continue(());
             }
             Return => return self.exec_return(),
@@ -434,10 +434,10 @@ impl<'store> Executor<'store> {
             V128Load16x4U(arg) => self.exec_mem_load::<u64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::v128_load16x4_u(v.to_le_bytes()))?,
             V128Load32x2S(arg) => self.exec_mem_load::<u64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::v128_load32x2_s(v.to_le_bytes()))?,
             V128Load32x2U(arg) => self.exec_mem_load::<u64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::v128_load32x2_u(v.to_le_bytes()))?,
-            V128Load8Splat(_arg) => self.exec_mem_load::<i8, 1, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i8)?,
-            V128Load16Splat(_arg) => self.exec_mem_load::<i16, 2, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i16)?,
-            V128Load32Splat(_arg) => self.exec_mem_load::<i32, 4, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i32)?,
-            V128Load64Splat(_arg) => self.exec_mem_load::<i64, 8, Value128>(_arg.mem_addr(), _arg.offset(), Value128::splat_i64)?,
+            V128Load8Splat(arg) => self.exec_mem_load::<i8, 1, Value128>(arg.mem_addr(), arg.offset(), Value128::splat_i8)?,
+            V128Load16Splat(arg) => self.exec_mem_load::<i16, 2, Value128>(arg.mem_addr(), arg.offset(), Value128::splat_i16)?,
+            V128Load32Splat(arg) => self.exec_mem_load::<i32, 4, Value128>(arg.mem_addr(), arg.offset(), Value128::splat_i32)?,
+            V128Load64Splat(arg) => self.exec_mem_load::<i64, 8, Value128>(arg.mem_addr(), arg.offset(), Value128::splat_i64)?,
             V128Store(arg) => self.exec_mem_store::<Value128, Value128, 16>(arg.mem_addr(), arg.offset(), |v| v)?,
             V128Store8Lane(arg, lane) => self.exec_mem_store_lane::<i8, 1>(arg.mem_addr(), arg.offset(), *lane)?,
             V128Store16Lane(arg, lane) => self.exec_mem_store_lane::<i16, 2>(arg.mem_addr(), arg.offset(), *lane)?,
@@ -655,9 +655,6 @@ impl<'store> Executor<'store> {
             F64x2PromoteLowF32x4 => stack_op!(unary Value128, |v| v.f64x2_promote_low_f32x4()),
             I32x4TruncSatF64x2SZero => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f64x2_s_zero()),
             I32x4TruncSatF64x2UZero => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f64x2_u_zero()),
-
-            #[allow(unreachable_patterns)]
-            i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
 
         self.cf.incr_instr_ptr();
@@ -670,10 +667,6 @@ impl<'store> Executor<'store> {
         func_addr: FuncAddr,
         owner: ModuleInstanceAddr,
     ) -> ControlFlow<Option<Error>> {
-        if !IS_RETURN_CALL && self.store.stack.call_stack.is_full() {
-            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
-        }
-
         if !Rc::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func.clone();
         }
@@ -726,10 +719,6 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_call_self<const IS_RETURN_CALL: bool>(&mut self) -> ControlFlow<Option<Error>> {
-        if !IS_RETURN_CALL && self.store.stack.call_stack.is_full() {
-            return ControlFlow::Break(Some(Trap::CallStackOverflow.into()));
-        }
-
         let params = self.func.params;
         let locals = self.func.locals;
 

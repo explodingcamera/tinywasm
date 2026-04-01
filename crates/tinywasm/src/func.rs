@@ -1,6 +1,6 @@
 use crate::interpreter::stack::CallFrame;
 use crate::{Error, FuncContext, InterpreterRuntime, Result, Store};
-use crate::{Function, log, unlikely};
+use crate::{Function, unlikely};
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
@@ -34,23 +34,14 @@ impl FuncHandle {
         }
 
         // 5. For each value type and the corresponding value, check if types match
-        if !(func_ty.params.iter().zip(params).enumerate().all(|(_i, (ty, param))| {
-            if ty == &param.val_type() {
-                true
-            } else {
-                log::error!("param type mismatch at index {_i}: expected {ty:?}, got {param:?}");
-                false
-            }
-        })) {
+        if !(func_ty.params.iter().zip(params).all(|(ty, param)| ty == &param.val_type())) {
             return Err(Error::Other("Type mismatch".into()));
         }
 
         let func_inst = store.state.get_func(self.addr);
         let wasm_func = match &func_inst.func {
             Function::Host(host_func) => {
-                let host_func = host_func.clone();
-                let ctx = FuncContext { store, module_addr: self.module_addr };
-                return host_func.call(ctx, params);
+                return host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params);
             }
             Function::Wasm(wasm_func) => wasm_func.clone(),
         };

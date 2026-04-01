@@ -104,30 +104,15 @@ mod sealed {
     pub trait Sealed {}
 }
 
-pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> {
+pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()>;
-    fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self
-    where
-        Self: Sized;
-    fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self)
-    where
-        Self: Sized;
-    fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()>
-    where
-        Self: Sized;
-    fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()>
-    where
-        Self: Sized;
-    fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()>
-    where
-        Self: Sized;
-
-    fn stack_pop(stack: &mut ValueStack) -> Self
-    where
-        Self: Sized;
-    fn stack_peek(stack: &ValueStack) -> Self
-    where
-        Self: Sized;
+    fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
+    fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
+    fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()>;
+    fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()>;
+    fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()>;
+    fn stack_pop(stack: &mut ValueStack) -> Self;
+    fn stack_peek(stack: &ValueStack) -> Self;
 }
 
 macro_rules! impl_internalvalue {
@@ -142,32 +127,32 @@ macro_rules! impl_internalvalue {
             }
 
             impl InternalValue for $outer {
-                #[inline]
+                #[inline(always)]
                 fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()> {
                     stack.$stack.push($to_internal(value))
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
-                    $to_outer(stack.$stack.get(frame.locals_base.$stack_base + index as usize))
+                    $to_outer(stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize))
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
-                    stack.$stack.set(frame.locals_base.$stack_base + index as usize, $to_internal(value));
+                    stack.$stack.set(frame.locals_base.$stack_base as usize + index as usize, $to_internal(value));
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
                     $to_outer(stack.$stack.pop())
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn stack_peek(stack: &ValueStack) -> Self {
                     $to_outer(*stack.$stack.last())
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn stack_calculate(stack: &mut ValueStack, func: impl FnOnce(Self, Self) -> Result<Self>) -> Result<()> {
                     let v2 = stack.$stack.pop();
                     let v1 = stack.$stack.last_mut();
@@ -175,7 +160,7 @@ macro_rules! impl_internalvalue {
                     Ok(())
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn stack_calculate3(stack: &mut ValueStack, func: impl FnOnce(Self, Self, Self) -> Result<Self>) -> Result<()> {
                     let v3 = stack.$stack.pop();
                     let v2 = stack.$stack.pop();
@@ -184,7 +169,7 @@ macro_rules! impl_internalvalue {
                     Ok(())
                 }
 
-                #[inline]
+                #[inline(always)]
                 fn replace_top(stack: &mut ValueStack, func: impl FnOnce(Self) -> Result<Self>) -> Result<()> {
                     let v = stack.$stack.last_mut();
                     *v = $to_internal(func($to_outer(*v))?);

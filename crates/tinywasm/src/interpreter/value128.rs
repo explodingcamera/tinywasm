@@ -2,148 +2,207 @@ use super::num_helpers::TinywasmFloatExt;
 
 #[cfg(not(feature = "std"))]
 use super::no_std_floats::NoStdFloatExt;
+#[cfg(target_arch = "wasm32")]
+use core::arch::wasm32 as wasm;
+#[cfg(target_arch = "wasm64")]
+use core::arch::wasm64 as wasm;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Value128(i128);
 
+#[cfg_attr(any(target_arch = "wasm32", target_arch = "wasm64"), allow(unreachable_code))]
 impl Value128 {
+    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    #[inline(always)]
+    fn to_wasm_v128(self) -> wasm::v128 {
+        let b = self.to_le_bytes();
+        wasm::u8x16(
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15],
+        )
+    }
+
+    #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+    #[inline(always)]
+    fn from_wasm_v128(value: wasm::v128) -> Self {
+        Self::from_le_bytes([
+            wasm::u8x16_extract_lane::<0>(value),
+            wasm::u8x16_extract_lane::<1>(value),
+            wasm::u8x16_extract_lane::<2>(value),
+            wasm::u8x16_extract_lane::<3>(value),
+            wasm::u8x16_extract_lane::<4>(value),
+            wasm::u8x16_extract_lane::<5>(value),
+            wasm::u8x16_extract_lane::<6>(value),
+            wasm::u8x16_extract_lane::<7>(value),
+            wasm::u8x16_extract_lane::<8>(value),
+            wasm::u8x16_extract_lane::<9>(value),
+            wasm::u8x16_extract_lane::<10>(value),
+            wasm::u8x16_extract_lane::<11>(value),
+            wasm::u8x16_extract_lane::<12>(value),
+            wasm::u8x16_extract_lane::<13>(value),
+            wasm::u8x16_extract_lane::<14>(value),
+            wasm::u8x16_extract_lane::<15>(value),
+        ])
+    }
+
+    #[inline]
     pub const fn from_le_bytes(bytes: [u8; 16]) -> Self {
         Self(i128::from_le_bytes(bytes))
     }
 
+    #[inline]
     pub const fn to_le_bytes(self) -> [u8; 16] {
         self.0.to_le_bytes()
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_i8x16(self) -> [i8; 16] {
         let b = self.to_le_bytes();
         [b[0] as i8, b[1] as i8, b[2] as i8, b[3] as i8, b[4] as i8, b[5] as i8, b[6] as i8, b[7] as i8, b[8] as i8, b[9] as i8, b[10] as i8, b[11] as i8, b[12] as i8, b[13] as i8, b[14] as i8, b[15] as i8]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_u8x16(self) -> [u8; 16] {
         self.to_le_bytes()
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_i8x16(x: [i8; 16]) -> Self {
         Self::from_le_bytes([x[0] as u8, x[1] as u8, x[2] as u8, x[3] as u8, x[4] as u8, x[5] as u8, x[6] as u8, x[7] as u8, x[8] as u8, x[9] as u8, x[10] as u8, x[11] as u8, x[12] as u8, x[13] as u8, x[14] as u8, x[15] as u8])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_u8x16(x: [u8; 16]) -> Self {
         Self::from_le_bytes(x)
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_i16x8(self) -> [i16; 8] {
         let b = self.to_le_bytes();
         [i16::from_le_bytes([b[0], b[1]]), i16::from_le_bytes([b[2], b[3]]), i16::from_le_bytes([b[4], b[5]]), i16::from_le_bytes([b[6], b[7]]), i16::from_le_bytes([b[8], b[9]]), i16::from_le_bytes([b[10], b[11]]), i16::from_le_bytes([b[12], b[13]]), i16::from_le_bytes([b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_u16x8(self) -> [u16; 8] {
         let b = self.to_le_bytes();
         [u16::from_le_bytes([b[0], b[1]]), u16::from_le_bytes([b[2], b[3]]), u16::from_le_bytes([b[4], b[5]]), u16::from_le_bytes([b[6], b[7]]), u16::from_le_bytes([b[8], b[9]]), u16::from_le_bytes([b[10], b[11]]), u16::from_le_bytes([b[12], b[13]]), u16::from_le_bytes([b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_i16x8(x: [i16; 8]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[2].to_le_bytes()[0], x[2].to_le_bytes()[1], x[3].to_le_bytes()[0], x[3].to_le_bytes()[1], x[4].to_le_bytes()[0], x[4].to_le_bytes()[1], x[5].to_le_bytes()[0], x[5].to_le_bytes()[1], x[6].to_le_bytes()[0], x[6].to_le_bytes()[1], x[7].to_le_bytes()[0], x[7].to_le_bytes()[1]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_u16x8(x: [u16; 8]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[2].to_le_bytes()[0], x[2].to_le_bytes()[1], x[3].to_le_bytes()[0], x[3].to_le_bytes()[1], x[4].to_le_bytes()[0], x[4].to_le_bytes()[1], x[5].to_le_bytes()[0], x[5].to_le_bytes()[1], x[6].to_le_bytes()[0], x[6].to_le_bytes()[1], x[7].to_le_bytes()[0], x[7].to_le_bytes()[1]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_i32x4(self) -> [i32; 4] {
         let b = self.to_le_bytes();
         [i32::from_le_bytes([b[0], b[1], b[2], b[3]]), i32::from_le_bytes([b[4], b[5], b[6], b[7]]), i32::from_le_bytes([b[8], b[9], b[10], b[11]]), i32::from_le_bytes([b[12], b[13], b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_u32x4(self) -> [u32; 4] {
         let b = self.to_le_bytes();
         [u32::from_le_bytes([b[0], b[1], b[2], b[3]]), u32::from_le_bytes([b[4], b[5], b[6], b[7]]), u32::from_le_bytes([b[8], b[9], b[10], b[11]]), u32::from_le_bytes([b[12], b[13], b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_f32x4(self) -> [f32; 4] {
         let b = self.to_le_bytes();
         [f32::from_bits(u32::from_le_bytes([b[0], b[1], b[2], b[3]])), f32::from_bits(u32::from_le_bytes([b[4], b[5], b[6], b[7]])), f32::from_bits(u32::from_le_bytes([b[8], b[9], b[10], b[11]])), f32::from_bits(u32::from_le_bytes([b[12], b[13], b[14], b[15]]))]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_i32x4(x: [i32; 4]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[0].to_le_bytes()[2], x[0].to_le_bytes()[3], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[1].to_le_bytes()[2], x[1].to_le_bytes()[3], x[2].to_le_bytes()[0], x[2].to_le_bytes()[1], x[2].to_le_bytes()[2], x[2].to_le_bytes()[3], x[3].to_le_bytes()[0], x[3].to_le_bytes()[1], x[3].to_le_bytes()[2], x[3].to_le_bytes()[3]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_u32x4(x: [u32; 4]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[0].to_le_bytes()[2], x[0].to_le_bytes()[3], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[1].to_le_bytes()[2], x[1].to_le_bytes()[3], x[2].to_le_bytes()[0], x[2].to_le_bytes()[1], x[2].to_le_bytes()[2], x[2].to_le_bytes()[3], x[3].to_le_bytes()[0], x[3].to_le_bytes()[1], x[3].to_le_bytes()[2], x[3].to_le_bytes()[3]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_f32x4(x: [f32; 4]) -> Self {
         Self::from_le_bytes([x[0].to_bits().to_le_bytes()[0], x[0].to_bits().to_le_bytes()[1], x[0].to_bits().to_le_bytes()[2], x[0].to_bits().to_le_bytes()[3], x[1].to_bits().to_le_bytes()[0], x[1].to_bits().to_le_bytes()[1], x[1].to_bits().to_le_bytes()[2], x[1].to_bits().to_le_bytes()[3], x[2].to_bits().to_le_bytes()[0], x[2].to_bits().to_le_bytes()[1], x[2].to_bits().to_le_bytes()[2], x[2].to_bits().to_le_bytes()[3], x[3].to_bits().to_le_bytes()[0], x[3].to_bits().to_le_bytes()[1], x[3].to_bits().to_le_bytes()[2], x[3].to_bits().to_le_bytes()[3]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_i64x2(self) -> [i64; 2] {
         let b = self.to_le_bytes();
         [i64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]), i64::from_le_bytes([b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_u64x2(self) -> [u64; 2] {
         let b = self.to_le_bytes();
         [u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]), u64::from_le_bytes([b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]])]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn as_f64x2(self) -> [f64; 2] {
         let b = self.to_le_bytes();
         [f64::from_bits(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])), f64::from_bits(u64::from_le_bytes([b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]]))]
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_i64x2(x: [i64; 2]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[0].to_le_bytes()[2], x[0].to_le_bytes()[3], x[0].to_le_bytes()[4], x[0].to_le_bytes()[5], x[0].to_le_bytes()[6], x[0].to_le_bytes()[7], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[1].to_le_bytes()[2], x[1].to_le_bytes()[3], x[1].to_le_bytes()[4], x[1].to_le_bytes()[5], x[1].to_le_bytes()[6], x[1].to_le_bytes()[7]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_u64x2(x: [u64; 2]) -> Self {
         Self::from_le_bytes([x[0].to_le_bytes()[0], x[0].to_le_bytes()[1], x[0].to_le_bytes()[2], x[0].to_le_bytes()[3], x[0].to_le_bytes()[4], x[0].to_le_bytes()[5], x[0].to_le_bytes()[6], x[0].to_le_bytes()[7], x[1].to_le_bytes()[0], x[1].to_le_bytes()[1], x[1].to_le_bytes()[2], x[1].to_le_bytes()[3], x[1].to_le_bytes()[4], x[1].to_le_bytes()[5], x[1].to_le_bytes()[6], x[1].to_le_bytes()[7]])
     }
 
     #[rustfmt::skip]
+    #[inline]
     pub const fn from_f64x2(x: [f64; 2]) -> Self {
         Self::from_le_bytes([x[0].to_bits().to_le_bytes()[0], x[0].to_bits().to_le_bytes()[1], x[0].to_bits().to_le_bytes()[2], x[0].to_bits().to_le_bytes()[3], x[0].to_bits().to_le_bytes()[4], x[0].to_bits().to_le_bytes()[5], x[0].to_bits().to_le_bytes()[6], x[0].to_bits().to_le_bytes()[7], x[1].to_bits().to_le_bytes()[0], x[1].to_bits().to_le_bytes()[1], x[1].to_bits().to_le_bytes()[2], x[1].to_bits().to_le_bytes()[3], x[1].to_bits().to_le_bytes()[4], x[1].to_bits().to_le_bytes()[5], x[1].to_bits().to_le_bytes()[6], x[1].to_bits().to_le_bytes()[7]])
     }
 
-    #[inline(always)]
+    #[inline]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
         let lanes = self.as_f32x4();
         Self::from_f32x4([op(lanes[0]), op(lanes[1]), op(lanes[2]), op(lanes[3])])
     }
 
-    #[inline(always)]
+    #[inline]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
         let a = self.as_f32x4();
         let b = rhs.as_f32x4();
         Self::from_f32x4([op(a[0], b[0]), op(a[1], b[1]), op(a[2], b[2]), op(a[3], b[3])])
     }
 
-    #[inline(always)]
+    #[inline]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
         let lanes = self.as_f64x2();
         Self::from_f64x2([op(lanes[0]), op(lanes[1])])
     }
 
-    #[inline(always)]
+    #[inline]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
         let a = self.as_f64x2();
         let b = rhs.as_f64x2();
@@ -163,41 +222,69 @@ impl Value128 {
     }
 
     #[doc(alias = "v128.any_true")]
-    pub const fn v128_any_true(self) -> bool {
+    pub fn v128_any_true(self) -> bool {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return wasm::v128_any_true(self.to_wasm_v128());
+        }
         self.reduce_or() != 0
     }
 
     #[doc(alias = "v128.not")]
-    pub const fn v128_not(self) -> Self {
+    pub fn v128_not(self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_not(self.to_wasm_v128()));
+        }
         Self(!self.0)
     }
 
     #[doc(alias = "v128.and")]
-    pub const fn v128_and(self, rhs: Self) -> Self {
+    pub fn v128_and(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_and(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         Self(self.0 & rhs.0)
     }
 
     #[doc(alias = "v128.andnot")]
-    pub const fn v128_andnot(self, rhs: Self) -> Self {
+    pub fn v128_andnot(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_andnot(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         Self(self.0 & !rhs.0)
     }
 
     #[doc(alias = "v128.or")]
-    pub const fn v128_or(self, rhs: Self) -> Self {
+    pub fn v128_or(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_or(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         Self(self.0 | rhs.0)
     }
 
     #[doc(alias = "v128.xor")]
-    pub const fn v128_xor(self, rhs: Self) -> Self {
+    pub fn v128_xor(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_xor(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         Self(self.0 ^ rhs.0)
     }
 
     #[doc(alias = "v128.bitselect")]
-    pub const fn v128_bitselect(v1: Self, v2: Self, c: Self) -> Self {
+    pub fn v128_bitselect(v1: Self, v2: Self, c: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::v128_bitselect(v1.to_wasm_v128(), v2.to_wasm_v128(), c.to_wasm_v128()));
+        }
         Self((v1.0 & c.0) | (v2.0 & !c.0))
     }
 
-    pub const fn swizzle(self, s: Self) -> Self {
+    pub fn swizzle(self, s: Self) -> Self {
         self.i8x16_swizzle(s)
     }
 
@@ -266,7 +353,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.swizzle")]
-    pub const fn i8x16_swizzle(self, s: Self) -> Self {
+    pub fn i8x16_swizzle(self, s: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_swizzle(self.to_wasm_v128(), s.to_wasm_v128()));
+        }
         let a_bytes = self.to_le_bytes();
         let s_bytes = s.to_le_bytes();
         let mut result_bytes = [0u8; 16];
@@ -280,15 +371,13 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.shuffle")]
-    pub const fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
+    pub fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
         let a_bytes = a.to_le_bytes();
         let b_bytes = b.to_le_bytes();
         let mut result_bytes = [0u8; 16];
-        let mut i = 0;
-        while i < 16 {
-            let index = idx[i] as usize;
+        for i in 0..16 {
+            let index = (idx[i] & 31) as usize;
             result_bytes[i] = if index < 16 { a_bytes[index] } else { b_bytes[index - 16] };
-            i += 1;
         }
         Self::from_le_bytes(result_bytes)
     }
@@ -689,7 +778,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.add")]
-    pub const fn i8x16_add(self, rhs: Self) -> Self {
+    pub fn i8x16_add(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_add(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -702,7 +795,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.add")]
-    pub const fn i16x8_add(self, rhs: Self) -> Self {
+    pub fn i16x8_add(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_add(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -715,7 +812,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.add")]
-    pub const fn i32x4_add(self, rhs: Self) -> Self {
+    pub fn i32x4_add(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_add(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -728,7 +829,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.add")]
-    pub const fn i64x2_add(self, rhs: Self) -> Self {
+    pub fn i64x2_add(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_add(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -741,7 +846,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.sub")]
-    pub const fn i8x16_sub(self, rhs: Self) -> Self {
+    pub fn i8x16_sub(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_sub(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -754,7 +863,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.sub")]
-    pub const fn i16x8_sub(self, rhs: Self) -> Self {
+    pub fn i16x8_sub(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_sub(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -767,7 +880,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.sub")]
-    pub const fn i32x4_sub(self, rhs: Self) -> Self {
+    pub fn i32x4_sub(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_sub(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -780,7 +897,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.sub")]
-    pub const fn i64x2_sub(self, rhs: Self) -> Self {
+    pub fn i64x2_sub(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_sub(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -793,7 +914,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.mul")]
-    pub const fn i16x8_mul(self, rhs: Self) -> Self {
+    pub fn i16x8_mul(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_mul(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -806,7 +931,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.mul")]
-    pub const fn i32x4_mul(self, rhs: Self) -> Self {
+    pub fn i32x4_mul(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_mul(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -819,7 +948,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.mul")]
-    pub const fn i64x2_mul(self, rhs: Self) -> Self {
+    pub fn i64x2_mul(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_mul(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -832,7 +965,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.add_sat_s")]
-    pub const fn i8x16_add_sat_s(self, rhs: Self) -> Self {
+    pub fn i8x16_add_sat_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_add_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -845,7 +982,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.add_sat_s")]
-    pub const fn i16x8_add_sat_s(self, rhs: Self) -> Self {
+    pub fn i16x8_add_sat_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_add_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -858,7 +999,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.add_sat_u")]
-    pub const fn i8x16_add_sat_u(self, rhs: Self) -> Self {
+    pub fn i8x16_add_sat_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_add_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0u8; 16];
@@ -871,7 +1016,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.add_sat_u")]
-    pub const fn i16x8_add_sat_u(self, rhs: Self) -> Self {
+    pub fn i16x8_add_sat_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_add_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0u16; 8];
@@ -884,7 +1033,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.sub_sat_s")]
-    pub const fn i8x16_sub_sat_s(self, rhs: Self) -> Self {
+    pub fn i8x16_sub_sat_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_sub_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -897,7 +1050,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.sub_sat_s")]
-    pub const fn i16x8_sub_sat_s(self, rhs: Self) -> Self {
+    pub fn i16x8_sub_sat_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_sub_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -910,7 +1067,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.sub_sat_u")]
-    pub const fn i8x16_sub_sat_u(self, rhs: Self) -> Self {
+    pub fn i8x16_sub_sat_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_sub_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0u8; 16];
@@ -923,7 +1084,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.sub_sat_u")]
-    pub const fn i16x8_sub_sat_u(self, rhs: Self) -> Self {
+    pub fn i16x8_sub_sat_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_sub_sat(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0u16; 8];
@@ -936,7 +1101,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.avgr_u")]
-    pub const fn i8x16_avgr_u(self, rhs: Self) -> Self {
+    pub fn i8x16_avgr_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_avgr(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0u8; 16];
@@ -949,7 +1118,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.avgr_u")]
-    pub const fn i16x8_avgr_u(self, rhs: Self) -> Self {
+    pub fn i16x8_avgr_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_avgr(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0u16; 8];
@@ -1366,7 +1539,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.eq")]
-    pub const fn i8x16_eq(self, rhs: Self) -> Self {
+    pub fn i8x16_eq(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_eq(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1379,7 +1556,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.eq")]
-    pub const fn i16x8_eq(self, rhs: Self) -> Self {
+    pub fn i16x8_eq(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_eq(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1392,7 +1573,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.eq")]
-    pub const fn i32x4_eq(self, rhs: Self) -> Self {
+    pub fn i32x4_eq(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_eq(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1405,7 +1590,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.eq")]
-    pub const fn i64x2_eq(self, rhs: Self) -> Self {
+    pub fn i64x2_eq(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_eq(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -1418,7 +1607,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.ne")]
-    pub const fn i8x16_ne(self, rhs: Self) -> Self {
+    pub fn i8x16_ne(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_ne(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1431,7 +1624,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.ne")]
-    pub const fn i16x8_ne(self, rhs: Self) -> Self {
+    pub fn i16x8_ne(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_ne(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1444,7 +1641,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.ne")]
-    pub const fn i32x4_ne(self, rhs: Self) -> Self {
+    pub fn i32x4_ne(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_ne(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1457,7 +1658,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.ne")]
-    pub const fn i64x2_ne(self, rhs: Self) -> Self {
+    pub fn i64x2_ne(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_ne(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -1470,7 +1675,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.lt_s")]
-    pub const fn i8x16_lt_s(self, rhs: Self) -> Self {
+    pub fn i8x16_lt_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1483,7 +1692,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.lt_s")]
-    pub const fn i16x8_lt_s(self, rhs: Self) -> Self {
+    pub fn i16x8_lt_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1496,7 +1709,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.lt_s")]
-    pub const fn i32x4_lt_s(self, rhs: Self) -> Self {
+    pub fn i32x4_lt_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1509,7 +1726,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.lt_s")]
-    pub const fn i64x2_lt_s(self, rhs: Self) -> Self {
+    pub fn i64x2_lt_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -1522,7 +1743,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.lt_u")]
-    pub const fn i8x16_lt_u(self, rhs: Self) -> Self {
+    pub fn i8x16_lt_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0i8; 16];
@@ -1535,7 +1760,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.lt_u")]
-    pub const fn i16x8_lt_u(self, rhs: Self) -> Self {
+    pub fn i16x8_lt_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0i16; 8];
@@ -1548,7 +1777,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.lt_u")]
-    pub const fn i32x4_lt_u(self, rhs: Self) -> Self {
+    pub fn i32x4_lt_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u32x4_lt(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u32x4();
         let b = rhs.as_u32x4();
         let mut out = [0i32; 4];
@@ -1561,77 +1794,81 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.gt_s")]
-    pub const fn i8x16_gt_s(self, rhs: Self) -> Self {
+    pub fn i8x16_gt_s(self, rhs: Self) -> Self {
         rhs.i8x16_lt_s(self)
     }
 
     #[doc(alias = "i16x8.gt_s")]
-    pub const fn i16x8_gt_s(self, rhs: Self) -> Self {
+    pub fn i16x8_gt_s(self, rhs: Self) -> Self {
         rhs.i16x8_lt_s(self)
     }
 
     #[doc(alias = "i32x4.gt_s")]
-    pub const fn i32x4_gt_s(self, rhs: Self) -> Self {
+    pub fn i32x4_gt_s(self, rhs: Self) -> Self {
         rhs.i32x4_lt_s(self)
     }
 
     #[doc(alias = "i64x2.gt_s")]
-    pub const fn i64x2_gt_s(self, rhs: Self) -> Self {
+    pub fn i64x2_gt_s(self, rhs: Self) -> Self {
         rhs.i64x2_lt_s(self)
     }
 
     #[doc(alias = "i8x16.gt_u")]
-    pub const fn i8x16_gt_u(self, rhs: Self) -> Self {
+    pub fn i8x16_gt_u(self, rhs: Self) -> Self {
         rhs.i8x16_lt_u(self)
     }
 
     #[doc(alias = "i16x8.gt_u")]
-    pub const fn i16x8_gt_u(self, rhs: Self) -> Self {
+    pub fn i16x8_gt_u(self, rhs: Self) -> Self {
         rhs.i16x8_lt_u(self)
     }
 
     #[doc(alias = "i32x4.gt_u")]
-    pub const fn i32x4_gt_u(self, rhs: Self) -> Self {
+    pub fn i32x4_gt_u(self, rhs: Self) -> Self {
         rhs.i32x4_lt_u(self)
     }
 
     #[doc(alias = "i8x16.le_s")]
-    pub const fn i8x16_le_s(self, rhs: Self) -> Self {
+    pub fn i8x16_le_s(self, rhs: Self) -> Self {
         rhs.i8x16_ge_s(self)
     }
 
     #[doc(alias = "i16x8.le_s")]
-    pub const fn i16x8_le_s(self, rhs: Self) -> Self {
+    pub fn i16x8_le_s(self, rhs: Self) -> Self {
         rhs.i16x8_ge_s(self)
     }
 
     #[doc(alias = "i32x4.le_s")]
-    pub const fn i32x4_le_s(self, rhs: Self) -> Self {
+    pub fn i32x4_le_s(self, rhs: Self) -> Self {
         rhs.i32x4_ge_s(self)
     }
 
     #[doc(alias = "i64x2.le_s")]
-    pub const fn i64x2_le_s(self, rhs: Self) -> Self {
+    pub fn i64x2_le_s(self, rhs: Self) -> Self {
         rhs.i64x2_ge_s(self)
     }
 
     #[doc(alias = "i8x16.le_u")]
-    pub const fn i8x16_le_u(self, rhs: Self) -> Self {
+    pub fn i8x16_le_u(self, rhs: Self) -> Self {
         rhs.i8x16_ge_u(self)
     }
 
     #[doc(alias = "i16x8.le_u")]
-    pub const fn i16x8_le_u(self, rhs: Self) -> Self {
+    pub fn i16x8_le_u(self, rhs: Self) -> Self {
         rhs.i16x8_ge_u(self)
     }
 
     #[doc(alias = "i32x4.le_u")]
-    pub const fn i32x4_le_u(self, rhs: Self) -> Self {
+    pub fn i32x4_le_u(self, rhs: Self) -> Self {
         rhs.i32x4_ge_u(self)
     }
 
     #[doc(alias = "i8x16.ge_s")]
-    pub const fn i8x16_ge_s(self, rhs: Self) -> Self {
+    pub fn i8x16_ge_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1644,7 +1881,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.ge_s")]
-    pub const fn i16x8_ge_s(self, rhs: Self) -> Self {
+    pub fn i16x8_ge_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1657,7 +1898,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.ge_s")]
-    pub const fn i32x4_ge_s(self, rhs: Self) -> Self {
+    pub fn i32x4_ge_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1670,7 +1915,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.ge_s")]
-    pub const fn i64x2_ge_s(self, rhs: Self) -> Self {
+    pub fn i64x2_ge_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let b = rhs.as_i64x2();
         let mut out = [0i64; 2];
@@ -1683,7 +1932,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.ge_u")]
-    pub const fn i8x16_ge_u(self, rhs: Self) -> Self {
+    pub fn i8x16_ge_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0i8; 16];
@@ -1696,7 +1949,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.ge_u")]
-    pub const fn i16x8_ge_u(self, rhs: Self) -> Self {
+    pub fn i16x8_ge_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0i16; 8];
@@ -1709,7 +1966,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.ge_u")]
-    pub const fn i32x4_ge_u(self, rhs: Self) -> Self {
+    pub fn i32x4_ge_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u32x4_ge(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u32x4();
         let b = rhs.as_u32x4();
         let mut out = [0i32; 4];
@@ -1770,7 +2031,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.neg")]
-    pub const fn i8x16_neg(self) -> Self {
+    pub fn i8x16_neg(self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_neg(self.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let mut out = [0i8; 16];
         let mut i = 0;
@@ -1782,7 +2047,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.neg")]
-    pub const fn i16x8_neg(self) -> Self {
+    pub fn i16x8_neg(self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_neg(self.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let mut out = [0i16; 8];
         let mut i = 0;
@@ -1794,7 +2063,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.neg")]
-    pub const fn i32x4_neg(self) -> Self {
+    pub fn i32x4_neg(self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_neg(self.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let mut out = [0i32; 4];
         let mut i = 0;
@@ -1806,7 +2079,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i64x2.neg")]
-    pub const fn i64x2_neg(self) -> Self {
+    pub fn i64x2_neg(self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i64x2_neg(self.to_wasm_v128()));
+        }
         let a = self.as_i64x2();
         let mut out = [0i64; 2];
         let mut i = 0;
@@ -1818,7 +2095,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.min_s")]
-    pub const fn i8x16_min_s(self, rhs: Self) -> Self {
+    pub fn i8x16_min_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1831,7 +2112,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.min_s")]
-    pub const fn i16x8_min_s(self, rhs: Self) -> Self {
+    pub fn i16x8_min_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1844,7 +2129,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.min_s")]
-    pub const fn i32x4_min_s(self, rhs: Self) -> Self {
+    pub fn i32x4_min_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1857,7 +2146,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.min_u")]
-    pub const fn i8x16_min_u(self, rhs: Self) -> Self {
+    pub fn i8x16_min_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0u8; 16];
@@ -1870,7 +2163,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.min_u")]
-    pub const fn i16x8_min_u(self, rhs: Self) -> Self {
+    pub fn i16x8_min_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0u16; 8];
@@ -1883,7 +2180,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.min_u")]
-    pub const fn i32x4_min_u(self, rhs: Self) -> Self {
+    pub fn i32x4_min_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u32x4_min(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u32x4();
         let b = rhs.as_u32x4();
         let mut out = [0u32; 4];
@@ -1896,7 +2197,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.max_s")]
-    pub const fn i8x16_max_s(self, rhs: Self) -> Self {
+    pub fn i8x16_max_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i8x16_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i8x16();
         let b = rhs.as_i8x16();
         let mut out = [0i8; 16];
@@ -1909,7 +2214,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.max_s")]
-    pub const fn i16x8_max_s(self, rhs: Self) -> Self {
+    pub fn i16x8_max_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i16x8_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
@@ -1922,7 +2231,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.max_s")]
-    pub const fn i32x4_max_s(self, rhs: Self) -> Self {
+    pub fn i32x4_max_s(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::i32x4_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_i32x4();
         let b = rhs.as_i32x4();
         let mut out = [0i32; 4];
@@ -1935,7 +2248,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.max_u")]
-    pub const fn i8x16_max_u(self, rhs: Self) -> Self {
+    pub fn i8x16_max_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u8x16_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u8x16();
         let b = rhs.as_u8x16();
         let mut out = [0u8; 16];
@@ -1948,7 +2265,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i16x8.max_u")]
-    pub const fn i16x8_max_u(self, rhs: Self) -> Self {
+    pub fn i16x8_max_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u16x8_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u16x8();
         let b = rhs.as_u16x8();
         let mut out = [0u16; 8];
@@ -1961,7 +2282,11 @@ impl Value128 {
     }
 
     #[doc(alias = "i32x4.max_u")]
-    pub const fn i32x4_max_u(self, rhs: Self) -> Self {
+    pub fn i32x4_max_u(self, rhs: Self) -> Self {
+        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+        {
+            return Self::from_wasm_v128(wasm::u32x4_max(self.to_wasm_v128(), rhs.to_wasm_v128()));
+        }
         let a = self.as_u32x4();
         let b = rhs.as_u32x4();
         let mut out = [0u32; 4];

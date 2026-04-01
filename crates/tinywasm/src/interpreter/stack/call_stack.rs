@@ -6,47 +6,35 @@ use tinywasm_types::{FuncAddr, ModuleInstanceAddr, ValueCountsSmall};
 #[derive(Debug)]
 pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
-    len: usize,
 }
 
 impl CallStack {
     pub(crate) fn new(config: &crate::engine::Config) -> Self {
-        let mut stack = Vec::with_capacity(config.call_stack_size);
-        stack.resize_with(config.call_stack_size, CallFrame::default);
-        Self { stack, len: 0 }
+        Self { stack: Vec::with_capacity(config.call_stack_size) }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.len = 0;
+        self.stack.clear();
     }
 
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> Option<CallFrame> {
-        if self.len == 0 {
-            return None;
-        }
-
-        self.len -= 1;
-        Some(self.stack[self.len])
+        self.stack.pop()
     }
 
-    pub(crate) fn is_full(&self) -> bool {
-        self.len >= self.stack.len()
-    }
-
+    #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.is_full()) {
+        if unlikely(self.stack.len() == self.stack.capacity()) {
             return Err(Trap::CallStackOverflow.into());
         }
-
-        self.stack[self.len] = call_frame;
-        self.len += 1;
+        self.stack.push(call_frame);
         Ok(())
     }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: usize,
+    pub(crate) instr_ptr: u32,
     pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) func_addr: FuncAddr,
     pub(crate) locals_base: StackBase,
@@ -55,10 +43,10 @@ pub(crate) struct CallFrame {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct StackBase {
-    pub(crate) s32: usize,
-    pub(crate) s64: usize,
-    pub(crate) s128: usize,
-    pub(crate) sref: usize,
+    pub(crate) s32: u32,
+    pub(crate) s64: u32,
+    pub(crate) s128: u32,
+    pub(crate) sref: u32,
 }
 
 impl CallFrame {
@@ -74,10 +62,10 @@ impl CallFrame {
     #[inline]
     pub(crate) fn stack_base(&self) -> StackBase {
         StackBase {
-            s32: self.locals_base.s32 + self.stack_offset.c32 as usize,
-            s64: self.locals_base.s64 + self.stack_offset.c64 as usize,
-            s128: self.locals_base.s128 + self.stack_offset.c128 as usize,
-            sref: self.locals_base.sref + self.stack_offset.cref as usize,
+            s32: self.locals_base.s32 + self.stack_offset.c32 as u32,
+            s64: self.locals_base.s64 + self.stack_offset.c64 as u32,
+            s128: self.locals_base.s128 + self.stack_offset.c128 as u32,
+            sref: self.locals_base.sref + self.stack_offset.cref as u32,
         }
     }
 

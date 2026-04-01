@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, ValueCounts, ValueCountsSmall, WasmValue};
 
-use crate::{Result, Trap, engine::Config, interpreter::*};
+use crate::{Result, Trap, engine::Config, interpreter::*, unlikely};
 
 use super::{CallFrame, StackBase};
 
@@ -15,7 +15,7 @@ pub(crate) struct ValueStack {
 }
 
 #[derive(Debug)]
-pub(crate) struct Stack<T> {
+pub(crate) struct Stack<T: Copy + Default> {
     data: Box<[T]>,
     len: usize,
 }
@@ -27,33 +27,30 @@ impl<T: Copy + Default> Stack<T> {
         Self { data: data.into_boxed_slice(), len: 0 }
     }
 
-    pub(crate) fn len(&self) -> usize {
-        self.len
-    }
-
     pub(crate) fn clear(&mut self) {
         self.len = 0;
     }
 
+    #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<()> {
-        if self.len >= self.data.len() {
+        if unlikely(self.len >= self.data.len()) {
             return Err(Trap::ValueStackOverflow.into());
         }
-
         self.data[self.len] = value;
         self.len += 1;
         Ok(())
     }
 
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
         if self.len == 0 {
             unreachable!("ValueStack underflow, this is a bug");
         }
-
         self.len -= 1;
         self.data[self.len]
     }
 
+    #[inline(always)]
     pub(crate) fn last(&self) -> &T {
         if self.len == 0 {
             unreachable!("ValueStack underflow, this is a bug");
@@ -61,6 +58,7 @@ impl<T: Copy + Default> Stack<T> {
         &self.data[self.len - 1]
     }
 
+    #[inline(always)]
     pub(crate) fn last_mut(&mut self) -> &mut T {
         if self.len == 0 {
             unreachable!("ValueStack underflow, this is a bug");
@@ -68,6 +66,7 @@ impl<T: Copy + Default> Stack<T> {
         &mut self.data[self.len - 1]
     }
 
+    #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> T {
         match self.data.get(index) {
             Some(v) => *v,
@@ -75,6 +74,7 @@ impl<T: Copy + Default> Stack<T> {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
         match self.data.get_mut(index) {
             Some(v) => *v = value,
@@ -83,35 +83,34 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
-        if self.len <= n {
+        debug_assert!(n <= self.len);
+        if n >= self.len {
             return;
         }
 
-        let keep_tail = end_keep.min(self.len - n);
-
-        if keep_tail == 0 {
-            self.len = n;
-            return;
+        let keep = (self.len - n).min(end_keep);
+        if keep != 0 {
+            let src = self.len - keep;
+            self.data.copy_within(src..self.len, n);
         }
 
-        let tail_start = self.len - keep_tail;
-        self.data.copy_within(tail_start..self.len, n);
-        self.len = n + keep_tail;
+        self.len = n + keep;
     }
 
-    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<(usize, usize)> {
-        debug_assert!(param_count <= local_count, "param count exceeds local count");
-        let start =
-            self.len.checked_sub(param_count).unwrap_or_else(|| unreachable!("value stack underflow, this is a bug"));
-
+    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<(u32, u32)> {
+        debug_assert!(param_count <= local_count);
+        let start = self.len - param_count;
         let end = start + local_count;
-        if end > self.data.len() {
+
+        if unlikely(end > self.data.len()) {
             return Err(Trap::ValueStackOverflow.into());
         }
 
-        self.data[(start + param_count)..end].fill(T::default());
+        let init_start = start + param_count;
+        self.data[init_start..end].fill(T::default());
         self.len = end;
-        Ok((start, end))
+
+        Ok((start as u32, end as u32))
     }
 
     pub(crate) fn select_many(&mut self, count: usize, condition: bool) {
@@ -148,26 +147,32 @@ impl ValueStack {
         self.stack_ref.clear();
     }
 
+    #[inline(always)]
     pub(crate) fn len(&self) -> usize {
-        self.stack_32.len() + self.stack_64.len() + self.stack_128.len() + self.stack_ref.len()
+        self.stack_32.len + self.stack_64.len + self.stack_128.len + self.stack_ref.len
     }
 
+    #[inline(always)]
     pub(crate) fn peek<T: InternalValue>(&self) -> T {
         T::stack_peek(self)
     }
 
+    #[inline(always)]
     pub(crate) fn pop<T: InternalValue>(&mut self) -> T {
         T::stack_pop(self)
     }
 
+    #[inline(always)]
     pub(crate) fn push<T: InternalValue>(&mut self, value: T) -> Result<()> {
         T::stack_push(self, value)
     }
 
+    #[inline(always)]
     pub(crate) fn drop<T: InternalValue>(&mut self) {
         T::stack_pop(self);
     }
 
+    #[inline]
     pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
         let cond: i32 = self.pop();
         let val2: T = self.pop();
@@ -178,6 +183,7 @@ impl ValueStack {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn select_multi(&mut self, counts: ValueCountsSmall) {
         let condition = self.pop::<i32>() != 0;
         self.stack_32.select_many(counts.c32 as usize, condition);
@@ -186,14 +192,17 @@ impl ValueStack {
         self.stack_ref.select_many(counts.cref as usize, condition);
     }
 
+    #[inline]
     pub(crate) fn binary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate(self, func)
     }
 
+    #[inline]
     pub(crate) fn ternary_same<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
         T::stack_calculate3(self, func)
     }
 
+    #[inline]
     pub(crate) fn binary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T, T) -> Result<U>,
@@ -204,6 +213,7 @@ impl ValueStack {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn binary_diff<A: InternalValue, B: InternalValue, RES: InternalValue>(
         &mut self,
         func: impl FnOnce(A, B) -> Result<RES>,
@@ -214,6 +224,7 @@ impl ValueStack {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn unary<T: InternalValue, U: InternalValue>(
         &mut self,
         func: impl FnOnce(T) -> Result<U>,
@@ -223,6 +234,7 @@ impl ValueStack {
         Ok(())
     }
 
+    #[inline]
     pub(crate) fn unary_same<T: InternalValue>(&mut self, func: impl Fn(T) -> Result<T>) -> Result<()> {
         T::replace_top(self, func)
     }
@@ -261,10 +273,10 @@ impl ValueStack {
     }
 
     pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCountsSmall) {
-        self.stack_32.truncate_keep(base.s32, keep.c32 as usize);
-        self.stack_64.truncate_keep(base.s64, keep.c64 as usize);
-        self.stack_128.truncate_keep(base.s128, keep.c128 as usize);
-        self.stack_ref.truncate_keep(base.sref, keep.cref as usize);
+        self.stack_32.truncate_keep(base.s32 as usize, keep.c32 as usize);
+        self.stack_64.truncate_keep(base.s64 as usize, keep.c64 as usize);
+        self.stack_128.truncate_keep(base.s128 as usize, keep.c128 as usize);
+        self.stack_ref.truncate_keep(base.sref as usize, keep.cref as usize);
     }
 
     #[inline]

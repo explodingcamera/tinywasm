@@ -657,6 +657,9 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_loop(&mut self, _ty: wasmparser::BlockType) -> Self::Output {
+        if !matches!(self.instructions.last(), Some(Instruction::Nop)) {
+            self.instructions.push(Instruction::Nop); // add nop to ensure that no superinstruction can be merged across block boundaries
+        }
         let start_ip = self.instructions.len();
         self.ctx_stack.push(LoweringCtx { kind: BlockKind::Loop, has_else: false, start_ip, branch_jumps: Vec::new() });
     }
@@ -683,7 +686,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 ctx.branch_jumps.push(jump_ip);
                 self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
                 if !matches!(self.instructions.last(), Some(Instruction::Nop)) {
-                    self.instructions.push(Instruction::Nop);
+                    self.instructions.push(Instruction::Nop); // add nop to ensure that no superinstruction can be merged across block boundaries
                 }
             };
         };
@@ -693,7 +696,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         if let Some(ctx) = self.ctx_stack.pop() {
             self.patch_end_jumps(ctx, self.instructions.len());
             if !matches!(self.instructions.last(), Some(Instruction::Nop)) {
-                self.instructions.push(Instruction::Nop);
+                self.instructions.push(Instruction::Nop); // add nop to ensure that no superinstruction can be merged across block boundaries
             }
         } else {
             self.instructions.push(Instruction::Return);

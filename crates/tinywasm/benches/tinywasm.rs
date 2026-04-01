@@ -3,7 +3,7 @@ use eyre::Result;
 use tinywasm::{Extern, FuncContext, Imports, ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
-const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.opt.wasm");
+const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
 
 fn tinywasm_parse() -> Result<TinyWasmModule> {
     let parser = tinywasm_parser::Parser::new();

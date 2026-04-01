@@ -3,7 +3,7 @@ use eyre::Result;
 use tinywasm::{ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
-const WASM: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.opt.wasm");
+const WASM: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.wasm");
 
 fn argon2id_parse() -> Result<TinyWasmModule> {
     let parser = tinywasm_parser::Parser::new();
