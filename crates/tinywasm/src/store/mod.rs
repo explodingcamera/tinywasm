@@ -35,6 +35,7 @@ pub struct Store {
     module_instances: Vec<Rc<ModuleInstanceInner>>,
 
     pub(crate) engine: Engine,
+    pub(crate) execution_fuel: u32,
     pub(crate) state: State,
     pub(crate) stack: Stack,
 }
@@ -54,7 +55,14 @@ impl Store {
     /// Create a new store
     pub fn new(engine: Engine) -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-        Self { id, module_instances: Vec::new(), state: State::default(), stack: Stack::new(engine.config()), engine }
+        Self {
+            id,
+            module_instances: Vec::new(),
+            state: State::default(),
+            stack: Stack::new(engine.config()),
+            engine,
+            execution_fuel: 0,
+        }
     }
 
     /// Get a module instance by the internal id

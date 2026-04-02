@@ -39,6 +39,22 @@ pub(crate) struct EngineInner {
     // pub(crate) allocator: Box<dyn Allocator + Send + Sync>,
 }
 
+/// Fuel accounting policy for budgeted execution.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum FuelPolicy {
+    /// Charge one fuel unit per retired instruction.
+    PerInstruction,
+    /// Charge one fuel unit per instruction plus predefined extra cost for specific operations.
+    Weighted,
+}
+
+impl Default for FuelPolicy {
+    fn default() -> Self {
+        Self::PerInstruction
+    }
+}
+
 /// Default initial size for the 32-bit value stack (i32, f32 values).
 pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 64 * 1024; // 64k slots
 
@@ -68,12 +84,20 @@ pub struct Config {
     pub stack_ref_size: usize,
     /// Initial size of the call stack.
     pub call_stack_size: usize,
+    /// Fuel accounting policy used by budgeted execution.
+    pub fuel_policy: FuelPolicy,
 }
 
 impl Config {
     /// Create a new stack configuration with default settings.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the fuel accounting policy for budgeted execution.
+    pub fn fuel_policy(mut self, fuel_policy: FuelPolicy) -> Self {
+        self.fuel_policy = fuel_policy;
+        self
     }
 }
 
@@ -85,6 +109,7 @@ impl Default for Config {
             stack_128_size: DEFAULT_VALUE_STACK_128_SIZE,
             stack_ref_size: DEFAULT_VALUE_STACK_REF_SIZE,
             call_stack_size: DEFAULT_CALL_STACK_SIZE,
+            fuel_policy: FuelPolicy::default(),
         }
     }
 }

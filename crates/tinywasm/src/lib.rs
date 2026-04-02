@@ -91,7 +91,7 @@ pub(crate) mod log {
 
 mod error;
 pub use error::*;
-pub use func::{FuncHandle, FuncHandleTyped};
+pub use func::{ExecProgress, FuncExecution, FuncExecutionTyped, FuncHandle, FuncHandleTyped};
 pub use imports::*;
 pub use instance::ModuleInstance;
 pub use module::Module;

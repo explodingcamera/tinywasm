@@ -116,3 +116,7 @@ harness=false
 [[bench]]
 name="tinywasm"
 harness=false
+
+[[bench]]
+name="tinywasm_modes"
+harness=false

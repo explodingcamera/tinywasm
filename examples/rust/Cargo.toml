@@ -52,3 +52,4 @@ lto="fat"
 codegen-units=1
 panic="abort"
 inherits="release"
+strip=true

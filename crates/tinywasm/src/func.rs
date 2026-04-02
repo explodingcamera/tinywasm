@@ -4,6 +4,20 @@ use crate::{Function, unlikely};
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Progress for fuel-limited function execution.
+pub enum ExecProgress<T> {
+    /// Execution completed and produced a result.
+    Completed(T),
+    /// Execution suspended after exhausting fuel or time budget.
+    Suspended,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExecutionState {
+    pub(crate) callframe: CallFrame,
+}
+
 #[derive(Debug)]
 /// A function handle
 pub struct FuncHandle {
@@ -12,31 +26,33 @@ pub struct FuncHandle {
     pub(crate) ty: FuncType,
 }
 
+#[derive(Debug)]
+/// Resumable execution for an untyped function call.
+pub struct FuncExecution<'store> {
+    store: &'store mut Store,
+    state: FuncExecutionState,
+}
+
+#[derive(Debug)]
+enum FuncExecutionState {
+    Running { exec_state: ExecutionState, root_func_addr: u32 },
+    Completed { result: Option<Vec<WasmValue>> },
+}
+
+#[derive(Debug)]
+/// Resumable execution for a typed function call.
+pub struct FuncExecutionTyped<'store, R> {
+    execution: FuncExecution<'store>,
+    marker: core::marker::PhantomData<R>,
+}
+
 impl FuncHandle {
     /// Call a function (Invocation)
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
-        // Comments are ordered by the steps in the spec
-        // In this implementation, some steps are combined and ordered differently for performance reasons
-
-        // 3. Let func_ty be the function type
-        let func_ty = &self.ty;
-
-        // 4. If the length of the provided argument values is different from the number of expected arguments, then fail
-        if unlikely(func_ty.params.len() != params.len()) {
-            return Err(Error::Other(format!(
-                "param count mismatch: expected {}, got {}",
-                func_ty.params.len(),
-                params.len()
-            )));
-        }
-
-        // 5. For each value type and the corresponding value, check if types match
-        if !(func_ty.params.iter().zip(params).all(|(ty, param)| ty == &param.val_type())) {
-            return Err(Error::Other("Type mismatch".into()));
-        }
+        validate_call_params(&self.ty, params)?;
 
         let func_inst = store.state.get_func(self.addr);
         let wasm_func = match &func_inst.func {
@@ -46,29 +62,153 @@ impl FuncHandle {
             Function::Wasm(wasm_func) => wasm_func.clone(),
         };
 
-        // 6. Let f be the dummy frame
-        // 7. Push the frame f to the call stack
-        // & 8. Push the values to the stack
+        // Reset stack, push args, allocate locals, create entry frame.
         store.stack.clear();
         store.stack.values.extend_from_wasmvalues(params)?;
         let (locals_base, _stack_base, stack_offset) =
             store.stack.values.enter_locals(wasm_func.params, wasm_func.locals)?;
         let callframe = CallFrame::new(self.addr, func_inst.owner, locals_base, stack_offset);
 
-        // 9. Invoke the function instance
+        // Execute until completion and then collect result values from the stack.
         InterpreterRuntime::exec(store, callframe)?;
 
-        // Once the function returns:
-        // 1. Assert: m values are on the top of the stack (Ensured by validation)
-        debug_assert!(store.stack.values.len() >= func_ty.results.len());
-
-        // 2. Pop m values from the stack
-        let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results.iter().rev()).collect(); // pop in reverse order since the stack is LIFO
-        res.reverse(); // reverse to get the original order
-
-        // The values are returned as the results of the invocation.
-        Ok(res)
+        collect_call_results(store, &self.ty)
     }
+
+    /// Call a function and return a resumable execution handle.
+    ///
+    /// The returned handle keeps a mutable borrow of the [`Store`] until it
+    /// completes. Use [`FuncExecution::resume_with_fuel`] (or
+    /// [`FuncExecution::resume_with_time_budget`] with `std`) to continue.
+    pub fn call_resumable<'store>(
+        &self,
+        store: &'store mut Store,
+        params: &[WasmValue],
+    ) -> Result<FuncExecution<'store>> {
+        validate_call_params(&self.ty, params)?;
+
+        let func_inst = store.state.get_func(self.addr);
+        let func_inst_owner = func_inst.owner;
+        let func = func_inst.func.clone();
+
+        match func {
+            Function::Host(host_func) => {
+                let result = host_func.call(FuncContext { store, module_addr: self.module_addr }, params)?;
+                Ok(FuncExecution { store, state: FuncExecutionState::Completed { result: Some(result) } })
+            }
+            Function::Wasm(wasm_func) => {
+                store.stack.clear();
+                store.stack.values.extend_from_wasmvalues(params)?;
+                let (locals_base, _stack_base, stack_offset) =
+                    store.stack.values.enter_locals(wasm_func.params, wasm_func.locals)?;
+                let callframe = CallFrame::new(self.addr, func_inst_owner, locals_base, stack_offset);
+
+                Ok(FuncExecution {
+                    store,
+                    state: FuncExecutionState::Running {
+                        exec_state: ExecutionState { callframe },
+                        root_func_addr: self.addr,
+                    },
+                })
+            }
+        }
+    }
+}
+
+impl<'store> FuncExecution<'store> {
+    /// Resume execution with up to `fuel` units of fuel.
+    ///
+    /// Fuel is accounted in chunks, so execution may overshoot the requested
+    /// fuel before returning [`ExecProgress::Suspended`].
+    ///
+    /// Returns [`ExecProgress::Suspended`] when fuel is exhausted, or
+    /// [`ExecProgress::Completed`] with the final values once the invocation
+    /// returns.
+    pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<ExecProgress<Vec<WasmValue>>> {
+        let FuncExecutionState::Running { exec_state, root_func_addr } = &mut self.state else {
+            let FuncExecutionState::Completed { result } = &mut self.state else {
+                unreachable!("invalid function execution state")
+            };
+            return result
+                .take()
+                .map(ExecProgress::Completed)
+                .ok_or_else(|| Error::Other("execution already completed".to_string()));
+        };
+
+        match InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel)? {
+            crate::interpreter::ExecState::Completed => {
+                let result_ty = self.store.state.get_func(*root_func_addr).func.ty().clone();
+                let result = collect_call_results(self.store, &result_ty)?;
+                self.state = FuncExecutionState::Completed { result: None };
+                Ok(ExecProgress::Completed(result))
+            }
+            crate::interpreter::ExecState::Suspended(callframe) => {
+                exec_state.callframe = callframe;
+                Ok(ExecProgress::Suspended)
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    /// Resume execution for at most `time_budget` wall-clock time.
+    ///
+    /// Time is checked periodically, so execution may overshoot the requested
+    /// time budget before returning [`ExecProgress::Suspended`].
+    ///
+    /// Returns [`ExecProgress::Suspended`] when the budget is exhausted, or
+    /// [`ExecProgress::Completed`] with the final values once the invocation
+    /// returns.
+    pub fn resume_with_time_budget(
+        &mut self,
+        time_budget: crate::std::time::Duration,
+    ) -> Result<ExecProgress<Vec<WasmValue>>> {
+        let FuncExecutionState::Running { exec_state, root_func_addr } = &mut self.state else {
+            let FuncExecutionState::Completed { result } = &mut self.state else {
+                unreachable!("invalid function execution state")
+            };
+            return result
+                .take()
+                .map(ExecProgress::Completed)
+                .ok_or_else(|| Error::Other("execution already completed".to_string()));
+        };
+
+        match InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget)? {
+            crate::interpreter::ExecState::Completed => {
+                let result_ty = self.store.state.get_func(*root_func_addr).func.ty().clone();
+                let result = collect_call_results(self.store, &result_ty)?;
+                self.state = FuncExecutionState::Completed { result: None };
+                Ok(ExecProgress::Completed(result))
+            }
+            crate::interpreter::ExecState::Suspended(callframe) => {
+                exec_state.callframe = callframe;
+                Ok(ExecProgress::Suspended)
+            }
+        }
+    }
+}
+
+fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> {
+    if unlikely(func_ty.params.len() != params.len()) {
+        return Err(Error::Other(format!(
+            "param count mismatch: expected {}, got {}",
+            func_ty.params.len(),
+            params.len()
+        )));
+    }
+
+    if !(func_ty.params.iter().zip(params).all(|(ty, param)| ty == &param.val_type())) {
+        return Err(Error::Other("Type mismatch".into()));
+    }
+
+    Ok(())
+}
+
+fn collect_call_results(store: &mut Store, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
+    // m values are on the top of the stack (Ensured by validation)
+    debug_assert!(store.stack.values.len() >= func_ty.results.len());
+    let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results.iter().rev()).collect(); // pop in reverse order since the stack is LIFO
+    res.reverse(); // reverse to get the original order
+    Ok(res)
 }
 
 #[derive(Debug)]
@@ -100,6 +240,40 @@ impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
 
         // Convert the Vec<WasmValue> back to R
         R::from_wasm_value_tuple(&result)
+    }
+
+    /// Call a typed function and return a resumable execution handle.
+    ///
+    /// The handle keeps a mutable borrow of the [`Store`] until completion.
+    pub fn call_resumable<'store>(&self, store: &'store mut Store, params: P) -> Result<FuncExecutionTyped<'store, R>> {
+        let wasm_values = params.into_wasm_value_tuple();
+        let execution = self.func.call_resumable(store, &wasm_values)?;
+        Ok(FuncExecutionTyped { execution, marker: core::marker::PhantomData })
+    }
+}
+
+impl<'store, R: FromWasmValueTuple> FuncExecutionTyped<'store, R> {
+    /// Resume typed execution with up to `fuel` units of fuel.
+    ///
+    /// Fuel is accounted in chunks, so execution may overshoot the requested
+    /// fuel before returning [`ExecProgress::Suspended`].
+    pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<ExecProgress<R>> {
+        match self.execution.resume_with_fuel(fuel)? {
+            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_value_tuple(&values)?)),
+            ExecProgress::Suspended => Ok(ExecProgress::Suspended),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    /// Resume typed execution for at most `time_budget` wall-clock time.
+    ///
+    /// Time is checked periodically, so execution may overshoot the requested
+    /// time budget before returning [`ExecProgress::Suspended`].
+    pub fn resume_with_time_budget(&mut self, time_budget: crate::std::time::Duration) -> Result<ExecProgress<R>> {
+        match self.execution.resume_with_time_budget(time_budget)? {
+            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_value_tuple(&values)?)),
+            ExecProgress::Suspended => Ok(ExecProgress::Suspended),
+        }
     }
 }
 

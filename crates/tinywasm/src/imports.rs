@@ -82,6 +82,21 @@ impl FuncContext<'_> {
     pub fn exported_memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
         self.module().exported_memory_mut(self.store, name)
     }
+
+    /// Charge additional fuel from the currently running resumable invocation.
+    ///
+    /// This is a no-op when the current invocation is not using fuel-based
+    /// resumption.
+    pub fn charge_fuel(&mut self, fuel: u32) {
+        self.store.execution_fuel = self.store.execution_fuel.saturating_sub(fuel);
+    }
+
+    /// Get remaining fuel for the current invocation.
+    ///
+    /// Returns `0` when fuel-based resumption is not active.
+    pub fn remaining_fuel(&self) -> u32 {
+        self.store.execution_fuel
+    }
 }
 
 impl Debug for HostFunction {

@@ -9,33 +9,42 @@ use core::ops::ControlFlow;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
+use super::ExecState;
 use super::num_helpers::*;
 use super::values::*;
+use crate::engine::FuelPolicy;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
 use crate::*;
-pub(crate) struct Executor<'store> {
+
+const FUEL_ACCOUNTING_INTERVAL: u32 = 1024;
+#[cfg(feature = "std")]
+const TIME_BUDGET_CHECK_INTERVAL: u32 = 2048;
+const FUEL_COST_CALL_TOTAL: u32 = 5;
+
+pub(crate) struct Executor<'store, const BUDGETED: bool> {
     cf: CallFrame,
     func: Rc<WasmFunction>,
     module: Rc<ModuleInstanceInner>,
     store: &'store mut Store,
 }
 
-impl<'store> Executor<'store> {
+impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     pub(crate) fn new(store: &'store mut Store, cf: CallFrame) -> Result<Self> {
         let module = store.get_module_instance_raw(cf.module_addr).clone();
         let func = store.state.get_wasm_func(cf.func_addr).clone();
         Ok(Self { module, store, cf, func })
     }
 
-    pub(crate) fn run_to_completion(&mut self) -> Result<()> {
-        loop {
-            if let ControlFlow::Break(res) = self.exec_next() {
-                return match res {
-                    Some(e) => Err(e),
-                    None => Ok(()),
-                };
-            }
+    #[inline(always)]
+    fn charge_call_fuel(&mut self, total_fuel_cost: u32) {
+        if BUDGETED {
+            let extra = match self.store.engine.config().fuel_policy {
+                FuelPolicy::PerInstruction => 0,
+                FuelPolicy::Weighted => total_fuel_cost.saturating_sub(1),
+            };
+
+            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(extra);
         }
     }
 
@@ -701,6 +710,7 @@ impl<'store> Executor<'store> {
         ControlFlow::Continue(())
     }
     fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         let func_inst = self.store.state.get_func(addr);
         match &func_inst.func {
@@ -712,6 +722,7 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_call_self<const IS_RETURN_CALL: bool>(&mut self) -> ControlFlow<Option<Error>> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let params = self.func.params;
         let locals = self.func.locals;
 
@@ -745,6 +756,7 @@ impl<'store> Executor<'store> {
         type_addr: u32,
         table_addr: u32,
     ) -> ControlFlow<Option<Error>> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table_idx: u32 = self.store.stack.values.pop::<i32>() as u32;
@@ -1110,5 +1122,66 @@ impl<'store> Executor<'store> {
         }
 
         table.fill(self.module.func_addrs(), i as usize, n as usize, val.into())
+    }
+}
+
+impl<'store> Executor<'store, false> {
+    #[inline(always)]
+    pub(crate) fn run_to_completion(&mut self) -> Result<()> {
+        loop {
+            match self.exec_next() {
+                ControlFlow::Continue(()) => continue,
+                ControlFlow::Break(res) => break res.map_or(Ok(()), Err),
+            }
+        }
+    }
+
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn run_with_time_budget(&mut self, time_budget: crate::std::time::Duration) -> Result<ExecState> {
+        use crate::std::time::Instant;
+        let start = Instant::now();
+        if time_budget.is_zero() {
+            return Ok(ExecState::Suspended(self.cf));
+        }
+
+        loop {
+            for _ in 0..TIME_BUDGET_CHECK_INTERVAL {
+                match self.exec_next() {
+                    ControlFlow::Continue(()) => {}
+                    ControlFlow::Break(None) => return Ok(ExecState::Completed),
+                    ControlFlow::Break(Some(e)) => return Err(e),
+                }
+            }
+
+            if start.elapsed() >= time_budget {
+                return Ok(ExecState::Suspended(self.cf));
+            }
+        }
+    }
+}
+
+impl<'store> Executor<'store, true> {
+    #[inline(always)]
+    pub(crate) fn run_with_fuel(&mut self, fuel: u32) -> Result<ExecState> {
+        self.store.execution_fuel = fuel;
+        if self.store.execution_fuel == 0 {
+            return Ok(ExecState::Suspended(self.cf));
+        }
+
+        loop {
+            for _ in 0..FUEL_ACCOUNTING_INTERVAL {
+                match self.exec_next() {
+                    ControlFlow::Continue(()) => {}
+                    ControlFlow::Break(None) => return Ok(ExecState::Completed),
+                    ControlFlow::Break(Some(e)) => return Err(e),
+                }
+            }
+
+            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(FUEL_ACCOUNTING_INTERVAL);
+            if self.store.execution_fuel == 0 {
+                return Ok(ExecState::Suspended(self.cf));
+            }
+        }
     }
 }
