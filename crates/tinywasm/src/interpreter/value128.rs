@@ -32,7 +32,11 @@ macro_rules! simd_wrapping_binop {
 
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| a[i].$op(b[i])))
+            let mut out = [0 as $lane_ty; $lane_count];
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = lhs.$op(rhs);
+            }
+            Self::$from_lanes(out)
         }
     };
 }
@@ -46,40 +50,11 @@ macro_rules! simd_sat_binop {
 
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| a[i].$op(b[i])))
-        }
-    };
-}
-
-macro_rules! simd_all_true {
-    ($name:ident, $doc:literal, $as_lanes:ident, $count:expr) => {
-        #[doc(alias = $doc)]
-        pub const fn $name(self) -> bool {
-            let lanes = self.$as_lanes();
-            let mut i = 0;
-            while i < $count {
-                if lanes[i] == 0 {
-                    return false;
-                }
-                i += 1;
+            let mut out = [0 as $lane_ty; $lane_count];
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = lhs.$op(rhs);
             }
-            true
-        }
-    };
-}
-
-macro_rules! simd_bitmask {
-    ($name:ident, $doc:literal, $as_lanes:ident, $count:expr) => {
-        #[doc(alias = $doc)]
-        pub const fn $name(self) -> u32 {
-            let lanes = self.$as_lanes();
-            let mut mask = 0u32;
-            let mut i = 0;
-            while i < $count {
-                mask |= ((lanes[i] < 0) as u32) << i;
-                i += 1;
-            }
-            mask
+            Self::$from_lanes(out)
         }
     };
 }
@@ -87,14 +62,12 @@ macro_rules! simd_bitmask {
 macro_rules! simd_shift_left {
     ($name:ident, $doc:literal, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self, shift: u32) -> Self {
+        pub fn $name(self, shift: u32) -> Self {
             let lanes = self.$as_lanes();
             let s = shift & $mask;
             let mut out = [0 as $lane_ty; $count];
-            let mut i = 0;
-            while i < $count {
-                out[i] = lanes[i].wrapping_shl(s);
-                i += 1;
+            for (dst, lane) in out.iter_mut().zip(lanes) {
+                *dst = lane.wrapping_shl(s);
             }
             Self::$from_lanes(out)
         }
@@ -104,14 +77,12 @@ macro_rules! simd_shift_left {
 macro_rules! simd_shift_right {
     ($name:ident, $doc:literal, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self, shift: u32) -> Self {
+        pub fn $name(self, shift: u32) -> Self {
             let lanes = self.$as_lanes();
             let s = shift & $mask;
             let mut out = [0 as $lane_ty; $count];
-            let mut i = 0;
-            while i < $count {
-                out[i] = lanes[i] >> s;
-                i += 1;
+            for (dst, lane) in out.iter_mut().zip(lanes) {
+                *dst = lane >> s;
             }
             Self::$from_lanes(out)
         }
@@ -127,7 +98,11 @@ macro_rules! simd_avgr_u {
 
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| ((a[i] as $wide_ty + b[i] as $wide_ty + 1) >> 1) as $lane_ty))
+            let mut out = [0 as $lane_ty; $count];
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = ((lhs as $wide_ty + rhs as $wide_ty + 1) >> 1) as $lane_ty;
+            }
+            Self::$from_lanes(out)
         }
     };
 }
@@ -135,13 +110,11 @@ macro_rules! simd_avgr_u {
 macro_rules! simd_extend_cast {
     ($name:ident, $doc:literal, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self) -> Self {
+        pub fn $name(self) -> Self {
             let lanes = self.$src_as();
             let mut out = [0 as $dst_ty; $dst_count];
-            let mut i = 0;
-            while i < $dst_count {
-                out[i] = lanes[i + $offset] as $dst_ty;
-                i += 1;
+            for (dst, src) in out.iter_mut().zip(lanes[$offset..($offset + $dst_count)].iter()) {
+                *dst = *src as $dst_ty;
             }
             Self::$dst_from(out)
         }
@@ -151,14 +124,16 @@ macro_rules! simd_extend_cast {
 macro_rules! simd_extmul_signed {
     ($name:ident, $doc:literal, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self, rhs: Self) -> Self {
+        pub fn $name(self, rhs: Self) -> Self {
             let a = self.$src_as();
             let b = rhs.$src_as();
             let mut out = [0 as $dst_ty; $dst_count];
-            let mut i = 0;
-            while i < $dst_count {
-                out[i] = (a[i + $offset] as $dst_ty).wrapping_mul(b[i + $offset] as $dst_ty);
-                i += 1;
+            for ((dst, lhs), rhs) in out
+                .iter_mut()
+                .zip(a[$offset..($offset + $dst_count)].iter())
+                .zip(b[$offset..($offset + $dst_count)].iter())
+            {
+                *dst = (*lhs as $dst_ty).wrapping_mul(*rhs as $dst_ty);
             }
             Self::$dst_from(out)
         }
@@ -168,14 +143,16 @@ macro_rules! simd_extmul_signed {
 macro_rules! simd_extmul_unsigned {
     ($name:ident, $doc:literal, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self, rhs: Self) -> Self {
+        pub fn $name(self, rhs: Self) -> Self {
             let a = self.$src_as();
             let b = rhs.$src_as();
             let mut out = [0 as $dst_ty; $dst_count];
-            let mut i = 0;
-            while i < $dst_count {
-                out[i] = (a[i + $offset] as $dst_ty) * (b[i + $offset] as $dst_ty);
-                i += 1;
+            for ((dst, lhs), rhs) in out
+                .iter_mut()
+                .zip(a[$offset..($offset + $dst_count)].iter())
+                .zip(b[$offset..($offset + $dst_count)].iter())
+            {
+                *dst = (*lhs as $dst_ty) * (*rhs as $dst_ty);
             }
             Self::$dst_from(out)
         }
@@ -191,7 +168,11 @@ macro_rules! simd_cmp_mask {
 
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| if a[i] $cmp b[i] { -1 } else { 0 }))
+            let mut out = [0 as $out_ty; $count];
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = if lhs $cmp rhs { -1 } else { 0 };
+            }
+            Self::$from_lanes(out)
         }
     };
 }
@@ -199,14 +180,12 @@ macro_rules! simd_cmp_mask {
 macro_rules! simd_cmp_mask_const {
     ($name:ident, $doc:literal, $out_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self, rhs: Self) -> Self {
+        pub fn $name(self, rhs: Self) -> Self {
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
             let mut out = [0 as $out_ty; $count];
-            let mut i = 0;
-            while i < $count {
-                out[i] = if a[i] $cmp b[i] { -1 } else { 0 };
-                i += 1;
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = if lhs $cmp rhs { -1 } else { 0 };
             }
             Self::$from_lanes(out)
         }
@@ -225,13 +204,11 @@ macro_rules! simd_cmp_delegate {
 macro_rules! simd_abs_const {
     ($name:ident, $doc:literal, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {
         #[doc(alias = $doc)]
-        pub const fn $name(self) -> Self {
+        pub fn $name(self) -> Self {
             let a = self.$as_lanes();
             let mut out = [0 as $lane_ty; $count];
-            let mut i = 0;
-            while i < $count {
-                out[i] = a[i].wrapping_abs();
-                i += 1;
+            for (dst, lane) in out.iter_mut().zip(a) {
+                *dst = lane.wrapping_abs();
             }
             Self::$from_lanes(out)
         }
@@ -246,7 +223,11 @@ macro_rules! simd_neg {
             return Self::from_wasm_v128(wasm::$wasm_op(self.to_wasm_v128()));
 
             let a = self.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| a[i].wrapping_neg()))
+            let mut out = [0 as $lane_ty; $count];
+            for (dst, lane) in out.iter_mut().zip(a) {
+                *dst = lane.wrapping_neg();
+            }
+            Self::$from_lanes(out)
         }
     };
 }
@@ -260,7 +241,11 @@ macro_rules! simd_minmax {
 
             let a = self.$as_lanes();
             let b = rhs.$as_lanes();
-            Self::$from_lanes(core::array::from_fn(|i| if a[i] $cmp b[i] { a[i] } else { b[i] }))
+            let mut out = [0 as $lane_ty; $count];
+            for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+                *dst = if lhs $cmp rhs { lhs } else { rhs };
+            }
+            Self::$from_lanes(out)
         }
     };
 }
@@ -442,47 +427,62 @@ impl Value128 {
 
     #[inline]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
-        let lanes = self.as_f32x4();
-        Self::from_f32x4(core::array::from_fn(|i| op(lanes[i])))
+        let bytes = self.to_le_bytes();
+        let mut out_bytes = [0u8; 16];
+        for (src, dst) in bytes.chunks_exact(4).zip(out_bytes.chunks_exact_mut(4)) {
+            let lane = f32::from_bits(u32::from_le_bytes([src[0], src[1], src[2], src[3]]));
+            dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
+        }
+        Self::from_le_bytes(out_bytes)
     }
 
     #[inline]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
-        let a = self.as_f32x4();
-        let b = rhs.as_f32x4();
-        Self::from_f32x4(core::array::from_fn(|i| op(a[i], b[i])))
+        let a_bytes = self.to_le_bytes();
+        let b_bytes = rhs.to_le_bytes();
+        let mut out_bytes = [0u8; 16];
+
+        for ((a, b), dst) in a_bytes.chunks_exact(4).zip(b_bytes.chunks_exact(4)).zip(out_bytes.chunks_exact_mut(4)) {
+            let a_lane = f32::from_bits(u32::from_le_bytes([a[0], a[1], a[2], a[3]]));
+            let b_lane = f32::from_bits(u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+            dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
+        }
+
+        Self::from_le_bytes(out_bytes)
     }
 
     #[inline]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
-        let lanes = self.as_f64x2();
-        Self::from_f64x2(core::array::from_fn(|i| op(lanes[i])))
+        let bytes = self.to_le_bytes();
+        let mut out_bytes = [0u8; 16];
+        for (src, dst) in bytes.chunks_exact(8).zip(out_bytes.chunks_exact_mut(8)) {
+            let lane =
+                f64::from_bits(u64::from_le_bytes([src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7]]));
+            dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
+        }
+        Self::from_le_bytes(out_bytes)
     }
 
     #[inline]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
-        let a = self.as_f64x2();
-        let b = rhs.as_f64x2();
-        Self::from_f64x2(core::array::from_fn(|i| op(a[i], b[i])))
-    }
+        let a_bytes = self.to_le_bytes();
+        let b_bytes = rhs.to_le_bytes();
+        let mut out_bytes = [0u8; 16];
 
-    #[inline]
-    const fn reduce_or(self) -> u8 {
-        let mut result = 0u8;
-        let bytes = self.to_le_bytes();
-        let mut i = 0;
-        while i < 16 {
-            result |= bytes[i];
-            i += 1;
+        for ((a, b), dst) in a_bytes.chunks_exact(8).zip(b_bytes.chunks_exact(8)).zip(out_bytes.chunks_exact_mut(8)) {
+            let a_lane = f64::from_bits(u64::from_le_bytes([a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]]));
+            let b_lane = f64::from_bits(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]));
+            dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
         }
-        result
+
+        Self::from_le_bytes(out_bytes)
     }
 
     #[doc(alias = "v128.any_true")]
     pub fn v128_any_true(self) -> bool {
         #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
         return wasm::v128_any_true(self.to_wasm_v128());
-        self.reduce_or() != 0
+        self.0 != 0
     }
 
     #[doc(alias = "v128.not")]
@@ -595,91 +595,159 @@ impl Value128 {
     pub fn i8x16_swizzle(self, s: Self) -> Self {
         #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
         return Self::from_wasm_v128(wasm::i8x16_swizzle(self.to_wasm_v128(), s.to_wasm_v128()));
-        let a_bytes = self.to_le_bytes();
-        let s_bytes = s.to_le_bytes();
-        let mut result_bytes = [0u8; 16];
+
+        let a = self.to_le_bytes();
+        let idx = s.to_le_bytes();
+        let mut out = [0u8; 16];
         let mut i = 0;
         while i < 16 {
-            let index = s_bytes[i] as usize;
-            result_bytes[i] = if index < 16 { a_bytes[index] } else { 0 };
+            let j = idx[i];
+            let lane = a[(j & 0x0f) as usize];
+            out[i] = if j < 16 { lane } else { 0 };
             i += 1;
         }
-        Self::from_le_bytes(result_bytes)
+        Self::from_le_bytes(out)
     }
 
     #[doc(alias = "i8x16.shuffle")]
     pub fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
-        let a_bytes = a.to_le_bytes();
-        let b_bytes = b.to_le_bytes();
-        let mut result_bytes = [0u8; 16];
+        let mut src = [0u8; 32];
+        src[..16].copy_from_slice(&a.to_le_bytes());
+        src[16..].copy_from_slice(&b.to_le_bytes());
+        let mut out = [0u8; 16];
         for i in 0..16 {
-            let index = (idx[i] & 31) as usize;
-            result_bytes[i] = if index < 16 { a_bytes[index] } else { b_bytes[index - 16] };
+            out[i] = src[(idx[i] & 31) as usize];
         }
-        Self::from_le_bytes(result_bytes)
+        Self::from_le_bytes(out)
     }
 
-    pub const fn splat_i8(src: i8) -> Self {
-        let mut result_bytes = [0u8; 16];
-        let byte = src as u8;
-        let mut i = 0;
-        while i < 16 {
-            result_bytes[i] = byte;
-            i += 1;
-        }
-        Self::from_le_bytes(result_bytes)
+    pub fn splat_i8(src: i8) -> Self {
+        Self::from_le_bytes([src as u8; 16])
     }
 
     #[doc(alias = "i8x16.replace_lane")]
-    pub const fn i8x16_replace_lane(self, lane: u8, value: i8) -> Self {
+    pub fn i8x16_replace_lane(self, lane: u8, value: i8) -> Self {
         self.replace_lane_bytes::<1>(lane, [value as u8], 16)
     }
 
     #[doc(alias = "i16x8.replace_lane")]
-    pub const fn i16x8_replace_lane(self, lane: u8, value: i16) -> Self {
+    pub fn i16x8_replace_lane(self, lane: u8, value: i16) -> Self {
         self.replace_lane_bytes::<2>(lane, value.to_le_bytes(), 8)
     }
 
     #[doc(alias = "i32x4.replace_lane")]
-    pub const fn i32x4_replace_lane(self, lane: u8, value: i32) -> Self {
+    pub fn i32x4_replace_lane(self, lane: u8, value: i32) -> Self {
         self.replace_lane_bytes::<4>(lane, value.to_le_bytes(), 4)
     }
 
     #[doc(alias = "i64x2.replace_lane")]
-    pub const fn i64x2_replace_lane(self, lane: u8, value: i64) -> Self {
+    pub fn i64x2_replace_lane(self, lane: u8, value: i64) -> Self {
         self.replace_lane_bytes::<8>(lane, value.to_le_bytes(), 2)
     }
 
     #[doc(alias = "f32x4.replace_lane")]
-    pub const fn f32x4_replace_lane(self, lane: u8, value: f32) -> Self {
+    pub fn f32x4_replace_lane(self, lane: u8, value: f32) -> Self {
         self.replace_lane_bytes::<4>(lane, value.to_bits().to_le_bytes(), 4)
     }
 
     #[doc(alias = "f64x2.replace_lane")]
-    pub const fn f64x2_replace_lane(self, lane: u8, value: f64) -> Self {
+    pub fn f64x2_replace_lane(self, lane: u8, value: f64) -> Self {
         self.replace_lane_bytes::<8>(lane, value.to_bits().to_le_bytes(), 2)
     }
 
-    simd_all_true!(i8x16_all_true, "i8x16.all_true", as_i8x16, 16);
-    simd_all_true!(i16x8_all_true, "i16x8.all_true", as_i16x8, 8);
-    simd_all_true!(i32x4_all_true, "i32x4.all_true", as_i32x4, 4);
-    simd_all_true!(i64x2_all_true, "i64x2.all_true", as_i64x2, 2);
+    #[doc(alias = "i8x16.all_true")]
+    pub fn i8x16_all_true(self) -> bool {
+        for byte in self.to_le_bytes() {
+            if byte == 0 {
+                return false;
+            }
+        }
+        true
+    }
 
-    simd_bitmask!(i8x16_bitmask, "i8x16.bitmask", as_i8x16, 16);
-    simd_bitmask!(i16x8_bitmask, "i16x8.bitmask", as_i16x8, 8);
-    simd_bitmask!(i32x4_bitmask, "i32x4.bitmask", as_i32x4, 4);
-    simd_bitmask!(i64x2_bitmask, "i64x2.bitmask", as_i64x2, 2);
+    #[doc(alias = "i16x8.all_true")]
+    pub fn i16x8_all_true(self) -> bool {
+        let bytes = self.to_le_bytes();
+        for lane in bytes.chunks_exact(2) {
+            if u16::from_le_bytes([lane[0], lane[1]]) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[doc(alias = "i32x4.all_true")]
+    pub fn i32x4_all_true(self) -> bool {
+        let bytes = self.to_le_bytes();
+        for lane in bytes.chunks_exact(4) {
+            if u32::from_le_bytes([lane[0], lane[1], lane[2], lane[3]]) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[doc(alias = "i64x2.all_true")]
+    pub fn i64x2_all_true(self) -> bool {
+        let bytes = self.to_le_bytes();
+        for lane in bytes.chunks_exact(8) {
+            if u64::from_le_bytes([lane[0], lane[1], lane[2], lane[3], lane[4], lane[5], lane[6], lane[7]]) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    #[doc(alias = "i8x16.bitmask")]
+    pub fn i8x16_bitmask(self) -> u32 {
+        let bytes = self.to_le_bytes();
+        let mut mask = 0u32;
+        for (i, byte) in bytes.into_iter().enumerate() {
+            if (byte & 0x80) != 0 {
+                mask |= 1u32 << i;
+            }
+        }
+        mask
+    }
+
+    #[doc(alias = "i16x8.bitmask")]
+    pub fn i16x8_bitmask(self) -> u32 {
+        let bytes = self.to_le_bytes();
+        let mut mask = 0u32;
+        for (i, lane) in bytes.chunks_exact(2).enumerate() {
+            if (lane[1] & 0x80) != 0 {
+                mask |= 1u32 << i;
+            }
+        }
+        mask
+    }
+
+    #[doc(alias = "i32x4.bitmask")]
+    pub fn i32x4_bitmask(self) -> u32 {
+        let bytes = self.to_le_bytes();
+        let mut mask = 0u32;
+        for (i, lane) in bytes.chunks_exact(4).enumerate() {
+            if (lane[3] & 0x80) != 0 {
+                mask |= 1u32 << i;
+            }
+        }
+        mask
+    }
+
+    #[doc(alias = "i64x2.bitmask")]
+    pub fn i64x2_bitmask(self) -> u32 {
+        let x = u128::from_le_bytes(self.to_le_bytes());
+        (((x >> 63) & 1) as u32) | ((((x >> 127) & 1) as u32) << 1)
+    }
 
     #[doc(alias = "i8x16.popcnt")]
-    pub const fn i8x16_popcnt(self) -> Self {
-        let lanes = self.as_u8x16();
+    pub fn i8x16_popcnt(self) -> Self {
+        let lanes = self.to_le_bytes();
         let mut out = [0u8; 16];
-        let mut i = 0;
-        while i < 16 {
-            out[i] = lanes[i].count_ones() as u8;
-            i += 1;
+        for (dst, lane) in out.iter_mut().zip(lanes) {
+            *dst = lane.count_ones() as u8;
         }
-        Self::from_u8x16(out)
+        Self::from_le_bytes(out)
     }
 
     simd_shift_left!(i8x16_shl, "i8x16.shl", i8, 16, as_i8x16, from_i8x16, 7);
@@ -722,109 +790,93 @@ impl Value128 {
     simd_avgr_u!(i16x8_avgr_u, "i16x8.avgr_u", u16x8_avgr, u16, u32, 8, as_u16x8, from_u16x8);
 
     #[doc(alias = "i8x16.narrow_i16x8_s")]
-    pub const fn i8x16_narrow_i16x8_s(a: Self, b: Self) -> Self {
+    pub fn i8x16_narrow_i16x8_s(a: Self, b: Self) -> Self {
         let av = a.as_i16x8();
         let bv = b.as_i16x8();
         let mut out = [0i8; 16];
-        let mut i = 0;
-        while i < 8 {
-            out[i] = saturate_i16_to_i8(av[i]);
-            out[i + 8] = saturate_i16_to_i8(bv[i]);
-            i += 1;
+        let (lo, hi) = out.split_at_mut(8);
+        for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
+            *dst_lo = saturate_i16_to_i8(a_lane);
+            *dst_hi = saturate_i16_to_i8(b_lane);
         }
         Self::from_i8x16(out)
     }
 
     #[doc(alias = "i8x16.narrow_i16x8_u")]
-    pub const fn i8x16_narrow_i16x8_u(a: Self, b: Self) -> Self {
+    pub fn i8x16_narrow_i16x8_u(a: Self, b: Self) -> Self {
         let av = a.as_i16x8();
         let bv = b.as_i16x8();
         let mut out = [0u8; 16];
-        let mut i = 0;
-        while i < 8 {
-            out[i] = saturate_i16_to_u8(av[i]);
-            out[i + 8] = saturate_i16_to_u8(bv[i]);
-            i += 1;
+        let (lo, hi) = out.split_at_mut(8);
+        for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
+            *dst_lo = saturate_i16_to_u8(a_lane);
+            *dst_hi = saturate_i16_to_u8(b_lane);
         }
         Self::from_u8x16(out)
     }
 
     #[doc(alias = "i16x8.narrow_i32x4_s")]
-    pub const fn i16x8_narrow_i32x4_s(a: Self, b: Self) -> Self {
+    pub fn i16x8_narrow_i32x4_s(a: Self, b: Self) -> Self {
         let av = a.as_i32x4();
         let bv = b.as_i32x4();
         let mut out = [0i16; 8];
-        let mut i = 0;
-        while i < 4 {
-            out[i] = saturate_i32_to_i16(av[i]);
-            out[i + 4] = saturate_i32_to_i16(bv[i]);
-            i += 1;
+        let (lo, hi) = out.split_at_mut(4);
+        for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
+            *dst_lo = saturate_i32_to_i16(a_lane);
+            *dst_hi = saturate_i32_to_i16(b_lane);
         }
         Self::from_i16x8(out)
     }
 
     #[doc(alias = "i16x8.narrow_i32x4_u")]
-    pub const fn i16x8_narrow_i32x4_u(a: Self, b: Self) -> Self {
+    pub fn i16x8_narrow_i32x4_u(a: Self, b: Self) -> Self {
         let av = a.as_i32x4();
         let bv = b.as_i32x4();
         let mut out = [0u16; 8];
-        let mut i = 0;
-        while i < 4 {
-            out[i] = saturate_i32_to_u16(av[i]);
-            out[i + 4] = saturate_i32_to_u16(bv[i]);
-            i += 1;
+        let (lo, hi) = out.split_at_mut(4);
+        for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
+            *dst_lo = saturate_i32_to_u16(a_lane);
+            *dst_hi = saturate_i32_to_u16(b_lane);
         }
         Self::from_u16x8(out)
     }
 
     #[doc(alias = "i16x8.extadd_pairwise_i8x16_s")]
-    pub const fn i16x8_extadd_pairwise_i8x16_s(self) -> Self {
+    pub fn i16x8_extadd_pairwise_i8x16_s(self) -> Self {
         let lanes = self.as_i8x16();
         let mut out = [0i16; 8];
-        let mut i = 0;
-        while i < 8 {
-            let j = i * 2;
-            out[i] = lanes[j] as i16 + lanes[j + 1] as i16;
-            i += 1;
+        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+            *dst = pair[0] as i16 + pair[1] as i16;
         }
         Self::from_i16x8(out)
     }
 
     #[doc(alias = "i16x8.extadd_pairwise_i8x16_u")]
-    pub const fn i16x8_extadd_pairwise_i8x16_u(self) -> Self {
+    pub fn i16x8_extadd_pairwise_i8x16_u(self) -> Self {
         let lanes = self.as_u8x16();
         let mut out = [0u16; 8];
-        let mut i = 0;
-        while i < 8 {
-            let j = i * 2;
-            out[i] = lanes[j] as u16 + lanes[j + 1] as u16;
-            i += 1;
+        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+            *dst = pair[0] as u16 + pair[1] as u16;
         }
         Self::from_u16x8(out)
     }
 
     #[doc(alias = "i32x4.extadd_pairwise_i16x8_s")]
-    pub const fn i32x4_extadd_pairwise_i16x8_s(self) -> Self {
+    pub fn i32x4_extadd_pairwise_i16x8_s(self) -> Self {
         let lanes = self.as_i16x8();
         let mut out = [0i32; 4];
-        let mut i = 0;
-        while i < 4 {
-            let j = i * 2;
-            out[i] = lanes[j] as i32 + lanes[j + 1] as i32;
-            i += 1;
+        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+            *dst = pair[0] as i32 + pair[1] as i32;
         }
         Self::from_i32x4(out)
     }
 
     #[doc(alias = "i32x4.extadd_pairwise_i16x8_u")]
-    pub const fn i32x4_extadd_pairwise_i16x8_u(self) -> Self {
+    pub fn i32x4_extadd_pairwise_i16x8_u(self) -> Self {
         let lanes = self.as_u16x8();
         let mut out = [0u32; 4];
-        let mut i = 0;
-        while i < 4 {
-            let j = i * 2;
-            out[i] = lanes[j] as u32 + lanes[j + 1] as u32;
-            i += 1;
+        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+            *dst = pair[0] as u32 + pair[1] as u32;
         }
         Self::from_u32x4(out)
     }
@@ -856,35 +908,34 @@ impl Value128 {
     simd_extmul_unsigned!(i64x2_extmul_high_i32x4_u, "i64x2.extmul_high_i32x4_u", as_u32x4, from_u64x2, u64, 2, 2);
 
     #[doc(alias = "i16x8.q15mulr_sat_s")]
-    pub const fn i16x8_q15mulr_sat_s(self, rhs: Self) -> Self {
+    pub fn i16x8_q15mulr_sat_s(self, rhs: Self) -> Self {
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i16; 8];
-        let mut i = 0;
-        while i < 8 {
-            let r = ((a[i] as i32 * b[i] as i32) + (1 << 14)) >> 15; // 2^14: Q15 rounding
-            out[i] = if r > i16::MAX as i32 {
+        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
+            let r = ((lhs as i32 * rhs as i32) + (1 << 14)) >> 15; // 2^14: Q15 rounding
+            *dst = if r > i16::MAX as i32 {
                 i16::MAX
             } else if r < i16::MIN as i32 {
                 i16::MIN
             } else {
                 r as i16
             };
-            i += 1;
         }
         Self::from_i16x8(out)
     }
 
     #[doc(alias = "i32x4.dot_i16x8_s")]
-    pub const fn i32x4_dot_i16x8_s(self, rhs: Self) -> Self {
+    pub fn i32x4_dot_i16x8_s(self, rhs: Self) -> Self {
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
-        Self::from_i32x4([
-            (a[0] as i32).wrapping_mul(b[0] as i32).wrapping_add((a[1] as i32).wrapping_mul(b[1] as i32)),
-            (a[2] as i32).wrapping_mul(b[2] as i32).wrapping_add((a[3] as i32).wrapping_mul(b[3] as i32)),
-            (a[4] as i32).wrapping_mul(b[4] as i32).wrapping_add((a[5] as i32).wrapping_mul(b[5] as i32)),
-            (a[6] as i32).wrapping_mul(b[6] as i32).wrapping_add((a[7] as i32).wrapping_mul(b[7] as i32)),
-        ])
+        let mut out = [0i32; 4];
+        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.chunks_exact(2).zip(b.chunks_exact(2))) {
+            *dst = (a_pair[0] as i32)
+                .wrapping_mul(b_pair[0] as i32)
+                .wrapping_add((a_pair[1] as i32).wrapping_mul(b_pair[1] as i32));
+        }
+        Self::from_i32x4(out)
     }
 
     simd_cmp_mask!(i8x16_eq, "i8x16.eq", i8x16_eq, i8, 16, as_i8x16, from_i8x16, ==);
@@ -957,12 +1008,12 @@ impl Value128 {
     simd_cmp_mask_const!(f64x2_lt, "f64x2.lt", i64, 2, as_f64x2, from_i64x2, <);
 
     #[doc(alias = "f32x4.gt")]
-    pub const fn f32x4_gt(self, rhs: Self) -> Self {
+    pub fn f32x4_gt(self, rhs: Self) -> Self {
         rhs.f32x4_lt(self)
     }
 
     #[doc(alias = "f64x2.gt")]
-    pub const fn f64x2_gt(self, rhs: Self) -> Self {
+    pub fn f64x2_gt(self, rhs: Self) -> Self {
         rhs.f64x2_lt(self)
     }
 
@@ -1077,91 +1128,78 @@ impl Value128 {
         Self::from_f64x2([v[0] as f64, v[1] as f64])
     }
 
-    pub const fn splat_i16(src: i16) -> Self {
+    pub fn splat_i16(src: i16) -> Self {
         Self::from_i16x8([src; 8])
     }
 
-    pub const fn splat_i32(src: i32) -> Self {
+    pub fn splat_i32(src: i32) -> Self {
         Self::from_i32x4([src; 4])
     }
 
-    pub const fn splat_i64(src: i64) -> Self {
+    pub fn splat_i64(src: i64) -> Self {
         Self::from_i64x2([src; 2])
     }
 
-    pub const fn splat_f32(src: f32) -> Self {
+    pub fn splat_f32(src: f32) -> Self {
         Self::splat_i32(src.to_bits() as i32)
     }
 
-    pub const fn splat_f64(src: f64) -> Self {
+    pub fn splat_f64(src: f64) -> Self {
         Self::splat_i64(src.to_bits() as i64)
     }
 
-    pub const fn extract_lane_i8(self, lane: u8) -> i8 {
+    pub fn extract_lane_i8(self, lane: u8) -> i8 {
         debug_assert!(lane < 16);
         let lane = lane as usize;
         let bytes = self.to_le_bytes();
         bytes[lane] as i8
     }
 
-    pub const fn extract_lane_u8(self, lane: u8) -> u8 {
+    pub fn extract_lane_u8(self, lane: u8) -> u8 {
         debug_assert!(lane < 16);
         let lane = lane as usize;
         let bytes = self.to_le_bytes();
         bytes[lane]
     }
 
-    pub const fn extract_lane_i16(self, lane: u8) -> i16 {
+    pub fn extract_lane_i16(self, lane: u8) -> i16 {
         i16::from_le_bytes(self.extract_lane_bytes::<2>(lane, 8))
     }
 
-    pub const fn extract_lane_u16(self, lane: u8) -> u16 {
+    pub fn extract_lane_u16(self, lane: u8) -> u16 {
         u16::from_le_bytes(self.extract_lane_bytes::<2>(lane, 8))
     }
 
-    pub const fn extract_lane_i32(self, lane: u8) -> i32 {
+    pub fn extract_lane_i32(self, lane: u8) -> i32 {
         i32::from_le_bytes(self.extract_lane_bytes::<4>(lane, 4))
     }
 
-    pub const fn extract_lane_i64(self, lane: u8) -> i64 {
+    pub fn extract_lane_i64(self, lane: u8) -> i64 {
         i64::from_le_bytes(self.extract_lane_bytes::<8>(lane, 2))
     }
 
-    pub const fn extract_lane_f32(self, lane: u8) -> f32 {
+    pub fn extract_lane_f32(self, lane: u8) -> f32 {
         f32::from_bits(self.extract_lane_i32(lane) as u32)
     }
 
-    pub const fn extract_lane_f64(self, lane: u8) -> f64 {
+    pub fn extract_lane_f64(self, lane: u8) -> f64 {
         f64::from_bits(self.extract_lane_i64(lane) as u64)
     }
 
-    const fn extract_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, lane_count: u8) -> [u8; LANE_BYTES] {
+    fn extract_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, lane_count: u8) -> [u8; LANE_BYTES] {
         debug_assert!(lane < lane_count);
         let bytes = self.to_le_bytes();
         let start = lane as usize * LANE_BYTES;
         let mut out = [0u8; LANE_BYTES];
-        let mut i = 0;
-        while i < LANE_BYTES {
-            out[i] = bytes[start + i];
-            i += 1;
-        }
+        out.copy_from_slice(&bytes[start..start + LANE_BYTES]);
         out
     }
 
-    const fn replace_lane_bytes<const LANE_BYTES: usize>(
-        self,
-        lane: u8,
-        value: [u8; LANE_BYTES],
-        lane_count: u8,
-    ) -> Self {
+    fn replace_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, value: [u8; LANE_BYTES], lane_count: u8) -> Self {
         debug_assert!(lane < lane_count);
         let mut bytes = self.to_le_bytes();
-        let mut i = 0;
         let start = lane as usize * LANE_BYTES;
-        while i < LANE_BYTES {
-            bytes[start + i] = value[i];
-            i += 1;
-        }
+        bytes[start..start + LANE_BYTES].copy_from_slice(&value);
         Self::from_le_bytes(bytes)
     }
 }

@@ -13,13 +13,14 @@ jobs:
     name: Build wasm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: true
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
         with:
-          toolchain: stable
+          toolchain: nightly
+          components: rust-src
           rustflags: ""
           target: wasm32-unknown-unknown
       - name: Install Binaryen and WABT
@@ -27,7 +28,7 @@ jobs:
       - name: Build wasm
         run: ./examples/rust/build.sh
       - name: Save artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: wasm
           path: examples/rust/out
@@ -67,12 +68,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: true
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
         with:
           toolchain: ${{ matrix.rust }}
           rustflags: ""
@@ -80,7 +81,7 @@ jobs:
         if: matrix.target == ''
 
       - name: Load wasm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: wasm
           path: examples/rust/out
@@ -94,7 +95,7 @@ jobs:
         if: matrix.target == ''
 
       - name: Run tests (${{ matrix.target }})
-        uses: houseabsolute/actions-rust-cross@v0.0.13
+        uses: houseabsolute/actions-rust-cross@a8cc74d61047fa553b4e908b4b10e70029f00ca6 # v1.0.6
         with:
           command: test
           target: ${{ matrix.target }}

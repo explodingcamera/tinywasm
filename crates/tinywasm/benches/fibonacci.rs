@@ -36,11 +36,11 @@ fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> 
 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = fibonacci_parse().expect("fibonacci_parse");
-    let _twasm = fibonacci_to_twasm(&module).expect("fibonacci_to_twasm");
+    let twasm = fibonacci_to_twasm(&module).expect("fibonacci_to_twasm");
 
-    // c.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
-    // c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
-    // c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
+    c.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
+    c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
+    c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
     c.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
     c.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
 }

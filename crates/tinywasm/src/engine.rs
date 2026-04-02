@@ -42,17 +42,13 @@ pub(crate) struct EngineInner {
 /// Fuel accounting policy for budgeted execution.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum FuelPolicy {
     /// Charge one fuel unit per retired instruction.
+    #[default]
     PerInstruction,
     /// Charge one fuel unit per instruction plus predefined extra cost for specific operations.
     Weighted,
-}
-
-impl Default for FuelPolicy {
-    fn default() -> Self {
-        Self::PerInstruction
-    }
 }
 
 /// Default initial size for the 32-bit value stack (i32, f32 values).

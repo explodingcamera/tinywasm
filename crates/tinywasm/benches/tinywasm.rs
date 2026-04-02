@@ -33,13 +33,13 @@ fn tinywasm_run(module: TinyWasmModule) -> Result<()> {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = tinywasm_parse().expect("tinywasm_parse");
-    let _twasm = tinywasm_to_twasm(&module).expect("tinywasm_to_twasm");
+    let twasm = tinywasm_to_twasm(&module).expect("tinywasm_to_twasm");
     let mut group = c.benchmark_group("tinywasm");
     group.measurement_time(std::time::Duration::from_secs(10));
 
-    // group.bench_function("tinywasm_parse", |b| b.iter(tinywasm_parse));
-    // group.bench_function("tinywasm_to_twasm", |b| b.iter(|| tinywasm_to_twasm(&module)));
-    // group.bench_function("tinywasm_from_twasm", |b| b.iter(|| tinywasm_from_twasm(&twasm)));
+    group.bench_function("tinywasm_parse", |b| b.iter(tinywasm_parse));
+    group.bench_function("tinywasm_to_twasm", |b| b.iter(|| tinywasm_to_twasm(&module)));
+    group.bench_function("tinywasm_from_twasm", |b| b.iter(|| tinywasm_from_twasm(&twasm)));
     group.bench_function("tinywasm", |b| b.iter(|| tinywasm_run(module.clone())));
 }
 
