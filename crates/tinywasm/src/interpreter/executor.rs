@@ -49,10 +49,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     #[inline(always)]
     fn exec<const ITERATIONS: usize>(&mut self) -> Result<Option<()>> {
-        for _ in 0..ITERATIONS {
-            use tinywasm_types::Instruction::*;
-
-            macro_rules! stack_op {
+        macro_rules! stack_op {
             (simd_unary $method:ident) => { stack_op!(unary Value128, |v| v.$method()) };
             (simd_binary $method:ident) => { stack_op!(binary Value128, |a, b| a.$method(b)) };
             (unary $ty:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary::<$ty>(|$v| Ok($expr))? };
@@ -72,6 +69,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 self.store.stack.values.local_set(&self.cf, *$local_index, val);
             }};
         }
+
+        for _ in 0..ITERATIONS {
+            use tinywasm_types::Instruction::*;
 
             let next = match self.func.instructions.0.get(self.cf.instr_ptr as usize) {
                 Some(instr) => instr,
@@ -164,9 +164,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                     let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
                     let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, *addr_local));
                     let value = self.store.stack.values.local_get::<u32>(&self.cf, *value_local).to_mem_bytes();
-                    if let Err(e) = mem.store((m.offset() + addr) as usize, value.len(), &value) {
-                        return Err(e);
-                    }
+                    mem.store((m.offset() + addr) as usize, value.len(), &value)?;
                 }
                 I32LoadLocalTee(m, addr_local, dst_local) => {
                     let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
@@ -677,24 +675,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             self.store.stack.values.truncate_keep_counts(self.cf.locals_base, wasm_func.params);
         }
 
-        let (locals_base, _stack_base, stack_offset) =
-            match self.store.stack.values.enter_locals(wasm_func.params, wasm_func.locals) {
-                Ok(v) => v,
-                Err(Error::Trap(Trap::ValueStackOverflow)) if !IS_RETURN_CALL => {
-                    return Err(Trap::CallStackOverflow.into());
-                }
-                Err(err) => return Err(err),
-            };
+        let res = self.store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals);
+        let locals_base = res.map_err(|err| if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) })?;
+        let new_call_frame = CallFrame::new(func_addr, owner, locals_base, wasm_func.locals);
 
-        let new_call_frame = CallFrame::new(func_addr, owner, locals_base, stack_offset);
-
-        if IS_RETURN_CALL {
-            self.cf = new_call_frame;
-        } else {
+        if !IS_RETURN_CALL {
             self.cf.incr_instr_ptr(); // skip the call instruction
             self.store.stack.call_stack.push(self.cf)?;
-            self.cf = new_call_frame;
         }
+        self.cf = new_call_frame;
 
         if self.cf.module_addr != self.module.idx {
             self.module = self.store.get_module_instance_raw(self.cf.module_addr).clone();
@@ -730,24 +719,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             self.store.stack.values.truncate_keep_counts(self.cf.locals_base, params);
         }
 
-        let (locals_base, _stack_base, stack_offset) = match self.store.stack.values.enter_locals(params, locals) {
-            Ok(v) => v,
-            Err(Error::Trap(Trap::ValueStackOverflow)) if !IS_RETURN_CALL => {
-                return Err(Trap::CallStackOverflow.into());
-            }
-            Err(err) => return Err(err),
-        };
+        let res = self.store.stack.values.enter_locals(&params, &locals);
+        let locals_base = res.map_err(|err| if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) })?;
+        let new_call_frame = CallFrame::new(self.cf.func_addr, self.cf.module_addr, locals_base, locals);
 
-        let new_call_frame = CallFrame::new(self.cf.func_addr, self.cf.module_addr, locals_base, stack_offset);
-
-        if IS_RETURN_CALL {
-            self.cf = new_call_frame;
-        } else {
+        if !IS_RETURN_CALL {
             self.cf.incr_instr_ptr();
             self.store.stack.call_stack.push(self.cf)?;
-            self.cf = new_call_frame;
         }
-
+        self.cf = new_call_frame;
         Ok(())
     }
 
@@ -987,9 +967,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => self.store.stack.values.pop::<i32>() as u32 as u64,
         };
 
-        if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
-            return Err(e);
-        }
+        mem.store((offset + addr) as usize, val.len(), &val)?;
 
         Ok(())
     }
@@ -1009,9 +987,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => u64::from(self.store.stack.values.pop::<i32>() as u32),
         };
 
-        if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
-            return Err(e);
-        }
+        mem.store((offset + addr) as usize, val.len(), &val)?;
 
         Ok(())
     }

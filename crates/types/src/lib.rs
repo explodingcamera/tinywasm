@@ -262,7 +262,7 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
 pub struct WasmFunction {
     pub instructions: ArcSlice<Instruction>,
     pub data: WasmFunctionData,
-    pub locals: ValueCounts,
+    pub locals: ValueCountsSmall,
     pub params: ValueCountsSmall,
     pub ty: FuncType,
 }

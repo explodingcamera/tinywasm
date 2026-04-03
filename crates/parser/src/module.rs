@@ -210,6 +210,12 @@ impl ModuleReader {
             .map(|(func_idx, ((instructions, data, locals), ty_idx))| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
                 let params = ValueCountsSmall::from(&ty.params);
+                let locals = ValueCountsSmall {
+                    c32: u16::try_from(locals.c32).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+                    c64: u16::try_from(locals.c64).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+                    c128: u16::try_from(locals.c128).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+                    cref: u16::try_from(locals.cref).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
+                };
                 let self_func_addr = imported_func_count + func_idx as u32;
                 let mut instructions = instructions.to_vec();
                 Self::apply_instruction_rewrites(&mut instructions, self_func_addr);

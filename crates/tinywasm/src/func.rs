@@ -66,8 +66,8 @@ impl FuncHandle {
         // Reset stack, push args, allocate locals, create entry frame.
         store.stack.clear();
         store.stack.values.extend_from_wasmvalues(params)?;
-        let (locals_base, _stack_base, stack_offset) =
-            store.stack.values.enter_locals(wasm_func.params, wasm_func.locals)?;
+        let locals_base = store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals)?;
+        let stack_offset = wasm_func.locals;
         let callframe = CallFrame::new(self.addr, func_inst.owner, locals_base, stack_offset);
 
         // Execute until completion and then collect result values from the stack.
@@ -100,8 +100,8 @@ impl FuncHandle {
             Function::Wasm(wasm_func) => {
                 store.stack.clear();
                 store.stack.values.extend_from_wasmvalues(params)?;
-                let (locals_base, _stack_base, stack_offset) =
-                    store.stack.values.enter_locals(wasm_func.params, wasm_func.locals)?;
+                let locals_base = store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals)?;
+                let stack_offset = wasm_func.locals;
                 let callframe = CallFrame::new(self.addr, func_inst_owner, locals_base, stack_offset);
 
                 Ok(FuncExecution {
