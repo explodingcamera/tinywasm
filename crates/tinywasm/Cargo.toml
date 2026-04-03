@@ -64,6 +64,10 @@ name="test-wasm-3"
 harness=false
 
 [[test]]
+name="test-wasm-latest"
+harness=false
+
+[[test]]
 name="test-wasm-multi-memory"
 harness=false
 
