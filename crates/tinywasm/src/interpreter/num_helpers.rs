@@ -31,21 +31,16 @@ macro_rules! checked_conv_float {
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
-        $self
-            .store
-            .stack
-            .values
-            .unary_into::<$from, $to>(|v| {
-                let (min, max) = float_min_max!($from, $intermediate);
-                if unlikely(v.is_nan()) {
-                    return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
-                }
-                if unlikely(v <= min || v >= max) {
-                    return Err(Error::Trap(crate::Trap::IntegerOverflow));
-                }
-                Ok((v as $intermediate as $to).into())
-            })
-            .to_cf()?
+        $self.store.stack.values.unary_into::<$from, $to>(|v| {
+            let (min, max) = float_min_max!($from, $intermediate);
+            if unlikely(v.is_nan()) {
+                return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
+            }
+            if unlikely(v <= min || v >= max) {
+                return Err(Error::Trap(crate::Trap::IntegerOverflow));
+            }
+            Ok((v as $intermediate as $to).into())
+        })?
     };
 }
 

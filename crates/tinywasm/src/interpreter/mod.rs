@@ -38,7 +38,7 @@ impl InterpreterRuntime {
     pub(crate) fn exec_with_time_budget(
         store: &mut Store,
         cf: CallFrame,
-        time_budget: crate::std::time::Duration,
+        time_budget: core::time::Duration,
     ) -> Result<ExecState> {
         executor::Executor::<false>::new(store, cf)?.run_with_time_budget(time_budget)
     }

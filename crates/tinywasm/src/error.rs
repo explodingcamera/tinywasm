@@ -1,7 +1,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use core::{fmt::Display, ops::ControlFlow};
+use core::fmt::Display;
 use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
 
@@ -274,17 +274,3 @@ impl From<tinywasm_parser::ParseError> for Error {
 
 /// A wrapper around [`core::result::Result`] for tinywasm operations
 pub type Result<T, E = Error> = crate::std::result::Result<T, E>;
-
-pub(crate) trait Controlify<T> {
-    fn to_cf(self) -> ControlFlow<Option<Error>, T>;
-}
-
-impl<T> Controlify<T> for Result<T, Error> {
-    #[inline(always)]
-    fn to_cf(self) -> ControlFlow<Option<Error>, T> {
-        match self {
-            Ok(value) => ControlFlow::Continue(value),
-            Err(err) => ControlFlow::Break(Some(err)),
-        }
-    }
-}

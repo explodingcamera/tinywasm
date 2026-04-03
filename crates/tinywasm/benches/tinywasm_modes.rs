@@ -58,14 +58,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("tinywasm_modes");
     group.measurement_time(BENCH_MEASUREMENT_TIME);
 
-    group.bench_function("call", |b| {
-        b.iter_batched_ref(
-            || setup_typed_func(module.clone(), None).expect("setup call"),
-            |(store, func)| run_call(store, func).expect("run call"),
-            BatchSize::LargeInput,
-        )
-    });
-
     let per_instruction_engine = Engine::new(Config::new().fuel_policy(FuelPolicy::PerInstruction));
     group.bench_function("resume_fuel_per_instruction", |b| {
         b.iter_batched_ref(
@@ -91,6 +83,14 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter_batched_ref(
             || setup_typed_func(module.clone(), None).expect("setup time budget"),
             |(store, func)| run_resume_with_time_budget(store, func).expect("run time budget"),
+            BatchSize::LargeInput,
+        )
+    });
+
+    group.bench_function("call", |b| {
+        b.iter_batched_ref(
+            || setup_typed_func(module.clone(), None).expect("setup call"),
+            |(store, func)| run_call(store, func).expect("run call"),
             BatchSize::LargeInput,
         )
     });

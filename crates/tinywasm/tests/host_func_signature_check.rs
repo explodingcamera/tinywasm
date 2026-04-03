@@ -100,7 +100,8 @@ fn test_linking_invalid_typed_func() -> Result<()> {
             let mut store = Store::default();
             let mut imports = Imports::new();
             imports.define("host", "hfn", typed_fn).unwrap();
-            module.clone().instantiate(&mut store, Some(imports))?;
+            let link_failure = module.clone().instantiate(&mut store, Some(imports));
+            assert!(link_failure.is_err(), "Expected linking to fail for mismatched typed func, but it succeeded");
         }
     }
 
