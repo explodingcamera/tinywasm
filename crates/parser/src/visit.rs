@@ -363,6 +363,7 @@ macro_rules! impl_visit_operator {
     (@@saturating_float_to_int $($rest:tt)* ) => {};
     (@@bulk_memory $($rest:tt)* ) => {};
     (@@simd $($rest:tt)* ) => {};
+    (@@wide_arithmetic $($rest:tt)* ) => {};
     (@@relaxed_simd $($rest:tt)* ) => {};
     (@@tail_call $($rest:tt)* ) => {};
 
@@ -400,6 +401,10 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
         // Bulk Memory
         visit_memory_init(MemoryInit, u32, u32), visit_memory_copy(MemoryCopy, u32, u32), visit_table_init(TableInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32)
+    }
+
+    define_operands! {
+        visit_i64_add128(I64Add128), visit_i64_sub128(I64Sub128), visit_i64_mul_wide_s(I64MulWideS), visit_i64_mul_wide_u(I64MulWideU)
     }
 
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {

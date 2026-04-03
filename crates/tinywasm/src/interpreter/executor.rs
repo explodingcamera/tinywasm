@@ -57,9 +57,25 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             (binary try $ty:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary::<$ty>(|$a, $b| $expr)? };
             (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary_into::<$from, $to>(|$v| Ok($expr))? };
             (binary $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary_into::<$from, $to>(|$a, $b| Ok($expr))? };
+            (binary_into2 $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => {{
+                let $b = self.store.stack.values.pop::<$from>();
+                let $a = self.store.stack.values.pop::<$from>();
+                let out = $expr;
+                self.store.stack.values.push::<$to>(out.0)?;
+                self.store.stack.values.push::<$to>(out.1)?;
+            }};
             (binary $a:ty, $b:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { stack_op!(binary $a, $b => $b, |$lhs, $rhs| $expr) };
             (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { self.store.stack.values.binary_mixed::<$a, $b, $res>(|$lhs, $rhs| Ok($expr))? };
             (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => { self.store.stack.values.ternary::<$ty>(|$a, $b, $c| Ok($expr))? };
+            (quaternary_into2 $from:ty => $to:ty, |$a:ident, $b:ident, $c:ident, $d:ident| $expr:expr) => {{
+                let $d = self.store.stack.values.pop::<$from>();
+                let $c = self.store.stack.values.pop::<$from>();
+                let $b = self.store.stack.values.pop::<$from>();
+                let $a = self.store.stack.values.pop::<$from>();
+                let out = $expr;
+                self.store.stack.values.push::<$to>(out.0)?;
+                self.store.stack.values.push::<$to>(out.1)?;
+            }};
             (local_set_pop $ty:ty, $local_index:expr) => {{
                 let val = self.store.stack.values.pop::<$ty>();
                 self.store.stack.values.local_set(&self.cf, *$local_index, val);
@@ -266,6 +282,26 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I64Rotl => stack_op!(binary i64, |a, b| a.wasm_rotl(b)),
                 I32Rotr => stack_op!(binary i32, |a, b| a.wasm_rotr(b)),
                 I64Rotr => stack_op!(binary i64, |a, b| a.wasm_rotr(b)),
+                I64Add128 => stack_op!(quaternary_into2 i64 => i64, |a_lo, a_hi, b_lo, b_hi| {
+                    let lo = a_lo.wrapping_add(b_lo);
+                    let carry = u64::from((lo as u64) < (a_lo as u64));
+                    let hi = a_hi.wrapping_add(b_hi).wrapping_add(carry as i64);
+                    (lo, hi)
+                }),
+                I64Sub128 => stack_op!(quaternary_into2 i64 => i64, |a_lo, a_hi, b_lo, b_hi| {
+                    let lo = a_lo.wrapping_sub(b_lo);
+                    let borrow = u64::from((a_lo as u64) < (b_lo as u64));
+                    let hi = a_hi.wrapping_sub(b_hi).wrapping_sub(borrow as i64);
+                    (lo, hi)
+                }),
+                I64MulWideS => stack_op!(binary_into2 i64 => i64, |a, b| {
+                    let product = (a as i128).wrapping_mul(b as i128);
+                    (product as i64, (product >> 64) as i64)
+                }),
+                I64MulWideU => stack_op!(binary_into2 i64 => i64, |a, b| {
+                    let product = (a as u64 as u128).wrapping_mul(b as u64 as u128);
+                    (product as u64 as i64, (product >> 64) as u64 as i64)
+                }),
                 I32Clz => stack_op!(unary i32, |v| v.leading_zeros() as i32),
                 I64Clz => stack_op!(unary i64, |v| i64::from(v.leading_zeros())),
                 I32Ctz => stack_op!(unary i32, |v| v.trailing_zeros() as i32),

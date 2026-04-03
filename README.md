@@ -55,7 +55,7 @@ Untrusted WebAssembly code should not be able to crash the runtime or access mem
 | [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                                | 🟢     | `next`             |
 | [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                               | 🟢     | `next`             |
 | [**Relaxed SIMD**](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)                      | 🟢     | `next`             |
-| [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)             | 🚧     | -                  |
+| [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)             | 🟢     | `next`             |
 | [**Custom Descriptors**](https://github.com/WebAssembly/custom-descriptors/blob/main/proposals/custom-descriptors/Overview.md)    | 🌑     | -                  |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md)  | 🌑     | -                  |
 | [**Function References**](https://github.com/WebAssembly/function-references/blob/main/proposals/function-references/Overview.md) | 🌑     | -                  |

@@ -176,7 +176,10 @@ pub enum Instruction {
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
 
-    // > SIMD Instructions
+    // > Wide Arithmetic
+    I64Add128, I64Sub128, I64MulWideS, I64MulWideU,
+
+    // > SIMD
     V128Load(MemoryArg),
     V128Load8x8S(MemoryArg), V128Load8x8U(MemoryArg),
     V128Load16x4S(MemoryArg), V128Load16x4U(MemoryArg),
