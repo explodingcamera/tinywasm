@@ -16,8 +16,9 @@ postcard={version="1.1", optional=true, default-features=false, features=["alloc
 serde={version="1.0", optional=true, default-features=false, features=["alloc"]}
 
 [features]
-default=["std", "log", "archive"]
+default=["std", "log", "archive", "debug"]
 
 std=["serde?/std"]
 archive=["dep:postcard", "dep:serde"]
 log=["dep:log"]
+debug=[]

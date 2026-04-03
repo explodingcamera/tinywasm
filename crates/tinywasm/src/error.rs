@@ -8,7 +8,7 @@ use tinywasm_types::archive::TwasmError;
 pub use tinywasm_parser::ParseError;
 
 /// Errors that can occur for `TinyWasm` operations
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub enum Error {
     /// A WebAssembly trap occurred

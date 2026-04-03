@@ -1,31 +1,24 @@
 use alloc::vec;
 use alloc::vec::Vec;
-use tinywasm_types::{MemoryArch, MemoryType, ModuleInstanceAddr};
+use tinywasm_types::{MemoryArch, MemoryType};
 
 use crate::{Error, Result, cold, interpreter::Value128, log};
 
 /// A WebAssembly Memory Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct MemoryInstance {
     pub(crate) kind: MemoryType,
     pub(crate) data: Vec<u8>,
     pub(crate) page_count: usize,
-    pub(crate) _owner: ModuleInstanceAddr, // index into store.module_instances
 }
 
 impl MemoryInstance {
-    pub(crate) fn new(kind: MemoryType, owner: ModuleInstanceAddr) -> Self {
+    pub(crate) fn new(kind: MemoryType) -> Self {
         assert!(kind.page_count_initial() <= kind.page_count_max());
         log::debug!("initializing memory with {} pages of {} bytes", kind.page_count_initial(), kind.page_size());
-
-        Self {
-            kind,
-            data: vec![0; kind.initial_size() as usize],
-            page_count: kind.page_count_initial() as usize,
-            _owner: owner,
-        }
+        Self { kind, data: vec![0; kind.initial_size() as usize], page_count: kind.page_count_initial() as usize }
     }
 
     pub(crate) const fn is_64bit(&self) -> bool {
@@ -189,8 +182,7 @@ mod memory_instance_tests {
 
     fn create_test_memory() -> MemoryInstance {
         let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
-        let owner = ModuleInstanceAddr::default();
-        MemoryInstance::new(kind, owner)
+        MemoryInstance::new(kind)
     }
 
     #[test]
@@ -269,8 +261,7 @@ mod memory_instance_tests {
     #[test]
     fn test_memory_custom_page_size_out_of_bounds() {
         let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), Some(1));
-        let owner = ModuleInstanceAddr::default();
-        let mut memory = MemoryInstance::new(kind, owner);
+        let mut memory = MemoryInstance::new(kind);
 
         let data_to_store = [1, 2];
         assert!(memory.store(0, data_to_store.len(), &data_to_store).is_err());
@@ -279,8 +270,7 @@ mod memory_instance_tests {
     #[test]
     fn test_memory_custom_page_size_grow() {
         let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), Some(1));
-        let owner = ModuleInstanceAddr::default();
-        let mut memory = MemoryInstance::new(kind, owner);
+        let mut memory = MemoryInstance::new(kind);
 
         assert_eq!(memory.grow(1), Some(1));
 

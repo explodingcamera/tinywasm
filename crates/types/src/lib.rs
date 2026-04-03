@@ -65,7 +65,8 @@ pub mod archive {
 /// This is the internal representation of a WebAssembly module in `TinyWasm`.
 /// `TinyWasmModules` are validated before being created, so they are guaranteed to be valid (as long as they were created by `TinyWasm`).
 /// This means you should not trust a `TinyWasmModule` created by a third party to be valid.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct TinyWasmModule {
     /// Optional address of the start function
@@ -122,7 +123,8 @@ pub struct TinyWasmModule {
 /// A WebAssembly External Kind.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#external-types>
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ExternalKind {
     /// A WebAssembly Function.
@@ -160,7 +162,8 @@ pub type ModuleInstanceAddr = Addr;
 /// A WebAssembly External Value.
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#external-values>
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub enum ExternVal {
     Func(FuncAddr),
     Table(TableAddr),
@@ -193,14 +196,16 @@ impl ExternVal {
 /// The type of a WebAssembly Function.
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuncType {
     pub params: Box<[ValType]>,
     pub results: Box<[ValType]>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueCounts {
     pub c32: u32,
@@ -209,7 +214,8 @@ pub struct ValueCounts {
     pub cref: u32,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueCountsSmall {
     pub c32: u16,
@@ -250,7 +256,8 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunction {
     pub instructions: ArcSlice<Instruction>,
@@ -306,14 +313,16 @@ impl<'de, T: serde::Deserialize<'de> + Debug> serde::Deserialize<'de> for ArcSli
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunctionData {
     pub v128_constants: Box<[i128]>,
 }
 
 /// A WebAssembly Module Export
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Export {
     /// The name of the export.
@@ -324,21 +333,24 @@ pub struct Export {
     pub index: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Global {
     pub ty: GlobalType,
     pub init: ConstInstruction,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct GlobalType {
     pub mutable: bool,
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct TableType {
     pub element_type: ValType,
@@ -357,7 +369,8 @@ impl TableType {
 }
 
 /// Represents a memory's type.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryType {
     arch: MemoryArch,
@@ -407,14 +420,16 @@ impl MemoryType {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum MemoryArch {
     I32,
     I64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Import {
     pub module: Box<str>,
@@ -422,7 +437,8 @@ pub struct Import {
     pub kind: ImportKind,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ImportKind {
     Function(TypeAddr),
@@ -442,7 +458,8 @@ impl From<&ImportKind> for ExternalKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Data {
     pub data: Box<[u8]>,
@@ -450,14 +467,16 @@ pub struct Data {
     pub kind: DataKind,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum DataKind {
     Active { mem: MemAddr, offset: ConstInstruction },
     Passive,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Element {
     pub kind: ElementKind,
@@ -466,7 +485,8 @@ pub struct Element {
     pub ty: ValType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementKind {
     Passive,
@@ -474,7 +494,8 @@ pub enum ElementKind {
     Declared,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementItem {
     Func(FuncAddr),

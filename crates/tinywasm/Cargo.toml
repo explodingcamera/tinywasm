@@ -34,7 +34,7 @@ serde_json.workspace=true
 serde.workspace=true
 
 [features]
-default=["std", "parser", "log", "archive", "canonicalize_nans"]
+default=["std", "parser", "log", "archive", "canonicalize_nans", "debug"]
 
 log=["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
@@ -47,6 +47,9 @@ archive=["tinywasm-types/archive"]
 
 # canonicalize all NaN values to a single representation
 canonicalize_nans=[]
+
+# derive Debug for runtime/types structs
+debug=["tinywasm-types/debug"]
 
 [[test]]
 name="test-wasm-1"

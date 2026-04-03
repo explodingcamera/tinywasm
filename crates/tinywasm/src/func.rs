@@ -13,7 +13,8 @@ pub enum ExecProgress<T> {
     Suspended,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ExecutionState {
     pub(crate) callframe: CallFrame,
 }
@@ -33,7 +34,7 @@ pub struct FuncExecution<'store> {
     state: FuncExecutionState,
 }
 
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 enum FuncExecutionState {
     Running { exec_state: ExecutionState, root_func_addr: u32 },
     Completed { result: Option<Vec<WasmValue>> },

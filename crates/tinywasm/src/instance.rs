@@ -10,11 +10,12 @@ use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut
 /// Backed by an Rc, so cloning is cheap
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 
 #[expect(dead_code)]
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ModuleInstanceInner {
     pub(crate) failed_to_instantiate: bool,
 

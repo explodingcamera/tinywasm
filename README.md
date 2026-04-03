@@ -46,7 +46,7 @@ Safety wise, TinyWasm doesn't use any unsafe code and is designed to be complete
 | [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes/blob/main/proposals/custom-page-sizes/Overview.md) | 🟢     | `next`           |
 | [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                         | 🟢     | `next`           |
 | [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                          | 🟢     | `next`           |
-| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🚧     | N/A              |
+| [**Fixed-Width SIMD**](https://github.com/webassembly/simd)                                                                 | 🟢     | `next`           |
 
 ## Usage
 

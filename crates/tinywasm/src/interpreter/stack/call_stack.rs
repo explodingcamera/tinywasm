@@ -3,7 +3,7 @@ use crate::{Result, Trap, unlikely};
 use alloc::vec::Vec;
 use tinywasm_types::{FuncAddr, ModuleInstanceAddr, ValueCountsSmall};
 
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
 }
@@ -32,7 +32,8 @@ impl CallStack {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: u32,
     pub(crate) module_addr: ModuleInstanceAddr,
@@ -41,7 +42,8 @@ pub(crate) struct CallFrame {
     pub(crate) stack_offset: ValueCountsSmall,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct StackBase {
     pub(crate) s32: u32,
     pub(crate) s64: u32,

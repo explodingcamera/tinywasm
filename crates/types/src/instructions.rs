@@ -2,7 +2,8 @@ use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValType, Value
 use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[repr(Rust, packed)]
 pub struct MemoryArg {
@@ -27,7 +28,8 @@ impl MemoryArg {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstInstruction {
     I32Const(i32),
@@ -46,7 +48,8 @@ pub enum ConstInstruction {
 /// Wasm Bytecode can map to multiple of these instructions.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[rustfmt::skip]
 pub enum Instruction {

@@ -11,7 +11,8 @@ use crate::{Result, Store, interpreter::stack::CallFrame};
 pub(crate) use value128::*;
 pub(crate) use values::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) enum ExecState {
     Completed,
     Suspended(CallFrame),
@@ -20,7 +21,8 @@ pub(crate) enum ExecState {
 /// The main `TinyWasm` runtime.
 ///
 /// This is the default runtime used by `TinyWasm`.
-#[derive(Debug, Default)]
+#[derive(Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {

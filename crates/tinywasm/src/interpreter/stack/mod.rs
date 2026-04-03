@@ -7,7 +7,7 @@ pub(crate) use value_stack::ValueStack;
 use crate::engine::Config;
 
 /// A WebAssembly Stack
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct Stack {
     pub(crate) values: ValueStack,
     pub(crate) call_stack: CallStack,

@@ -10,7 +10,8 @@ use crate::{LinkingError, MemoryRef, MemoryRefMut, Result, log};
 use tinywasm_types::*;
 
 /// The internal representation of a function
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub enum Function {
     /// A host function
     Host(Rc<HostFunction>),
@@ -49,7 +50,7 @@ impl HostFunction {
 pub(crate) type HostFuncInner = Box<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>>>;
 
 /// The context of a host-function call
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncContext<'a> {
     pub(crate) store: &'a mut crate::Store,
     pub(crate) module_addr: ModuleInstanceAddr,

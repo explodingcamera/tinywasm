@@ -40,9 +40,9 @@ pub(crate) struct EngineInner {
 }
 
 /// Fuel accounting policy for budgeted execution.
-#[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub enum FuelPolicy {
     /// Charge one fuel unit per retired instruction.
     #[default]
@@ -67,7 +67,8 @@ pub const DEFAULT_VALUE_STACK_REF_SIZE: usize = 4 * 1024; // 4k slots
 pub const DEFAULT_CALL_STACK_SIZE: usize = 2048; // 1024 frames
 
 /// Configuration for the WebAssembly interpreter
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub struct Config {
     /// Initial size of the 32-bit value stack (i32, f32 values).

@@ -6,7 +6,7 @@ use crate::{Result, Trap, engine::Config, interpreter::*, unlikely};
 
 use super::{CallFrame, StackBase};
 
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ValueStack {
     pub(crate) stack_32: Stack<Value32>,
     pub(crate) stack_64: Stack<Value64>,
@@ -14,7 +14,7 @@ pub(crate) struct ValueStack {
     pub(crate) stack_ref: Stack<ValueRef>,
 }
 
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct Stack<T: Copy + Default> {
     data: Box<[T]>,
     len: usize,

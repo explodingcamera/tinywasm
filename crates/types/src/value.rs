@@ -299,7 +299,8 @@ impl WasmValue {
 }
 
 /// Type of a WebAssembly value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ValType {
     /// A 32-bit integer.

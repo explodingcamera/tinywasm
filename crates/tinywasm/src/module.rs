@@ -4,7 +4,8 @@ use tinywasm_types::TinyWasmModule;
 /// A WebAssembly Module
 ///
 /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Module(pub(crate) alloc::sync::Arc<TinyWasmModule>);
 
 impl From<&TinyWasmModule> for Module {

@@ -8,11 +8,11 @@ use crate::{MemoryInstance, Result};
 // This module essentially contains the public APIs to interact with the data stored in the store
 
 /// A reference to a memory instance
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct MemoryRef<'a>(pub(crate) &'a MemoryInstance);
 
 /// A borrowed reference to a memory instance
-#[derive(Debug)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct MemoryRefMut<'a>(pub(crate) &'a mut MemoryInstance);
 
 impl MemoryRefLoad for MemoryRef<'_> {
