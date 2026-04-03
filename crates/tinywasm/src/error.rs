@@ -1,5 +1,6 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::fmt::Debug;
 use core::{fmt::Display, ops::ControlFlow};
 use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
@@ -8,7 +9,6 @@ use tinywasm_types::archive::TwasmError;
 pub use tinywasm_parser::ParseError;
 
 /// Errors that can occur for `TinyWasm` operations
-#[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub enum Error {
     /// A WebAssembly trap occurred
@@ -49,9 +49,9 @@ pub enum Error {
     Twasm(TwasmError),
 }
 
-#[derive(Debug)]
 /// Errors that can occur when linking a WebAssembly module
 #[non_exhaustive]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub enum LinkingError {
     /// An unknown import was encountered
     UnknownImport {
@@ -80,11 +80,11 @@ impl LinkingError {
     }
 }
 
-#[derive(Debug)]
 /// A WebAssembly trap
 ///
 /// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
 #[non_exhaustive]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,
@@ -206,9 +206,12 @@ impl Display for Error {
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {message}"),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {feature}"),
+            #[cfg(feature = "debug")]
             Self::InvalidHostFnReturn { expected, actual } => {
                 write!(f, "invalid host function return: expected={expected:?}, actual={actual:?}")
             }
+            #[cfg(not(feature = "debug"))]
+            Self::InvalidHostFnReturn { .. } => write!(f, "invalid host function return"),
             Self::InvalidStore => write!(f, "invalid store"),
         }
     }
@@ -244,10 +247,19 @@ impl Display for Trap {
             Self::UninitializedElement { index } => {
                 write!(f, "uninitialized element: index={index}")
             }
+            #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {
                 write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")
             }
+            #[cfg(not(feature = "debug"))]
+            Self::IndirectCallTypeMismatch { .. } => write!(f, "indirect call type mismatch"),
         }
+    }
+}
+
+impl Debug for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 

@@ -47,7 +47,9 @@ fn untyped_resume_supports_zero_fuel() -> Result<()> {
     assert!(matches!(exec.resume_with_fuel(0)?, ExecProgress::Suspended));
 
     match exec.resume_with_fuel(16)? {
-        ExecProgress::Completed(values) => assert_eq!(values, vec![WasmValue::I32(42)]),
+        ExecProgress::Completed(values) => {
+            assert_eq!(values, vec![WasmValue::I32(42)])
+        }
         ExecProgress::Suspended => panic!("expected completion"),
     }
 

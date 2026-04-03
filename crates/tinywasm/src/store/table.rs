@@ -1,4 +1,3 @@
-use crate::log;
 use crate::{Error, Result, Trap};
 use alloc::{vec, vec::Vec};
 use tinywasm_types::*;
@@ -142,9 +141,7 @@ impl TableInstance {
         if end > self.elements.len() || end < offset {
             return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
         }
-
         self.elements[offset..end].copy_from_slice(init);
-        log::debug!("table: {:?}", self.elements);
         Ok(())
     }
 }

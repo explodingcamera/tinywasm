@@ -10,7 +10,7 @@ pub(crate) struct CallStack {
 
 impl CallStack {
     pub(crate) fn new(config: &crate::engine::Config) -> Self {
-        Self { stack: Vec::with_capacity(config.call_stack_size) }
+        Self { stack: Vec::with_capacity(config.max_call_stack_size) }
     }
 
     pub(crate) fn clear(&mut self) {

@@ -48,10 +48,10 @@ pub enum ConstInstruction {
 /// Wasm Bytecode can map to multiple of these instructions.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
+#[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[rustfmt::skip]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
     I32AddLocals(LocalAddr, LocalAddr), I64AddLocals(LocalAddr, LocalAddr),

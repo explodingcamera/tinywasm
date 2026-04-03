@@ -100,13 +100,15 @@ impl FuncContext<'_> {
     }
 }
 
+#[cfg(feature = "debug")]
 impl Debug for HostFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostFunction").field("ty", &self.ty).field("func", &"...").finish()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 /// An external value
 pub enum Extern {
@@ -219,7 +221,6 @@ impl From<&Import> for ExternName {
     }
 }
 
-#[derive(Debug, Default)]
 /// Imports for a module instance
 ///
 /// This is used to link a module instance to its imports
@@ -254,7 +255,8 @@ impl From<&Import> for ExternName {
 ///
 /// Note that module instance addresses for [`Imports::link_module`] can be obtained from [`crate::ModuleInstance::id`].
 /// Now, the imports object can be passed to [`crate::ModuleInstance::instantiate`].
-#[derive(Clone)]
+#[derive(Default, Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Imports {
     values: BTreeMap<ExternName, Extern>,
     modules: BTreeMap<String, ModuleInstanceAddr>,
@@ -322,9 +324,19 @@ impl Imports {
         None
     }
 
-    fn compare_types<T: Debug + PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
+    #[cfg(not(feature = "debug"))]
+    fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
-            log::error!("failed to link import {}, expected {:?}, got {:?}", import.name, expected, actual);
+            log::error!("failed to link import {}", import.name);
+            return Err(LinkingError::incompatible_import_type(import).into());
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "debug")]
+    fn compare_types<T: PartialEq + Debug>(import: &Import, actual: &T, expected: &T) -> Result<()> {
+        if expected != actual {
+            log::error!("failed to link import {}: expected {:?}, got {:?}", import.name, expected, actual);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
         Ok(())

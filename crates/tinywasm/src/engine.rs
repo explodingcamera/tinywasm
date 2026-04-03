@@ -1,19 +1,12 @@
-use core::fmt::Debug;
-
 use alloc::sync::Arc;
 
 /// Global configuration for the WebAssembly interpreter
 ///
 /// Can be cheaply cloned and shared across multiple executions and threads.
-#[derive(Clone)]
+#[derive(Clone, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Engine {
     pub(crate) inner: Arc<EngineInner>,
-}
-
-impl Debug for Engine {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Engine").finish()
-    }
 }
 
 impl Engine {
@@ -28,15 +21,10 @@ impl Engine {
     }
 }
 
-impl Default for Engine {
-    fn default() -> Engine {
-        Engine::new(Config::default())
-    }
-}
-
+#[derive(Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct EngineInner {
     pub(crate) config: Config,
-    // pub(crate) allocator: Box<dyn Allocator + Send + Sync>,
 }
 
 /// Fuel accounting policy for budgeted execution.
@@ -51,36 +39,36 @@ pub enum FuelPolicy {
     Weighted,
 }
 
-/// Default initial size for the 32-bit value stack (i32, f32 values).
-pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 64 * 1024; // 64k slots
+/// Default size for the 32-bit value stack (i32, f32 values).
+pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 32 * 1024; // 32k slots
 
-/// Default initial size for the 64-bit value stack (i64, f64 values).
+/// Default size for the 64-bit value stack (i64, f64 values).
 pub const DEFAULT_VALUE_STACK_64_SIZE: usize = 32 * 1024; // 32k slots
 
-/// Default initial size for the 128-bit value stack (v128 values).
+/// Default size for the 128-bit value stack (v128 values).
 pub const DEFAULT_VALUE_STACK_128_SIZE: usize = 4 * 1024; // 4k slots
 
-/// Default initial size for the reference value stack (funcref, externref values).
+/// Default size for the reference value stack (funcref, externref values).
 pub const DEFAULT_VALUE_STACK_REF_SIZE: usize = 4 * 1024; // 4k slots
 
-/// Default initial size for the call stack (function frames).
-pub const DEFAULT_CALL_STACK_SIZE: usize = 2048; // 1024 frames
+/// Default maximum size for the call stack (function frames).
+pub const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
 
 /// Configuration for the WebAssembly interpreter
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub struct Config {
-    /// Initial size of the 32-bit value stack (i32, f32 values).
+    /// Size of the 32-bit value stack (i32, f32 values).
     pub stack_32_size: usize,
-    /// Initial size of the 64-bit value stack (i64, f64 values).
+    /// Size of the 64-bit value stack (i64, f64 values).
     pub stack_64_size: usize,
-    /// Initial size of the 128-bit value stack (v128 values).
+    /// Size of the 128-bit value stack (v128 values).
     pub stack_128_size: usize,
-    /// Initial size of the reference value stack (funcref, externref values).
+    /// Size of the reference value stack (funcref, externref values).
     pub stack_ref_size: usize,
-    /// Initial size of the call stack.
-    pub call_stack_size: usize,
+    /// Maximum size of the call stack
+    pub max_call_stack_size: usize,
     /// Fuel accounting policy used by budgeted execution.
     pub fuel_policy: FuelPolicy,
 }
@@ -105,7 +93,7 @@ impl Default for Config {
             stack_64_size: DEFAULT_VALUE_STACK_64_SIZE,
             stack_128_size: DEFAULT_VALUE_STACK_128_SIZE,
             stack_ref_size: DEFAULT_VALUE_STACK_REF_SIZE,
-            call_stack_size: DEFAULT_CALL_STACK_SIZE,
+            max_call_stack_size: DEFAULT_MAX_CALL_STACK_SIZE,
             fuel_policy: FuelPolicy::default(),
         }
     }

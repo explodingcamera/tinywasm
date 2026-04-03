@@ -2,6 +2,7 @@
 use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use owo_colors::OwoColorize;
+use std::fmt::Display;
 use std::io::{BufRead, Seek, SeekFrom};
 use std::{
     collections::BTreeMap,
@@ -31,9 +32,9 @@ impl TestSuite {
     pub fn report_status(&self) -> Result<()> {
         if self.failed() {
             println!();
-            Err(eyre!(format!("{}:\n{:#?}", "failed one or more tests".red().bold(), self)))
+            Err(eyre!(format!("{}:\n{self}", "failed one or more tests".red().bold())))
         } else {
-            println!("\n\npassed all tests:\n{self:#?}");
+            println!("\n\npassed all tests:\n{self}");
             Ok(())
         }
     }
@@ -119,7 +120,7 @@ fn link(name: &str, file: &str, line: Option<usize>) -> String {
     format!("\x1b]8;;file://{path}\x1b\\{name}\x1b]8;;\x1b\\")
 }
 
-impl Debug for TestSuite {
+impl Display for TestSuite {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut total_passed = 0;
         let mut total_failed = 0;
@@ -145,6 +146,7 @@ impl Debug for TestSuite {
     }
 }
 
+#[derive(Debug)]
 struct TestGroup {
     tests: IndexMap<String, TestCase>,
     file: String,

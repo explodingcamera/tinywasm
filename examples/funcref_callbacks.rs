@@ -58,9 +58,7 @@ fn run_passed_funcref_example() -> Result<()> {
             // Host cannot call a funcref directly, so it routes through Wasm.
             let call_by_ref =
                 ctx.module().exported_func::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
-            let result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
-            println!("(funcref {func_ref:?})({LHS},{RHS}) results in {result}");
-
+            let _result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
             Ok(())
         }),
     )?;
@@ -132,9 +130,8 @@ fn run_returned_funcref_example() -> Result<()> {
 
     let call_by_ref = instance.exported_func::<(FuncRef, i32, i32), i32>(&store, "call_binop_by_ref")?;
 
-    for (idx, func_ref) in [add_ref, sub_ref, mul_ref].iter().enumerate() {
-        let result = call_by_ref.call(&mut store, (*func_ref, LHS, RHS))?;
-        println!("At idx: {idx}, funcref {func_ref:?}({LHS},{RHS}) results in {result}");
+    for func_ref in [add_ref, sub_ref, mul_ref] {
+        let _result = call_by_ref.call(&mut store, (func_ref, LHS, RHS))?;
     }
     Ok(())
 }

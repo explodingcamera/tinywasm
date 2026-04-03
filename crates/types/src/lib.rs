@@ -2,9 +2,9 @@
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
-#![warn(missing_debug_implementations, rust_2018_idioms, unreachable_pub)]
+#![warn(rust_2018_idioms, unreachable_pub)]
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
@@ -50,7 +50,7 @@ pub mod archive;
 
 #[cfg(not(feature = "archive"))]
 pub mod archive {
-    #[derive(Debug)]
+    #[cfg_attr(feature = "debug", derive(Debug))]
     pub enum TwasmError {}
     impl core::fmt::Display for TwasmError {
         fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -272,6 +272,12 @@ pub struct WasmFunction {
 // wrapper around Arc<[T]> to support serde serialization and deserialization
 pub struct ArcSlice<T>(pub Arc<[T]>);
 
+impl<T: Debug> Debug for ArcSlice<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.as_ref().fmt(f)
+    }
+}
+
 impl<T> From<alloc::vec::Vec<T>> for ArcSlice<T> {
     fn from(vec: alloc::vec::Vec<T>) -> Self {
         Self(Arc::from(vec))
@@ -292,21 +298,15 @@ impl<T> Deref for ArcSlice<T> {
     }
 }
 
-impl<T: Debug> Debug for ArcSlice<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.as_ref().fmt(f)
-    }
-}
-
 #[cfg(feature = "archive")]
-impl<T: serde::Serialize + Debug> serde::Serialize for ArcSlice<T> {
+impl<T: serde::Serialize> serde::Serialize for ArcSlice<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.as_ref().serialize(serializer)
     }
 }
 
 #[cfg(feature = "archive")]
-impl<'de, T: serde::Deserialize<'de> + Debug> serde::Deserialize<'de> for ArcSlice<T> {
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ArcSlice<T> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let vec: alloc::vec::Vec<T> = alloc::vec::Vec::deserialize(deserializer)?;
         Ok(Self(Arc::from(vec)))

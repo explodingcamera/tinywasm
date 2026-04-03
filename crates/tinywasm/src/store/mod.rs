@@ -1,6 +1,5 @@
 use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
-use core::fmt::Debug;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
@@ -40,7 +39,8 @@ pub struct Store {
     pub(crate) stack: Stack,
 }
 
-impl Debug for Store {
+#[cfg(feature = "debug")]
+impl core::fmt::Debug for Store {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Store")
             .field("id", &self.id)
@@ -323,8 +323,13 @@ impl Store {
                 })?;
                 self.state.globals[addr as usize].value.get().unwrap_ref()
             }
+            #[cfg(feature = "debug")]
             ElementItem::Expr(item) => {
                 return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}")));
+            }
+            #[cfg(not(feature = "debug"))]
+            ElementItem::Expr(_) => {
+                return Err(Error::UnsupportedFeature("const expression other than ref".to_string()));
             }
         };
 
@@ -467,7 +472,10 @@ impl Store {
                 TinyWasmValue::Value64(i) => i as i64,
                 other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
             },
+            #[cfg(feature = "debug")]
             other => return Err(Error::Other(format!("expected i32, got {other:?}"))),
+            #[cfg(not(feature = "debug"))]
+            _ => return Err(Error::Other("expected i32 or i64".to_string())),
         })
     }
 

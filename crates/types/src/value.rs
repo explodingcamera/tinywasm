@@ -23,12 +23,33 @@ pub enum WasmValue {
     RefFunc(FuncRef),
 }
 
+impl Debug for WasmValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::I32(i) => write!(f, "i32({i})"),
+            Self::I64(i) => write!(f, "i64({i})"),
+            Self::F32(i) => write!(f, "f32({i})"),
+            Self::F64(i) => write!(f, "f64({i})"),
+            Self::V128(i) => write!(f, "v128({i:?})"),
+            #[cfg(feature = "debug")]
+            Self::RefExtern(i) => write!(f, "ref({i:?})"),
+            #[cfg(feature = "debug")]
+            Self::RefFunc(i) => write!(f, "func({i:?})"),
+            #[cfg(not(feature = "debug"))]
+            Self::RefExtern(_) => write!(f, "ref()"),
+            #[cfg(not(feature = "debug"))]
+            Self::RefFunc(_) => write!(f, "func()"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ExternRef(Option<ExternAddr>);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FuncRef(Option<FuncAddr>);
 
+#[cfg(feature = "debug")]
 impl Debug for ExternRef {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
@@ -38,6 +59,7 @@ impl Debug for ExternRef {
     }
 }
 
+#[cfg(feature = "debug")]
 impl Debug for FuncRef {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.0 {
@@ -264,20 +286,6 @@ impl WasmValue {
         match self {
             Self::RefFunc(ref_func) => Some(*ref_func),
             _ => None,
-        }
-    }
-}
-
-impl Debug for WasmValue {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::I32(i) => write!(f, "i32({i})"),
-            Self::I64(i) => write!(f, "i64({i})"),
-            Self::F32(i) => write!(f, "f32({i})"),
-            Self::F64(i) => write!(f, "f64({i})"),
-            Self::V128(i) => write!(f, "v128({i:?})"),
-            Self::RefExtern(i) => write!(f, "ref({i:?})"),
-            Self::RefFunc(i) => write!(f, "func({i:?})"),
         }
     }
 }

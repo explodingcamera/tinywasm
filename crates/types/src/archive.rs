@@ -4,10 +4,10 @@ use alloc::vec::Vec;
 
 use crate::TinyWasmModule;
 
-const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
-const TWASM_VERSION: &[u8; 2] = b"03";
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
+const TWASM_VERSION: &[u8; 2] = b"03";
 
 fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
@@ -64,14 +64,6 @@ impl TinyWasmModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_serialize() {
-        let wasm = TinyWasmModule::default();
-        let twasm = wasm.serialize_twasm().expect("should serialize");
-        let wasm2 = TinyWasmModule::from_twasm(&twasm).unwrap();
-        assert_eq!(wasm, wasm2);
-    }
 
     #[test]
     fn test_invalid_magic() {

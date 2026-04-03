@@ -19,16 +19,16 @@ pub(crate) struct ExecutionState {
     pub(crate) callframe: CallFrame,
 }
 
-#[derive(Debug)]
 /// A function handle
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncHandle {
     pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) addr: u32,
     pub(crate) ty: FuncType,
 }
 
-#[derive(Debug)]
 /// Resumable execution for an untyped function call.
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncExecution<'store> {
     store: &'store mut Store,
     state: FuncExecutionState,
@@ -40,8 +40,8 @@ enum FuncExecutionState {
     Completed { result: Option<Vec<WasmValue>> },
 }
 
-#[derive(Debug)]
 /// Resumable execution for a typed function call.
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncExecutionTyped<'store, R> {
     execution: FuncExecution<'store>,
     marker: core::marker::PhantomData<R>,
@@ -212,8 +212,8 @@ fn collect_call_results(store: &mut Store, func_ty: &FuncType) -> Result<Vec<Was
     Ok(res)
 }
 
-#[derive(Debug)]
 /// A typed function handle
+#[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncHandleTyped<P, R> {
     /// The underlying function handle
     pub func: FuncHandle,
