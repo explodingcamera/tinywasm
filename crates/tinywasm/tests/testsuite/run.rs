@@ -410,7 +410,7 @@ impl TestSuite {
 
                 AssertReturn { span, exec, results } => {
                     info!("AssertReturn: {exec:?}");
-                    let expected = match convert_wastret(results.into_iter()) {
+                    let expected_alternatives = match convert_wastret(results.into_iter()) {
                         Err(err) => {
                             test_group.add_result(
                                 &format!("AssertReturn(unsupported-{i})"),
@@ -449,14 +449,19 @@ impl TestSuite {
                                     continue;
                                 }
                             };
-                            let expected = expected.first().expect("expected global value");
-                            let module_global = module_global.attach_type(expected.val_type());
+                            let expected = expected_alternatives
+                                .iter()
+                                .filter_map(|alts| alts.first())
+                                .find(|exp| module_global.attach_type(exp.val_type()).eq_loose(exp));
 
-                            if !module_global.eq_loose(expected) {
+                            if expected.is_none() {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
                                     span.linecol_in(wast_raw),
-                                    Err(eyre!("global value did not match: {:?} != {:?}", module_global, expected)),
+                                    Err(eyre!(
+                                        "global value did not match any expected alternative: {:?}",
+                                        module_global
+                                    )),
                                 );
                                 continue;
                             }
@@ -493,20 +498,23 @@ impl TestSuite {
                             e
                         })?;
 
-                        if outcomes.len() != expected.len() {
+                        if !expected_alternatives.iter().any(|expected| expected.len() == outcomes.len()) {
                             return Err(eyre!(
                                 "span: {:?} expected {} results, got {}",
                                 span,
-                                expected.len(),
+                                expected_alternatives.first().map_or(0, |v| v.len()),
                                 outcomes.len()
                             ));
                         }
 
-                        outcomes.iter().zip(expected).enumerate().try_for_each(|(i, (outcome, exp))| {
-                            (outcome.eq_loose(&exp))
-                                .then_some(())
-                                .ok_or_else(|| eyre!(" result {} did not match: {:?} != {:?}", i, outcome, exp))
-                        })
+                        if expected_alternatives.iter().any(|expected| {
+                            expected.len() == outcomes.len()
+                                && outcomes.iter().zip(expected.iter()).all(|(outcome, exp)| outcome.eq_loose(exp))
+                        }) {
+                            Ok(())
+                        } else {
+                            Err(eyre!("results did not match any expected alternative"))
+                        }
                     });
 
                     let res = res.map_err(|e| eyre!("test panicked: {:?}", try_downcast_panic(e))).and_then(|r| r);

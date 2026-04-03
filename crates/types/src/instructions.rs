@@ -237,18 +237,18 @@ pub enum Instruction {
     F32x4DemoteF64x2Zero, F64x2PromoteLowF32x4,
 
     // > Relaxed SIMD
-    // I8x16RelaxedSwizzle,
-    // I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
-    // I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,
-    // F32x4RelaxedMadd, F32x4RelaxedNmadd,
-    // F64x2RelaxedMadd, F64x2RelaxedNmadd,
-    // I8x16RelaxedLaneselect,
-    // I16x8RelaxedLaneselect,
-    // I32x4RelaxedLaneselect,
-    // I64x2RelaxedLaneselect,
-    // F32x4RelaxedMin, F32x4RelaxedMax,
-    // F64x2RelaxedMin, F64x2RelaxedMax,
-    // I16x8RelaxedQ15mulrS,
-    // I16x8RelaxedDotI8x16I7x16S,
-    // I32x4RelaxedDotI8x16I7x16AddS
+    I8x16RelaxedSwizzle,
+    I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
+    I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,
+    F32x4RelaxedMadd, F32x4RelaxedNmadd,
+    F64x2RelaxedMadd, F64x2RelaxedNmadd,
+    I8x16RelaxedLaneselect,
+    I16x8RelaxedLaneselect,
+    I32x4RelaxedLaneselect,
+    I64x2RelaxedLaneselect,
+    F32x4RelaxedMin, F32x4RelaxedMax,
+    F64x2RelaxedMin, F64x2RelaxedMax,
+    I16x8RelaxedQ15mulrS,
+    I16x8RelaxedDotI8x16I7x16S,
+    I32x4RelaxedDotI8x16I7x16AddS
 }

@@ -363,6 +363,7 @@ macro_rules! impl_visit_operator {
     (@@saturating_float_to_int $($rest:tt)* ) => {};
     (@@bulk_memory $($rest:tt)* ) => {};
     (@@simd $($rest:tt)* ) => {};
+    (@@relaxed_simd $($rest:tt)* ) => {};
     (@@tail_call $($rest:tt)* ) => {};
 
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
@@ -830,6 +831,7 @@ macro_rules! impl_visit_simd_operator {
     };
 
     (@@simd $($rest:tt)* ) => {};
+    (@@relaxed_simd $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
         fn $visit(&mut self $($(,$arg: $argty)*)?) {
             self.unsupported(stringify!($visit))
@@ -878,6 +880,19 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
         visit_i32x4_trunc_sat_f64x2_s_zero(I32x4TruncSatF64x2SZero), visit_i32x4_trunc_sat_f64x2_u_zero(I32x4TruncSatF64x2UZero),
         visit_f64x2_convert_low_i32x4_s(F64x2ConvertLowI32x4S), visit_f64x2_convert_low_i32x4_u(F64x2ConvertLowI32x4U),
         visit_f32x4_demote_f64x2_zero(F32x4DemoteF64x2Zero), visit_f64x2_promote_low_f32x4(F64x2PromoteLowF32x4),
+
+        visit_i8x16_relaxed_swizzle(I8x16RelaxedSwizzle),
+        visit_i32x4_relaxed_trunc_f32x4_s(I32x4RelaxedTruncF32x4S), visit_i32x4_relaxed_trunc_f32x4_u(I32x4RelaxedTruncF32x4U),
+        visit_i32x4_relaxed_trunc_f64x2_s_zero(I32x4RelaxedTruncF64x2SZero), visit_i32x4_relaxed_trunc_f64x2_u_zero(I32x4RelaxedTruncF64x2UZero),
+        visit_f32x4_relaxed_madd(F32x4RelaxedMadd), visit_f32x4_relaxed_nmadd(F32x4RelaxedNmadd),
+        visit_f64x2_relaxed_madd(F64x2RelaxedMadd), visit_f64x2_relaxed_nmadd(F64x2RelaxedNmadd),
+        visit_i8x16_relaxed_laneselect(I8x16RelaxedLaneselect), visit_i16x8_relaxed_laneselect(I16x8RelaxedLaneselect),
+        visit_i32x4_relaxed_laneselect(I32x4RelaxedLaneselect), visit_i64x2_relaxed_laneselect(I64x2RelaxedLaneselect),
+        visit_f32x4_relaxed_min(F32x4RelaxedMin), visit_f32x4_relaxed_max(F32x4RelaxedMax),
+        visit_f64x2_relaxed_min(F64x2RelaxedMin), visit_f64x2_relaxed_max(F64x2RelaxedMax),
+        visit_i16x8_relaxed_q15mulr_s(I16x8RelaxedQ15mulrS),
+        visit_i16x8_relaxed_dot_i8x16_i7x16_s(I16x8RelaxedDotI8x16I7x16S),
+        visit_i32x4_relaxed_dot_i8x16_i7x16_add_s(I32x4RelaxedDotI8x16I7x16AddS),
 
         visit_i8x16_extract_lane_s(I8x16ExtractLaneS, u8), visit_i8x16_extract_lane_u(I8x16ExtractLaneU, u8), visit_i8x16_replace_lane(I8x16ReplaceLane, u8),
         visit_i16x8_extract_lane_s(I16x8ExtractLaneS, u8), visit_i16x8_extract_lane_u(I16x8ExtractLaneU, u8), visit_i16x8_replace_lane(I16x8ReplaceLane, u8),

@@ -609,6 +609,11 @@ impl Value128 {
         Self::from_le_bytes(out)
     }
 
+    #[doc(alias = "i8x16.relaxed_swizzle")]
+    pub fn i8x16_relaxed_swizzle(self, s: Self) -> Self {
+        self.i8x16_swizzle(s)
+    }
+
     #[doc(alias = "i8x16.shuffle")]
     pub fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
         let mut src = [0u8; 32];
@@ -938,6 +943,65 @@ impl Value128 {
         Self::from_i32x4(out)
     }
 
+    #[doc(alias = "i8x16.relaxed_laneselect")]
+    pub fn i8x16_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
+        Self::v128_bitselect(v1, v2, c)
+    }
+
+    #[doc(alias = "i16x8.relaxed_laneselect")]
+    pub fn i16x8_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
+        Self::v128_bitselect(v1, v2, c)
+    }
+
+    #[doc(alias = "i32x4.relaxed_laneselect")]
+    pub fn i32x4_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
+        Self::v128_bitselect(v1, v2, c)
+    }
+
+    #[doc(alias = "i64x2.relaxed_laneselect")]
+    pub fn i64x2_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
+        Self::v128_bitselect(v1, v2, c)
+    }
+
+    #[doc(alias = "i16x8.relaxed_q15mulr_s")]
+    pub fn i16x8_relaxed_q15mulr_s(self, rhs: Self) -> Self {
+        self.i16x8_q15mulr_sat_s(rhs)
+    }
+
+    #[doc(alias = "i16x8.relaxed_dot_i8x16_i7x16_s")]
+    pub fn i16x8_relaxed_dot_i8x16_i7x16_s(self, rhs: Self) -> Self {
+        let a = self.as_i8x16();
+        let b = rhs.as_i8x16();
+        let mut out = [0i16; 8];
+
+        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.chunks_exact(2).zip(b.chunks_exact(2))) {
+            let prod0 = (a_pair[0] as i16) * (b_pair[0] as i16);
+            let prod1 = (a_pair[1] as i16) * (b_pair[1] as i16);
+            *dst = prod0.wrapping_add(prod1);
+        }
+
+        Self::from_i16x8(out)
+    }
+
+    #[doc(alias = "i32x4.relaxed_dot_i8x16_i7x16_add_s")]
+    pub fn i32x4_relaxed_dot_i8x16_i7x16_add_s(self, rhs: Self, acc: Self) -> Self {
+        let a = self.as_i8x16();
+        let b = rhs.as_i8x16();
+        let c = acc.as_i32x4();
+        let mut out = [0i32; 4];
+
+        for (i, dst) in out.iter_mut().enumerate() {
+            let base = i * 4;
+            let mut sum = 0i32;
+            for j in 0..4 {
+                sum = sum.wrapping_add((a[base + j] as i32).wrapping_mul(b[base + j] as i32));
+            }
+            *dst = sum.wrapping_add(c[i]);
+        }
+
+        Self::from_i32x4(out)
+    }
+
     simd_cmp_mask!(i8x16_eq, "i8x16.eq", i8x16_eq, i8, 16, as_i8x16, from_i8x16, ==);
     simd_cmp_mask!(i16x8_eq, "i16x8.eq", i16x8_eq, i16, 8, as_i16x8, from_i16x8, ==);
     simd_cmp_mask!(i32x4_eq, "i32x4.eq", i32x4_eq, i32, 4, as_i32x4, from_i32x4, ==);
@@ -1057,6 +1121,70 @@ impl Value128 {
     simd_float_binary!(f64x2_pmin, "f64x2.pmin", zip_f64x2, |a, b| if b < a { b } else { a });
     simd_float_binary!(f32x4_pmax, "f32x4.pmax", zip_f32x4, |a, b| if b > a { b } else { a });
     simd_float_binary!(f64x2_pmax, "f64x2.pmax", zip_f64x2, |a, b| if b > a { b } else { a });
+
+    #[doc(alias = "f32x4.relaxed_madd")]
+    pub fn f32x4_relaxed_madd(self, b: Self, c: Self) -> Self {
+        self.zip_f32x4(b, |x, y| canonicalize_simd_f32_nan(x * y))
+            .zip_f32x4(c, |xy, z| canonicalize_simd_f32_nan(xy + z))
+    }
+
+    #[doc(alias = "f32x4.relaxed_nmadd")]
+    pub fn f32x4_relaxed_nmadd(self, b: Self, c: Self) -> Self {
+        self.zip_f32x4(b, |x, y| canonicalize_simd_f32_nan(-(x * y)))
+            .zip_f32x4(c, |neg_xy, z| canonicalize_simd_f32_nan(neg_xy + z))
+    }
+
+    #[doc(alias = "f64x2.relaxed_madd")]
+    pub fn f64x2_relaxed_madd(self, b: Self, c: Self) -> Self {
+        self.zip_f64x2(b, |x, y| canonicalize_simd_f64_nan(x * y))
+            .zip_f64x2(c, |xy, z| canonicalize_simd_f64_nan(xy + z))
+    }
+
+    #[doc(alias = "f64x2.relaxed_nmadd")]
+    pub fn f64x2_relaxed_nmadd(self, b: Self, c: Self) -> Self {
+        self.zip_f64x2(b, |x, y| canonicalize_simd_f64_nan(-(x * y)))
+            .zip_f64x2(c, |neg_xy, z| canonicalize_simd_f64_nan(neg_xy + z))
+    }
+
+    #[doc(alias = "f32x4.relaxed_min")]
+    pub fn f32x4_relaxed_min(self, rhs: Self) -> Self {
+        self.f32x4_min(rhs)
+    }
+
+    #[doc(alias = "f64x2.relaxed_min")]
+    pub fn f64x2_relaxed_min(self, rhs: Self) -> Self {
+        self.f64x2_min(rhs)
+    }
+
+    #[doc(alias = "f32x4.relaxed_max")]
+    pub fn f32x4_relaxed_max(self, rhs: Self) -> Self {
+        self.f32x4_max(rhs)
+    }
+
+    #[doc(alias = "f64x2.relaxed_max")]
+    pub fn f64x2_relaxed_max(self, rhs: Self) -> Self {
+        self.f64x2_max(rhs)
+    }
+
+    #[doc(alias = "i32x4.relaxed_trunc_f32x4_s")]
+    pub fn i32x4_relaxed_trunc_f32x4_s(self) -> Self {
+        self.i32x4_trunc_sat_f32x4_s()
+    }
+
+    #[doc(alias = "i32x4.relaxed_trunc_f32x4_u")]
+    pub fn i32x4_relaxed_trunc_f32x4_u(self) -> Self {
+        self.i32x4_trunc_sat_f32x4_u()
+    }
+
+    #[doc(alias = "i32x4.relaxed_trunc_f64x2_s_zero")]
+    pub fn i32x4_relaxed_trunc_f64x2_s_zero(self) -> Self {
+        self.i32x4_trunc_sat_f64x2_s_zero()
+    }
+
+    #[doc(alias = "i32x4.relaxed_trunc_f64x2_u_zero")]
+    pub fn i32x4_relaxed_trunc_f64x2_u_zero(self) -> Self {
+        self.i32x4_trunc_sat_f64x2_u_zero()
+    }
 
     #[doc(alias = "i32x4.trunc_sat_f32x4_s")]
     pub fn i32x4_trunc_sat_f32x4_s(self) -> Self {

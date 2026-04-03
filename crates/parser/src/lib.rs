@@ -79,7 +79,7 @@ impl Parser {
             exceptions: false,
             gc: false,
             memory_control: false,
-            relaxed_simd: false,
+            relaxed_simd: true,
             threads: false,
             shared_everything_threads: false,
             legacy_exceptions: false,

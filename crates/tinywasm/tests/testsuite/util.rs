@@ -87,8 +87,27 @@ pub fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<tinywasm_types::
     args.into_iter().map(|a| wastarg2tinywasmvalue(a)).collect()
 }
 
-pub fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<Vec<tinywasm_types::WasmValue>> {
-    args.map(|a| wastret2tinywasmvalue(a)).collect()
+pub fn convert_wastret<'a>(
+    args: impl Iterator<Item = wast::WastRet<'a>>,
+) -> Result<Vec<Vec<tinywasm_types::WasmValue>>> {
+    let mut alternatives = vec![Vec::new()];
+
+    for arg in args {
+        let choices = wastret2tinywasmvalues(arg)?;
+        let mut next = Vec::with_capacity(alternatives.len() * choices.len());
+
+        for prefix in alternatives {
+            for choice in &choices {
+                let mut candidate = prefix.clone();
+                candidate.push(*choice);
+                next.push(candidate);
+            }
+        }
+
+        alternatives = next;
+    }
+
+    Ok(alternatives)
 }
 
 fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<tinywasm_types::WasmValue> {
@@ -134,11 +153,20 @@ fn wast_i128_to_i128(i: wast::core::V128Pattern) -> i128 {
     i128::from_le_bytes(res.try_into().unwrap())
 }
 
-fn wastret2tinywasmvalue(ret: wast::WastRet) -> Result<tinywasm_types::WasmValue> {
+fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<tinywasm_types::WasmValue>> {
     let wast::WastRet::Core(ret) = ret else {
         bail!("unsupported arg type");
     };
 
+    match ret {
+        wast::core::WastRetCore::Either(options) => {
+            options.into_iter().map(wastretcore2tinywasmvalue).collect::<Result<Vec<_>>>()
+        }
+        ret => Ok(vec![wastretcore2tinywasmvalue(ret)?]),
+    }
+}
+
+fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<tinywasm_types::WasmValue> {
     use wast::core::WastRetCore::{F32, F64, I32, I64, RefExtern, RefFunc, RefNull, V128};
     Ok(match ret {
         F32(f) => nanpattern2tinywasmvalue(f)?,

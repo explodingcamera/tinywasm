@@ -152,12 +152,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 LocalCopy64(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value64>(&self.cf, *from)),
                 LocalCopy128(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value128>(&self.cf, *from)),
                 LocalCopyRef(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<ValueRef>(&self.cf, *from)),
-                I32AddLocals(a, b) => self.store.stack.values.push(
-                    self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)),
-                )?,
-                I64AddLocals(a, b) => self.store.stack.values.push(
-                    self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)),
-                )?,
+                I32AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)))?,
+                I64AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)))?,
                 I32AddConst(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
                 I64AddConst(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
                 I32StoreLocalLocal(m, addr_local, value_local) => {
@@ -394,6 +390,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 V128Bitselect => stack_op!(ternary Value128, |v1, v2, c| Value128::v128_bitselect(v1, v2, c)),
                 V128AnyTrue => stack_op!(unary Value128 => i32, |v| v.v128_any_true() as i32),
                 I8x16Swizzle => stack_op!(binary Value128, |a, s| a.i8x16_swizzle(s)),
+                I8x16RelaxedSwizzle => stack_op!(binary Value128, |a, s| a.i8x16_relaxed_swizzle(s)),
                 V128Load(arg) => self.exec_mem_load::<Value128, 16, _>(arg.mem_addr(), arg.offset(), |v| v)?,
                 V128Load8x8S(arg) => self.exec_mem_load::<u64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::v128_load8x8_s(v.to_le_bytes()))?,
                 V128Load8x8U(arg) => self.exec_mem_load::<u64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::v128_load8x8_u(v.to_le_bytes()))?,
@@ -582,6 +579,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I8x16Shuffle(idx) => { let idx = self.func.data.v128_constants[*idx as usize].to_le_bytes(); stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, idx)) }
                 I16x8Q15MulrSatS => stack_op!(binary Value128, |a, b| a.i16x8_q15mulr_sat_s(b)),
                 I32x4DotI16x8S => stack_op!(binary Value128, |a, b| a.i32x4_dot_i16x8_s(b)),
+                I8x16RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i8x16_relaxed_laneselect(v1, v2, c)),
+                I16x8RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i16x8_relaxed_laneselect(v1, v2, c)),
+                I32x4RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i32x4_relaxed_laneselect(v1, v2, c)),
+                I64x2RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i64x2_relaxed_laneselect(v1, v2, c)),
+                I16x8RelaxedQ15mulrS => stack_op!(binary Value128, |a, b| a.i16x8_relaxed_q15mulr_s(b)),
+                I16x8RelaxedDotI8x16I7x16S => stack_op!(binary Value128, |a, b| a.i16x8_relaxed_dot_i8x16_i7x16_s(b)),
+                I32x4RelaxedDotI8x16I7x16AddS => stack_op!(ternary Value128, |a, b, c| a.i32x4_relaxed_dot_i8x16_i7x16_add_s(b, c)),
                 F32x4Ceil => stack_op!(simd_unary f32x4_ceil),
                 F64x2Ceil => stack_op!(simd_unary f64x2_ceil),
                 F32x4Floor => stack_op!(simd_unary f32x4_floor),
@@ -612,6 +616,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 F32x4PMax => stack_op!(simd_binary f32x4_pmax),
                 F64x2PMin => stack_op!(simd_binary f64x2_pmin),
                 F64x2PMax => stack_op!(simd_binary f64x2_pmax),
+                F32x4RelaxedMadd => stack_op!(ternary Value128, |a, b, c| a.f32x4_relaxed_madd(b, c)),
+                F32x4RelaxedNmadd => stack_op!(ternary Value128, |a, b, c| a.f32x4_relaxed_nmadd(b, c)),
+                F64x2RelaxedMadd => stack_op!(ternary Value128, |a, b, c| a.f64x2_relaxed_madd(b, c)),
+                F64x2RelaxedNmadd => stack_op!(ternary Value128, |a, b, c| a.f64x2_relaxed_nmadd(b, c)),
+                F32x4RelaxedMin => stack_op!(binary Value128, |a, b| a.f32x4_relaxed_min(b)),
+                F32x4RelaxedMax => stack_op!(binary Value128, |a, b| a.f32x4_relaxed_max(b)),
+                F64x2RelaxedMin => stack_op!(binary Value128, |a, b| a.f64x2_relaxed_min(b)),
+                F64x2RelaxedMax => stack_op!(binary Value128, |a, b| a.f64x2_relaxed_max(b)),
                 I32x4TruncSatF32x4S => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f32x4_s()),
                 I32x4TruncSatF32x4U => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f32x4_u()),
                 F32x4ConvertI32x4S => stack_op!(unary Value128, |v| v.f32x4_convert_i32x4_s()),
@@ -622,6 +634,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 F64x2PromoteLowF32x4 => stack_op!(unary Value128, |v| v.f64x2_promote_low_f32x4()),
                 I32x4TruncSatF64x2SZero => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f64x2_s_zero()),
                 I32x4TruncSatF64x2UZero => stack_op!(unary Value128, |v| v.i32x4_trunc_sat_f64x2_u_zero()),
+                I32x4RelaxedTruncF32x4S => stack_op!(unary Value128, |v| v.i32x4_relaxed_trunc_f32x4_s()),
+                I32x4RelaxedTruncF32x4U => stack_op!(unary Value128, |v| v.i32x4_relaxed_trunc_f32x4_u()),
+                I32x4RelaxedTruncF64x2SZero => stack_op!(unary Value128, |v| v.i32x4_relaxed_trunc_f64x2_s_zero()),
+                I32x4RelaxedTruncF64x2UZero => stack_op!(unary Value128, |v| v.i32x4_relaxed_trunc_f64x2_u_zero()),
             };
 
             self.cf.incr_instr_ptr();
