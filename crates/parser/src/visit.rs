@@ -431,6 +431,10 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             let addr = self.instructions[len - 2];
             let value = self.instructions[len - 1];
             if let (Instruction::LocalGet32(addr_local), Instruction::LocalGet32(value_local)) = (addr, value) {
+                let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local)) else {
+                    self.instructions.push(Instruction::I32Store(memarg));
+                    return;
+                };
                 self.instructions.pop();
                 self.instructions.pop();
                 self.instructions.push(Instruction::I32StoreLocalLocal(memarg, addr_local, value_local));
@@ -626,6 +630,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             if let (Instruction::LocalGet32(addr_local), Instruction::I32Load(memarg)) = (addr, load) {
                 match self.validator.get_operand_type(0) {
                     Some(Some(wasmparser::ValType::I32)) | Some(Some(wasmparser::ValType::F32)) => {
+                        let (Ok(addr_local), Ok(resolved_idx)) = (u8::try_from(addr_local), u8::try_from(resolved_idx))
+                        else {
+                            self.instructions.push(Instruction::LocalTee32(resolved_idx));
+                            return;
+                        };
                         self.instructions.pop();
                         self.instructions.pop();
                         self.instructions.push(Instruction::I32LoadLocalTee(memarg, addr_local, resolved_idx));

@@ -41,7 +41,7 @@ pub use tinywasm_types::TinyWasmModule;
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ParserOptions {
     // /// Enable control-flow graph cleanup rewrites.
     // pub cfg_cleanup: bool,
@@ -49,12 +49,6 @@ pub struct ParserOptions {
     // pub dce: bool,
     // /// Enable return-call rewrites when safe.
     // pub tailcall_rewrite: bool,
-}
-
-impl Default for ParserOptions {
-    fn default() -> Self {
-        Self {}
-    }
 }
 
 /// A WebAssembly parser

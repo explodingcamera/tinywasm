@@ -56,8 +56,8 @@ pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
     I32AddLocals(LocalAddr, LocalAddr), I64AddLocals(LocalAddr, LocalAddr),
     I32AddConst(i32), I64AddConst(i64),
-    I32StoreLocalLocal(MemoryArg, LocalAddr, LocalAddr),
-    I32LoadLocalTee(MemoryArg, LocalAddr, LocalAddr),
+    I32StoreLocalLocal(MemoryArg, u8, u8),
+    I32LoadLocalTee(MemoryArg, u8, u8),
     I64XorRotlConst(i64),
     I64XorRotlConstTee(i64, LocalAddr),
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)

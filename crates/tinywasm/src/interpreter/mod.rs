@@ -11,7 +11,7 @@ use crate::{Result, Store, interpreter::stack::CallFrame};
 pub(crate) use value128::*;
 pub(crate) use values::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) enum ExecState {
     Completed,

@@ -13,7 +13,7 @@ pub enum ExecProgress<T> {
     Suspended,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ExecutionState {
     pub(crate) callframe: CallFrame,

@@ -174,13 +174,17 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I64AddConst(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
                 I32StoreLocalLocal(m, addr_local, value_local) => {
                     let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
-                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, *addr_local));
-                    let value = self.store.stack.values.local_get::<u32>(&self.cf, *value_local).to_mem_bytes();
+                    let addr_local = u16::from(*addr_local);
+                    let value_local = u16::from(*value_local);
+                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, addr_local));
+                    let value = self.store.stack.values.local_get::<u32>(&self.cf, value_local).to_mem_bytes();
                     mem.store((m.offset() + addr) as usize, value.len(), &value)?;
                 }
                 I32LoadLocalTee(m, addr_local, dst_local) => {
                     let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
-                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, *addr_local));
+                    let addr_local = u16::from(*addr_local);
+                    let dst_local = u16::from(*dst_local);
+                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, addr_local));
                     let Some(Ok(addr)) = m.offset().checked_add(addr).map(|a| a.try_into()) else {
                         return Err(Error::Trap(Trap::MemoryOutOfBounds {
                             offset: addr as usize,
@@ -189,7 +193,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                         }));
                     };
                     let value = mem.load_as::<4, i32>(addr)?;
-                    self.store.stack.values.local_set(&self.cf, *dst_local, value);
+                    self.store.stack.values.local_set(&self.cf, dst_local, value);
                     self.store.stack.values.push(value)?;
                 }
                 I64XorRotlConst(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
