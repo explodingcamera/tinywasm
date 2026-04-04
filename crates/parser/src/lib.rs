@@ -39,17 +39,47 @@ use wasmparser::{Validator, WasmFeaturesInflated};
 
 pub use tinywasm_types::TinyWasmModule;
 
+/// Parser optimization and lowering options.
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct ParserOptions {
+    // /// Enable control-flow graph cleanup rewrites.
+    // pub cfg_cleanup: bool,
+    // /// Enable dead-code pruning.
+    // pub dce: bool,
+    // /// Enable return-call rewrites when safe.
+    // pub tailcall_rewrite: bool,
+}
+
+impl Default for ParserOptions {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 /// A WebAssembly parser
-#[derive(Default, Debug)]
-pub struct Parser {}
+#[derive(Debug, Default)]
+pub struct Parser {
+    options: ParserOptions,
+}
 
 impl Parser {
     /// Create a new parser instance
     pub fn new() -> Self {
-        Self {}
+        Self::default()
     }
 
-    fn create_validator() -> Validator {
+    /// Create a new parser with explicit options.
+    pub fn with_options(options: ParserOptions) -> Self {
+        Self { options }
+    }
+
+    /// Read back parser options.
+    pub const fn options(&self) -> &ParserOptions {
+        &self.options
+    }
+
+    fn create_validator(_options: ParserOptions) -> Validator {
         let features = WasmFeaturesInflated {
             bulk_memory: true,
             floats: true,
@@ -98,7 +128,7 @@ impl Parser {
     /// Parse a [`TinyWasmModule`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
         let wasm = wasm.as_ref();
-        let mut validator = Self::create_validator();
+        let mut validator = Self::create_validator(self.options.clone());
         let mut reader = ModuleReader::new();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
@@ -128,7 +158,7 @@ impl Parser {
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
         use alloc::format;
 
-        let mut validator = Self::create_validator();
+        let mut validator = Self::create_validator(self.options.clone());
         let mut reader = ModuleReader::new();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);

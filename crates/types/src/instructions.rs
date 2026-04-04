@@ -255,3 +255,13 @@ pub enum Instruction {
     I16x8RelaxedDotI8x16I7x16S,
     I32x4RelaxedDotI8x16I7x16AddS
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Instruction;
+
+    #[test]
+    fn instruction_layout_size_is_stable() {
+        assert_eq!(core::mem::size_of::<Instruction>(), 16);
+    }
+}

@@ -1,3 +1,0 @@
-[submodule "crates/wasm-testsuite/data"]
-	path = crates/wasm-testsuite/data
-	url = https://github.com/WebAssembly/testsuite.git
