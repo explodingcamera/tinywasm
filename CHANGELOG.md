@@ -12,19 +12,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
 - Support for the `tail_call` proposal
 - Support for the `memory64` proposal
-- Groundwork for the `simd` proposal
+- Support for the fixed-width `simd` proposal
+- Support for the `relaxed_simd` proposal
+- Support for the `wide_arithmetic` proposal
+- New `Engine` API (`tinywasm::Engine` and `engine::Config`) for runtime configuration
+- Resumable function execution with fuel/time-budget APIs (`call_resumable`, `resume_with_fuel`, `resume_with_time_budget`, `ExecProgress`)
+- Host-function fuel APIs: `FuncContext::charge_fuel` and `FuncContext::remaining_fuel`
+- `engine::FuelPolicy` and `engine::Config::fuel_policy` for fuel accounting behavior
 - New `canonicalize_nans` feature flag to enable canonicalizing NaN values in the `f32`, `f64`, and `v128` types
+
+### Changed
+
+- Locals are now stored in the typed value stacks instead of a separate locals structure
+- Structured control flow is fully lowered to jump-oriented internal instructions during parsing
+- Stack and call-stack limits are configured via `engine::Config`
 
 ### Breaking Changes
 
 - New backwards-incompatible version of the twasm format based on `postcard` (thanks [@dragonnn](https://github.com/dragonnn))
 - `RefNull` has been removed and replaced with new `FuncRef` and `ExternRef` structs
-- Increased MSRV to 1.83.0
-- `tinywasm::Error` is now `non_exhaustive`, `Error::ParseError` has been rename to `Error::Parser` and `Error::Twasm` has been added.
+- `Store::new` now takes an `Engine`; use `Store::default()` for default settings
+- `Error`, `Trap`, and `LinkingError` are now `#[non_exhaustive]`
+- `Trap` variant discriminant values changed (if you cast variants to integers)
+- `tinywasm::interpreter` is no longer a public module; `InterpreterRuntime` and `TinyWasmValue` are no longer public API
+- `FuncHandle::name` was removed
+- Cargo feature `simd` was removed
+- Cargo feature `tinywasm-parser` was renamed to`parser`
+- Cargo feature `logging` was renamed to `log`
+- Increased MSRV to 1.90
+- `Error::ParseError` was renamed to `Error::Parser`, and `Error::Twasm` was added
 
 ### Fixed
 
 - Fixed archive **no_std** support which was broken in the previous release, and added more tests to ensure it stays working
+- `ModuleInstance::exported_memory` and `FuncContext::exported_memory` are now actually immutable ([#41](https://github.com/explodingcamera/tinywasm/pull/41))
 - Check returns in untyped host functions ([#27](https://github.com/explodingcamera/tinywasm/pull/27)) (thanks [@WhaleKit](https://github.com/WhaleKit))
 
 ## [0.8.0] - 2024-08-29

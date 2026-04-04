@@ -8,7 +8,7 @@
 
 ## Current Status
 
-`tinywasm` passes all WebAssembly MVP and WebAssembly 2.0 tests from the [WebAssembly core testsuite](https://github.com/WebAssembly/testsuite) and is able to run most WebAssembly programs. Additionally, support for WebAssembly 3.0 is mostly done. See the [Supported Proposals](#supported-proposals) section for more information.
+`tinywasm` passes 100% of WebAssembly MVP and WebAssembly 2.0 tests from the [WebAssembly core testsuite](https://github.com/WebAssembly/testsuite) and is able to run most WebAssembly programs. Additionally, support for WebAssembly 3.0 is on the way. See the [Supported Proposals](#supported-proposals) section for more information.
 
 ## Usage
 

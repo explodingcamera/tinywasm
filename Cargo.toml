@@ -19,7 +19,7 @@ serde={version="1.0", features=["derive"]}
 
 [workspace.package]
 version="0.9.0-alpha.0"
-rust-version="1.93"
+rust-version="1.90"
 edition="2024"
 license="MIT OR Apache-2.0"
 authors=["Henry Gressmann <mail@henrygressmann.de>"]
