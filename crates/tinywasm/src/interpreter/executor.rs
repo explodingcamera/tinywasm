@@ -100,7 +100,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
             #[rustfmt::skip]
             match next {
-                Nop | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64 => {}
+                Nop => {}
                 Unreachable => return Err(Trap::Unreachable.into()),
                 Drop32 => self.store.stack.values.drop::<Value32>(),
                 Drop64 => self.store.stack.values.drop::<Value64>(),

@@ -50,7 +50,7 @@ pub mod archive;
 
 #[cfg(not(feature = "archive"))]
 pub mod archive {
-    #[cfg_attr(feature = "debug", derive(Debug))]
+    #[derive(Debug)]
     pub enum TwasmError {}
     impl core::fmt::Display for TwasmError {
         fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
