@@ -59,14 +59,6 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn last_mut(&mut self) -> &mut T {
-        if self.len == 0 {
-            unreachable!("ValueStack underflow, this is a bug");
-        }
-        &mut self.data[self.len - 1]
-    }
-
-    #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> T {
         match self.data.get(index) {
             Some(v) => *v,
@@ -201,53 +193,6 @@ impl ValueStack {
         self.stack_64.select_many(counts.c64 as usize, condition);
         self.stack_128.select_many(counts.c128 as usize, condition);
         self.stack_ref.select_many(counts.cref as usize, condition);
-    }
-
-    #[inline(always)]
-    pub(crate) fn unary<T: InternalValue>(&mut self, func: impl FnOnce(T) -> Result<T>) -> Result<()> {
-        T::stack_apply1(self, func)
-    }
-
-    #[inline(always)]
-    pub(crate) fn unary_into<IN: InternalValue, OUT: InternalValue>(
-        &mut self,
-        func: impl FnOnce(IN) -> Result<OUT>,
-    ) -> Result<()> {
-        let v = IN::stack_pop(self);
-        OUT::stack_push(self, func(v)?)?;
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn binary<T: InternalValue>(&mut self, func: impl FnOnce(T, T) -> Result<T>) -> Result<()> {
-        T::stack_apply2(self, func)
-    }
-
-    #[inline(always)]
-    pub(crate) fn binary_into<IN: InternalValue, OUT: InternalValue>(
-        &mut self,
-        func: impl FnOnce(IN, IN) -> Result<OUT>,
-    ) -> Result<()> {
-        let rhs = IN::stack_pop(self);
-        let lhs = IN::stack_pop(self);
-        OUT::stack_push(self, func(lhs, rhs)?)?;
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn binary_mixed<A: InternalValue, B: InternalValue, OUT: InternalValue>(
-        &mut self,
-        func: impl FnOnce(A, B) -> Result<OUT>,
-    ) -> Result<()> {
-        let rhs = B::stack_pop(self);
-        let lhs = A::stack_pop(self);
-        OUT::stack_push(self, func(lhs, rhs)?)?;
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn ternary<T: InternalValue>(&mut self, func: impl FnOnce(T, T, T) -> Result<T>) -> Result<()> {
-        T::stack_apply3(self, func)
     }
 
     pub(crate) fn pop_types<'a>(

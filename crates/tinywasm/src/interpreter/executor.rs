@@ -50,23 +50,50 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     #[inline(always)]
     fn exec<const ITERATIONS: usize>(&mut self) -> Result<Option<()>> {
         macro_rules! stack_op {
-            (simd_unary $method:ident) => { stack_op!(unary Value128, |v| v.$method()) };
-            (simd_binary $method:ident) => { stack_op!(binary Value128, |a, b| a.$method(b)) };
-            (unary $ty:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary::<$ty>(|$v| Ok($expr))? };
-            (binary $ty:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary::<$ty>(|$a, $b| Ok($expr))? };
-            (binary try $ty:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary::<$ty>(|$a, $b| $expr)? };
-            (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => { self.store.stack.values.unary_into::<$from, $to>(|$v| Ok($expr))? };
-            (binary $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => { self.store.stack.values.binary_into::<$from, $to>(|$a, $b| Ok($expr))? };
-            (binary_into2 $from:ty => $to:ty, |$a:ident, $b:ident| $expr:expr) => {{
-                let $b = self.store.stack.values.pop::<$from>();
-                let $a = self.store.stack.values.pop::<$from>();
+            (unary $ty:ty, |$v:ident| $expr:expr) => {{
+                let $v = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.push::<$ty>($expr)?;
+            }};
+            (binary $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                let $rhs = self.store.stack.values.pop::<$ty>();
+                let $lhs = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.push::<$ty>($expr)?;
+            }};
+            (binary try $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                let $rhs = self.store.stack.values.pop::<$ty>();
+                let $lhs = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.push::<$ty>($expr?)?;
+            }};
+            (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {{
+                let $v = self.store.stack.values.pop::<$from>();
+                self.store.stack.values.push::<$to>($expr)?;
+            }};
+            (binary $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                let $rhs = self.store.stack.values.pop::<$from>();
+                let $lhs = self.store.stack.values.pop::<$from>();
+                self.store.stack.values.push::<$to>($expr)?;
+            }};
+            (binary_into2 $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                let $rhs = self.store.stack.values.pop::<$from>();
+                let $lhs = self.store.stack.values.pop::<$from>();
                 let out = $expr;
                 self.store.stack.values.push::<$to>(out.0)?;
                 self.store.stack.values.push::<$to>(out.1)?;
             }};
-            (binary $a:ty, $b:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { stack_op!(binary $a, $b => $b, |$lhs, $rhs| $expr) };
-            (binary $a:ty, $b:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => { self.store.stack.values.binary_mixed::<$a, $b, $res>(|$lhs, $rhs| Ok($expr))? };
-            (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => { self.store.stack.values.ternary::<$ty>(|$a, $b, $c| Ok($expr))? };
+            (binary $lhs_ty:ty, $rhs_ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
+                stack_op!(binary $lhs_ty, $rhs_ty => $rhs_ty, |$lhs, $rhs| $expr)
+            };
+            (binary $lhs_ty:ty, $rhs_ty:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                let $rhs = self.store.stack.values.pop::<$rhs_ty>();
+                let $lhs = self.store.stack.values.pop::<$lhs_ty>();
+                self.store.stack.values.push::<$res>($expr)?;
+            }};
+            (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => {{
+                let $c = self.store.stack.values.pop::<$ty>();
+                let $b = self.store.stack.values.pop::<$ty>();
+                let $a = self.store.stack.values.pop::<$ty>();
+                self.store.stack.values.push::<$ty>($expr)?;
+            }};
             (quaternary_into2 $from:ty => $to:ty, |$a:ident, $b:ident, $c:ident, $d:ident| $expr:expr) => {{
                 let $d = self.store.stack.values.pop::<$from>();
                 let $c = self.store.stack.values.pop::<$from>();
@@ -121,39 +148,16 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { continue; },
                 JumpIfNonZero(ip) => if self.exec_jump_if_non_zero(*ip) { continue; },
                 DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                    let b32 = self.cf.stack_base().s32 + *base32 as u32;
-                    let k32 = *keep32 as usize;
-                    self.store.stack.values.stack_32.truncate_keep(b32 as usize, k32);
-                    let b64 = self.cf.stack_base().s64 + *base64 as u32;
-                    let k64 = *keep64 as usize;
-                    self.store.stack.values.stack_64.truncate_keep(b64 as usize, k64);
-                    let b128 = self.cf.stack_base().s128 + *base128 as u32;
-                    let k128 = *keep128 as usize;
-                    self.store.stack.values.stack_128.truncate_keep(b128 as usize, k128);
-                    let bref = self.cf.stack_base().sref + *base_ref as u32;
-                    let kref = *keep_ref as usize;
-                    self.store.stack.values.stack_ref.truncate_keep(bref as usize, kref);
+                    let stack_base = self.cf.stack_base();
+                    self.store.stack.values.stack_32.truncate_keep((stack_base.s32 + *base32 as u32) as usize, *keep32 as usize);
+                    self.store.stack.values.stack_64.truncate_keep((stack_base.s64 + *base64 as u32) as usize, *keep64 as usize);
+                    self.store.stack.values.stack_128.truncate_keep((stack_base.s128 + *base128 as u32) as usize, *keep128 as usize);
+                    self.store.stack.values.stack_ref.truncate_keep((stack_base.sref + *base_ref as u32) as usize, *keep_ref as usize);
                 }
-                DropKeep32(base, keep) => {
-                    let b = self.cf.stack_base().s32 + *base as u32;
-                    let k = *keep as usize;
-                    self.store.stack.values.stack_32.truncate_keep(b as usize, k);
-                }
-                DropKeep64(base, keep) => {
-                    let b = self.cf.stack_base().s64 + *base as u32;
-                    let k = *keep as usize;
-                    self.store.stack.values.stack_64.truncate_keep(b as usize, k);
-                }
-                DropKeep128(base, keep) => {
-                    let b = self.cf.stack_base().s128 + *base as u32;
-                    let k = *keep as usize;
-                    self.store.stack.values.stack_128.truncate_keep(b as usize, k);
-                }
-                DropKeepRef(base, keep) => {
-                    let b = self.cf.stack_base().sref + *base as u32;
-                    let k = *keep as usize;
-                    self.store.stack.values.stack_ref.truncate_keep(b as usize, k);
-                }
+                DropKeep32(base, keep) => self.store.stack.values.stack_32.truncate_keep((self.cf.stack_base().s32 + *base as u32) as usize, *keep as usize),
+                DropKeep64(base, keep) => self.store.stack.values.stack_64.truncate_keep((self.cf.stack_base().s64 + *base as u32) as usize, *keep as usize),
+                DropKeep128(base, keep) => self.store.stack.values.stack_128.truncate_keep((self.cf.stack_base().s128 + *base as u32) as usize, *keep as usize),
+                DropKeepRef(base, keep) => self.store.stack.values.stack_ref.truncate_keep((self.cf.stack_base().sref + *base as u32) as usize, *keep as usize),
                 BranchTable(default_ip, start, len) => { self.exec_branch_table(*default_ip, *start, *len); continue; }
                 Return => { if self.exec_return() { return Ok(Some(())); } continue; }
                 LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value32>(&self.cf, *local_index))?,
@@ -412,7 +416,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 V128AndNot => stack_op!(binary Value128, |a, b| a.v128_andnot(b)),
                 V128Or => stack_op!(binary Value128, |a, b| a.v128_or(b)),
                 V128Xor => stack_op!(binary Value128, |a, b| a.v128_xor(b)),
-                V128Bitselect => stack_op!(ternary Value128, |v1, v2, c| Value128::v128_bitselect(v1, v2, c)),
+                V128Bitselect => stack_op!(ternary Value128, |a, b, c| Value128::v128_bitselect(a, b, c)),
                 V128AnyTrue => stack_op!(unary Value128 => i32, |v| v.v128_any_true() as i32),
                 I8x16Swizzle => stack_op!(binary Value128, |a, s| a.i8x16_swizzle(s)),
                 I8x16RelaxedSwizzle => stack_op!(binary Value128, |a, s| a.i8x16_relaxed_swizzle(s)),
@@ -604,43 +608,43 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I8x16Shuffle(idx) => { let idx = self.func.data.v128_constants[*idx as usize].to_le_bytes(); stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, idx)) }
                 I16x8Q15MulrSatS => stack_op!(binary Value128, |a, b| a.i16x8_q15mulr_sat_s(b)),
                 I32x4DotI16x8S => stack_op!(binary Value128, |a, b| a.i32x4_dot_i16x8_s(b)),
-                I8x16RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i8x16_relaxed_laneselect(v1, v2, c)),
-                I16x8RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i16x8_relaxed_laneselect(v1, v2, c)),
-                I32x4RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i32x4_relaxed_laneselect(v1, v2, c)),
-                I64x2RelaxedLaneselect => stack_op!(ternary Value128, |v1, v2, c| Value128::i64x2_relaxed_laneselect(v1, v2, c)),
+                I8x16RelaxedLaneselect => stack_op!(ternary Value128, |a, b, c| Value128::i8x16_relaxed_laneselect(a, b, c)),
+                I16x8RelaxedLaneselect => stack_op!(ternary Value128, |a, b, c| Value128::i16x8_relaxed_laneselect(a, b, c)),
+                I32x4RelaxedLaneselect => stack_op!(ternary Value128, |a, b, c| Value128::i32x4_relaxed_laneselect(a, b, c)),
+                I64x2RelaxedLaneselect => stack_op!(ternary Value128, |a, b, c| Value128::i64x2_relaxed_laneselect(a, b, c)),
                 I16x8RelaxedQ15mulrS => stack_op!(binary Value128, |a, b| a.i16x8_relaxed_q15mulr_s(b)),
                 I16x8RelaxedDotI8x16I7x16S => stack_op!(binary Value128, |a, b| a.i16x8_relaxed_dot_i8x16_i7x16_s(b)),
                 I32x4RelaxedDotI8x16I7x16AddS => stack_op!(ternary Value128, |a, b, c| a.i32x4_relaxed_dot_i8x16_i7x16_add_s(b, c)),
-                F32x4Ceil => stack_op!(simd_unary f32x4_ceil),
-                F64x2Ceil => stack_op!(simd_unary f64x2_ceil),
-                F32x4Floor => stack_op!(simd_unary f32x4_floor),
-                F64x2Floor => stack_op!(simd_unary f64x2_floor),
-                F32x4Trunc => stack_op!(simd_unary f32x4_trunc),
-                F64x2Trunc => stack_op!(simd_unary f64x2_trunc),
-                F32x4Nearest => stack_op!(simd_unary f32x4_nearest),
-                F64x2Nearest => stack_op!(simd_unary f64x2_nearest),
-                F32x4Abs => stack_op!(simd_unary f32x4_abs),
-                F64x2Abs => stack_op!(simd_unary f64x2_abs),
-                F32x4Neg => stack_op!(simd_unary f32x4_neg),
-                F64x2Neg => stack_op!(simd_unary f64x2_neg),
-                F32x4Sqrt => stack_op!(simd_unary f32x4_sqrt),
-                F64x2Sqrt => stack_op!(simd_unary f64x2_sqrt),
-                F32x4Add => stack_op!(simd_binary f32x4_add),
-                F64x2Add => stack_op!(simd_binary f64x2_add),
-                F32x4Sub => stack_op!(simd_binary f32x4_sub),
-                F64x2Sub => stack_op!(simd_binary f64x2_sub),
-                F32x4Mul => stack_op!(simd_binary f32x4_mul),
-                F64x2Mul => stack_op!(simd_binary f64x2_mul),
-                F32x4Div => stack_op!(simd_binary f32x4_div),
-                F64x2Div => stack_op!(simd_binary f64x2_div),
-                F32x4Min => stack_op!(simd_binary f32x4_min),
-                F64x2Min => stack_op!(simd_binary f64x2_min),
-                F32x4Max => stack_op!(simd_binary f32x4_max),
-                F64x2Max => stack_op!(simd_binary f64x2_max),
-                F32x4PMin => stack_op!(simd_binary f32x4_pmin),
-                F32x4PMax => stack_op!(simd_binary f32x4_pmax),
-                F64x2PMin => stack_op!(simd_binary f64x2_pmin),
-                F64x2PMax => stack_op!(simd_binary f64x2_pmax),
+                F32x4Ceil => stack_op!(unary Value128, |v| v.f32x4_ceil()),
+                F64x2Ceil => stack_op!(unary Value128, |v| v.f64x2_ceil()),
+                F32x4Floor => stack_op!(unary Value128, |v| v.f32x4_floor()),
+                F64x2Floor => stack_op!(unary Value128, |v| v.f64x2_floor()),
+                F32x4Trunc => stack_op!(unary Value128, |v| v.f32x4_trunc()),
+                F64x2Trunc => stack_op!(unary Value128, |v| v.f64x2_trunc()),
+                F32x4Nearest => stack_op!(unary Value128, |v| v.f32x4_nearest()),
+                F64x2Nearest => stack_op!(unary Value128, |v| v.f64x2_nearest()),
+                F32x4Abs => stack_op!(unary Value128, |v| v.f32x4_abs()),
+                F64x2Abs => stack_op!(unary Value128, |v| v.f64x2_abs()),
+                F32x4Neg => stack_op!(unary Value128, |v| v.f32x4_neg()),
+                F64x2Neg => stack_op!(unary Value128, |v| v.f64x2_neg()),
+                F32x4Sqrt => stack_op!(unary Value128, |v| v.f32x4_sqrt()),
+                F64x2Sqrt => stack_op!(unary Value128, |v| v.f64x2_sqrt()),
+                F32x4Add => stack_op!(binary Value128, |a, b| a.f32x4_add(b)),
+                F64x2Add => stack_op!(binary Value128, |a, b| a.f64x2_add(b)),
+                F32x4Sub => stack_op!(binary Value128, |a, b| a.f32x4_sub(b)),
+                F64x2Sub => stack_op!(binary Value128, |a, b| a.f64x2_sub(b)),
+                F32x4Mul => stack_op!(binary Value128, |a, b| a.f32x4_mul(b)),
+                F64x2Mul => stack_op!(binary Value128, |a, b| a.f64x2_mul(b)),
+                F32x4Div => stack_op!(binary Value128, |a, b| a.f32x4_div(b)),
+                F64x2Div => stack_op!(binary Value128, |a, b| a.f64x2_div(b)),
+                F32x4Min => stack_op!(binary Value128, |a, b| a.f32x4_min(b)),
+                F64x2Min => stack_op!(binary Value128, |a, b| a.f64x2_min(b)),
+                F32x4Max => stack_op!(binary Value128, |a, b| a.f32x4_max(b)),
+                F64x2Max => stack_op!(binary Value128, |a, b| a.f64x2_max(b)),
+                F32x4PMin => stack_op!(binary Value128, |a, b| a.f32x4_pmin(b)),
+                F32x4PMax => stack_op!(binary Value128, |a, b| a.f32x4_pmax(b)),
+                F64x2PMin => stack_op!(binary Value128, |a, b| a.f64x2_pmin(b)),
+                F64x2PMax => stack_op!(binary Value128, |a, b| a.f64x2_pmax(b)),
                 F32x4RelaxedMadd => stack_op!(ternary Value128, |a, b, c| a.f32x4_relaxed_madd(b, c)),
                 F32x4RelaxedNmadd => stack_op!(ternary Value128, |a, b, c| a.f32x4_relaxed_nmadd(b, c)),
                 F64x2RelaxedMadd => stack_op!(ternary Value128, |a, b, c| a.f64x2_relaxed_madd(b, c)),

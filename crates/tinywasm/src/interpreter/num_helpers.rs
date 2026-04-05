@@ -30,18 +30,17 @@ macro_rules! checked_conv_float {
         checked_conv_float!($from, $to, $to, $self)
     };
     // Conversion with an intermediate unsigned type and error checking (three types)
-    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {
-        $self.store.stack.values.unary_into::<$from, $to>(|v| {
-            let (min, max) = float_min_max!($from, $intermediate);
-            if unlikely(v.is_nan()) {
-                return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
-            }
-            if unlikely(v <= min || v >= max) {
-                return Err(Error::Trap(crate::Trap::IntegerOverflow));
-            }
-            Ok((v as $intermediate as $to).into())
-        })?
-    };
+    ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
+        let v = $self.store.stack.values.pop::<$from>();
+        let (min, max) = float_min_max!($from, $intermediate);
+        if unlikely(v.is_nan()) {
+            return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
+        }
+        if unlikely(v <= min || v >= max) {
+            return Err(Error::Trap(crate::Trap::IntegerOverflow));
+        }
+        $self.store.stack.values.push::<$to>((v as $intermediate as $to).into())?;
+    }};
 }
 
 pub(crate) use checked_conv_float;
