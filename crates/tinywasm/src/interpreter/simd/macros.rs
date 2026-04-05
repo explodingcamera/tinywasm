@@ -1,3 +1,5 @@
+#![allow(unused_macros)]
+
 macro_rules! simd_impl {
     ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {{
         #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
@@ -23,6 +25,7 @@ macro_rules! simd_impl {
             simd_impl!(@pick_x86 $( $x86 )? ; $generic)
         }
 
+        #[allow(unreachable_code)]
         #[cfg(not(any(
             any(target_arch = "wasm32", target_arch = "wasm64"),
             all(

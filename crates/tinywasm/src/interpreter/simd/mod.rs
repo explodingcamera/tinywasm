@@ -3,6 +3,8 @@
 #[macro_use]
 mod macros;
 mod instructions;
+#[cfg(test)]
+mod tests;
 mod utils;
 
 #[cfg(target_arch = "wasm32")]

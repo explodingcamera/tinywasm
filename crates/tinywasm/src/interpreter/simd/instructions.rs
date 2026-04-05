@@ -8,6 +8,20 @@ use super::super::no_std_floats::NoStdFloatExt;
 use core::arch::wasm32 as wasm;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64 as wasm;
+#[cfg(all(
+    feature = "simd-x86",
+    target_arch = "x86_64",
+    target_feature = "sse4.2",
+    target_feature = "avx",
+    target_feature = "avx2",
+    target_feature = "bmi1",
+    target_feature = "bmi2",
+    target_feature = "fma",
+    target_feature = "lzcnt",
+    target_feature = "movbe",
+    target_feature = "popcnt"
+))]
+use core::arch::x86_64 as x86;
 
 impl Value128 {
     #[doc(alias = "v128.any_true")]
@@ -132,20 +146,41 @@ impl Value128 {
 
     #[doc(alias = "i8x16.swizzle")]
     pub fn i8x16_swizzle(self, s: Self) -> Self {
-        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
-        return Self::from_wasm_v128(wasm::i8x16_swizzle(self.to_wasm_v128(), s.to_wasm_v128()));
+        simd_impl! {
+            wasm => { Self::from_wasm_v128(wasm::i8x16_swizzle(self.to_wasm_v128(), s.to_wasm_v128())) }
+            x86 => {
+                let a = self.to_le_bytes();
+                let idx = s.to_le_bytes();
+                let mut mask = [0u8; 16];
+                for i in 0..16 {
+                    let j = idx[i];
+                    mask[i] = if j < 16 { j & 0x0f } else { 0x80 };
+                }
 
-        let a = self.to_le_bytes();
-        let idx = s.to_le_bytes();
-        let mut out = [0u8; 16];
-        let mut i = 0;
-        while i < 16 {
-            let j = idx[i];
-            let lane = a[(j & 0x0f) as usize];
-            out[i] = if j < 16 { lane } else { 0 };
-            i += 1;
+                // SAFETY: `a`, `mask`, and `out` are valid 16-byte buffers, and `_mm_loadu/_mm_storeu` support unaligned accesses.
+                #[allow(unsafe_code)]
+                let out = unsafe {
+                    let a_vec = x86::_mm_loadu_si128(a.as_ptr().cast::<x86::__m128i>());
+                    let mask_vec = x86::_mm_loadu_si128(mask.as_ptr().cast::<x86::__m128i>());
+                    let result = x86::_mm_shuffle_epi8(a_vec, mask_vec);
+                    let mut out = [0u8; 16];
+                    x86::_mm_storeu_si128(out.as_mut_ptr().cast::<x86::__m128i>(), result);
+                    out
+                };
+                Self::from_le_bytes(out)
+            }
+            generic => {
+                let a = self.to_le_bytes();
+                let idx = s.to_le_bytes();
+                let mut out = [0u8; 16];
+                for i in 0..16 {
+                    let j = idx[i];
+                    let lane = a[(j & 0x0f) as usize];
+                    out[i] = if j < 16 { lane } else { 0 };
+                }
+                Self::from_le_bytes(out)
+            }
         }
-        Self::from_le_bytes(out)
     }
 
     #[doc(alias = "i8x16.relaxed_swizzle")]
@@ -155,14 +190,45 @@ impl Value128 {
 
     #[doc(alias = "i8x16.shuffle")]
     pub fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
-        let mut src = [0u8; 32];
-        src[..16].copy_from_slice(&a.to_le_bytes());
-        src[16..].copy_from_slice(&b.to_le_bytes());
-        let mut out = [0u8; 16];
-        for i in 0..16 {
-            out[i] = src[(idx[i] & 31) as usize];
+        simd_impl! {
+            x86 => {
+                let a_bytes = a.to_le_bytes();
+                let b_bytes = b.to_le_bytes();
+                let mut mask_a = [0u8; 16];
+                let mut mask_b = [0u8; 16];
+                for i in 0..16 {
+                    let j = idx[i] & 31;
+                    mask_a[i] = if j < 16 { j } else { 0x80 };
+                    mask_b[i] = if j < 16 { 0x80 } else { j & 0x0f };
+                }
+
+                // SAFETY: all inputs are valid 16-byte buffers, and `_mm_loadu/_mm_storeu` support unaligned accesses.
+                #[allow(unsafe_code)]
+                let out = unsafe {
+                    let a_vec = x86::_mm_loadu_si128(a_bytes.as_ptr().cast::<x86::__m128i>());
+                    let b_vec = x86::_mm_loadu_si128(b_bytes.as_ptr().cast::<x86::__m128i>());
+                    let mask_a_vec = x86::_mm_loadu_si128(mask_a.as_ptr().cast::<x86::__m128i>());
+                    let mask_b_vec = x86::_mm_loadu_si128(mask_b.as_ptr().cast::<x86::__m128i>());
+                    let a_part = x86::_mm_shuffle_epi8(a_vec, mask_a_vec);
+                    let b_part = x86::_mm_shuffle_epi8(b_vec, mask_b_vec);
+                    let result = x86::_mm_or_si128(a_part, b_part);
+                    let mut out = [0u8; 16];
+                    x86::_mm_storeu_si128(out.as_mut_ptr().cast::<x86::__m128i>(), result);
+                    out
+                };
+                Self::from_le_bytes(out)
+            }
+            generic => {
+                let a_bytes = a.to_le_bytes();
+                let b_bytes = b.to_le_bytes();
+                let mut out = [0u8; 16];
+                for i in 0..16 {
+                    let j = idx[i] & 31;
+                    out[i] = if j < 16 { a_bytes[j as usize] } else { b_bytes[(j & 0x0f) as usize] };
+                }
+                Self::from_le_bytes(out)
+            }
         }
-        Self::from_le_bytes(out)
     }
 
     #[doc(alias = "i8x16.splat")]

@@ -1,5 +1,8 @@
 use super::Value128;
 
+#[cfg(not(feature = "std"))]
+use crate::interpreter::no_std_floats::NoStdFloatExt;
+
 impl Value128 {
     pub(super) fn extract_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, lane_count: u8) -> [u8; LANE_BYTES] {
         debug_assert!(lane < lane_count);
