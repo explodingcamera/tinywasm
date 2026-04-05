@@ -196,7 +196,7 @@ impl ModuleReader {
             .into_iter()
             .zip(self.code_type_addrs)
             .enumerate()
-            .map(|(func_idx, ((instructions, data, locals), ty_idx))| {
+            .map(|(func_idx, ((instructions, mut data, locals), ty_idx))| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
                 let params = ValueCountsSmall::from(&ty.params);
                 let locals = ValueCountsSmall {
@@ -206,7 +206,7 @@ impl ModuleReader {
                     cref: u16::try_from(locals.cref).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
                 };
                 let self_func_addr = imported_func_count + func_idx as u32;
-                let instructions = optimize::optimize_instructions(instructions, self_func_addr, options);
+                let instructions = optimize::optimize_instructions(instructions, &mut data, self_func_addr, options);
 
                 WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
             })

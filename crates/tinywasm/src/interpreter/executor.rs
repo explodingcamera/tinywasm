@@ -154,8 +154,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                     let k = *keep as usize;
                     self.store.stack.values.stack_ref.truncate_keep(b as usize, k);
                 }
-                BranchTable(default_ip, len) => { self.exec_branch_table(*default_ip, *len); continue; }
-                BranchTableTarget {..} => {},
+                BranchTable(default_ip, start, len) => { self.exec_branch_table(*default_ip, *start, *len); continue; }
                 Return => { if self.exec_return() { return Ok(Some(())); } continue; }
                 LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value32>(&self.cf, *local_index))?,
                 LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value64>(&self.cf, *local_index))?,
@@ -696,15 +695,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec_branch_table(&mut self, default_ip: u32, len: u32) {
+    fn exec_branch_table(&mut self, default_ip: u32, start: u32, len: u32) {
         let idx = self.store.stack.values.pop::<i32>();
-        let start = self.cf.instr_ptr + 1;
-
         let target_ip = if idx >= 0 && (idx as u32) < len {
-            match self.func.instructions.0.get((start + idx as u32) as usize) {
-                Some(Instruction::BranchTableTarget(ip)) => *ip,
-                _ => default_ip,
-            }
+            self.func.data.branch_table_targets.get((start + idx as u32) as usize).copied().unwrap_or(default_ip)
         } else {
             default_ip
         };

@@ -1,15 +1,16 @@
 use crate::ParserOptions;
 use alloc::vec::Vec;
-use tinywasm_types::Instruction;
+use tinywasm_types::{Instruction, WasmFunctionData};
 
 pub(crate) fn optimize_instructions(
     mut instructions: Vec<Instruction>,
+    function_data: &mut WasmFunctionData,
     self_func_addr: u32,
     options: &ParserOptions,
 ) -> Vec<Instruction> {
     rewrite(&mut instructions, self_func_addr);
     if options.dce {
-        dce(&mut instructions);
+        dce(&mut instructions, function_data);
     }
     instructions
 }
@@ -135,29 +136,32 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                     instructions[read] = Instruction::Nop;
                 }
             }
-            Instruction::LocalGet64(dst)
+            Instruction::LocalGet64(dst) => {
                 if read > 0
                     && let Instruction::LocalSet64(src) = instructions[read - 1]
-                    && src == dst =>
-            {
-                instructions[read - 1] = Instruction::LocalTee64(src);
-                instructions[read] = Instruction::Nop;
+                    && src == dst
+                {
+                    instructions[read - 1] = Instruction::LocalTee64(src);
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::LocalGet128(dst)
+            Instruction::LocalGet128(dst) => {
                 if read > 0
                     && let Instruction::LocalSet128(src) = instructions[read - 1]
-                    && src == dst =>
-            {
-                instructions[read - 1] = Instruction::LocalTee128(src);
-                instructions[read] = Instruction::Nop;
+                    && src == dst
+                {
+                    instructions[read - 1] = Instruction::LocalTee128(src);
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::LocalGetRef(dst)
+            Instruction::LocalGetRef(dst) => {
                 if read > 0
                     && let Instruction::LocalSetRef(src) = instructions[read - 1]
-                    && src == dst =>
-            {
-                instructions[read - 1] = Instruction::LocalTeeRef(src);
-                instructions[read] = Instruction::Nop;
+                    && src == dst
+                {
+                    instructions[read - 1] = Instruction::LocalTeeRef(src);
+                    instructions[read] = Instruction::Nop;
+                }
             }
 
             Instruction::LocalSet32(dst) => {
@@ -230,19 +234,23 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                     instructions[read] = Instruction::LocalAddConst64(dst, c);
                 }
             }
-            Instruction::LocalSet128(dst)
+            Instruction::LocalSet128(dst) => {
                 if read > 0
-                    && let Instruction::LocalGet128(src) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::Nop;
-                instructions[read] = if src == dst { Instruction::Nop } else { Instruction::LocalCopy128(src, dst) };
+                    && let Instruction::LocalGet128(src) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] =
+                        if src == dst { Instruction::Nop } else { Instruction::LocalCopy128(src, dst) };
+                }
             }
-            Instruction::LocalSetRef(dst)
+            Instruction::LocalSetRef(dst) => {
                 if read > 0
-                    && let Instruction::LocalGetRef(src) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::Nop;
-                instructions[read] = if src == dst { Instruction::Nop } else { Instruction::LocalCopyRef(src, dst) };
+                    && let Instruction::LocalGetRef(src) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] =
+                        if src == dst { Instruction::Nop } else { Instruction::LocalCopyRef(src, dst) };
+                }
             }
 
             Instruction::LocalTee32(dst) => {
@@ -273,55 +281,61 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 }
                 _ => {}
             },
-            Instruction::LocalTee128(dst)
+            Instruction::LocalTee128(dst) => {
                 if read > 0
                     && let Instruction::LocalGet128(src) = instructions[read - 1]
-                    && src == dst =>
-            {
-                instructions[read] = Instruction::Nop;
+                    && src == dst
+                {
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::LocalTeeRef(dst)
+            Instruction::LocalTeeRef(dst) => {
                 if read > 0
                     && let Instruction::LocalGetRef(src) = instructions[read - 1]
-                    && src == dst =>
-            {
-                instructions[read] = Instruction::Nop;
+                    && src == dst
+                {
+                    instructions[read] = Instruction::Nop;
+                }
             }
 
-            Instruction::Drop32
+            Instruction::Drop32 => {
                 if read > 0
-                    && let Instruction::LocalTee32(local) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::LocalSet32(local);
-                instructions[read] = Instruction::Nop;
+                    && let Instruction::LocalTee32(local) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::LocalSet32(local);
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::Drop64
+            Instruction::Drop64 => {
                 if read > 0
-                    && let Instruction::LocalTee64(local) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::LocalSet64(local);
-                instructions[read] = Instruction::Nop;
+                    && let Instruction::LocalTee64(local) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::LocalSet64(local);
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::Drop128
+            Instruction::Drop128 => {
                 if read > 0
-                    && let Instruction::LocalTee128(local) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::LocalSet128(local);
-                instructions[read] = Instruction::Nop;
+                    && let Instruction::LocalTee128(local) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::LocalSet128(local);
+                    instructions[read] = Instruction::Nop;
+                }
             }
-            Instruction::DropRef
+            Instruction::DropRef => {
                 if read > 0
-                    && let Instruction::LocalTeeRef(local) = instructions[read - 1] =>
-            {
-                instructions[read - 1] = Instruction::LocalSetRef(local);
-                instructions[read] = Instruction::Nop;
+                    && let Instruction::LocalTeeRef(local) = instructions[read - 1]
+                {
+                    instructions[read - 1] = Instruction::LocalSetRef(local);
+                    instructions[read] = Instruction::Nop;
+                }
             }
             _ => {}
         }
     }
 }
 
-fn dce(instructions: &mut Vec<Instruction>) {
+fn dce(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData) {
     let old_len = instructions.len();
     if old_len == 0 {
         return;
@@ -340,13 +354,21 @@ fn dce(instructions: &mut Vec<Instruction>) {
     }
 
     let compacted_len = old_len as u32 - removed_total;
+
+    function_data.branch_table_targets.iter_mut().for_each(|ip| {
+        let old_target = *ip as usize;
+        if old_target <= old_len {
+            *ip -= removed_before[old_target];
+            debug_assert!(*ip < compacted_len, "remapped jump target points past end of function");
+        }
+    });
+
     instructions.retain_mut(|instr| {
         let ip = match instr {
             Instruction::Jump(ip)
             | Instruction::JumpIfZero(ip)
             | Instruction::JumpIfNonZero(ip)
-            | Instruction::BranchTableTarget(ip)
-            | Instruction::BranchTable(ip, _) => ip,
+            | Instruction::BranchTable(ip, _, _) => ip,
             _ => return !matches!(instr, Instruction::Nop),
         };
 

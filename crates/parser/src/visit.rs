@@ -32,6 +32,21 @@ struct LoweringCtx {
     branch_jumps: Vec<usize>,
 }
 
+#[derive(Default)]
+struct FunctionDataBuilder {
+    v128_constants: Vec<i128>,
+    branch_table_targets: Vec<u32>,
+}
+
+impl FunctionDataBuilder {
+    fn finish(self) -> WasmFunctionData {
+        WasmFunctionData {
+            v128_constants: self.v128_constants.into_boxed_slice(),
+            branch_table_targets: self.branch_table_targets.into_boxed_slice(),
+        }
+    }
+}
+
 struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
 
 macro_rules! validate_then_visit {
@@ -75,11 +90,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
         return Err(builder.errors.remove(0));
     }
 
-    Ok((
-        builder.instructions,
-        WasmFunctionData { v128_constants: builder.v128_constants.into_boxed_slice() },
-        builder.validator.into_allocations(),
-    ))
+    Ok((builder.instructions, builder.data.finish(), builder.validator.into_allocations()))
 }
 
 macro_rules! define_operand {
@@ -135,7 +146,7 @@ macro_rules! define_mem_operands_simd_lane {
 pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
-    v128_constants: Vec<i128>,
+    data: FunctionDataBuilder,
     ctx_stack: Vec<LoweringCtx>,
     local_addr_map: Vec<u32>,
     errors: Vec<crate::ParseError>,
@@ -390,14 +401,8 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         let target_depths: Vec<u32> = ts;
 
         let header_ip = self.instructions.len();
-        self.instructions.push(Instruction::BranchTable(0, len));
-
-        let target_table_ip = self.instructions.len();
-        for _ in 0..len {
-            self.instructions.push(Instruction::BranchTableTarget(0));
-        }
-        let default_target_ip = self.instructions.len();
-        self.instructions.push(Instruction::BranchTableTarget(0));
+        let branch_table_start = self.data.branch_table_targets.len() as u32;
+        self.instructions.push(Instruction::BranchTable(0, branch_table_start, len));
 
         let mut seen = alloc::collections::BTreeMap::<u32, usize>::new();
         struct PadInfo {
@@ -418,18 +423,13 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             pads.push(PadInfo { depth, pad_start, jump_or_ret_ip, is_return });
         }
 
-        for (i, &depth) in target_depths.iter().enumerate() {
+        for &depth in &target_depths {
             let pad_idx = seen[&depth];
-            if let Instruction::BranchTableTarget(ip) = &mut self.instructions[target_table_ip + i] {
-                *ip = pads[pad_idx].pad_start as u32;
-            }
+            self.data.branch_table_targets.push(pads[pad_idx].pad_start as u32);
         }
 
         let default_pad_idx = seen[&default_depth];
-        if let Instruction::BranchTableTarget(ip) = &mut self.instructions[default_target_ip] {
-            *ip = pads[default_pad_idx].pad_start as u32;
-        }
-        if let Instruction::BranchTable(default_ip, _) = &mut self.instructions[header_ip] {
+        if let Instruction::BranchTable(default_ip, _, _) = &mut self.instructions[header_ip] {
             *default_ip = pads[default_pad_idx].pad_start as u32;
         }
 
@@ -570,13 +570,13 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
     }
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
-        self.instructions.push(Instruction::I8x16Shuffle(self.v128_constants.len() as u32));
-        self.v128_constants.push(i128::from_le_bytes(lanes));
+        self.instructions.push(Instruction::I8x16Shuffle(self.data.v128_constants.len() as u32));
+        self.data.v128_constants.push(i128::from_le_bytes(lanes));
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32));
-        self.v128_constants.push(value.i128());
+        self.instructions.push(Instruction::V128Const(self.data.v128_constants.len() as u32));
+        self.data.v128_constants.push(value.i128());
     }
 }
 
@@ -593,7 +593,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
             validator,
             local_addr_map,
             instructions: Vec::with_capacity(instr_capacity),
-            v128_constants: Vec::new(),
+            data: FunctionDataBuilder::default(),
             ctx_stack: Vec::with_capacity(256),
             errors: Vec::new(),
         }

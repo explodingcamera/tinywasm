@@ -77,8 +77,7 @@ pub enum Instruction {
     DropKeep64(u16, u16),
     DropKeep128(u16, u16),
     DropKeepRef(u16, u16),
-    BranchTable(u32, u32),       // (default_landing_pad_ip, target_count) - followed by BranchTableTarget entries
-    BranchTableTarget(u32),      // (landing_pad_ip)
+    BranchTable(u32, u32, u32),  // (default_landing_pad_ip, branch_table_start, target_count)
     Return,
     Call(FuncAddr),
     CallSelf,
@@ -163,8 +162,6 @@ pub enum Instruction {
     I64Extend8S, I64Extend16S, I64Extend32S, I64ExtendI32S, I64ExtendI32U, I64TruncF32S, I64TruncF32U, I64TruncF64S, I64TruncF64U,
     F32ConvertI32S, F32ConvertI32U, F32ConvertI64S, F32ConvertI64U, F32DemoteF64,
     F64ConvertI32S, F64ConvertI32U, F64ConvertI64S, F64ConvertI64U, F64PromoteF32,
-
-    // Reinterpretations are parser no-ops and intentionally omitted.
 
     // Saturating Float-to-Int Conversions
     I32TruncSatF32S, I32TruncSatF32U, I32TruncSatF64S, I32TruncSatF64U,
