@@ -61,7 +61,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     validator: FuncValidator<R>,
     body: FunctionBody<'_>,
     local_addr_map: Vec<u32>,
-) -> Result<(alloc::sync::Arc<[Instruction]>, WasmFunctionData, FuncValidatorAllocations)> {
+) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
     let mut builder = FunctionBuilder::new(remaining, validator, local_addr_map);
@@ -76,7 +76,7 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     }
 
     Ok((
-        alloc::sync::Arc::from(builder.instructions),
+        builder.instructions,
         WasmFunctionData { v128_constants: builder.v128_constants.into_boxed_slice() },
         builder.validator.into_allocations(),
     ))
@@ -141,217 +141,6 @@ pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     errors: Vec<crate::ParseError>,
 }
 
-impl<R: WasmModuleResources> FunctionBuilder<R> {
-    pub(crate) fn validator_visitor(
-        &mut self,
-        offset: usize,
-    ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> + VisitSimdOperator<'_> {
-        self.validator.simd_visitor(offset)
-    }
-
-    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
-        Self {
-            validator,
-            local_addr_map,
-            instructions: Vec::with_capacity(instr_capacity),
-            v128_constants: Vec::new(),
-            ctx_stack: Vec::with_capacity(256),
-            errors: Vec::new(),
-        }
-    }
-
-    fn stack_base_at_frame(&self, depth: usize) -> StackBase {
-        let Some(frame) = self.validator.get_control_frame(depth) else { return StackBase::default() };
-        let mut base = StackBase::default();
-        for i in 0..frame.height {
-            let depth_from_top = self.validator.operand_stack_height() as usize - 1 - i;
-            if let Some(Some(ty)) = self.validator.get_operand_type(depth_from_top) {
-                match ty {
-                    wasmparser::ValType::I32 | wasmparser::ValType::F32 => base.s32 += 1,
-                    wasmparser::ValType::I64 | wasmparser::ValType::F64 => base.s64 += 1,
-                    wasmparser::ValType::V128 => base.s128 += 1,
-                    wasmparser::ValType::Ref(_) => base.sref += 1,
-                }
-            }
-        }
-
-        base
-    }
-
-    fn unsupported(&mut self, name: &str) {
-        self.errors.push(crate::ParseError::UnsupportedOperator(name.to_string()));
-    }
-
-    fn is_unreachable(&self) -> bool {
-        self.validator.get_control_frame(0).is_none_or(|f| f.unreachable)
-    }
-
-    fn get_ctx_idx(&self, depth: u32) -> Option<usize> {
-        let len = self.ctx_stack.len();
-        let idx = len.checked_sub(depth as usize + 1)?;
-        Some(idx)
-    }
-
-    fn emit_dropkeep(&mut self, base: StackBase, c32: u16, c64: u16, c128: u16, cref: u16) {
-        let fits_u8 = base.s32 <= u8::MAX as u16
-            && c32 <= u8::MAX as u16
-            && base.s64 <= u8::MAX as u16
-            && c64 <= u8::MAX as u16
-            && base.s128 <= u8::MAX as u16
-            && c128 <= u8::MAX as u16
-            && base.sref <= u8::MAX as u16
-            && cref <= u8::MAX as u16;
-
-        if fits_u8 {
-            self.instructions.push(Instruction::DropKeepSmall {
-                base32: base.s32 as u8,
-                keep32: c32 as u8,
-                base64: base.s64 as u8,
-                keep64: c64 as u8,
-                base128: base.s128 as u8,
-                keep128: c128 as u8,
-                base_ref: base.sref as u8,
-                keep_ref: cref as u8,
-            });
-        } else {
-            self.instructions.push(Instruction::DropKeep32(base.s32, c32));
-            self.instructions.push(Instruction::DropKeep64(base.s64, c64));
-            self.instructions.push(Instruction::DropKeep128(base.s128, c128));
-            self.instructions.push(Instruction::DropKeepRef(base.sref, cref));
-        }
-    }
-
-    fn patch_jump(&mut self, jump_ip: usize, target: usize) {
-        if let Instruction::Jump(ip) = &mut self.instructions[jump_ip] {
-            *ip = target as u32;
-        }
-    }
-
-    fn patch_jump_if_zero(&mut self, jump_ip: usize, target: usize) {
-        if let Instruction::JumpIfZero(ip) = &mut self.instructions[jump_ip] {
-            *ip = target as u32;
-        }
-    }
-
-    fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16, u16) {
-        let (mut c32, mut c64, mut c128, mut cref) = (0, 0, 0, 0);
-        for ty in label_types {
-            match ty {
-                wasmparser::ValType::I32 | wasmparser::ValType::F32 => c32 += 1,
-                wasmparser::ValType::I64 | wasmparser::ValType::F64 => c64 += 1,
-                wasmparser::ValType::V128 => c128 += 1,
-                wasmparser::ValType::Ref(_) => cref += 1,
-            }
-        }
-
-        (c32, c64, c128, cref)
-    }
-
-    fn emit_dropkeep_to_label(&mut self, label_depth: u32) {
-        if self.is_unreachable() {
-            return;
-        }
-
-        let Some(frame) = self.validator.get_control_frame(label_depth as usize) else {
-            return;
-        };
-
-        let base = self.stack_base_at_frame(label_depth as usize);
-        let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
-
-        self.emit_dropkeep(base, c32, c64, c128, cref);
-    }
-
-    fn label_types_for_frame(&self, frame: &wasmparser::Frame) -> Vec<wasmparser::ValType> {
-        let ty = &frame.block_type;
-        match ty {
-            wasmparser::BlockType::Empty => Vec::new(),
-            wasmparser::BlockType::Type(ty) => match frame.kind {
-                FrameKind::Loop => Vec::new(),
-                _ => vec![*ty],
-            },
-            wasmparser::BlockType::FuncType(idx) => {
-                let sub_type = self.validator.resources().sub_type_at(*idx);
-                let func_ty = match sub_type {
-                    Some(st) => st.composite_type.unwrap_func(),
-                    None => return Vec::new(),
-                };
-                match frame.kind {
-                    FrameKind::Loop => func_ty.params().to_vec(),
-                    _ => func_ty.results().to_vec(),
-                }
-            }
-        }
-    }
-
-    fn emit_branch_jump_or_return(&mut self, depth: u32) {
-        if let Some(ctx_idx) = self.get_ctx_idx(depth) {
-            let jump_ip = self.instructions.len();
-            self.instructions.push(Instruction::Jump(0));
-            self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip);
-        } else {
-            self.instructions.push(Instruction::Return);
-        }
-    }
-
-    fn emit_br_table_pad(&mut self, depth: u32) -> (usize, usize, bool) {
-        let pad_start = self.instructions.len();
-        let frame = if self.is_unreachable() { None } else { self.validator.get_control_frame(depth as usize) };
-        let Some(frame) = frame else {
-            let ip = self.instructions.len();
-            self.instructions.push(Instruction::Return);
-            return (pad_start, ip, true);
-        };
-
-        let base = self.stack_base_at_frame(depth as usize);
-        let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
-        self.emit_dropkeep(base, c32, c64, c128, cref);
-
-        let jump_ip = self.instructions.len();
-        self.instructions.push(Instruction::Jump(0));
-        (pad_start, jump_ip, false)
-    }
-
-    fn patch_branch_jump_or_return(&mut self, depth: u32, jump_ip: usize) {
-        let Some(frame) = self.validator.get_control_frame(depth as usize) else {
-            self.instructions[jump_ip] = Instruction::Return;
-            return;
-        };
-        let Some(ctx_idx) = self.get_ctx_idx(depth) else {
-            self.instructions[jump_ip] = Instruction::Return;
-            return;
-        };
-
-        match frame.kind {
-            FrameKind::Loop => self.patch_jump(jump_ip, self.ctx_stack[ctx_idx].start_ip),
-            _ => self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip),
-        }
-    }
-
-    fn patch_end_jumps(&mut self, ctx: LoweringCtx, end_ip: usize) {
-        match ctx.kind {
-            BlockKind::Block | BlockKind::Loop => {
-                let target = if matches!(ctx.kind, BlockKind::Loop) { ctx.start_ip } else { end_ip };
-                for jump_ip in ctx.branch_jumps {
-                    self.patch_jump(jump_ip, target);
-                }
-            }
-            BlockKind::If => {
-                if let Some((&cond_jump_ip, branch_jumps)) = ctx.branch_jumps.split_first() {
-                    if !ctx.has_else {
-                        self.patch_jump_if_zero(cond_jump_ip, end_ip);
-                    }
-                    for &jump_ip in branch_jumps {
-                        self.patch_jump(jump_ip, end_ip);
-                    }
-                }
-            }
-        }
-    }
-}
-
 macro_rules! impl_visit_operator {
     ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
         $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann:tt)*));)*
@@ -383,12 +172,12 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     define_mem_operands! {
-        visit_i32_load(I32Load), visit_i64_load(I64Load), visit_f32_load(F32Load), visit_f64_load(F64Load), visit_i32_load8_s(I32Load8S), visit_i32_load8_u(I32Load8U), visit_i32_load16_s(I32Load16S), visit_i32_load16_u(I32Load16U), visit_i64_load8_s(I64Load8S), visit_i64_load8_u(I64Load8U), visit_i64_load16_s(I64Load16S), visit_i64_load16_u(I64Load16U), visit_i64_load32_s(I64Load32S), visit_i64_load32_u(I64Load32U), visit_i64_store(I64Store), visit_f32_store(F32Store), visit_f64_store(F64Store), visit_i32_store8(I32Store8), visit_i32_store16(I32Store16), visit_i64_store8(I64Store8), visit_i64_store16(I64Store16), visit_i64_store32(I64Store32)
+        visit_i32_load(I32Load), visit_i64_load(I64Load), visit_f32_load(F32Load), visit_f64_load(F64Load), visit_i32_load8_s(I32Load8S), visit_i32_load8_u(I32Load8U), visit_i32_load16_s(I32Load16S), visit_i32_load16_u(I32Load16U), visit_i64_load8_s(I64Load8S), visit_i64_load8_u(I64Load8U), visit_i64_load16_s(I64Load16S), visit_i64_load16_u(I64Load16U), visit_i64_load32_s(I64Load32S), visit_i64_load32_u(I64Load32U), visit_f32_store(F32Store), visit_f64_store(F64Store), visit_i32_store8(I32Store8), visit_i32_store16(I32Store16), visit_i64_store8(I64Store8), visit_i64_store16(I64Store16), visit_i64_store32(I64Store32), visit_i32_store(I32Store), visit_i64_store(I64Store)
     }
 
     define_operands! {
         // basic instructions
-        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_call(Call, u32), visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable), visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU), visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS), visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU), visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU), visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq), visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz), visit_i32_popcnt(I32Popcnt), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS), visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS), visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt), visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU), visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU), visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc), visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div), visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil), visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub), visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64), visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U), visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U), visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U), visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S), visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32),
+        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_call(Call, u32), visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable), visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU), visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS), visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU), visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU), visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq), visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz), visit_i32_popcnt(I32Popcnt), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS), visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS), visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt), visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU), visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU), visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc), visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div), visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil), visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub), visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64), visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U), visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U), visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U), visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S), visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32), visit_i32_add(I32Add), visit_i64_add(I64Add), visit_i64_rotl(I64Rotl),
 
         // sign_extension
         visit_i32_extend8_s(I32Extend8S), visit_i32_extend16_s(I32Extend16S), visit_i64_extend8_s(I64Extend8S), visit_i64_extend16_s(I64Extend16S), visit_i64_extend32_s(I64Extend32S),
@@ -400,88 +189,35 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_ref_func(RefFunc, u32), visit_table_fill(TableFill, u32), visit_table_get(TableGet, u32), visit_table_set(TableSet, u32), visit_table_grow(TableGrow, u32), visit_table_size(TableSize, u32),
 
         // Bulk Memory
-        visit_memory_init(MemoryInit, u32, u32), visit_memory_copy(MemoryCopy, u32, u32), visit_table_init(TableInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
+        visit_memory_init(MemoryInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_memory_copy(MemoryCopy, u32, u32), visit_table_init(TableInit, u32, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
 
         // Wide Arithmetic
         visit_i64_add128(I64Add128), visit_i64_sub128(I64Sub128), visit_i64_mul_wide_s(I64MulWideS), visit_i64_mul_wide_u(I64MulWideU)
     }
 
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
-        match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match t {
+        if let Some(Some(t)) = self.validator.get_operand_type(0) {
+            self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::GlobalSet32(global_index),
                 wasmparser::ValType::F32 => Instruction::GlobalSet32(global_index),
                 wasmparser::ValType::I64 => Instruction::GlobalSet64(global_index),
                 wasmparser::ValType::F64 => Instruction::GlobalSet64(global_index),
                 wasmparser::ValType::V128 => Instruction::GlobalSet128(global_index),
                 wasmparser::ValType::Ref(_) => Instruction::GlobalSetRef(global_index),
-            }),
-            _ => {
-                {
-                    self.visit_unreachable();
-                };
-            }
+            })
         }
-    }
-
-    fn visit_i32_store(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
-        let memarg = MemoryArg::new(memarg.offset, memarg.memory);
-        let len = self.instructions.len();
-        if len >= 2 {
-            let addr = self.instructions[len - 2];
-            let value = self.instructions[len - 1];
-            if let (Instruction::LocalGet32(addr_local), Instruction::LocalGet32(value_local)) = (addr, value) {
-                let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local)) else {
-                    self.instructions.push(Instruction::I32Store(memarg));
-                    return;
-                };
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32StoreLocalLocal(memarg, addr_local, value_local));
-                return;
-            }
-        }
-
-        self.instructions.push(Instruction::I32Store(memarg));
     }
 
     fn visit_drop(&mut self) -> Self::Output {
-        match self.instructions.last().copied() {
-            Some(Instruction::LocalTee32(local)) => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalSet32(local));
-                return;
-            }
-            Some(Instruction::LocalTee64(local)) => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalSet64(local));
-                return;
-            }
-            Some(Instruction::LocalTee128(local)) => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalSet128(local));
-                return;
-            }
-            Some(Instruction::LocalTeeRef(local)) => {
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalSetRef(local));
-                return;
-            }
-            _ => {}
-        }
-
-        match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match t {
+        if let Some(Some(t)) = self.validator.get_operand_type(0) {
+            self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::Drop32,
                 wasmparser::ValType::F32 => Instruction::Drop32,
                 wasmparser::ValType::I64 => Instruction::Drop64,
                 wasmparser::ValType::F64 => Instruction::Drop64,
                 wasmparser::ValType::V128 => Instruction::Drop128,
                 wasmparser::ValType::Ref(_) => Instruction::DropRef,
-            }),
-            _ => {
-                self.visit_unreachable();
-            }
+            })
         }
     }
 
@@ -496,90 +232,6 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         self.instructions.push(Instruction::Return);
     }
 
-    fn visit_i32_add(&mut self) -> Self::Output {
-        let len = self.instructions.len();
-        if len >= 2 {
-            let lhs = self.instructions[len - 2];
-            let rhs = self.instructions[len - 1];
-            if let (Instruction::LocalGet32(a), Instruction::LocalGet32(b)) = (lhs, rhs) {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I32AddLocals(a, b));
-                return;
-            }
-        }
-
-        if let Some(Instruction::I32Const(c)) = self.instructions.last().copied() {
-            self.instructions.pop();
-            self.instructions.push(Instruction::I32AddConst(c));
-            return;
-        }
-
-        if len >= 2 {
-            let lhs = self.instructions[len - 2];
-            let rhs = self.instructions[len - 1];
-            if let (Instruction::I32Const(c), Instruction::LocalGet32(local)) = (lhs, rhs) {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalGet32(local));
-                self.instructions.push(Instruction::I32AddConst(c));
-                return;
-            }
-        }
-
-        self.instructions.push(Instruction::I32Add);
-    }
-
-    fn visit_i64_add(&mut self) -> Self::Output {
-        let len = self.instructions.len();
-        if len >= 2 {
-            let lhs = self.instructions[len - 2];
-            let rhs = self.instructions[len - 1];
-            if let (Instruction::LocalGet64(a), Instruction::LocalGet64(b)) = (lhs, rhs) {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I64AddLocals(a, b));
-                return;
-            }
-        }
-
-        if let Some(Instruction::I64Const(c)) = self.instructions.last().copied() {
-            self.instructions.pop();
-            self.instructions.push(Instruction::I64AddConst(c));
-            return;
-        }
-
-        if len >= 2 {
-            let lhs = self.instructions[len - 2];
-            let rhs = self.instructions[len - 1];
-            if let (Instruction::I64Const(c), Instruction::LocalGet64(local)) = (lhs, rhs) {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::LocalGet64(local));
-                self.instructions.push(Instruction::I64AddConst(c));
-                return;
-            }
-        }
-
-        self.instructions.push(Instruction::I64Add);
-    }
-
-    fn visit_i64_rotl(&mut self) -> Self::Output {
-        let len = self.instructions.len();
-        if len >= 2 {
-            let lhs = self.instructions[len - 2];
-            let rhs = self.instructions[len - 1];
-            if let (Instruction::I64Xor, Instruction::I64Const(c)) = (lhs, rhs) {
-                self.instructions.pop();
-                self.instructions.pop();
-                self.instructions.push(Instruction::I64XorRotlConst(c));
-                return;
-            }
-        }
-
-        self.instructions.push(Instruction::I64Rotl);
-    }
-
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
             self.errors.push(crate::ParseError::UnsupportedOperator(
@@ -588,47 +240,20 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             return;
         };
 
-        match self.validator.get_local_type(idx) {
-            Some(t) => match t {
+        if let Some(t) = self.validator.get_local_type(idx) {
+            match t {
                 wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalSet32(local)) if *local == resolved_idx)
-                    {
-                        self.instructions.pop();
-                        self.instructions.push(Instruction::LocalTee32(resolved_idx));
-                        return;
-                    }
                     self.instructions.push(Instruction::LocalGet32(resolved_idx));
                 }
                 wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalSet64(local)) if *local == resolved_idx)
-                    {
-                        self.instructions.pop();
-                        self.instructions.push(Instruction::LocalTee64(resolved_idx));
-                        return;
-                    }
                     self.instructions.push(Instruction::LocalGet64(resolved_idx));
                 }
                 wasmparser::ValType::V128 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalSet128(local)) if *local == resolved_idx)
-                    {
-                        self.instructions.pop();
-                        self.instructions.push(Instruction::LocalTee128(resolved_idx));
-                        return;
-                    }
                     self.instructions.push(Instruction::LocalGet128(resolved_idx));
                 }
                 wasmparser::ValType::Ref(_) => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalSetRef(local)) if *local == resolved_idx)
-                    {
-                        self.instructions.pop();
-                        self.instructions.push(Instruction::LocalTeeRef(resolved_idx));
-                        return;
-                    }
                     self.instructions.push(Instruction::LocalGetRef(resolved_idx));
                 }
-            },
-            _ => {
-                self.visit_unreachable();
             }
         }
     }
@@ -641,50 +266,15 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             return;
         };
 
-        if let Some(
-            Instruction::LocalGet32(from)
-            | Instruction::LocalGet64(from)
-            | Instruction::LocalGet128(from)
-            | Instruction::LocalGetRef(from),
-        ) = self.instructions.last()
-        {
-            let from = *from;
-            self.instructions.pop();
-
-            if from == resolved_idx {
-                // local.set x (local.get x) is a no-op; drop it.
-                return;
-            }
-
-            // validation will ensure that the last instruction is the correct local.get
-            match self.validator.get_operand_type(0) {
-                Some(Some(t)) => self.instructions.push(match t {
-                    wasmparser::ValType::I32 => Instruction::LocalCopy32(from, resolved_idx),
-                    wasmparser::ValType::F32 => Instruction::LocalCopy32(from, resolved_idx),
-                    wasmparser::ValType::I64 => Instruction::LocalCopy64(from, resolved_idx),
-                    wasmparser::ValType::F64 => Instruction::LocalCopy64(from, resolved_idx),
-                    wasmparser::ValType::V128 => Instruction::LocalCopy128(from, resolved_idx),
-                    wasmparser::ValType::Ref(_) => Instruction::LocalCopyRef(from, resolved_idx),
-                }),
-                _ => {
-                    self.visit_unreachable();
-                }
-            }
-            return;
-        }
-
-        match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match t {
+        if let Some(Some(t)) = self.validator.get_operand_type(0) {
+            self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalSet32(resolved_idx),
                 wasmparser::ValType::F32 => Instruction::LocalSet32(resolved_idx),
                 wasmparser::ValType::I64 => Instruction::LocalSet64(resolved_idx),
                 wasmparser::ValType::F64 => Instruction::LocalSet64(resolved_idx),
                 wasmparser::ValType::V128 => Instruction::LocalSet128(resolved_idx),
                 wasmparser::ValType::Ref(_) => Instruction::LocalSetRef(resolved_idx),
-            }),
-            _ => {
-                self.visit_unreachable();
-            }
+            })
         }
     }
 
@@ -697,79 +287,14 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         };
 
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
-            match t {
-                wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalGet32(local)) if *local == resolved_idx)
-                    {
-                        return;
-                    }
-                }
-                wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalGet64(local)) if *local == resolved_idx)
-                    {
-                        return;
-                    }
-                }
-                wasmparser::ValType::V128 => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalGet128(local)) if *local == resolved_idx)
-                    {
-                        return;
-                    }
-                }
-                wasmparser::ValType::Ref(_) => {
-                    if matches!(self.instructions.last(), Some(Instruction::LocalGetRef(local)) if *local == resolved_idx)
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-
-        if let Some(Instruction::I64XorRotlConst(c)) = self.instructions.last().copied() {
-            match self.validator.get_operand_type(0) {
-                Some(Some(wasmparser::ValType::I64)) | Some(Some(wasmparser::ValType::F64)) => {
-                    self.instructions.pop();
-                    self.instructions.push(Instruction::I64XorRotlConstTee(c, resolved_idx));
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        let len = self.instructions.len();
-        if len >= 2 {
-            let addr = self.instructions[len - 2];
-            let load = self.instructions[len - 1];
-            if let (Instruction::LocalGet32(addr_local), Instruction::I32Load(memarg)) = (addr, load) {
-                match self.validator.get_operand_type(0) {
-                    Some(Some(wasmparser::ValType::I32)) | Some(Some(wasmparser::ValType::F32)) => {
-                        let (Ok(addr_local), Ok(resolved_idx)) = (u8::try_from(addr_local), u8::try_from(resolved_idx))
-                        else {
-                            self.instructions.push(Instruction::LocalTee32(resolved_idx));
-                            return;
-                        };
-                        self.instructions.pop();
-                        self.instructions.pop();
-                        self.instructions.push(Instruction::I32LoadLocalTee(memarg, addr_local, resolved_idx));
-                        return;
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        match self.validator.get_operand_type(0) {
-            Some(Some(t)) => self.instructions.push(match t {
+            self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
                 wasmparser::ValType::F32 => Instruction::LocalTee32(resolved_idx),
                 wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
                 wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
                 wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
                 wasmparser::ValType::Ref(_) => Instruction::LocalTeeRef(resolved_idx),
-            }),
-            _ => {
-                self.visit_unreachable();
-            }
+            })
         }
     }
 
@@ -838,7 +363,18 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_br_if(&mut self, depth: u32) -> Self::Output {
         let cond_jump_ip = self.instructions.len();
         self.instructions.push(Instruction::JumpIfZero(0));
+
+        let branch_side_start = self.instructions.len();
         self.emit_dropkeep_to_label(depth);
+
+        if self.instructions.len() == branch_side_start
+            && let Some(ctx_idx) = self.get_ctx_idx(depth)
+        {
+            self.instructions[cond_jump_ip] = Instruction::JumpIfNonZero(0);
+            self.ctx_stack[ctx_idx].branch_jumps.push(cond_jump_ip);
+            return;
+        }
+
         self.emit_branch_jump_or_return(depth);
         self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
     }
@@ -1041,5 +577,231 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
         self.instructions.push(Instruction::V128Const(self.v128_constants.len() as u32));
         self.v128_constants.push(value.i128());
+    }
+}
+
+impl<R: WasmModuleResources> FunctionBuilder<R> {
+    pub(crate) fn validator_visitor(
+        &mut self,
+        offset: usize,
+    ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> + VisitSimdOperator<'_> {
+        self.validator.simd_visitor(offset)
+    }
+
+    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
+        Self {
+            validator,
+            local_addr_map,
+            instructions: Vec::with_capacity(instr_capacity),
+            v128_constants: Vec::new(),
+            ctx_stack: Vec::with_capacity(256),
+            errors: Vec::new(),
+        }
+    }
+
+    fn stack_base_at_frame(&self, depth: usize) -> StackBase {
+        let Some(frame) = self.validator.get_control_frame(depth) else { return StackBase::default() };
+        let mut base = StackBase::default();
+        for i in 0..frame.height {
+            let depth_from_top = self.validator.operand_stack_height() as usize - 1 - i;
+            if let Some(Some(ty)) = self.validator.get_operand_type(depth_from_top) {
+                match ty {
+                    wasmparser::ValType::I32 | wasmparser::ValType::F32 => base.s32 += 1,
+                    wasmparser::ValType::I64 | wasmparser::ValType::F64 => base.s64 += 1,
+                    wasmparser::ValType::V128 => base.s128 += 1,
+                    wasmparser::ValType::Ref(_) => base.sref += 1,
+                }
+            }
+        }
+
+        base
+    }
+
+    fn unsupported(&mut self, name: &str) {
+        self.errors.push(crate::ParseError::UnsupportedOperator(name.to_string()));
+    }
+
+    fn is_unreachable(&self) -> bool {
+        self.validator.get_control_frame(0).is_none_or(|f| f.unreachable)
+    }
+
+    fn get_ctx_idx(&self, depth: u32) -> Option<usize> {
+        let len = self.ctx_stack.len();
+        let idx = len.checked_sub(depth as usize + 1)?;
+        Some(idx)
+    }
+
+    fn emit_dropkeep(&mut self, base: StackBase, c32: u16, c64: u16, c128: u16, cref: u16) {
+        if base.s32 == 0
+            && c32 == 0
+            && base.s64 == 0
+            && c64 == 0
+            && base.s128 == 0
+            && c128 == 0
+            && base.sref == 0
+            && cref == 0
+        {
+            return;
+        }
+
+        let fits_u8 = base.s32 <= u8::MAX as u16
+            && c32 <= u8::MAX as u16
+            && base.s64 <= u8::MAX as u16
+            && c64 <= u8::MAX as u16
+            && base.s128 <= u8::MAX as u16
+            && c128 <= u8::MAX as u16
+            && base.sref <= u8::MAX as u16
+            && cref <= u8::MAX as u16;
+
+        if fits_u8 {
+            self.instructions.push(Instruction::DropKeepSmall {
+                base32: base.s32 as u8,
+                keep32: c32 as u8,
+                base64: base.s64 as u8,
+                keep64: c64 as u8,
+                base128: base.s128 as u8,
+                keep128: c128 as u8,
+                base_ref: base.sref as u8,
+                keep_ref: cref as u8,
+            });
+        } else {
+            self.instructions.push(Instruction::DropKeep32(base.s32, c32));
+            self.instructions.push(Instruction::DropKeep64(base.s64, c64));
+            self.instructions.push(Instruction::DropKeep128(base.s128, c128));
+            self.instructions.push(Instruction::DropKeepRef(base.sref, cref));
+        }
+    }
+
+    fn patch_jump(&mut self, jump_ip: usize, target: usize) {
+        match &mut self.instructions[jump_ip] {
+            Instruction::Jump(ip) | Instruction::JumpIfNonZero(ip) => {
+                *ip = target as u32;
+            }
+            _ => {}
+        }
+    }
+
+    fn patch_jump_if_zero(&mut self, jump_ip: usize, target: usize) {
+        if let Instruction::JumpIfZero(ip) = &mut self.instructions[jump_ip] {
+            *ip = target as u32;
+        }
+    }
+
+    fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16, u16) {
+        let (mut c32, mut c64, mut c128, mut cref) = (0, 0, 0, 0);
+        for ty in label_types {
+            match ty {
+                wasmparser::ValType::I32 | wasmparser::ValType::F32 => c32 += 1,
+                wasmparser::ValType::I64 | wasmparser::ValType::F64 => c64 += 1,
+                wasmparser::ValType::V128 => c128 += 1,
+                wasmparser::ValType::Ref(_) => cref += 1,
+            }
+        }
+
+        (c32, c64, c128, cref)
+    }
+
+    fn emit_dropkeep_to_label(&mut self, label_depth: u32) {
+        if self.is_unreachable() {
+            return;
+        }
+
+        let Some(frame) = self.validator.get_control_frame(label_depth as usize) else {
+            return;
+        };
+
+        let base = self.stack_base_at_frame(label_depth as usize);
+        let label_types: Vec<_> = self.label_types_for_frame(frame);
+        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
+
+        self.emit_dropkeep(base, c32, c64, c128, cref);
+    }
+
+    fn label_types_for_frame(&self, frame: &wasmparser::Frame) -> Vec<wasmparser::ValType> {
+        let ty = &frame.block_type;
+        match ty {
+            wasmparser::BlockType::Empty => Vec::new(),
+            wasmparser::BlockType::Type(ty) => match frame.kind {
+                FrameKind::Loop => Vec::new(),
+                _ => vec![*ty],
+            },
+            wasmparser::BlockType::FuncType(idx) => {
+                let sub_type = self.validator.resources().sub_type_at(*idx);
+                let func_ty = match sub_type {
+                    Some(st) => st.composite_type.unwrap_func(),
+                    None => return Vec::new(),
+                };
+                match frame.kind {
+                    FrameKind::Loop => func_ty.params().to_vec(),
+                    _ => func_ty.results().to_vec(),
+                }
+            }
+        }
+    }
+
+    fn emit_branch_jump_or_return(&mut self, depth: u32) {
+        if let Some(ctx_idx) = self.get_ctx_idx(depth) {
+            let jump_ip = self.instructions.len();
+            self.instructions.push(Instruction::Jump(0));
+            self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip);
+        } else {
+            self.instructions.push(Instruction::Return);
+        }
+    }
+
+    fn emit_br_table_pad(&mut self, depth: u32) -> (usize, usize, bool) {
+        let pad_start = self.instructions.len();
+        let frame = if self.is_unreachable() { None } else { self.validator.get_control_frame(depth as usize) };
+        let Some(frame) = frame else {
+            let ip = self.instructions.len();
+            self.instructions.push(Instruction::Return);
+            return (pad_start, ip, true);
+        };
+
+        let base = self.stack_base_at_frame(depth as usize);
+        let label_types: Vec<_> = self.label_types_for_frame(frame);
+        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
+        self.emit_dropkeep(base, c32, c64, c128, cref);
+
+        let jump_ip = self.instructions.len();
+        self.instructions.push(Instruction::Jump(0));
+        (pad_start, jump_ip, false)
+    }
+
+    fn patch_branch_jump_or_return(&mut self, depth: u32, jump_ip: usize) {
+        let Some(frame) = self.validator.get_control_frame(depth as usize) else {
+            self.instructions[jump_ip] = Instruction::Return;
+            return;
+        };
+        let Some(ctx_idx) = self.get_ctx_idx(depth) else {
+            self.instructions[jump_ip] = Instruction::Return;
+            return;
+        };
+
+        match frame.kind {
+            FrameKind::Loop => self.patch_jump(jump_ip, self.ctx_stack[ctx_idx].start_ip),
+            _ => self.ctx_stack[ctx_idx].branch_jumps.push(jump_ip),
+        }
+    }
+
+    fn patch_end_jumps(&mut self, ctx: LoweringCtx, end_ip: usize) {
+        match ctx.kind {
+            BlockKind::Block | BlockKind::Loop => {
+                let target = if matches!(ctx.kind, BlockKind::Loop) { ctx.start_ip } else { end_ip };
+                for jump_ip in ctx.branch_jumps {
+                    self.patch_jump(jump_ip, target);
+                }
+            }
+            BlockKind::If => {
+                if let Some((&cond_jump_ip, branch_jumps)) = ctx.branch_jumps.split_first() {
+                    if !ctx.has_else {
+                        self.patch_jump_if_zero(cond_jump_ip, end_ip);
+                    }
+                    for &jump_ip in branch_jumps {
+                        self.patch_jump(jump_ip, end_ip);
+                    }
+                }
+            }
+        }
     }
 }

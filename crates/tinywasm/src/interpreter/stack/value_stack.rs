@@ -82,6 +82,14 @@ impl<T: Copy + Default> Stack<T> {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn get_mut(&mut self, index: usize) -> &mut T {
+        match self.data.get_mut(index) {
+            Some(v) => v,
+            None => unreachable!("Stack index out of bounds, this is a bug"),
+        }
+    }
+
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         debug_assert!(n <= self.len);
         let len = self.len;
@@ -292,6 +300,16 @@ impl ValueStack {
     #[inline]
     pub(crate) fn local_get<T: InternalValue>(&self, frame: &CallFrame, index: LocalAddr) -> T {
         T::local_get(self, frame, index)
+    }
+
+    #[inline]
+    pub(crate) fn local_update<T: InternalValue>(
+        &mut self,
+        frame: &CallFrame,
+        index: LocalAddr,
+        func: impl FnOnce(&mut T),
+    ) {
+        T::local_update(self, frame, index, func)
     }
 
     #[inline]

@@ -119,6 +119,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 ReturnCallIndirect(ty, table) => { self.exec_call_indirect::<true>(*ty, *table)?; continue; }
                 Jump(ip) => { self.exec_jump(*ip); continue; }
                 JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { continue; },
+                JumpIfNonZero(ip) => if self.exec_jump_if_non_zero(*ip) { continue; },
                 DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
                     let b32 = self.cf.stack_base().s32 + *base32 as u32;
                     let k32 = *keep32 as usize;
@@ -172,30 +173,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I64AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)))?,
                 I32AddConst(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
                 I64AddConst(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
-                I32StoreLocalLocal(m, addr_local, value_local) => {
-                    let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
-                    let addr_local = u16::from(*addr_local);
-                    let value_local = u16::from(*value_local);
-                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, addr_local));
-                    let value = self.store.stack.values.local_get::<u32>(&self.cf, value_local).to_mem_bytes();
-                    mem.store((m.offset() + addr) as usize, value.len(), &value)?;
-                }
-                I32LoadLocalTee(m, addr_local, dst_local) => {
-                    let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
-                    let addr_local = u16::from(*addr_local);
-                    let dst_local = u16::from(*dst_local);
-                    let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, addr_local));
-                    let Some(Ok(addr)) = m.offset().checked_add(addr).map(|a| a.try_into()) else {
-                        return Err(Error::Trap(Trap::MemoryOutOfBounds {
-                            offset: addr as usize,
-                            len: 4,
-                            max: 0,
-                        }));
-                    };
-                    let value = mem.load_as::<4, i32>(addr)?;
-                    self.store.stack.values.local_set(&self.cf, dst_local, value);
-                    self.store.stack.values.push(value)?;
-                }
+                LocalAddConst32(local_index, c) => self.store.stack.values.local_update::<Value32>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u32)),
+                LocalAddConst64(local_index, c) => self.store.stack.values.local_update::<Value64>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u64)),
+                LocalSetConst32(local_index, c) => self.store.stack.values.local_set::<i32>(&self.cf, *local_index, *c),
+                LocalSetConst64(local_index, c) => self.store.stack.values.local_set::<i64>(&self.cf, *local_index, *c),
+                I32StoreLocalLocal(m, addr_local, value_local) => self.exec_store_local_local::<u32, u32, 4>(*m, *addr_local, *value_local, |v| v)?,
+                I64StoreLocalLocal(m, addr_local, value_local) =>self.exec_store_local_local::<i64, i64, 8>(*m, *addr_local, *value_local, |v| v)?,
+                I32LoadLocalTee(m, addr_local, dst_local) => self.exec_i32_load_local_tee(*m, *addr_local, *dst_local)?,
+                I32LoadLocalSet(m, addr_local, dst_local) => self.exec_i32_load_local_set(*m, *addr_local, *dst_local)?,
                 I64XorRotlConst(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
                 I64XorRotlConstTee(c, local_index) => {
                     stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32));
@@ -323,6 +308,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 // Bulk memory operations
                 MemoryCopy(from, to) => self.exec_memory_copy(*from, *to)?,
                 MemoryFill(addr) => self.exec_memory_fill(*addr)?,
+                MemoryFillImm(addr, val, size) => self.exec_memory_fill_imm(*addr, *val, *size)?,
                 MemoryInit(data_idx, mem_idx) => self.exec_memory_init(*data_idx, *mem_idx)?,
                 DataDrop(data_index) => self.store.state.get_data_mut(self.module.resolve_data_addr(*data_index)).drop(),
                 ElemDrop(elem_index) => self.store.state.get_elem_mut(self.module.resolve_elem_addr(*elem_index)).drop(),
@@ -701,6 +687,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
+    fn exec_jump_if_non_zero(&mut self, ip: u32) -> bool {
+        if self.store.stack.values.pop::<i32>() != 0 {
+            self.cf.instr_ptr = ip;
+            return true;
+        }
+        false
+    }
+
+    #[inline(always)]
     fn exec_branch_table(&mut self, default_ip: u32, len: u32) {
         let idx = self.store.stack.values.pop::<i32>();
         let start = self.cf.instr_ptr + 1;
@@ -844,6 +839,52 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.cf = cf;
         false
     }
+
+    #[inline(always)]
+    fn local_mem_addr<const N: usize>(&self, memarg: MemoryArg, addr_local: u8) -> Result<usize> {
+        let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, u16::from(addr_local)));
+        let Some(Ok(addr)) = memarg.offset().checked_add(addr).map(|a| a.try_into()) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+        Ok(addr)
+    }
+
+    #[inline(always)]
+    fn exec_store_local_local<T: InternalValue, U: MemValue<N>, const N: usize>(
+        &mut self,
+        memarg: MemoryArg,
+        addr_local: u8,
+        value_local: u8,
+        cast: fn(T) -> U,
+    ) -> Result<()> {
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(memarg.mem_addr()));
+        let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, u16::from(addr_local)));
+        let value = cast(self.store.stack.values.local_get::<T>(&self.cf, u16::from(value_local))).to_mem_bytes();
+        mem.store((memarg.offset() + addr) as usize, value.len(), &value)?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_i32_load_local_value(&self, memarg: MemoryArg, addr_local: u8) -> Result<i32> {
+        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(memarg.mem_addr()));
+        mem.load_as::<4, i32>(self.local_mem_addr::<4>(memarg, addr_local)?)
+    }
+
+    #[inline(always)]
+    fn exec_i32_load_local_tee(&mut self, memarg: MemoryArg, addr_local: u8, dst_local: u8) -> Result<()> {
+        let value = self.exec_i32_load_local_value(memarg, addr_local)?;
+        self.store.stack.values.local_set(&self.cf, u16::from(dst_local), value);
+        self.store.stack.values.push(value)?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_i32_load_local_set(&mut self, memarg: MemoryArg, addr_local: u8, dst_local: u8) -> Result<()> {
+        let value = self.exec_i32_load_local_value(memarg, addr_local)?;
+        self.store.stack.values.local_set(&self.cf, u16::from(dst_local), value);
+        Ok(())
+    }
+
     fn exec_global_get(&mut self, global_index: u32) -> Result<()> {
         self.store.stack.values.push_dyn(self.store.state.get_global_val(self.module.resolve_global_addr(global_index)))
     }
@@ -910,6 +951,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
         mem.fill(dst as usize, size as usize, val as u8)
     }
+
+    fn exec_memory_fill_imm(&mut self, addr: u32, val: u8, size: i32) -> Result<()> {
+        let dst: i32 = self.store.stack.values.pop();
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
+        mem.fill(dst as usize, size as usize, val)
+    }
+
     fn exec_memory_init(&mut self, data_index: u32, mem_index: u32) -> Result<()> {
         let size: i32 = self.store.stack.values.pop();
         let offset: i32 = self.store.stack.values.pop();

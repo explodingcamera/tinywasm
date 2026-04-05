@@ -1,7 +1,6 @@
 use crate::log::debug;
-use crate::{ParseError, Result, conversion};
+use crate::{ParseError, ParserOptions, Result, conversion, optimize};
 use alloc::string::ToString;
-use alloc::sync::Arc;
 use alloc::{format, vec::Vec};
 use tinywasm_types::{
     ArcSlice, Data, Element, Export, FuncType, Global, Import, ImportKind, Instruction, MemoryType, TableType,
@@ -9,7 +8,7 @@ use tinywasm_types::{
 };
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
-pub(crate) type Code = (Arc<[Instruction]>, WasmFunctionData, ValueCounts);
+pub(crate) type Code = (Vec<Instruction>, WasmFunctionData, ValueCounts);
 
 #[derive(Default)]
 pub(crate) struct ModuleReader {
@@ -31,16 +30,6 @@ pub(crate) struct ModuleReader {
 }
 
 impl ModuleReader {
-    fn apply_instruction_rewrites(instructions: &mut [Instruction], self_func_addr: u32) {
-        for instr in instructions.iter_mut() {
-            if matches!(instr, Instruction::Call(addr) if *addr == self_func_addr) {
-                *instr = Instruction::CallSelf;
-            } else if matches!(instr, Instruction::ReturnCall(addr) if *addr == self_func_addr) {
-                *instr = Instruction::ReturnCallSelf;
-            }
-        }
-    }
-
     pub(crate) fn new() -> Self {
         Self::default()
     }
@@ -190,7 +179,7 @@ impl ModuleReader {
         Ok(())
     }
 
-    pub(crate) fn into_module(self) -> Result<TinyWasmModule> {
+    pub(crate) fn into_module(self, options: &ParserOptions) -> Result<TinyWasmModule> {
         if !self.end_reached {
             return Err(ParseError::EndNotReached);
         }
@@ -217,8 +206,7 @@ impl ModuleReader {
                     cref: u16::try_from(locals.cref).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
                 };
                 let self_func_addr = imported_func_count + func_idx as u32;
-                let mut instructions = instructions.to_vec();
-                Self::apply_instruction_rewrites(&mut instructions, self_func_addr);
+                let instructions = optimize::optimize_instructions(instructions, self_func_addr, options);
 
                 WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
             })

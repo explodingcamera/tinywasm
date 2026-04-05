@@ -32,6 +32,7 @@ pub(crate) mod log {
 mod conversion;
 mod error;
 mod module;
+mod optimize;
 mod visit;
 pub use error::*;
 use module::ModuleReader;
@@ -41,14 +42,18 @@ pub use tinywasm_types::TinyWasmModule;
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ParserOptions {
-    // /// Enable control-flow graph cleanup rewrites.
-    // pub cfg_cleanup: bool,
-    // /// Enable dead-code pruning.
-    // pub dce: bool,
-    // /// Enable return-call rewrites when safe.
-    // pub tailcall_rewrite: bool,
+    /// Enable post-lowering DCE pass.
+    /// Should be enabled by default, since the parser performs some optimizations that can result in dead code.
+    /// Disabling this may result in larger modules, but faster parsing time.
+    pub dce: bool,
+}
+
+impl Default for ParserOptions {
+    fn default() -> Self {
+        Self { dce: true }
+    }
 }
 
 /// A WebAssembly parser
@@ -133,7 +138,7 @@ impl Parser {
             return Err(ParseError::EndNotReached);
         }
 
-        reader.into_module()
+        reader.into_module(&self.options)
     }
 
     #[cfg(feature = "std")]
@@ -173,7 +178,7 @@ impl Parser {
                     reader.process_payload(payload, &mut validator)?;
                     buffer.drain(..consumed);
                     if eof || reader.end_reached {
-                        return reader.into_module();
+                        return reader.into_module(&self.options);
                     }
                 }
             };
@@ -185,6 +190,6 @@ impl TryFrom<ModuleReader> for TinyWasmModule {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader) -> Result<Self> {
-        reader.into_module()
+        reader.into_module(&ParserOptions::default())
     }
 }

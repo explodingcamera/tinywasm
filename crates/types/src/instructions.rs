@@ -56,16 +56,22 @@ pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
     I32AddLocals(LocalAddr, LocalAddr), I64AddLocals(LocalAddr, LocalAddr),
     I32AddConst(i32), I64AddConst(i64),
+    LocalAddConst32(LocalAddr, i32), LocalAddConst64(LocalAddr, i64),
+    LocalSetConst32(LocalAddr, i32), LocalSetConst64(LocalAddr, i64),
     I32StoreLocalLocal(MemoryArg, u8, u8),
+    I64StoreLocalLocal(MemoryArg, u8, u8),
     I32LoadLocalTee(MemoryArg, u8, u8),
+    I32LoadLocalSet(MemoryArg, u8, u8),
     I64XorRotlConst(i64),
     I64XorRotlConstTee(i64, LocalAddr),
+
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
     Jump(u32),
     JumpIfZero(u32),
+    JumpIfNonZero(u32),
     DropKeepSmall { base32: u8, keep32: u8, base64: u8, keep64: u8, base128: u8, keep128: u8, base_ref: u8, keep_ref: u8 },
     DropKeep32(u16, u16),
     DropKeep64(u16, u16),
@@ -177,6 +183,7 @@ pub enum Instruction {
     MemoryInit(MemAddr, DataAddr),
     MemoryCopy(MemAddr, MemAddr),
     MemoryFill(MemAddr),
+    MemoryFillImm(MemAddr, u8, i32),
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
 
