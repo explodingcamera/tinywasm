@@ -1,4 +1,4 @@
-use crate::{Result, interpreter::value128::Value128};
+use crate::{Result, interpreter::simd::Value128};
 
 use super::stack::{CallFrame, ValueStack};
 use tinywasm_types::LocalAddr;

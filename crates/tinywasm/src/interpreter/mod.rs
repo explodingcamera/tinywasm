@@ -1,14 +1,14 @@
 pub(crate) mod executor;
 pub(crate) mod num_helpers;
+pub(crate) mod simd;
 pub(crate) mod stack;
-pub(crate) mod value128;
 pub(crate) mod values;
 
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
 use crate::{Result, Store, interpreter::stack::CallFrame};
-pub(crate) use value128::*;
+pub(crate) use simd::*;
 pub(crate) use values::*;
 
 #[derive(Clone)]

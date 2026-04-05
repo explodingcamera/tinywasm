@@ -4,7 +4,7 @@
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
-#![deny(unsafe_code)]
+#![cfg_attr(not(feature = "simd-x86"), deny(unsafe_code))]
 
 //! A tiny WebAssembly Runtime written in Rust
 //!

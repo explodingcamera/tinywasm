@@ -51,6 +51,11 @@ canonicalize_nans=[]
 # derive Debug for runtime/types structs
 debug=["tinywasm-types/debug"]
 
+# enable x86-specific SIMD intrinsics in Value128
+# note: for x86 backend selection, compile with x86-64-v3 target features
+# (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)
+simd-x86=[]
+
 [[test]]
 name="test-wasm-1"
 harness=false
