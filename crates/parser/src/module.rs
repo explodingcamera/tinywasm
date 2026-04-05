@@ -2,10 +2,7 @@ use crate::log::debug;
 use crate::{ParseError, ParserOptions, Result, conversion, optimize};
 use alloc::string::ToString;
 use alloc::{format, vec::Vec};
-use tinywasm_types::{
-    ArcSlice, Data, Element, Export, FuncType, Global, Import, ImportKind, Instruction, MemoryType, TableType,
-    TinyWasmModule, ValueCounts, ValueCountsSmall, WasmFunction, WasmFunctionData,
-};
+use tinywasm_types::*;
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
 pub(crate) type Code = (Vec<Instruction>, WasmFunctionData, ValueCounts);
@@ -30,23 +27,16 @@ pub(crate) struct ModuleReader {
 }
 
 impl ModuleReader {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
     pub(crate) fn process_payload(&mut self, payload: Payload<'_>, validator: &mut Validator) -> Result<()> {
-        use wasmparser::Payload::*;
-
         match payload {
-            Version { num, encoding, range } => {
+            Payload::Version { num, encoding, range } => {
                 validator.version(num, encoding, &range)?;
                 self.version = Some(num);
-                match encoding {
-                    wasmparser::Encoding::Module => {}
-                    wasmparser::Encoding::Component => return Err(ParseError::InvalidEncoding(encoding)),
+                if let wasmparser::Encoding::Component = encoding {
+                    return Err(ParseError::InvalidEncoding(encoding));
                 }
             }
-            StartSection { func, range } => {
+            Payload::StartSection { func, range } => {
                 if self.start_func.is_some() {
                     return Err(ParseError::DuplicateSection("Start section".into()));
                 }
@@ -55,7 +45,7 @@ impl ModuleReader {
                 validator.start_section(func, &range)?;
                 self.start_func = Some(func);
             }
-            TypeSection(reader) => {
+            Payload::TypeSection(reader) => {
                 if !self.func_types.is_empty() {
                     return Err(ParseError::DuplicateSection("Type section".into()));
                 }
@@ -68,7 +58,7 @@ impl ModuleReader {
                     .collect::<Result<Vec<FuncType>>>()?;
             }
 
-            GlobalSection(reader) => {
+            Payload::GlobalSection(reader) => {
                 if !self.globals.is_empty() {
                     return Err(ParseError::DuplicateSection("Global section".into()));
                 }
@@ -77,7 +67,7 @@ impl ModuleReader {
                 validator.global_section(&reader)?;
                 self.globals = conversion::convert_module_globals(reader)?;
             }
-            TableSection(reader) => {
+            Payload::TableSection(reader) => {
                 if !self.table_types.is_empty() {
                     return Err(ParseError::DuplicateSection("Table section".into()));
                 }
@@ -85,7 +75,7 @@ impl ModuleReader {
                 validator.table_section(&reader)?;
                 self.table_types = conversion::convert_module_tables(reader)?;
             }
-            MemorySection(reader) => {
+            Payload::MemorySection(reader) => {
                 if !self.memory_types.is_empty() {
                     return Err(ParseError::DuplicateSection("Memory section".into()));
                 }
@@ -94,12 +84,12 @@ impl ModuleReader {
                 validator.memory_section(&reader)?;
                 self.memory_types = conversion::convert_module_memories(reader)?;
             }
-            ElementSection(reader) => {
+            Payload::ElementSection(reader) => {
                 debug!("Found element section");
                 validator.element_section(&reader)?;
                 self.elements = conversion::convert_module_elements(reader)?;
             }
-            DataSection(reader) => {
+            Payload::DataSection(reader) => {
                 if !self.data.is_empty() {
                     return Err(ParseError::DuplicateSection("Data section".into()));
                 }
@@ -108,14 +98,14 @@ impl ModuleReader {
                 validator.data_section(&reader)?;
                 self.data = conversion::convert_module_data_sections(reader)?;
             }
-            DataCountSection { count, range } => {
+            Payload::DataCountSection { count, range } => {
                 debug!("Found data count section");
                 if !self.data.is_empty() {
                     return Err(ParseError::DuplicateSection("Data count section".into()));
                 }
                 validator.data_count_section(count, &range)?;
             }
-            FunctionSection(reader) => {
+            Payload::FunctionSection(reader) => {
                 if !self.code_type_addrs.is_empty() {
                     return Err(ParseError::DuplicateSection("Function section".into()));
                 }
@@ -124,7 +114,7 @@ impl ModuleReader {
                 validator.function_section(&reader)?;
                 self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
             }
-            CodeSectionStart { count, range, .. } => {
+            Payload::CodeSectionStart { count, range, .. } => {
                 debug!("Found code section ({count} functions)");
                 if !self.code.is_empty() {
                     return Err(ParseError::DuplicateSection("Code section".into()));
@@ -132,7 +122,7 @@ impl ModuleReader {
                 self.code.reserve(count as usize);
                 validator.code_section_start(&range)?;
             }
-            CodeSectionEntry(function) => {
+            Payload::CodeSectionEntry(function) => {
                 debug!("Found code section entry");
                 let v = validator.code_section_entry(&function)?;
                 let func_validator = v.into_validator(self.func_validator_allocations.take().unwrap_or_default());
@@ -140,7 +130,7 @@ impl ModuleReader {
                 self.code.push(code);
                 self.func_validator_allocations = Some(allocations);
             }
-            ImportSection(reader) => {
+            Payload::ImportSection(reader) => {
                 if !self.imports.is_empty() {
                     return Err(ParseError::DuplicateSection("Import section".into()));
                 }
@@ -149,7 +139,7 @@ impl ModuleReader {
                 validator.import_section(&reader)?;
                 self.imports = conversion::convert_module_imports(reader.into_imports())?;
             }
-            ExportSection(reader) => {
+            Payload::ExportSection(reader) => {
                 if !self.exports.is_empty() {
                     return Err(ParseError::DuplicateSection("Export section".into()));
                 }
@@ -159,7 +149,7 @@ impl ModuleReader {
                 self.exports =
                     reader.into_iter().map(|e| conversion::convert_module_export(e?)).collect::<Result<Vec<_>>>()?;
             }
-            End(offset) => {
+            Payload::End(offset) => {
                 debug!("Reached end of module");
                 if self.end_reached {
                     return Err(ParseError::DuplicateSection("End section".into()));
@@ -168,14 +158,13 @@ impl ModuleReader {
                 validator.end(offset)?;
                 self.end_reached = true;
             }
-            CustomSection(_reader) => {
+            Payload::CustomSection(_reader) => {
                 debug!("Found custom section");
                 debug!("Skipping custom section: {:?}", _reader.name());
             }
-            UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
+            Payload::UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {section:?}"))),
         };
-
         Ok(())
     }
 
@@ -188,38 +177,22 @@ impl ModuleReader {
             return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
         }
 
-        let imported_func_count =
-            self.imports.iter().filter(|i| matches!(&i.kind, ImportKind::Function(_))).count() as u32;
-
-        let funcs = self
-            .code
-            .into_iter()
-            .zip(self.code_type_addrs)
-            .enumerate()
-            .map(|(func_idx, ((instructions, mut data, locals), ty_idx))| {
+        let imported_func_count = self.imports.iter().filter(|i| matches!(&i.kind, ImportKind::Function(_))).count();
+        let funcs = self.code.into_iter().zip(self.code_type_addrs).enumerate().map(
+            |(func_idx, ((instructions, mut data, locals), ty_idx))| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
-                let params = ValueCountsSmall::from(&ty.params);
-                let locals = ValueCountsSmall {
-                    c32: u16::try_from(locals.c32).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
-                    c64: u16::try_from(locals.c64).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
-                    c128: u16::try_from(locals.c128).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
-                    cref: u16::try_from(locals.cref).unwrap_or_else(|_| unreachable!("local count exceeds u16")),
-                };
-                let self_func_addr = imported_func_count + func_idx as u32;
-                let instructions = optimize::optimize_instructions(instructions, &mut data, self_func_addr, options);
-
+                let params = ValueCounts::from(&ty.params);
+                let self_func = (imported_func_count + func_idx) as u32;
+                let instructions = optimize::optimize_instructions(instructions, &mut data, self_func, options);
                 WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
-            })
-            .collect::<Vec<_>>();
-
-        let globals = self.globals;
-        let table_types = self.table_types;
+            },
+        );
 
         Ok(TinyWasmModule {
-            funcs: funcs.into(),
+            funcs: funcs.collect(),
             func_types: self.func_types.into(),
-            globals: globals.into(),
-            table_types: table_types.into(),
+            globals: self.globals.into(),
+            table_types: self.table_types.into(),
             imports: self.imports.into(),
             start_func: self.start_func,
             data: self.data.into(),

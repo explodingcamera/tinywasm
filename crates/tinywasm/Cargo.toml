@@ -90,7 +90,6 @@ harness=false
 [[test]]
 name="test-wasm-memory64"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-extended-const"
@@ -100,17 +99,14 @@ test=false
 [[test]]
 name="test-wasm-relaxed-simd"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-simd"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-wide-arithmetic"
 harness=false
-test=false
 
 [[test]]
 name="test-wast"

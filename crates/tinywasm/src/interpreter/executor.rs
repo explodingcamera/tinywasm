@@ -818,7 +818,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_return(&mut self) -> bool {
-        let result_counts = ValueCountsSmall::from(self.func.ty.results.iter());
+        let result_counts = ValueCounts::from(self.func.ty.results.iter());
         self.store.stack.values.truncate_keep_counts(self.cf.locals_base, result_counts);
 
         let Some(cf) = self.store.stack.call_stack.pop() else { return true };
@@ -1188,12 +1188,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 impl<'store> Executor<'store, false> {
     #[inline(always)]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
-        loop {
-            // for some reason, using a iteration count of 4096 here seems to be a sweet spot for performance
-            if self.exec::<1024>()?.is_some() {
-                return Ok(());
-            }
+        if self.exec::<{ usize::MAX }>()?.is_some() {
+            return Ok(());
         }
+        unreachable!();
     }
 
     #[cfg(feature = "std")]

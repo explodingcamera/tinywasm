@@ -208,16 +208,6 @@ pub struct FuncType {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValueCounts {
-    pub c32: u32,
-    pub c64: u32,
-    pub c128: u32,
-    pub cref: u32,
-}
-
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct ValueCountsSmall {
     pub c32: u16,
     pub c64: u16,
     pub c128: u16,
@@ -240,30 +230,14 @@ impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCounts {
     }
 }
 
-impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCountsSmall {
-    #[inline]
-    fn from(types: T) -> Self {
-        let mut counts = Self::default();
-        for ty in types {
-            match ty {
-                ValType::I32 | ValType::F32 => counts.c32 += 1,
-                ValType::I64 | ValType::F64 => counts.c64 += 1,
-                ValType::V128 => counts.c128 += 1,
-                ValType::RefExtern | ValType::RefFunc => counts.cref += 1,
-            }
-        }
-        counts
-    }
-}
-
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunction {
     pub instructions: ArcSlice<Instruction>,
     pub data: WasmFunctionData,
-    pub locals: ValueCountsSmall,
-    pub params: ValueCountsSmall,
+    pub locals: ValueCounts,
+    pub params: ValueCounts,
     pub ty: FuncType,
 }
 
@@ -295,6 +269,12 @@ impl<T> Deref for ArcSlice<T> {
 
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
+    }
+}
+
+impl<T> FromIterator<T> for ArcSlice<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self(Arc::from_iter(iter))
     }
 }
 

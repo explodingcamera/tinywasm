@@ -70,38 +70,33 @@ pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Resu
 }
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
-    Ok(Import {
-        module: import.module.to_string().into_boxed_str(),
-        name: import.name.to_string().into_boxed_str(),
-        kind: match import.ty {
-            wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
-            wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
-                element_type: convert_reftype(ty.element_type),
-                size_initial: ty.initial.try_into().map_err(|_| {
-                    crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
-                })?,
-                size_max: match ty.maximum {
-                    Some(max) => Some(max.try_into().map_err(|_| {
-                        crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}"))
-                    })?),
-                    None => None,
-                },
-            }),
-            wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
-            wasmparser::TypeRef::Global(ty) => {
-                ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
-            }
-            wasmparser::TypeRef::Tag(ty) => {
-                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
-            }
-            _ => {
-                return Err(crate::ParseError::UnsupportedOperator(format!(
-                    "Unsupported import kind: {:?}",
-                    import.ty
-                )));
-            }
-        },
-    })
+    let kind = match import.ty {
+        wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
+        wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
+            element_type: convert_reftype(ty.element_type),
+            size_initial: ty.initial.try_into().map_err(|_| {
+                crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
+            })?,
+            size_max: match ty.maximum {
+                Some(max) => Some(max.try_into().map_err(|_| {
+                    crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}"))
+                })?),
+                None => None,
+            },
+        }),
+        wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
+        wasmparser::TypeRef::Global(ty) => {
+            ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
+        }
+        wasmparser::TypeRef::Tag(ty) => {
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
+        }
+        _ => {
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", import.ty)));
+        }
+    };
+
+    Ok(Import { module: import.module.into(), name: import.name.into(), kind })
 }
 
 pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
@@ -130,21 +125,16 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
         crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.ty.initial))
     })?;
 
-    let size_max = match table.ty.maximum {
-        Some(max) => Some(
-            max.try_into()
-                .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}")))?,
-        ),
-        None => None,
-    };
-
+    let size_max = table.ty.maximum.map(|max| max.try_into()).transpose();
+    let size_max =
+        size_max.map_err(|e| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {e}")))?;
     Ok(TableType { element_type: convert_reftype(table.ty.element_type), size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals(
     globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>,
 ) -> Result<Vec<Global>> {
-    let globals = globals
+    globals
         .into_iter()
         .map(|global| {
             let global = global?;
@@ -152,8 +142,7 @@ pub(crate) fn convert_module_globals(
             let ops = global.init_expr.get_operators_reader();
             Ok(Global { init: process_const_operators(ops)?, ty: GlobalType { mutable: global.ty.mutable, ty } })
         })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(globals)
+        .collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Export> {
@@ -215,7 +204,6 @@ pub(crate) fn convert_module_code(
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {
     let mut types = ty.types();
-
     if types.len() != 1 {
         return Err(crate::ParseError::UnsupportedOperator(
             "Expected exactly one type in the type section".to_string(),
@@ -225,7 +213,6 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     let ty = types.next().unwrap().unwrap_func();
     let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
     let results = ty.results().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
-
     Ok(FuncType { params, results })
 }
 

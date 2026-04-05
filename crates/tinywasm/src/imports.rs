@@ -159,18 +159,18 @@ impl Extern {
         ty: &tinywasm_types::FuncType,
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Self {
-        let _ty = ty.clone();
+        let ty_inner = ty.clone();
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let _ty = _ty.clone();
+            let ty = ty_inner.clone();
             let result = func(ctx, args)?;
 
-            if result.len() != _ty.results.len() {
-                return Err(crate::Error::InvalidHostFnReturn { expected: _ty.clone(), actual: result });
+            if result.len() != ty.results.len() {
+                return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result });
             };
 
-            result.iter().zip(_ty.results.iter()).try_for_each(|(val, ty)| {
-                if val.val_type() != *ty {
-                    return Err(crate::Error::InvalidHostFnReturn { expected: _ty.clone(), actual: result.clone() });
+            result.iter().zip(ty.results.iter()).try_for_each(|(val, res_ty)| {
+                if val.val_type() != *res_ty {
+                    return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result.clone() });
                 }
                 Ok(())
             })?;
@@ -344,20 +344,17 @@ impl Imports {
 
     fn compare_table_types(import: &Import, expected: &TableType, actual: &TableType) -> Result<()> {
         Self::compare_types(import, &actual.element_type, &expected.element_type)?;
-
         if actual.size_initial > expected.size_initial {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
         match (expected.size_max, actual.size_max) {
-            (None, Some(_)) => return Err(LinkingError::incompatible_import_type(import).into()),
+            (None, Some(_)) => Err(LinkingError::incompatible_import_type(import).into()),
             (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
-                return Err(LinkingError::incompatible_import_type(import).into());
+                Err(LinkingError::incompatible_import_type(import).into())
             }
-            _ => {}
+            _ => Ok(()),
         }
-
-        Ok(())
     }
 
     fn compare_memory_types(
@@ -394,9 +391,7 @@ impl Imports {
         let mut imports = ResolvedImports::new();
 
         for import in &*module.0.imports {
-            let val = self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))?;
-
-            match val {
+            match self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))? {
                 // A link to something that needs to be added to the store
                 ResolvedExtern::Extern(ex) => match (ex, &import.kind) {
                     (Extern::Global { ty, val }, ImportKind::Global(import_ty)) => {

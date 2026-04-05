@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, ValueCountsSmall, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, ValueCounts, WasmValue};
 
 use crate::{Result, Trap, engine::Config, interpreter::*, unlikely};
 
@@ -195,7 +195,7 @@ impl ValueStack {
     }
 
     #[inline]
-    pub(crate) fn select_multi(&mut self, counts: ValueCountsSmall) {
+    pub(crate) fn select_multi(&mut self, counts: ValueCounts) {
         let condition = self.pop::<i32>() != 0;
         self.stack_32.select_many(counts.c32 as usize, condition);
         self.stack_64.select_many(counts.c64 as usize, condition);
@@ -257,7 +257,7 @@ impl ValueStack {
         val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
 
-    pub(crate) fn enter_locals(&mut self, params: &ValueCountsSmall, locals: &ValueCountsSmall) -> Result<StackBase> {
+    pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase> {
         let locals_base32 = if params.c32 == 0 && locals.c32 == 0 {
             self.stack_32.len as u32
         } else {
@@ -282,7 +282,7 @@ impl ValueStack {
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128, sref: locals_baseref })
     }
 
-    pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCountsSmall) {
+    pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCounts) {
         if keep.c32 == 0 && keep.c64 == 0 && keep.c128 == 0 && keep.cref == 0 {
             self.stack_32.len = base.s32 as usize;
             self.stack_64.len = base.s64 as usize;

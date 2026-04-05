@@ -36,7 +36,7 @@ mod optimize;
 mod visit;
 pub use error::*;
 use module::ModuleReader;
-use wasmparser::{Validator, WasmFeaturesInflated};
+use wasmparser::{Validator, WasmFeatures};
 
 pub use tinywasm_types::TinyWasmModule;
 
@@ -79,56 +79,32 @@ impl Parser {
     }
 
     fn create_validator(_options: ParserOptions) -> Validator {
-        let features = WasmFeaturesInflated {
-            bulk_memory: true,
-            floats: true,
-            multi_value: true,
-            mutable_global: true,
-            reference_types: true,
-            sign_extension: true,
-            saturating_float_to_int: true,
-            function_references: true,
-            tail_call: true,
-            multi_memory: true,
-            simd: true,
-            memory64: true,
-            custom_page_sizes: true,
-            bulk_memory_opt: true,
-            call_indirect_overlong: true,
-            wide_arithmetic: true,
-            relaxed_simd: true,
-
-            compact_imports: false,
-            cm_map: false,
-            custom_descriptors: false,
-            cm_threading: false,
-            extended_const: false,
-            gc_types: true,
-            stack_switching: false,
-            component_model: false,
-            exceptions: false,
-            gc: false,
-            memory_control: false,
-            threads: false,
-            shared_everything_threads: false,
-            legacy_exceptions: false,
-            cm_async: false,
-            cm_async_builtins: false,
-            cm_async_stackful: false,
-            cm_nested_names: false,
-            cm_values: false,
-            cm_error_context: false,
-            cm_fixed_length_lists: false,
-            cm_gc: false,
-        };
-        Validator::new_with_features(features.into())
+        let features = WasmFeatures::CALL_INDIRECT_OVERLONG
+            | WasmFeatures::BULK_MEMORY_OPT
+            | WasmFeatures::RELAXED_SIMD
+            | WasmFeatures::GC_TYPES
+            | WasmFeatures::REFERENCE_TYPES
+            | WasmFeatures::MUTABLE_GLOBAL
+            | WasmFeatures::MULTI_VALUE
+            | WasmFeatures::FLOATS
+            | WasmFeatures::BULK_MEMORY
+            | WasmFeatures::SATURATING_FLOAT_TO_INT
+            | WasmFeatures::SIGN_EXTENSION
+            | WasmFeatures::FUNCTION_REFERENCES
+            | WasmFeatures::TAIL_CALL
+            | WasmFeatures::MULTI_MEMORY
+            | WasmFeatures::SIMD
+            | WasmFeatures::MEMORY64
+            | WasmFeatures::CUSTOM_PAGE_SIZES
+            | WasmFeatures::WIDE_ARITHMETIC;
+        Validator::new_with_features(features)
     }
 
     /// Parse a [`TinyWasmModule`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
         let wasm = wasm.as_ref();
         let mut validator = Self::create_validator(self.options.clone());
-        let mut reader = ModuleReader::new();
+        let mut reader = ModuleReader::default();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
             reader.process_payload(payload?, &mut validator)?;
@@ -144,21 +120,16 @@ impl Parser {
     #[cfg(feature = "std")]
     /// Parse a [`TinyWasmModule`] from a file. Requires `std` feature.
     pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<TinyWasmModule> {
-        use alloc::format;
-        let f = crate::std::fs::File::open(&path)
-            .map_err(|e| ParseError::Other(format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
-
-        let mut reader = crate::std::io::BufReader::new(f);
-        self.parse_module_stream(&mut reader)
+        let file = crate::std::fs::File::open(&path)
+            .map_err(|e| ParseError::Other(alloc::format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
+        self.parse_module_stream(&mut crate::std::io::BufReader::new(file))
     }
 
     #[cfg(feature = "std")]
     /// Parse a [`TinyWasmModule`] from a stream. Requires `std` feature.
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
-        use alloc::format;
-
         let mut validator = Self::create_validator(self.options.clone());
-        let mut reader = ModuleReader::new();
+        let mut reader = ModuleReader::default();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);
         let mut eof = false;
@@ -170,7 +141,7 @@ impl Parser {
                     buffer.extend((0..hint).map(|_| 0u8));
                     let read_bytes = stream
                         .read(&mut buffer[len..])
-                        .map_err(|e| ParseError::Other(format!("Error reading from stream: {e}")))?;
+                        .map_err(|e| ParseError::Other(alloc::format!("Error reading from stream: {e}")))?;
                     buffer.truncate(len + read_bytes);
                     eof = read_bytes == 0;
                 }

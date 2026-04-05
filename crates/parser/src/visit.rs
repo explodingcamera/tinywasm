@@ -75,7 +75,7 @@ impl<R: WasmModuleResources> VisitSimdOperator<'_> for ValidateThenVisit<'_, R> 
 pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     validator: FuncValidator<R>,
     body: FunctionBody<'_>,
-    local_addr_map: Vec<u32>,
+    local_addr_map: Vec<u16>,
 ) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
     let remaining = reader.get_binary_reader().bytes_remaining();
@@ -148,7 +148,7 @@ pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     instructions: Vec<Instruction>,
     data: FunctionDataBuilder,
     ctx_stack: Vec<LoweringCtx>,
-    local_addr_map: Vec<u32>,
+    local_addr_map: Vec<u16>,
     errors: Vec<crate::ParseError>,
 }
 
@@ -244,13 +244,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
-        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
-            self.errors.push(crate::ParseError::UnsupportedOperator(
-                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
-            ));
-            return;
-        };
-
+        let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(t) = self.validator.get_local_type(idx) {
             match t {
                 wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
@@ -270,13 +264,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
-        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
-            self.errors.push(crate::ParseError::UnsupportedOperator(
-                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
-            ));
-            return;
-        };
-
+        let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
             self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalSet32(resolved_idx),
@@ -290,13 +278,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
-        let Ok(resolved_idx) = self.local_addr_map[idx as usize].try_into() else {
-            self.errors.push(crate::ParseError::UnsupportedOperator(
-                "Local index is too large, tinywasm does not support local indexes that large".to_string(),
-            ));
-            return;
-        };
-
+        let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
             self.instructions.push(match t {
                 wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
@@ -472,7 +454,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
         let (c32, c64, c128, cref) = Self::label_keep_counts(&tys);
-        self.instructions.push(Instruction::SelectMulti(tinywasm_types::ValueCountsSmall { c32, c64, c128, cref }));
+        self.instructions.push(Instruction::SelectMulti(tinywasm_types::ValueCounts { c32, c64, c128, cref }));
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
@@ -588,7 +570,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         self.validator.simd_visitor(offset)
     }
 
-    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
+    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u16>) -> Self {
         Self {
             validator,
             local_addr_map,

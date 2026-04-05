@@ -14,25 +14,18 @@ use crate::{Error, FuncHandle, FuncHandleTyped, Imports, MemoryRef, MemoryRefMut
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 
-#[expect(dead_code)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ModuleInstanceInner {
-    pub(crate) failed_to_instantiate: bool,
-
     pub(crate) store_id: usize,
     pub(crate) idx: ModuleInstanceAddr,
-
     pub(crate) types: ArcSlice<FuncType>,
-
     pub(crate) func_addrs: Box<[FuncAddr]>,
     pub(crate) table_addrs: Box<[TableAddr]>,
     pub(crate) mem_addrs: Box<[MemAddr]>,
     pub(crate) global_addrs: Box<[GlobalAddr]>,
     pub(crate) elem_addrs: Box<[ElemAddr]>,
     pub(crate) data_addrs: Box<[DataAddr]>,
-
     pub(crate) func_start: Option<FuncAddr>,
-    pub(crate) imports: ArcSlice<Import>,
     pub(crate) exports: ArcSlice<Export>,
 }
 
@@ -107,7 +100,6 @@ impl ModuleInstanceInner {
 
 impl ModuleInstance {
     /// Get the module instance's address
-    #[inline]
     pub fn id(&self) -> ModuleInstanceAddr {
         self.0.idx
     }
@@ -116,24 +108,18 @@ impl ModuleInstance {
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate(store: &mut Store, module: Module, imports: Option<Imports>) -> Result<Self> {
-        // This doesn't completely follow the steps in the spec, but the end result is the same
-        // Constant expressions are evaluated directly where they are used, so we
-        // don't need to create a auxiliary frame etc.
-
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
 
         addrs.funcs.extend(store.init_funcs(&module.0.funcs, idx)?);
         addrs.tables.extend(store.init_tables(&module.0.table_types, idx)?);
         addrs.memories.extend(store.init_memories(&module.0.memory_types, idx)?);
-
         let global_addrs = store.init_globals(addrs.globals, &module.0.globals, &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;
         let (data_addrs, data_trapped) = store.init_data(&addrs.memories, &module.0.data, idx)?;
 
         let instance = ModuleInstanceInner {
-            failed_to_instantiate: elem_trapped.is_some() || data_trapped.is_some(),
             store_id: store.id(),
             idx,
             types: module.0.func_types.clone(),
@@ -144,7 +130,6 @@ impl ModuleInstance {
             elem_addrs,
             data_addrs,
             func_start: module.0.start_func,
-            imports: module.0.imports.clone(),
             exports: module.0.exports.clone(),
         };
 
@@ -166,7 +151,6 @@ impl ModuleInstance {
             ExternalKind::Memory => self.0.mem_addrs.get(exports.index as usize)?,
             ExternalKind::Global => self.0.global_addrs.get(exports.index as usize)?,
         };
-
         Some(ExternVal::new(exports.kind, *addr))
     }
 
@@ -186,11 +170,11 @@ impl ModuleInstance {
     }
 
     /// Get a typed exported function by name
-    pub fn exported_func<P, R>(&self, store: &Store, name: &str) -> Result<FuncHandleTyped<P, R>>
-    where
-        P: IntoWasmValueTuple,
-        R: FromWasmValueTuple,
-    {
+    pub fn exported_func<P: IntoWasmValueTuple, R: FromWasmValueTuple>(
+        &self,
+        store: &Store,
+        name: &str,
+    ) -> Result<FuncHandleTyped<P, R>> {
         let func = self.exported_func_untyped(store, name)?;
         Ok(FuncHandleTyped { func, marker: core::marker::PhantomData })
     }
@@ -201,7 +185,6 @@ impl ModuleInstance {
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {name}")));
         };
-
         self.memory(store, mem_addr)
     }
 
@@ -211,26 +194,23 @@ impl ModuleInstance {
         let ExternVal::Memory(mem_addr) = export else {
             return Err(Error::Other(format!("Export is not a memory: {name}")));
         };
-
         self.memory_mut(store, mem_addr)
     }
 
     /// Get a memory by address
     pub fn memory<'a>(&self, store: &'a Store, addr: MemAddr) -> Result<MemoryRef<'a>> {
-        let mem = store.state.get_mem(self.0.resolve_mem_addr(addr));
-        Ok(MemoryRef(mem))
+        Ok(MemoryRef(store.state.get_mem(self.0.resolve_mem_addr(addr))))
     }
 
     /// Get a memory by address (mutable)
     pub fn memory_mut<'a>(&self, store: &'a mut Store, addr: MemAddr) -> Result<MemoryRefMut<'a>> {
-        let mem = store.state.get_mem_mut(self.0.resolve_mem_addr(addr));
-        Ok(MemoryRefMut(mem))
+        Ok(MemoryRefMut(store.state.get_mem_mut(self.0.resolve_mem_addr(addr))))
     }
 
     /// Get the start function of the module
     ///
     /// Returns None if the module has no start function
-    /// If no start function is specified, also checks for a _start function in the exports
+    /// If no start function is specified, also checks for a `_start` function in the exports
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
     pub fn start_func(&self, store: &Store) -> Result<Option<FuncHandle>> {
@@ -251,23 +231,19 @@ impl ModuleInstance {
         };
 
         let func_addr = self.0.resolve_func_addr(func_index);
-        let func_inst = store.state.get_func(func_addr);
-        let ty = func_inst.func.ty();
-
+        let ty = store.state.get_func(func_addr).func.ty();
         Ok(Some(FuncHandle { module_addr: self.id(), addr: func_addr, ty: ty.clone() }))
     }
 
     /// Invoke the start function of the module
     ///
-    /// Returns None if the module has no start function
+    /// Returns `None` if the module has no start function
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
     pub fn start(&self, store: &mut Store) -> Result<Option<()>> {
         let Some(func) = self.start_func(store)? else {
             return Ok(None);
         };
-
-        let _ = func.call(store, &[])?;
-        Ok(Some(()))
+        func.call(store, &[]).map(|_| Some(()))
     }
 }

@@ -24,24 +24,21 @@ impl Module {
     #[cfg(feature = "parser")]
     /// Parse a module from bytes. Requires `parser` feature.
     pub fn parse_bytes(wasm: &[u8]) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_bytes(wasm)?;
+        let data = tinywasm_parser::Parser::new().parse_module_bytes(wasm)?;
         Ok(data.into())
     }
 
     #[cfg(all(feature = "parser", feature = "std"))]
     /// Parse a module from a file. Requires `parser` and `std` features.
     pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_file(path)?;
+        let data = tinywasm_parser::Parser::new().parse_module_file(path)?;
         Ok(data.into())
     }
 
     #[cfg(all(feature = "parser", feature = "std"))]
     /// Parse a module from a stream. Requires `parser` and `std` features.
     pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Self> {
-        let parser = tinywasm_parser::Parser::new();
-        let data = parser.parse_module_stream(stream)?;
+        let data = tinywasm_parser::Parser::new().parse_module_stream(stream)?;
         Ok(data.into())
     }
 
