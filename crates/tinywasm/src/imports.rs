@@ -193,7 +193,8 @@ impl Extern {
             Ok(result.into_wasm_value_tuple())
         };
 
-        let ty = tinywasm_types::FuncType { params: P::val_types(), results: R::val_types() };
+        let results = R::val_types();
+        let ty = tinywasm_types::FuncType { params: P::val_types(), results };
         Self::Function(Function::Host(Rc::new(HostFunction { func: Box::new(inner_func), ty })))
     }
 

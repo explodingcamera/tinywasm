@@ -148,11 +148,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { continue; },
                 JumpIfNonZero(ip) => if self.exec_jump_if_non_zero(*ip) { continue; },
                 DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                    let stack_base = self.cf.stack_base();
-                    self.store.stack.values.stack_32.truncate_keep((stack_base.s32 + *base32 as u32) as usize, *keep32 as usize);
-                    self.store.stack.values.stack_64.truncate_keep((stack_base.s64 + *base64 as u32) as usize, *keep64 as usize);
-                    self.store.stack.values.stack_128.truncate_keep((stack_base.s128 + *base128 as u32) as usize, *keep128 as usize);
-                    self.store.stack.values.stack_ref.truncate_keep((stack_base.sref + *base_ref as u32) as usize, *keep_ref as usize);
+                    let mut base = self.cf.stack_base(); base.s32 += *base32 as u32; base.s64 += *base64 as u32; base.s128 += *base128 as u32; base.sref += *base_ref as u32;
+                    self.store.stack.values.truncate_keep_counts(base, ValueCounts { c32: *keep32 as u16, c64: *keep64 as u16, c128: *keep128 as u16, cref: *keep_ref as u16 });
                 }
                 DropKeep32(base, keep) => self.store.stack.values.stack_32.truncate_keep((self.cf.stack_base().s32 + *base as u32) as usize, *keep as usize),
                 DropKeep64(base, keep) => self.store.stack.values.stack_64.truncate_keep((self.cf.stack_base().s64 + *base as u32) as usize, *keep as usize),
@@ -822,9 +819,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_return(&mut self) -> bool {
-        let result_counts = ValueCounts::from(self.func.ty.results.iter());
-        self.store.stack.values.truncate_keep_counts(self.cf.locals_base, result_counts);
-
+        let results = ValueCounts::from_iter(&self.func.ty.results);
+        self.store.stack.values.truncate_keep_counts(self.cf.locals_base, results);
         let Some(cf) = self.store.stack.call_stack.pop() else { return true };
 
         if cf.func_addr != self.cf.func_addr {

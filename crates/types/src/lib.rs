@@ -214,19 +214,25 @@ pub struct ValueCounts {
     pub cref: u16,
 }
 
-impl<'a, T: IntoIterator<Item = &'a ValType>> From<T> for ValueCounts {
+impl ValueCounts {
     #[inline]
-    fn from(types: T) -> Self {
-        let mut counts = Self::default();
-        for ty in types {
+    pub fn is_empty(&self) -> bool {
+        self.c32 == 0 && self.c64 == 0 && self.c128 == 0 && self.cref == 0
+    }
+}
+
+impl<'a> FromIterator<&'a ValType> for ValueCounts {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item = &'a ValType>>(iter: I) -> Self {
+        iter.into_iter().fold(Self::default(), |mut counts, ty| {
             match ty {
                 ValType::I32 | ValType::F32 => counts.c32 += 1,
                 ValType::I64 | ValType::F64 => counts.c64 += 1,
                 ValType::V128 => counts.c128 += 1,
                 ValType::RefExtern | ValType::RefFunc => counts.cref += 1,
             }
-        }
-        counts
+            counts
+        })
     }
 }
 

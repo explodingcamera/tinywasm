@@ -228,7 +228,7 @@ impl ValueStack {
     }
 
     pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCounts) {
-        if keep.c32 == 0 && keep.c64 == 0 && keep.c128 == 0 && keep.cref == 0 {
+        if keep.is_empty() {
             self.stack_32.len = base.s32 as usize;
             self.stack_64.len = base.s64 as usize;
             self.stack_128.len = base.s128 as usize;

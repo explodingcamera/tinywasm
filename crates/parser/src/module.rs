@@ -181,7 +181,7 @@ impl ModuleReader {
         let funcs = self.code.into_iter().zip(self.code_type_addrs).enumerate().map(
             |(func_idx, ((instructions, mut data, locals), ty_idx))| {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
-                let params = ValueCounts::from(&ty.params);
+                let params = ValueCounts::from_iter(&ty.params);
                 let self_func = (imported_func_count + func_idx) as u32;
                 let instructions = optimize::optimize_instructions(instructions, &mut data, self_func, options);
                 WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
