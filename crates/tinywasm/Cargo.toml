@@ -65,14 +65,6 @@ name="test-wasm-2"
 harness=false
 
 [[test]]
-name="test-wasm-3"
-harness=false
-
-[[test]]
-name="test-wasm-latest"
-harness=false
-
-[[test]]
 name="test-wasm-multi-memory"
 harness=false
 
@@ -114,9 +106,12 @@ name="test-wasm-wide-arithmetic"
 harness=false
 
 [[test]]
-name="test-wast"
+name="test-wasm-sign-extension-op"
 harness=false
-test=false
+
+[[test]]
+name="test-wasm-nontrapping-float-to-int-conversions"
+harness=false
 
 [[bench]]
 name="argon2id"
@@ -133,3 +128,39 @@ harness=false
 [[bench]]
 name="tinywasm_modes"
 harness=false
+
+
+[[test]]
+name="test-wasm-3"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-latest"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-threads"
+harness=false
+test=false
+
+[[test]]
+name="test-wast"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-function-references"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-gc"
+harness=false
+test=false
+
+[[test]]
+name="test-wasm-reference-types"
+harness=false
+test=false

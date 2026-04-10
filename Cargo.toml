@@ -11,8 +11,8 @@ eyre="0.6"
 log="0.4"
 pretty_env_logger="0.5"
 criterion={version="0.8", default-features=false, features=["cargo_bench_support", "rayon"]}
-wasm-testsuite={version="0.6"}
-indexmap="2.13"
+wasm-testsuite={version="0.7"}
+indexmap="2.14"
 owo-colors={version="4.3"}
 serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}

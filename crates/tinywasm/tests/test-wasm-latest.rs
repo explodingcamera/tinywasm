@@ -4,11 +4,6 @@ use testsuite::TestSuite;
 use wasm_testsuite::data::{SpecVersion, spec};
 
 fn main() -> Result<()> {
-    if !std::env::args().any(|x| &x == "--enable") {
-        println!("Skipping wasm-latest tests, use --enable to run");
-        return Ok(());
-    }
-
     TestSuite::set_log_level(log::LevelFilter::Off);
 
     let mut test_suite = TestSuite::new();
