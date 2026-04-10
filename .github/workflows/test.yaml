@@ -23,8 +23,17 @@ jobs:
           components: rust-src
           rustflags: ""
           target: wasm32-unknown-unknown
-      - name: Install Binaryen and WABT
-        run: sudo apt-get install -y binaryen wabt
+      - name: Install Binaryen
+        run: |
+          BINARYEN_VERSION=version_129
+          BINARYEN_DIR="binaryen-${BINARYEN_VERSION}"
+          BINARYEN_ARCHIVE="${BINARYEN_DIR}-x86_64-linux.tar.gz"
+          curl -L "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${BINARYEN_ARCHIVE}" -o "/tmp/${BINARYEN_ARCHIVE}"
+          echo "50b9fa62b9abea752da92ec57e0c555fee578760cd237c40107957715d2976ba  /tmp/${BINARYEN_ARCHIVE}" | sha256sum -c -
+          tar -xzf "/tmp/${BINARYEN_ARCHIVE}" -C /tmp
+          sudo install "/tmp/${BINARYEN_DIR}/bin/wasm-opt" /usr/local/bin/wasm-opt
+      - name: Install WABT
+        run: sudo apt-get install -y wabt
       - name: Build wasm
         run: ./examples/rust/build.sh
       - name: Save artifacts

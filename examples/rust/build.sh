@@ -20,7 +20,7 @@ for bin in "${bins[@]}"; do
     RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=std,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin "$bin"
 
     cp "$out_dir/$bin.wasm" "$dest_dir/"
-    wasm-opt "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.opt.wasm" -O3 -Oz $wasmopt_features
+    wasm-opt "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.opt.wasm" -O3 $wasmopt_features
 
     if [[ ! " ${exclude_wat[@]} " =~ " $bin " ]]; then
         wasm2wat "$dest_dir/$bin.wasm" -o "$dest_dir/$bin.wat"
