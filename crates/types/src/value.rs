@@ -18,7 +18,6 @@ pub enum WasmValue {
     F64(f64),
     // /// A 128-bit vector
     V128(i128),
-
     RefExtern(ExternRef),
     RefFunc(FuncRef),
 }
@@ -70,55 +69,52 @@ impl Debug for FuncRef {
 }
 
 impl FuncRef {
-    /// Create a new `FuncRef` from a `FuncAddr`.
-    /// Should only be used by the runtime.
-    #[doc(hidden)]
     #[inline]
+    /// Create a new [`FuncRef`] from a [`FuncAddr`].
     pub const fn new(addr: Option<FuncAddr>) -> Self {
         Self(addr)
     }
 
-    /// Create a null `FuncRef`.
     #[inline]
+    /// Create a null [`FuncRef`].
     pub const fn null() -> Self {
         Self(None)
     }
 
-    /// Check if the `FuncRef` is null.
     #[inline]
+    /// Check if the [`FuncRef`] is null.
     pub const fn is_null(&self) -> bool {
         self.0.is_none()
     }
 
-    /// Get the `FuncAddr` from the `FuncRef`.
     #[inline]
+    /// Get the [`FuncAddr`] from the [`FuncRef`].
     pub const fn addr(&self) -> Option<FuncAddr> {
         self.0
     }
 }
 
 impl ExternRef {
-    /// Create a new `ExternRef` from an `ExternAddr`.
-    /// Should only be used by the runtime.
-    #[doc(hidden)]
     #[inline]
+    /// Create a new [`ExternRef`] from an [`ExternAddr`].
+    /// Should only be used by the runtime.
     pub const fn new(addr: Option<ExternAddr>) -> Self {
         Self(addr)
     }
 
-    /// Create a null `ExternRef`.
+    /// Create a null [`ExternRef`].
     #[inline]
     pub const fn null() -> Self {
         Self(None)
     }
 
-    /// Check if the `ExternRef` is null.
+    /// Check if the [`ExternRef`] is null.
     #[inline]
     pub const fn is_null(&self) -> bool {
         self.0.is_none()
     }
 
-    /// Get the `ExternAddr` from the `ExternRef`.
+    /// Get the [`ExternAddr`] from the [`ExternRef`].
     #[inline]
     pub const fn addr(&self) -> Option<ExternAddr> {
         self.0
@@ -126,8 +122,8 @@ impl ExternRef {
 }
 
 impl WasmValue {
-    #[doc(hidden)]
     #[inline]
+    /// Get the matching [`ConstInstruction`] for this value.
     pub fn const_instr(&self) -> alloc::boxed::Box<[ConstInstruction]> {
         alloc::boxed::Box::new([match self {
             Self::I32(i) => ConstInstruction::I32Const(*i),
@@ -140,22 +136,22 @@ impl WasmValue {
         }])
     }
 
-    /// Get the default value for a given type.
     #[inline]
-    pub const fn default_for(ty: ValType) -> Self {
+    /// Get the default value for a given type.
+    pub const fn default_for(ty: WasmType) -> Self {
         match ty {
-            ValType::I32 => Self::I32(0),
-            ValType::I64 => Self::I64(0),
-            ValType::F32 => Self::F32(0.0),
-            ValType::F64 => Self::F64(0.0),
-            ValType::V128 => Self::V128(0),
-            ValType::RefFunc => Self::RefFunc(FuncRef::null()),
-            ValType::RefExtern => Self::RefExtern(ExternRef::null()),
+            WasmType::I32 => Self::I32(0),
+            WasmType::I64 => Self::I64(0),
+            WasmType::F32 => Self::F32(0.0),
+            WasmType::F64 => Self::F64(0.0),
+            WasmType::V128 => Self::V128(0),
+            WasmType::RefFunc => Self::RefFunc(FuncRef::null()),
+            WasmType::RefExtern => Self::RefExtern(ExternRef::null()),
         }
     }
 
-    /// Check if two values are equal, ignoring differences in NaN values.
     #[inline]
+    /// Check if two values are equal, ignoring differences in NaN values.
     pub fn eq_loose(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
@@ -233,7 +229,7 @@ impl WasmValue {
         }) && a_f64x2.iter().any(|x| x.is_nan())
     }
 
-    #[doc(hidden)]
+    /// Return the `i32` from a `WasmValue`, if it is an `I32`.
     pub const fn as_i32(&self) -> Option<i32> {
         match self {
             Self::I32(i) => Some(*i),
@@ -241,7 +237,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the `i64` from a `WasmValue`, if it is an `I64`.
     pub const fn as_i64(&self) -> Option<i64> {
         match self {
             Self::I64(i) => Some(*i),
@@ -249,7 +245,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the `f32` from a `WasmValue`, if it is a `F32`.
     pub const fn as_f32(&self) -> Option<f32> {
         match self {
             Self::F32(i) => Some(*i),
@@ -257,7 +253,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the `f64` from a `WasmValue`, if it is a `F64`.
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
             Self::F64(i) => Some(*i),
@@ -265,7 +261,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the `i128` from a `WasmValue`, if it is a `V128`.
     pub const fn as_v128(&self) -> Option<i128> {
         match self {
             Self::V128(i) => Some(*i),
@@ -273,7 +269,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the [[`ExternRef`]] from a `WasmValue`, if it is one
     pub const fn as_ref_extern(&self) -> Option<ExternRef> {
         match self {
             Self::RefExtern(ref_extern) => Some(*ref_extern),
@@ -281,7 +277,7 @@ impl WasmValue {
         }
     }
 
-    #[doc(hidden)]
+    /// Return the [`FuncRef`] from a `WasmValue`, if it is one
     pub const fn as_ref_func(&self) -> Option<FuncRef> {
         match self {
             Self::RefFunc(ref_func) => Some(*ref_func),
@@ -290,19 +286,25 @@ impl WasmValue {
     }
 }
 
-impl WasmValue {
-    /// Get the type of a [`WasmValue`]
+impl From<&WasmValue> for WasmType {
     #[inline]
-    pub const fn val_type(&self) -> ValType {
-        match self {
-            Self::I32(_) => ValType::I32,
-            Self::I64(_) => ValType::I64,
-            Self::F32(_) => ValType::F32,
-            Self::F64(_) => ValType::F64,
-            Self::V128(_) => ValType::V128,
-            Self::RefExtern(_) => ValType::RefExtern,
-            Self::RefFunc(_) => ValType::RefFunc,
+    fn from(value: &WasmValue) -> Self {
+        match value {
+            WasmValue::I32(_) => WasmType::I32,
+            WasmValue::I64(_) => WasmType::I64,
+            WasmValue::F32(_) => WasmType::F32,
+            WasmValue::F64(_) => WasmType::F64,
+            WasmValue::V128(_) => WasmType::V128,
+            WasmValue::RefExtern(_) => WasmType::RefExtern,
+            WasmValue::RefFunc(_) => WasmType::RefFunc,
         }
+    }
+}
+
+impl From<WasmValue> for WasmType {
+    #[inline]
+    fn from(value: WasmValue) -> Self {
+        Self::from(&value)
     }
 }
 
@@ -310,7 +312,7 @@ impl WasmValue {
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum ValType {
+pub enum WasmType {
     /// A 32-bit integer.
     I32,
     /// A 64-bit integer.
@@ -327,13 +329,12 @@ pub enum ValType {
     RefExtern,
 }
 
-impl ValType {
+impl WasmType {
     #[inline]
     pub const fn default_value(&self) -> WasmValue {
         WasmValue::default_for(*self)
     }
 
-    #[doc(hidden)]
     #[inline]
     pub const fn is_simd(&self) -> bool {
         matches!(self, Self::V128)
@@ -343,7 +344,6 @@ impl ValType {
 macro_rules! impl_conversion_for_wasmvalue {
     ($($t:ty => $variant:ident),*) => {
         $(
-            // Implementing From<$t> for WasmValue
             impl From<$t> for WasmValue {
                 #[inline]
                 fn from(i: $t) -> Self {
@@ -351,17 +351,12 @@ macro_rules! impl_conversion_for_wasmvalue {
                 }
             }
 
-            // Implementing TryFrom<WasmValue> for $t
             impl TryFrom<WasmValue> for $t {
                 type Error = ();
 
                 #[inline]
                 fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
-                    if let WasmValue::$variant(i) = value {
-                        Ok(i)
-                    } else {
-                        Err(())
-                    }
+                    if let WasmValue::$variant(i) = value { Ok(i) } else { Err(()) }
                 }
             }
         )*

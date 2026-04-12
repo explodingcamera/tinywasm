@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::types::ValType;
+use tinywasm::types::WasmType;
 use tinywasm::{ExportType, ImportType, Module};
 
 #[test]
@@ -31,8 +31,8 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     let ifunc_import = imports.iter().find(|import| import.name == "ifunc").expect("ifunc import not found");
     match ifunc_import.ty {
         ImportType::Func(ty) => {
-            assert_eq!(ty.params.as_ref(), &[ValType::I32]);
-            assert_eq!(ty.results.as_ref(), &[ValType::I32]);
+            assert_eq!(ty.params(), &[WasmType::I32]);
+            assert_eq!(ty.results(), &[WasmType::I32]);
         }
         _ => panic!("ifunc import should be a function type"),
     }
@@ -41,7 +41,7 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     match iglobal_import.ty {
         ImportType::Global(ty) => {
             assert!(ty.mutable);
-            assert_eq!(ty.ty, ValType::I32);
+            assert_eq!(ty.ty, WasmType::I32);
         }
         _ => panic!("iglobal import should be a global type"),
     }
@@ -52,8 +52,8 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     let ifunc_export = exports.iter().find(|export| export.name == "ifunc_export").expect("ifunc export not found");
     match ifunc_export.ty {
         ExportType::Func(ty) => {
-            assert_eq!(ty.params.as_ref(), &[ValType::I32]);
-            assert_eq!(ty.results.as_ref(), &[ValType::I32]);
+            assert_eq!(ty.params(), &[WasmType::I32]);
+            assert_eq!(ty.results(), &[WasmType::I32]);
         }
         _ => panic!("ifunc export should resolve to imported function type"),
     }
@@ -63,7 +63,7 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     match iglobal_export.ty {
         ExportType::Global(ty) => {
             assert!(ty.mutable);
-            assert_eq!(ty.ty, ValType::I32);
+            assert_eq!(ty.ty, WasmType::I32);
         }
         _ => panic!("iglobal export should resolve to imported global type"),
     }
@@ -71,8 +71,8 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     let lfunc_export = exports.iter().find(|export| export.name == "lfunc_export").expect("lfunc export not found");
     match lfunc_export.ty {
         ExportType::Func(ty) => {
-            assert_eq!(ty.params.as_ref(), &[ValType::I64]);
-            assert_eq!(ty.results.as_ref(), &[ValType::I64]);
+            assert_eq!(ty.params(), &[WasmType::I64]);
+            assert_eq!(ty.results(), &[WasmType::I64]);
         }
         _ => panic!("lfunc export should resolve to local function type"),
     }
@@ -82,7 +82,7 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
     match lglobal_export.ty {
         ExportType::Global(ty) => {
             assert!(!ty.mutable);
-            assert_eq!(ty.ty, ValType::I64);
+            assert_eq!(ty.ty, WasmType::I64);
         }
         _ => panic!("lglobal export should resolve to local global type"),
     }

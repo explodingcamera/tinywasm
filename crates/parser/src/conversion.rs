@@ -28,7 +28,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
-            Ok(tinywasm_types::Element { kind, items, ty: ValType::RefFunc, range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: WasmType::RefFunc, range: element.range })
         }
 
         wasmparser::ElementItems::Expressions(ty, exprs) => {
@@ -211,26 +211,26 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     }
 
     let ty = types.next().unwrap().unwrap_func();
-    let params = ty.params().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
-    let results = ty.results().iter().map(convert_valtype).collect::<Vec<ValType>>().into_boxed_slice();
-    Ok(FuncType { params, results })
+    let params: Vec<_> = ty.params().iter().map(convert_valtype).collect();
+    let results: Vec<_> = ty.results().iter().map(convert_valtype).collect();
+    Ok(FuncType::new(&params, &results))
 }
 
-pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> ValType {
+pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> WasmType {
     match reftype {
-        _ if reftype.is_func_ref() => ValType::RefFunc,
-        _ if reftype.is_extern_ref() => ValType::RefExtern,
+        _ if reftype.is_func_ref() => WasmType::RefFunc,
+        _ if reftype.is_extern_ref() => WasmType::RefExtern,
         _ => unimplemented!("Unsupported reference type: {:?}, {:?}", reftype, reftype.heap_type()),
     }
 }
 
-pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
+pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> WasmType {
     match valtype {
-        wasmparser::ValType::I32 => ValType::I32,
-        wasmparser::ValType::I64 => ValType::I64,
-        wasmparser::ValType::F32 => ValType::F32,
-        wasmparser::ValType::F64 => ValType::F64,
-        wasmparser::ValType::V128 => ValType::V128,
+        wasmparser::ValType::I32 => WasmType::I32,
+        wasmparser::ValType::I64 => WasmType::I64,
+        wasmparser::ValType::F32 => WasmType::F32,
+        wasmparser::ValType::F64 => WasmType::F64,
+        wasmparser::ValType::V128 => WasmType::V128,
         wasmparser::ValType::Ref(r) => convert_reftype(*r),
     }
 }
@@ -247,8 +247,8 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     for op in ops.iter().take(ops.len() - 1) {
         let instr = match op {
             wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty) {
-                ValType::RefFunc => ConstInstruction::RefFunc(None),
-                ValType::RefExtern => ConstInstruction::RefExtern(None),
+                WasmType::RefFunc => ConstInstruction::RefFunc(None),
+                WasmType::RefExtern => ConstInstruction::RefExtern(None),
                 _ => unimplemented!("Unsupported heap type: {:?}", hty),
             },
             wasmparser::Operator::RefFunc { function_index } => ConstInstruction::RefFunc(Some(*function_index)),
@@ -276,11 +276,11 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     Ok(out.into_boxed_slice())
 }
 
-pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> ValType {
+pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> WasmType {
     match heap {
-        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Func } => ValType::RefFunc,
+        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Func } => WasmType::RefFunc,
         wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Extern } => {
-            ValType::RefExtern
+            WasmType::RefExtern
         }
         _ => unimplemented!("Unsupported heap type: {:?}", heap),
     }

@@ -2,7 +2,7 @@ use eyre::Result;
 use std::fmt::Write;
 use tinywasm::{
     FuncContext, HostFunction, Imports, Module, Store,
-    types::{FuncType, ValType, WasmValue},
+    types::{FuncType, WasmType, WasmValue},
 };
 use tinywasm_types::ExternRef;
 
@@ -15,15 +15,13 @@ const VAL_LISTS: &[&[WasmValue]] = &[
     &[WasmValue::RefExtern(ExternRef::null()), WasmValue::F64(0.0), WasmValue::I32(0)],
 ];
 
-fn value_types(values: &[WasmValue]) -> Box<[ValType]> {
-    values.iter().map(WasmValue::val_type).collect()
-}
-
 fn module_cases() -> Vec<(Module, FuncType, Vec<WasmValue>)> {
     let mut cases = Vec::<(Module, FuncType, Vec<WasmValue>)>::new();
     for results in VAL_LISTS {
         for params in VAL_LISTS {
-            let func_ty = FuncType { results: value_types(results), params: value_types(params) };
+            let param_tys = params.iter().map(WasmType::from).collect::<Vec<_>>();
+            let result_tys = results.iter().map(WasmType::from).collect::<Vec<_>>();
+            let func_ty = FuncType::new(&param_tys, &result_tys);
             cases.push((proxy_module(&func_ty), func_ty, params.to_vec()));
         }
     }
@@ -44,7 +42,7 @@ fn test_return_invalid_type() -> Result<()> {
             let instance = module.clone().instantiate(&mut store, Some(imports)).unwrap();
             let caller = instance.func_untyped(&store, "call_hfn").unwrap();
             // Return-type mismatch is only observable at call time.
-            let should_succeed = returned_values.iter().map(WasmValue::val_type).eq(ty.results.iter().copied());
+            let should_succeed = returned_values.iter().map(WasmType::from).eq(ty.results().iter().copied());
             let call_res = caller.call(&mut store, &args);
             assert_eq!(call_res.is_ok(), should_succeed);
         }
@@ -118,22 +116,22 @@ fn test_linking_invalid_typed_func() -> Result<()> {
     Ok(())
 }
 
-fn to_name(ty: &ValType) -> &str {
+fn to_name(ty: &WasmType) -> &str {
     match ty {
-        ValType::I32 => "i32",
-        ValType::I64 => "i64",
-        ValType::F32 => "f32",
-        ValType::F64 => "f64",
-        ValType::V128 => "v128",
-        ValType::RefFunc => "funcref",
-        ValType::RefExtern => "externref",
+        WasmType::I32 => "i32",
+        WasmType::I64 => "i64",
+        WasmType::F32 => "f32",
+        WasmType::F64 => "f64",
+        WasmType::V128 => "v128",
+        WasmType::RefFunc => "funcref",
+        WasmType::RefExtern => "externref",
     }
 }
 
 fn proxy_module(func_ty: &FuncType) -> Module {
-    let results = func_ty.results.as_ref();
-    let params = func_ty.params.as_ref();
-    let join_surround = |list: &[ValType], keyword| {
+    let results = func_ty.results();
+    let params = func_ty.params();
+    let join_surround = |list: &[WasmType], keyword| {
         if list.is_empty() {
             return "".to_string();
         }

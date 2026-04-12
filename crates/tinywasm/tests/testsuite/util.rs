@@ -1,7 +1,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{Result, bail, eyre};
-use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, ValType, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, WasmType, WasmValue};
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
 

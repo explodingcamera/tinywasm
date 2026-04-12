@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::types::{FuncRef, TableType, ValType, WasmValue};
+use tinywasm::types::{FuncRef, TableType, WasmType, WasmValue};
 use tinywasm::{Imports, Module, Store, Table};
 
 #[test]
@@ -20,7 +20,7 @@ fn imported_table_uses_provided_init_value() -> Result<()> {
     let mut store = Store::default();
     let mut imports = Imports::new();
     let table =
-        Table::new(&mut store, TableType::new(ValType::RefFunc, 3, None), WasmValue::RefFunc(FuncRef::new(Some(0))))?;
+        Table::new(&mut store, TableType::new(WasmType::RefFunc, 3, None), WasmValue::RefFunc(FuncRef::new(Some(0))))?;
     imports.define("host", "table", table);
 
     let instance = module.instantiate(&mut store, Some(imports))?;

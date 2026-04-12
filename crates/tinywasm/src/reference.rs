@@ -6,7 +6,7 @@ use alloc::{ffi::CString, format};
 use crate::store::{GlobalInstance, TableElement, TableInstance};
 use crate::{Error, MemoryInstance, Result, Store};
 use tinywasm_types::{
-    Addr, ExternRef, FuncRef, GlobalAddr, GlobalType, MemAddr, MemoryArch, MemoryType, TableAddr, TableType, ValType,
+    Addr, ExternRef, FuncRef, GlobalAddr, GlobalType, MemAddr, MemoryArch, MemoryType, TableAddr, TableType, WasmType,
     WasmValue,
 };
 
@@ -162,18 +162,18 @@ impl Memory {
     }
 }
 
-fn table_element_to_value(element_type: ValType, element: TableElement) -> WasmValue {
+fn table_element_to_value(element_type: WasmType, element: TableElement) -> WasmValue {
     match element_type {
-        ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(element.addr())),
-        ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(element.addr())),
+        WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(element.addr())),
+        WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(element.addr())),
         _ => unreachable!("table element type must be a reference type"),
     }
 }
 
-fn table_value_to_element(element_type: ValType, value: WasmValue) -> Result<TableElement> {
+fn table_value_to_element(element_type: WasmType, value: WasmValue) -> Result<TableElement> {
     match (element_type, value) {
-        (ValType::RefFunc, WasmValue::RefFunc(func_ref)) => Ok(TableElement::from(func_ref.addr())),
-        (ValType::RefExtern, WasmValue::RefExtern(extern_ref)) => Ok(TableElement::from(extern_ref.addr())),
+        (WasmType::RefFunc, WasmValue::RefFunc(func_ref)) => Ok(TableElement::from(func_ref.addr())),
+        (WasmType::RefExtern, WasmValue::RefExtern(extern_ref)) => Ok(TableElement::from(extern_ref.addr())),
         _ => Err(Error::Other("invalid table value type".to_string())),
     }
 }
@@ -187,8 +187,8 @@ impl Table {
     /// Create a new table in the given store.
     pub fn new(store: &mut Store, ty: TableType, init: WasmValue) -> Result<Self> {
         let init = match (ty.element_type, init) {
-            (ValType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
-            (ValType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
+            (WasmType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
+            (WasmType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
             _ => return Err(Error::Other("invalid table init value".to_string())),
         };
         let addr = store.state.tables.len() as TableAddr;
@@ -300,7 +300,7 @@ impl Global {
         if !global.ty.mutable {
             return Err(Error::Other("global is immutable".to_string()));
         }
-        if value.val_type() != global.ty.ty {
+        if WasmType::from(value) != global.ty.ty {
             return Err(Error::Other("invalid global value type".to_string()));
         }
         global.value.set(value.into());

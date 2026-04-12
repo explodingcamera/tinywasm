@@ -3,7 +3,7 @@ use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
 use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
-use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
 
 impl Function {
     /// Call a function (Invocation)
@@ -132,12 +132,12 @@ impl HostFunction {
             let ty = ty_inner.clone();
             let result = func(ctx, args)?;
 
-            if result.len() != ty.results.len() {
+            if result.len() != ty.results().len() {
                 return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result });
             };
 
-            result.iter().zip(ty.results.iter()).try_for_each(|(val, res_ty)| {
-                if val.val_type() != *res_ty {
+            result.iter().zip(ty.results().iter()).try_for_each(|(val, res_ty)| {
+                if WasmType::from(val) != *res_ty {
                     return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result.clone() });
                 }
                 Ok(())
@@ -153,8 +153,8 @@ impl HostFunction {
     /// Create a new typed host function import.
     pub fn from<P, R>(store: &mut Store, func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static) -> Function
     where
-        P: FromWasmValueTuple + ValTypesFromTuple,
-        R: IntoWasmValueTuple + ValTypesFromTuple,
+        P: FromWasmValueTuple + WasmTypesFromTuple,
+        R: IntoWasmValueTuple + WasmTypesFromTuple,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
             let args = P::from_wasm_value_tuple(args)?;
@@ -162,8 +162,7 @@ impl HostFunction {
             Ok(result.into_wasm_value_tuple())
         };
 
-        let results = R::val_types();
-        let ty = tinywasm_types::FuncType { params: P::val_types(), results };
+        let ty = tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types());
         let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
         Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
     }
@@ -363,15 +362,15 @@ impl<'store> FuncExecution<'store> {
 }
 
 fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> {
-    if unlikely(func_ty.params.len() != params.len()) {
+    if unlikely(func_ty.params().len() != params.len()) {
         return Err(Error::Other(format!(
             "param count mismatch: expected {}, got {}",
-            func_ty.params.len(),
+            func_ty.params().len(),
             params.len()
         )));
     }
 
-    if !(func_ty.params.iter().zip(params).all(|(ty, param)| ty == &param.val_type())) {
+    if !(func_ty.params().iter().zip(params).all(|(ty, param)| ty == &param.into())) {
         return Err(Error::Other("Type mismatch".into()));
     }
 
@@ -379,8 +378,8 @@ fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> 
 }
 
 fn collect_call_results(store: &mut Store, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
-    debug_assert!(store.stack.values.len() >= func_ty.results.len()); // m values are on the top of the stack (Ensured by validation)
-    let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results.iter().rev()).collect(); // pop in reverse order since the stack is LIFO
+    debug_assert!(store.stack.values.len() >= func_ty.results().len()); // m values are on the top of the stack (Ensured by validation)
+    let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results().iter().rev()).collect(); // pop in reverse order since the stack is LIFO
     res.reverse(); // reverse to get the original order
     Ok(res)
 }
@@ -443,28 +442,28 @@ impl<'store, R: FromWasmValueTuple> FuncExecutionTyped<'store, R> {
     }
 }
 
-pub trait ValTypesFromTuple {
-    fn val_types() -> Box<[ValType]>;
+pub trait WasmTypesFromTuple {
+    fn wasm_types() -> Box<[WasmType]>;
 }
 
-pub trait ToValType {
-    fn to_val_type() -> ValType;
+pub trait ToWasmType {
+    fn to_wasm_type() -> WasmType;
 }
 
 macro_rules! impl_scalar_wasm_traits {
     ($($T:ty => $val_ty:ident),+ $(,)?) => {
         $(
-            impl ToValType for $T {
+            impl ToWasmType for $T {
                 #[inline]
-                fn to_val_type() -> ValType {
-                    ValType::$val_ty
+                fn to_wasm_type() -> WasmType {
+                    WasmType::$val_ty
                 }
             }
 
-            impl ValTypesFromTuple for $T {
+            impl WasmTypesFromTuple for $T {
                 #[inline]
-                fn val_types() -> Box<[ValType]> {
-                    Box::new([ValType::$val_ty])
+                fn wasm_types() -> Box<[WasmType]> {
+                    Box::new([WasmType::$val_ty])
                 }
             }
 
@@ -495,13 +494,13 @@ macro_rules! impl_scalar_wasm_traits {
 
 macro_rules! impl_tuple_traits {
     ($($T:ident),+) => {
-        impl<$($T),+> ValTypesFromTuple for ($($T,)+)
+        impl<$($T),+> WasmTypesFromTuple for ($($T,)+)
         where
-            $($T: ToValType,)+
+            $($T: ToWasmType,)+
         {
             #[inline]
-            fn val_types() -> Box<[ValType]> {
-                Box::new([$($T::to_val_type(),)+])
+            fn wasm_types() -> Box<[WasmType]> {
+                Box::new([$($T::to_wasm_type(),)+])
             }
         }
 
@@ -569,9 +568,9 @@ impl_scalar_wasm_traits!(
 );
 impl_tuple!(impl_tuple_traits);
 
-impl ValTypesFromTuple for () {
+impl WasmTypesFromTuple for () {
     #[inline]
-    fn val_types() -> Box<[ValType]> {
+    fn wasm_types() -> Box<[WasmType]> {
         Box::new([])
     }
 }

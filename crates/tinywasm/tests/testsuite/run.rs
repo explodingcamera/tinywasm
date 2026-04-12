@@ -6,7 +6,7 @@ use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use log::{debug, error, info};
 use tinywasm::{Global, HostFunction, Imports, Memory, ModuleInstance, Table};
-use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
+use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, WasmType, WasmValue};
 use wasm_testsuite::data::TestFile;
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{Wast, lexer::Lexer, parser::ParseBuffer};
@@ -92,8 +92,8 @@ impl TestSuite {
 
         let table = Table::new(
             store,
-            TableType::new(ValType::RefFunc, 10, Some(20)),
-            WasmValue::default_for(ValType::RefFunc),
+            TableType::new(WasmType::RefFunc, 10, Some(20)),
+            WasmValue::default_for(WasmType::RefFunc),
         )?;
 
         let print = HostFunction::from(store, |_ctx: tinywasm::FuncContext, (): ()| {
@@ -132,12 +132,14 @@ impl TestSuite {
         });
 
         let memory = Memory::new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
-        let global_i32 = Global::new(store, tinywasm_types::GlobalType::new(ValType::I32, false), WasmValue::I32(666))?;
-        let global_i64 = Global::new(store, tinywasm_types::GlobalType::new(ValType::I64, false), WasmValue::I64(666))?;
+        let global_i32 =
+            Global::new(store, tinywasm_types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
+        let global_i64 =
+            Global::new(store, tinywasm_types::GlobalType::new(WasmType::I64, false), WasmValue::I64(666))?;
         let global_f32 =
-            Global::new(store, tinywasm_types::GlobalType::new(ValType::F32, false), WasmValue::F32(666.6))?;
+            Global::new(store, tinywasm_types::GlobalType::new(WasmType::F32, false), WasmValue::F32(666.6))?;
         let global_f64 =
-            Global::new(store, tinywasm_types::GlobalType::new(ValType::F64, false), WasmValue::F64(666.6))?;
+            Global::new(store, tinywasm_types::GlobalType::new(WasmType::F64, false), WasmValue::F64(666.6))?;
 
         imports
             .define("spectest", "memory", memory)
@@ -468,7 +470,7 @@ impl TestSuite {
                             let expected = expected_alternatives
                                 .iter()
                                 .filter_map(|alts| alts.first())
-                                .find(|exp| module_global.attach_type(exp.val_type()).eq_loose(exp));
+                                .find(|exp| module_global.attach_type(WasmType::from(*exp)).eq_loose(exp));
 
                             if expected.is_none() {
                                 test_group.add_result(

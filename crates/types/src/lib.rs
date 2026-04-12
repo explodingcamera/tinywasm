@@ -200,8 +200,27 @@ impl ExternVal {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuncType {
-    pub params: Box<[ValType]>,
-    pub results: Box<[ValType]>,
+    data: Box<[WasmType]>,
+    param_count: u16,
+}
+
+impl FuncType {
+    /// Create a new function type.
+    pub fn new(params: &[WasmType], results: &[WasmType]) -> Self {
+        let param_count = params.len() as u16;
+        let data: Box<[WasmType]> = params.iter().cloned().chain(results.iter().cloned()).collect();
+        Self { data, param_count }
+    }
+
+    /// Get the parameter types of this function type.
+    pub fn params(&self) -> &[WasmType] {
+        &self.data[..self.param_count as usize]
+    }
+
+    /// Get the result types of this function type.
+    pub fn results(&self) -> &[WasmType] {
+        &self.data[self.param_count as usize..]
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -221,15 +240,15 @@ impl ValueCounts {
     }
 }
 
-impl<'a> FromIterator<&'a ValType> for ValueCounts {
+impl<'a> FromIterator<&'a WasmType> for ValueCounts {
     #[inline]
-    fn from_iter<I: IntoIterator<Item = &'a ValType>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = &'a WasmType>>(iter: I) -> Self {
         iter.into_iter().fold(Self::default(), |mut counts, ty| {
             match ty {
-                ValType::I32 | ValType::F32 => counts.c32 += 1,
-                ValType::I64 | ValType::F64 => counts.c64 += 1,
-                ValType::V128 => counts.c128 += 1,
-                ValType::RefExtern | ValType::RefFunc => counts.cref += 1,
+                WasmType::I32 | WasmType::F32 => counts.c32 += 1,
+                WasmType::I64 | WasmType::F64 => counts.c64 += 1,
+                WasmType::V128 => counts.c128 += 1,
+                WasmType::RefExtern | WasmType::RefFunc => counts.cref += 1,
             }
             counts
         })
@@ -247,8 +266,8 @@ pub struct WasmFunction {
     pub ty: FuncType,
 }
 
-#[derive(Clone, PartialEq)]
 #[doc(hidden)]
+#[derive(Clone, PartialEq)]
 // wrapper around Arc<[T]> to support serde serialization and deserialization
 pub struct ArcSlice<T>(pub Arc<[T]>);
 
@@ -333,17 +352,17 @@ pub struct Global {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct GlobalType {
     pub mutable: bool,
-    pub ty: ValType,
+    pub ty: WasmType,
 }
 
 impl GlobalType {
     /// Create a new global type.
-    pub const fn new(ty: ValType, mutable: bool) -> Self {
+    pub const fn new(ty: WasmType, mutable: bool) -> Self {
         Self { mutable, ty }
     }
 
     /// Set a different value type.
-    pub const fn with_ty(mut self, ty: ValType) -> Self {
+    pub const fn with_ty(mut self, ty: WasmType) -> Self {
         self.ty = ty;
         self
     }
@@ -357,7 +376,7 @@ impl GlobalType {
 
 impl Default for GlobalType {
     fn default() -> Self {
-        Self::new(ValType::I32, false)
+        Self::new(WasmType::I32, false)
     }
 }
 
@@ -365,17 +384,17 @@ impl Default for GlobalType {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct TableType {
-    pub element_type: ValType,
+    pub element_type: WasmType,
     pub size_initial: u32,
     pub size_max: Option<u32>,
 }
 
 impl TableType {
     pub fn empty() -> Self {
-        Self { element_type: ValType::RefFunc, size_initial: 0, size_max: None }
+        Self { element_type: WasmType::RefFunc, size_initial: 0, size_max: None }
     }
 
-    pub fn new(element_type: ValType, size_initial: u32, size_max: Option<u32>) -> Self {
+    pub fn new(element_type: WasmType, size_initial: u32, size_max: Option<u32>) -> Self {
         Self { element_type, size_initial, size_max }
     }
 }
@@ -525,7 +544,7 @@ pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
     pub range: Range<usize>,
-    pub ty: ValType,
+    pub ty: WasmType,
 }
 
 #[derive(Clone, PartialEq)]

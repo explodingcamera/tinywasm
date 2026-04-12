@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValType, ValueCounts, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValueCounts, WasmType, WasmValue};
 
 use crate::{Result, Trap, engine::Config, interpreter::*, unlikely};
 
@@ -197,7 +197,7 @@ impl ValueStack {
 
     pub(crate) fn pop_types<'a>(
         &'a mut self,
-        val_types: impl IntoIterator<Item = &'a ValType>,
+        val_types: impl IntoIterator<Item = &'a WasmType>,
     ) -> impl core::iter::Iterator<Item = WasmValue> {
         val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
@@ -272,15 +272,15 @@ impl ValueStack {
         Ok(())
     }
 
-    pub(crate) fn pop_wasmvalue(&mut self, val_type: ValType) -> WasmValue {
+    pub(crate) fn pop_wasmvalue(&mut self, val_type: WasmType) -> WasmValue {
         match val_type {
-            ValType::I32 => WasmValue::I32(self.pop()),
-            ValType::I64 => WasmValue::I64(self.pop()),
-            ValType::F32 => WasmValue::F32(self.pop()),
-            ValType::F64 => WasmValue::F64(self.pop()),
-            ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
-            ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
-            ValType::V128 => WasmValue::V128(self.pop::<Value128>().into()),
+            WasmType::I32 => WasmValue::I32(self.pop()),
+            WasmType::I64 => WasmValue::I64(self.pop()),
+            WasmType::F32 => WasmValue::F32(self.pop()),
+            WasmType::F64 => WasmValue::F64(self.pop()),
+            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
+            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
+            WasmType::V128 => WasmValue::V128(self.pop::<Value128>().into()),
         }
     }
 

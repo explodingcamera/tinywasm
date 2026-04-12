@@ -738,7 +738,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
     fn exec_call_host(&mut self, host_func: Rc<HostFunction>) -> Result<()> {
-        let params = self.store.stack.values.pop_types(&host_func.ty.params).collect::<Box<_>>();
+        let params = self.store.stack.values.pop_types(host_func.ty.params()).collect::<Box<_>>();
         let res = host_func.call(FuncContext { store: self.store, module_addr: self.module.idx }, &params)?;
         self.store.stack.values.extend_from_wasmvalues(&res)?;
         self.cf.incr_instr_ptr();
@@ -780,7 +780,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let func_ref = {
             let table_idx: u32 = self.store.stack.values.pop::<i32>() as u32;
             let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
-            assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
+            assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
             let table =
                 table.get(table_idx).map_err(|_| Error::from(Trap::UndefinedElement { index: table_idx as usize }))?;
             table.addr().ok_or_else(|| Error::from(Trap::UninitializedElement { index: table_idx as usize }))?
@@ -814,7 +814,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_return(&mut self) -> bool {
-        let results = ValueCounts::from_iter(&self.func.ty.results);
+        let results = ValueCounts::from_iter(self.func.ty.results());
         self.store.stack.values.truncate_keep_counts(self.cf.locals_base, results);
         let Some(cf) = self.store.stack.call_stack.pop() else { return true };
 

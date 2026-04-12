@@ -32,8 +32,8 @@ impl TableInstance {
         let val = self.get(addr)?.addr();
 
         Ok(match self.kind.element_type {
-            ValType::RefFunc => WasmValue::RefFunc(FuncRef::new(val)),
-            ValType::RefExtern => WasmValue::RefExtern(ExternRef::new(val)),
+            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(val)),
+            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(val)),
             _ => Err(Error::UnsupportedFeature("non-ref table".into()))?,
         })
     }
@@ -127,7 +127,7 @@ impl TableInstance {
     }
 
     fn resolve_func_ref(&self, func_addrs: &[u32], addr: Addr) -> Addr {
-        if self.kind.element_type != ValType::RefFunc {
+        if self.kind.element_type != WasmType::RefFunc {
             return addr;
         }
 
@@ -188,7 +188,7 @@ mod tests {
 
     // Helper to create a dummy TableType
     fn dummy_table_type() -> TableType {
-        TableType { element_type: ValType::RefFunc, size_initial: 10, size_max: Some(20) }
+        TableType { element_type: WasmType::RefFunc, size_initial: 10, size_max: Some(20) }
     }
 
     #[test]

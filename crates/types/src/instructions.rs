@@ -1,4 +1,4 @@
-use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValType, ValueCounts};
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValueCounts, WasmType};
 use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
@@ -142,7 +142,7 @@ pub enum Instruction {
     F64Const(f64),
 
     // > Reference Types
-    RefNull(ValType),
+    RefNull(WasmType),
     RefFunc(FuncAddr),
     RefIsNull,
 

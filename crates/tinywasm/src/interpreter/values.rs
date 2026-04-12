@@ -2,7 +2,7 @@ use crate::{Result, interpreter::simd::Value128};
 
 use super::stack::{CallFrame, ValueStack};
 use tinywasm_types::LocalAddr;
-use tinywasm_types::{ExternRef, FuncRef, ValType, WasmValue};
+use tinywasm_types::{ExternRef, FuncRef, WasmType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -55,20 +55,20 @@ impl TinyWasmValue {
     }
 
     /// Attaches a type to the value (panics if the size of the value is not the same as the type)
-    pub fn attach_type(&self, ty: ValType) -> WasmValue {
+    pub fn attach_type(&self, ty: WasmType) -> WasmValue {
         match (self, ty) {
-            (Self::Value32(v), ValType::I32) => WasmValue::I32(*v as i32),
-            (Self::Value64(v), ValType::I64) => WasmValue::I64(*v as i64),
-            (Self::Value32(v), ValType::F32) => WasmValue::F32(f32::from_bits(*v)),
-            (Self::Value64(v), ValType::F64) => WasmValue::F64(f64::from_bits(*v)),
-            (Self::ValueRef(v), ValType::RefExtern) => WasmValue::RefExtern(ExternRef::new(*v)),
-            (Self::ValueRef(v), ValType::RefFunc) => WasmValue::RefFunc(FuncRef::new(*v)),
-            (Self::Value128(v), ValType::V128) => WasmValue::V128((*v).into()),
+            (Self::Value32(v), WasmType::I32) => WasmValue::I32(*v as i32),
+            (Self::Value64(v), WasmType::I64) => WasmValue::I64(*v as i64),
+            (Self::Value32(v), WasmType::F32) => WasmValue::F32(f32::from_bits(*v)),
+            (Self::Value64(v), WasmType::F64) => WasmValue::F64(f64::from_bits(*v)),
+            (Self::ValueRef(v), WasmType::RefExtern) => WasmValue::RefExtern(ExternRef::new(*v)),
+            (Self::ValueRef(v), WasmType::RefFunc) => WasmValue::RefFunc(FuncRef::new(*v)),
+            (Self::Value128(v), WasmType::V128) => WasmValue::V128((*v).into()),
 
-            (_, ValType::I32 | ValType::F32) => panic!("Expected Value32"),
-            (_, ValType::I64 | ValType::F64) => panic!("Expected Value64"),
-            (_, ValType::RefExtern | ValType::RefFunc) => panic!("Expected ValueRef"),
-            (_, ValType::V128) => panic!("Expected Value128"),
+            (_, WasmType::I32 | WasmType::F32) => panic!("Expected Value32"),
+            (_, WasmType::I64 | WasmType::F64) => panic!("Expected Value64"),
+            (_, WasmType::RefExtern | WasmType::RefFunc) => panic!("Expected ValueRef"),
+            (_, WasmType::V128) => panic!("Expected Value128"),
         }
     }
 }

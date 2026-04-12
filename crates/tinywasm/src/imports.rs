@@ -67,7 +67,7 @@ impl From<&Import> for ExternName {
 /// # use log;
 /// # fn main() -> tinywasm::Result<()> {
 /// use tinywasm::{Global, HostFunction, Imports, Memory, Module, Store, Table};
-/// use tinywasm::types::{ValType, TableType, MemoryType, WasmValue};
+/// use tinywasm::types::{WasmType, TableType, MemoryType, WasmValue};
 /// # let wasm = wat::parse_str("(module)").expect("valid wat");
 /// # let module = Module::parse_bytes(&wasm)?;
 /// # let mut store = Store::default();
@@ -81,9 +81,9 @@ impl From<&Import> for ExternName {
 ///     Ok(())
 /// });
 ///
-/// let table = Table::new(&mut store, TableType::new(ValType::RefFunc, 10, Some(20)), WasmValue::default_for(ValType::RefFunc))?;
+/// let table = Table::new(&mut store, TableType::new(WasmType::RefFunc, 10, Some(20)), WasmValue::default_for(WasmType::RefFunc))?;
 /// let memory = Memory::new(&mut store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
-/// let global_i32 = Global::new(&mut store, tinywasm::types::GlobalType::default().with_ty(ValType::I32), WasmValue::I32(666))?;
+/// let global_i32 = Global::new(&mut store, tinywasm::types::GlobalType::default().with_ty(WasmType::I32), WasmValue::I32(666))?;
 ///
 /// imports
 ///     .define("my_module", "print_i32", print_i32)

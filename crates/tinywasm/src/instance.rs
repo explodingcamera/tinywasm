@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
-use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
+use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, WasmTypesFromTuple};
 use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Module, Result, Store, Table};
 
 /// A typed view over an exported extern value.
@@ -304,7 +304,7 @@ impl ModuleInstance {
     }
 
     /// Get a typed function export by name.
-    pub fn func<P: IntoWasmValueTuple + ValTypesFromTuple, R: FromWasmValueTuple + ValTypesFromTuple>(
+    pub fn func<P: IntoWasmValueTuple + WasmTypesFromTuple, R: FromWasmValueTuple + WasmTypesFromTuple>(
         &self,
         store: &Store,
         name: &str,
@@ -317,7 +317,10 @@ impl ModuleInstance {
     /// Get a typed function by its module-local index.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
     #[cfg(feature = "guest_debug")]
-    pub fn func_typed_by_index<P: IntoWasmValueTuple + ValTypesFromTuple, R: FromWasmValueTuple + ValTypesFromTuple>(
+    pub fn func_typed_by_index<
+        P: IntoWasmValueTuple + WasmTypesFromTuple,
+        R: FromWasmValueTuple + WasmTypesFromTuple,
+    >(
         &self,
         store: &Store,
         func_index: FuncAddr,
@@ -327,8 +330,11 @@ impl ModuleInstance {
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
-    fn validate_typed_func<P: ValTypesFromTuple, R: ValTypesFromTuple>(func: &Function, func_name: &str) -> Result<()> {
-        let expected = FuncType { params: P::val_types(), results: R::val_types() };
+    fn validate_typed_func<P: WasmTypesFromTuple, R: WasmTypesFromTuple>(
+        func: &Function,
+        func_name: &str,
+    ) -> Result<()> {
+        let expected = FuncType::new(&P::wasm_types(), &R::wasm_types());
         if func.ty != expected {
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
