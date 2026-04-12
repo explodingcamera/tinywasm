@@ -8,9 +8,9 @@ use alloc::{rc::Rc, string::ToString};
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
-use super::ExecState;
 use super::num_helpers::*;
 use super::values::*;
+use super::ExecState;
 use crate::engine::FuelPolicy;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
@@ -854,7 +854,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(memarg.mem_addr()));
         let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, u16::from(addr_local)));
         let value = cast(self.store.stack.values.local_get::<T>(&self.cf, u16::from(value_local))).to_mem_bytes();
-        mem.store((memarg.offset() + addr) as usize, value.len(), &value)?;
+        let Some(effective_addr) = memarg.offset().checked_add(addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+        let Ok(effective_addr) = usize::try_from(effective_addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+        mem.store(effective_addr, value.len(), &value)?;
         Ok(())
     }
 
@@ -1067,7 +1073,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => self.store.stack.values.pop::<i32>() as u32 as u64,
         };
 
-        mem.store((offset + addr) as usize, val.len(), &val)?;
+        let Some(effective_addr) = offset.checked_add(addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+        let Ok(effective_addr) = usize::try_from(effective_addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+
+        mem.store(effective_addr, val.len(), &val)?;
 
         Ok(())
     }
@@ -1087,7 +1100,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => u64::from(self.store.stack.values.pop::<i32>() as u32),
         };
 
-        mem.store((offset + addr) as usize, val.len(), &val)?;
+        let Some(effective_addr) = offset.checked_add(addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+        let Ok(effective_addr) = usize::try_from(effective_addr) else {
+            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
+        };
+
+        mem.store(effective_addr, val.len(), &val)?;
 
         Ok(())
     }
