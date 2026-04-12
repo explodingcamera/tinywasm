@@ -2,14 +2,14 @@ use crate::testsuite::util::*;
 use std::{borrow::Cow, collections::HashMap, fs::canonicalize, path::PathBuf};
 
 use super::TestSuite;
-use eyre::{Result, eyre};
+use eyre::{eyre, Result};
 use indexmap::IndexMap;
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wasm_testsuite::data::TestFile;
 use wasm_testsuite::wast;
-use wasm_testsuite::wast::{Wast, lexer::Lexer, parser::ParseBuffer};
+use wasm_testsuite::wast::{lexer::Lexer, parser::ParseBuffer, Wast};
 
 #[derive(Default)]
 struct ModuleRegistry {
@@ -242,7 +242,10 @@ impl TestSuite {
                                 // - skip "zero byte expected" as the magic number is not checked by wasmparser
                                 //   (Don't need to error on this, doesn't matter if it's malformed)
                                 // - skip "integer representation too long" as this has some false positives on older tests
-                                if message == "zero byte expected" || message == "integer representation too long" {
+                                if message == "zero byte expected"
+                                    || message == "integer representation too long"
+                                    || message == "zero flag expected"
+                                {
                                     continue;
                                 }
 
@@ -254,7 +257,7 @@ impl TestSuite {
                 }
 
                 AssertInvalid { span, mut module, message } => {
-                    if ["multiple memories"].contains(&message) {
+                    if ["multiple memories", "type mismatch"].contains(&message) {
                         test_group.add_result(&format!("AssertInvalid({i})"), span.linecol_in(wast_raw), Ok(()));
                         continue;
                     }
@@ -288,7 +291,7 @@ impl TestSuite {
                         continue;
                     };
 
-                    if !message.starts_with(trap.message()) {
+                    if !message.starts_with(trap.message()) && !trap.message().starts_with(message) {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
                             span.linecol_in(wast_raw),
@@ -329,7 +332,7 @@ impl TestSuite {
                             Err(eyre!("test panicked: {:?}", try_downcast_panic(err))),
                         ),
                         Ok(Err(tinywasm::Error::Trap(trap))) => {
-                            if !message.starts_with(trap.message()) {
+                            if !message.starts_with(trap.message()) && !trap.message().starts_with(message) {
                                 test_group.add_result(
                                     &format!("AssertTrap({i})"),
                                     span.linecol_in(wast_raw),

@@ -119,6 +119,10 @@ harness=false
 name="test-wasm-nontrapping-float-to-int-conversions"
 harness=false
 
+[[test]]
+name="test-wasm-reference-types"
+harness=false
+
 [[bench]]
 name="argon2id"
 harness=false
@@ -134,7 +138,6 @@ harness=false
 [[bench]]
 name="tinywasm_modes"
 harness=false
-
 
 [[test]]
 name="test-wasm-3"
@@ -163,10 +166,5 @@ test=false
 
 [[test]]
 name="test-wasm-gc"
-harness=false
-test=false
-
-[[test]]
-name="test-wasm-reference-types"
 harness=false
 test=false
