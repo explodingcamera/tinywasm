@@ -35,7 +35,7 @@ fn link_module_links_same_store_instance() -> Result<()> {
     imports.link_module("adder", add_instance)?;
 
     let instance = import_module.instantiate(&mut store, Some(imports))?;
-    let main = instance.func_typed::<(), i32>(&store, "main")?;
+    let main = instance.func::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
     Ok(())
 }

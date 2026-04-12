@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 use lol_alloc::{AssumeSingleThreaded, FreeListAllocator};
-use tinywasm::{Extern, FuncContext};
+use tinywasm::{FuncContext, HostFunction};
 
 extern crate alloc;
 
@@ -36,7 +36,7 @@ fn run() -> tinywasm::Result<()> {
     imports.define(
         "env",
         "printi32",
-        Extern::typed_func(|_: FuncContext<'_>, v: i32| {
+        HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
             unsafe { printi32(v) }
             Ok(())
         }),

@@ -86,7 +86,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         }),
         wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
         wasmparser::TypeRef::Global(ty) => {
-            ImportKind::Global(GlobalType { mutable: ty.mutable, ty: convert_valtype(&ty.content_type) })
+            ImportKind::Global(GlobalType::new(convert_valtype(&ty.content_type), ty.mutable))
         }
         wasmparser::TypeRef::Tag(ty) => {
             return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
@@ -140,7 +140,7 @@ pub(crate) fn convert_module_globals(
             let global = global?;
             let ty = convert_valtype(&global.ty.content_type);
             let ops = global.init_expr.get_operators_reader();
-            Ok(Global { init: process_const_operators(ops)?, ty: GlobalType { mutable: global.ty.mutable, ty } })
+            Ok(Global { init: process_const_operators(ops)?, ty: GlobalType::new(ty, global.ty.mutable) })
         })
         .collect::<Result<Vec<_>>>()
 }

@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     let module = Module::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let instance = module.instantiate(&mut store, None)?;
-    let count_down = instance.func_typed::<i32, i32>(&store, "count_down")?;
+    let count_down = instance.func::<i32, i32>(&store, "count_down")?;
 
     let mut execution = count_down.call_resumable(&mut store, 10_000)?;
     let fuel_per_round = 128;

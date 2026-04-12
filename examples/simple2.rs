@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let module = Module::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let instance = module.instantiate(&mut store, None)?;
-    let add = instance.func_typed::<(i32, i64), (i32, i64)>(&store, "return")?;
+    let add = instance.func::<(i32, i64), (i32, i64)>(&store, "return")?;
 
     assert_eq!(add.call(&mut store, (1, 2))?, (1, 2));
     Ok(())

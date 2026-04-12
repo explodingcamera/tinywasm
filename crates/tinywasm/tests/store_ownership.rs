@@ -18,7 +18,7 @@ fn func_handle_rejects_wrong_store() -> Result<()> {
 
     let mut owner_store = Store::default();
     let instance = module.instantiate(&mut owner_store, None)?;
-    let func = instance.func(&owner_store, "add")?;
+    let func = instance.func_untyped(&owner_store, "add")?;
 
     let mut other_store = Store::default();
     let err = func.call(&mut other_store, &[1.into(), 2.into()]).unwrap_err();
@@ -35,8 +35,9 @@ fn memory_access_rejects_wrong_store() -> Result<()> {
     let mut owner_store = Store::default();
     let instance = module.instantiate(&mut owner_store, None)?;
 
+    let memory = instance.memory("memory")?;
     let other_store = Store::default();
-    let err = instance.memory(&other_store, "memory").unwrap_err();
+    let err = memory.data(&other_store).unwrap_err();
     assert!(matches!(err, Error::InvalidStore));
 
     Ok(())

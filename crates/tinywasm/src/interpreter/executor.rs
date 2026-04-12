@@ -12,6 +12,7 @@ use super::ExecState;
 use super::num_helpers::*;
 use super::values::*;
 use crate::engine::FuelPolicy;
+use crate::func::{FuncContext, HostFunction};
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
 use crate::*;
@@ -299,7 +300,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I64Popcnt => stack_op!(unary i64, |v| i64::from(v.count_ones())),
 
                 // Reference types
-                RefFunc(func_idx) => self.exec_const::<ValueRef>(Some(*func_idx))?,
+                RefFunc(func_idx) => self.exec_const::<ValueRef>(Some(self.module.resolve_func_addr(*func_idx)))?,
                 RefNull(_) => self.exec_const::<ValueRef>(None)?,
                 RefIsNull => self.exec_ref_is_null()?,
                 MemorySize(addr) => self.exec_memory_size(*addr)?,
@@ -737,7 +738,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         Ok(())
     }
-    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> Result<()> {
+    fn exec_call_host(&mut self, host_func: Rc<HostFunction>) -> Result<()> {
         let params = self.store.stack.values.pop_types(&host_func.ty.params).collect::<Box<_>>();
         let res = host_func.call(FuncContext { store: self.store, module_addr: self.module.idx }, &params)?;
         self.store.stack.values.extend_from_wasmvalues(&res)?;
@@ -749,10 +750,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let addr = self.module.resolve_func_addr(v);
         let func_inst = self.store.state.get_func(addr);
         match &func_inst.func {
-            crate::Function::Wasm(wasm_func) => {
+            crate::FunctionDef::Wasm(wasm_func) => {
                 self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), addr, func_inst.owner)
             }
-            crate::Function::Host(host_func) => self.exec_call_host(host_func.clone()),
+            crate::FunctionDef::Host(host_func) => self.exec_call_host(host_func.clone()),
         }
     }
 
@@ -793,7 +794,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let call_ty = self.module.func_ty(type_addr);
 
         match &func_inst.func {
-            crate::Function::Wasm(wasm_func) => {
+            crate::FunctionDef::Wasm(wasm_func) => {
                 if wasm_func.ty != *call_ty {
                     return Err(Trap::IndirectCallTypeMismatch {
                         actual: wasm_func.ty.clone(),
@@ -804,7 +805,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
                 self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_ref, func_inst.owner)
             }
-            crate::Function::Host(host_func) => {
+            crate::FunctionDef::Host(host_func) => {
                 if host_func.ty != *call_ty {
                     return Err(Trap::IndirectCallTypeMismatch {
                         actual: host_func.ty.clone(),

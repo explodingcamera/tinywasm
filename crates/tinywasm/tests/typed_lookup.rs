@@ -18,9 +18,9 @@ fn func_typed_rejects_wrong_param_or_result_types() -> Result<()> {
     let mut store = tinywasm::Store::default();
     let instance = module.instantiate(&mut store, None)?;
 
-    assert!(instance.func_typed::<(i32, i32), i32>(&store, "add").is_ok());
-    assert!(instance.func_typed::<i32, i32>(&store, "add").is_err());
-    assert!(instance.func_typed::<(i32, i32), ()>(&store, "add").is_err());
+    assert!(instance.func::<(i32, i32), i32>(&store, "add").is_ok());
+    assert!(instance.func::<i32, i32>(&store, "add").is_err());
+    assert!(instance.func::<(i32, i32), ()>(&store, "add").is_err());
 
     Ok(())
 }
@@ -41,8 +41,8 @@ fn func_typed_rejects_partial_multi_value_results() -> Result<()> {
     let mut store = tinywasm::Store::default();
     let instance = module.instantiate(&mut store, None)?;
 
-    assert!(instance.func_typed::<(), (i32, i32)>(&store, "pair").is_ok());
-    assert!(instance.func_typed::<(), i32>(&store, "pair").is_err());
+    assert!(instance.func::<(), (i32, i32)>(&store, "pair").is_ok());
+    assert!(instance.func::<(), i32>(&store, "pair").is_err());
 
     Ok(())
 }

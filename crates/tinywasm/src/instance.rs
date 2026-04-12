@@ -3,33 +3,18 @@ use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
-use crate::{
-    Error, FuncHandle, FuncHandleTyped, GlobalRef, GlobalRefMut, Imports, MemoryRef, MemoryRefMut, Module, Result,
-    Store, TableRef, TableRefMut,
-};
+use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Module, Result, Store, Table};
 
-/// A typed borrowed view over an exported extern value.
-pub enum ExternItemRef<'a> {
+/// A typed view over an exported extern value.
+pub enum ExternItem {
     /// Exported function handle.
-    Func(FuncHandle),
+    Func(Function),
     /// Exported memory reference.
-    Memory(MemoryRef<'a>),
+    Memory(Memory),
     /// Exported table reference.
-    Table(TableRef<'a>),
+    Table(Table),
     /// Exported global reference.
-    Global(GlobalRef<'a>),
-}
-
-/// A typed mutable borrowed view over an exported extern value.
-pub enum ExternItemRefMut<'a> {
-    /// Exported function handle.
-    Func(FuncHandle),
-    /// Exported mutable memory reference.
-    Memory(MemoryRefMut<'a>),
-    /// Exported mutable table reference.
-    Table(TableRefMut<'a>),
-    /// Exported mutable global reference.
-    Global(GlobalRefMut<'a>),
+    Global(Global),
 }
 
 /// An instantiated WebAssembly module
@@ -191,10 +176,8 @@ impl ModuleInstance {
     }
 
     /// Returns an iterator over all exported extern values for this instance.
-    pub fn exports<'a>(&'a self, store: &'a Store) -> Result<impl Iterator<Item = (&'a str, ExternItemRef<'a>)> + 'a> {
-        self.validate_store(store)?;
-
-        Ok(self.0.exports.iter().map(move |export| {
+    pub fn exports(&self) -> impl Iterator<Item = (&str, ExternItem)> + '_ {
+        self.0.exports.iter().map(move |export| {
             let name = export.name.as_ref();
             let item = match export.kind {
                 ExternalKind::Func => {
@@ -204,12 +187,12 @@ impl ModuleInstance {
                         .func_addrs
                         .get(idx)
                         .unwrap_or_else(|| unreachable!("invalid function export index: {}", export.index));
-                    let ty = store.state.get_func(func_addr).func.ty();
-                    ExternItemRef::Func(FuncHandle {
-                        store_id: self.0.store_id,
+                    let ty = self.0.func_ty(export.index).clone();
+                    ExternItem::Func(Function {
+                        item: crate::StoreItem::new(self.0.store_id, func_addr),
                         module_addr: self.id(),
                         addr: func_addr,
-                        ty: ty.clone(),
+                        ty,
                     })
                 }
                 ExternalKind::Table => {
@@ -219,7 +202,7 @@ impl ModuleInstance {
                         .table_addrs
                         .get(idx)
                         .unwrap_or_else(|| unreachable!("invalid table export index: {}", export.index));
-                    ExternItemRef::Table(TableRef(store.state.get_table(table_addr)))
+                    ExternItem::Table(Table::from_store_addr(self.0.store_id, table_addr))
                 }
                 ExternalKind::Memory => {
                     let idx = export.index as usize;
@@ -228,7 +211,7 @@ impl ModuleInstance {
                         .mem_addrs
                         .get(idx)
                         .unwrap_or_else(|| unreachable!("invalid memory export index: {}", export.index));
-                    ExternItemRef::Memory(MemoryRef(store.state.get_mem(mem_addr)))
+                    ExternItem::Memory(Memory::from_store_addr(self.0.store_id, mem_addr))
                 }
                 ExternalKind::Global => {
                     let idx = export.index as usize;
@@ -237,12 +220,12 @@ impl ModuleInstance {
                         .global_addrs
                         .get(idx)
                         .unwrap_or_else(|| unreachable!("invalid global export index: {}", export.index));
-                    ExternItemRef::Global(GlobalRef(store.state.get_global(global_addr)))
+                    ExternItem::Global(Global::from_store_addr(self.0.store_id, global_addr))
                 }
             };
 
             (name, item)
-        }))
+        })
     }
 
     #[inline]
@@ -257,35 +240,32 @@ impl ModuleInstance {
     }
 
     /// Get any exported extern value by name.
-    pub fn extern_item<'a>(&self, store: &'a Store, name: &str) -> Result<ExternItemRef<'a>> {
-        self.validate_store(store)?;
+    pub fn extern_item(&self, name: &str) -> Result<ExternItem> {
         match self.require_export(name)? {
-            ExternVal::Func(_) => self.func(store, name).map(ExternItemRef::Func),
-            ExternVal::Memory(mem_addr) => Ok(ExternItemRef::Memory(MemoryRef(store.state.get_mem(mem_addr)))),
-            ExternVal::Table(table_addr) => Ok(ExternItemRef::Table(TableRef(store.state.get_table(table_addr)))),
-            ExternVal::Global(global_addr) => Ok(ExternItemRef::Global(GlobalRef(store.state.get_global(global_addr)))),
-        }
-    }
-
-    /// Get any exported extern value by name with mutable access when applicable.
-    pub fn extern_item_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<ExternItemRefMut<'a>> {
-        self.validate_store(store)?;
-        match self.require_export(name)? {
-            ExternVal::Func(_) => self.func(store, name).map(ExternItemRefMut::Func),
-            ExternVal::Memory(mem_addr) => {
-                Ok(ExternItemRefMut::Memory(MemoryRefMut(store.state.get_mem_mut(mem_addr))))
+            ExternVal::Func(func_addr) => {
+                let export = self
+                    .0
+                    .exports
+                    .iter()
+                    .find(|e| e.name == name.into())
+                    .ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
+                Ok(ExternItem::Func(Function {
+                    item: crate::StoreItem::new(self.0.store_id, func_addr),
+                    module_addr: self.id(),
+                    addr: func_addr,
+                    ty: self.0.func_ty(export.index).clone(),
+                }))
             }
-            ExternVal::Table(table_addr) => {
-                Ok(ExternItemRefMut::Table(TableRefMut(store.state.get_table_mut(table_addr))))
-            }
+            ExternVal::Memory(mem_addr) => Ok(ExternItem::Memory(Memory::from_store_addr(self.0.store_id, mem_addr))),
+            ExternVal::Table(table_addr) => Ok(ExternItem::Table(Table::from_store_addr(self.0.store_id, table_addr))),
             ExternVal::Global(global_addr) => {
-                Ok(ExternItemRefMut::Global(GlobalRefMut(store.state.get_global_mut(global_addr))))
+                Ok(ExternItem::Global(Global::from_store_addr(self.0.store_id, global_addr)))
             }
         }
     }
 
     /// Get a function export by name.
-    pub fn func(&self, store: &Store, name: &str) -> Result<FuncHandle> {
+    pub fn func_untyped(&self, store: &Store, name: &str) -> Result<Function> {
         self.validate_store(store)?;
 
         let export = self.require_export(name)?;
@@ -294,7 +274,12 @@ impl ModuleInstance {
         };
 
         let ty = store.state.get_func(func_addr).func.ty();
-        Ok(FuncHandle { store_id: self.0.store_id, addr: func_addr, module_addr: self.id(), ty: ty.clone() })
+        Ok(Function {
+            item: crate::StoreItem::new(self.0.store_id, func_addr),
+            addr: func_addr,
+            module_addr: self.id(),
+            ty: ty.clone(),
+        })
     }
 
     /// Get a function by its module-local index.
@@ -305,23 +290,28 @@ impl ModuleInstance {
     /// module author did not expose as part of the public API.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
     #[cfg(feature = "guest_debug")]
-    pub fn func_by_index(&self, store: &Store, func_index: FuncAddr) -> Result<FuncHandle> {
+    pub fn func_by_index(&self, store: &Store, func_index: FuncAddr) -> Result<Function> {
         self.validate_store(store)?;
         let func_addr = Self::index_addr(&self.0.func_addrs, func_index, "function")?;
 
         let ty = store.state.get_func(func_addr).func.ty();
-        Ok(FuncHandle { store_id: self.0.store_id, addr: func_addr, module_addr: self.id(), ty: ty.clone() })
+        Ok(Function {
+            item: crate::StoreItem::new(self.0.store_id, func_addr),
+            addr: func_addr,
+            module_addr: self.id(),
+            ty: ty.clone(),
+        })
     }
 
     /// Get a typed function export by name.
-    pub fn func_typed<P: IntoWasmValueTuple + ValTypesFromTuple, R: FromWasmValueTuple + ValTypesFromTuple>(
+    pub fn func<P: IntoWasmValueTuple + ValTypesFromTuple, R: FromWasmValueTuple + ValTypesFromTuple>(
         &self,
         store: &Store,
         name: &str,
-    ) -> Result<FuncHandleTyped<P, R>> {
-        let func = self.func(store, name)?;
+    ) -> Result<FunctionTyped<P, R>> {
+        let func = self.func_untyped(store, name)?;
         Self::validate_typed_func::<P, R>(&func, name)?;
-        Ok(FuncHandleTyped { func, marker: core::marker::PhantomData })
+        Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
     /// Get a typed function by its module-local index.
@@ -331,16 +321,13 @@ impl ModuleInstance {
         &self,
         store: &Store,
         func_index: FuncAddr,
-    ) -> Result<FuncHandleTyped<P, R>> {
+    ) -> Result<FunctionTyped<P, R>> {
         let func = self.func_by_index(store, func_index)?;
         Self::validate_typed_func::<P, R>(&func, &format!("function index {func_index}"))?;
-        Ok(FuncHandleTyped { func, marker: core::marker::PhantomData })
+        Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
-    fn validate_typed_func<P: ValTypesFromTuple, R: ValTypesFromTuple>(
-        func: &FuncHandle,
-        func_name: &str,
-    ) -> Result<()> {
+    fn validate_typed_func<P: ValTypesFromTuple, R: ValTypesFromTuple>(func: &Function, func_name: &str) -> Result<()> {
         let expected = FuncType { params: P::val_types(), results: R::val_types() };
         if func.ty != expected {
             #[cfg(feature = "debug")]
@@ -356,25 +343,11 @@ impl ModuleInstance {
     }
 
     /// Get a memory export by name.
-    pub fn memory<'a>(&self, store: &'a Store, name: &str) -> Result<MemoryRef<'a>> {
-        self.validate_store(store)?;
-
-        let export = self.require_export(name)?;
-        let ExternVal::Memory(mem_addr) = export else {
+    pub fn memory(&self, name: &str) -> Result<Memory> {
+        let ExternVal::Memory(mem_addr) = self.require_export(name)? else {
             return Err(Error::Other(format!("Export is not a memory: {name}")));
         };
-        Ok(MemoryRef(store.state.get_mem(mem_addr)))
-    }
-
-    /// Get a mutable memory export by name.
-    pub fn memory_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<MemoryRefMut<'a>> {
-        self.validate_store(store)?;
-
-        let export = self.require_export(name)?;
-        let ExternVal::Memory(mem_addr) = export else {
-            return Err(Error::Other(format!("Export is not a memory: {name}")));
-        };
-        Ok(MemoryRefMut(store.state.get_mem_mut(mem_addr)))
+        Ok(Memory::from_store_addr(self.0.store_id, mem_addr))
     }
 
     /// Get a memory by its module-local index.
@@ -385,46 +358,17 @@ impl ModuleInstance {
     /// that are not part of the module's public API.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
     #[cfg(feature = "guest_debug")]
-    pub fn memory_by_index<'a>(&self, store: &'a Store, memory_index: MemAddr) -> Result<MemoryRef<'a>> {
-        self.validate_store(store)?;
-        let mem_addr = Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?;
-        Ok(MemoryRef(store.state.get_mem(mem_addr)))
-    }
-
-    /// Get a mutable memory by its module-local index.
-    ///
-    /// This exposes an internal module-owned memory directly and bypasses the
-    /// normal export boundary. It is mainly intended for tooling and
-    /// inspection. Mutating a private memory can change module behavior in ways
-    /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
-    pub fn memory_mut_by_index<'a>(&self, store: &'a mut Store, memory_index: MemAddr) -> Result<MemoryRefMut<'a>> {
-        self.validate_store(store)?;
-        let mem_addr = Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?;
-        Ok(MemoryRefMut(store.state.get_mem_mut(mem_addr)))
+    pub fn memory_by_index(&self, memory_index: MemAddr) -> Result<Memory> {
+        Ok(Memory::from_store_addr(self.0.store_id, Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?))
     }
 
     /// Get a table export by name.
-    pub fn table<'a>(&self, store: &'a Store, name: &str) -> Result<TableRef<'a>> {
-        self.validate_store(store)?;
-
+    pub fn table(&self, name: &str) -> Result<Table> {
         let export = self.require_export(name)?;
         let ExternVal::Table(table_addr) = export else {
             return Err(Error::Other(format!("Export is not a table: {name}")));
         };
-        Ok(TableRef(store.state.get_table(table_addr)))
-    }
-
-    /// Get a mutable table export by name.
-    pub fn table_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<TableRefMut<'a>> {
-        self.validate_store(store)?;
-
-        let export = self.require_export(name)?;
-        let ExternVal::Table(table_addr) = export else {
-            return Err(Error::Other(format!("Export is not a table: {name}")));
-        };
-        Ok(TableRefMut(store.state.get_table_mut(table_addr)))
+        Ok(Table::from_store_addr(self.0.store_id, table_addr))
     }
 
     /// Get a table by its module-local index.
@@ -435,61 +379,31 @@ impl ModuleInstance {
     /// that are not part of the module's public API.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
     #[cfg(feature = "guest_debug")]
-    pub fn table_by_index<'a>(&self, store: &'a Store, table_index: TableAddr) -> Result<TableRef<'a>> {
-        self.validate_store(store)?;
-        let table_addr = Self::index_addr(&self.0.table_addrs, table_index, "table")?;
-        Ok(TableRef(store.state.get_table(table_addr)))
-    }
-
-    /// Get a mutable table by its module-local index.
-    ///
-    /// This exposes an internal module-owned table directly and bypasses the
-    /// normal export boundary. It is mainly intended for tooling and
-    /// inspection. Mutating a private table can change module behavior in ways
-    /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
-    pub fn table_mut_by_index<'a>(&self, store: &'a mut Store, table_index: TableAddr) -> Result<TableRefMut<'a>> {
-        self.validate_store(store)?;
-        let table_addr = Self::index_addr(&self.0.table_addrs, table_index, "table")?;
-        Ok(TableRefMut(store.state.get_table_mut(table_addr)))
+    pub fn table_by_index(&self, table_index: TableAddr) -> Result<Table> {
+        Ok(Table::from_store_addr(self.0.store_id, Self::index_addr(&self.0.table_addrs, table_index, "table")?))
     }
 
     /// Get the value of a global export by name.
     pub fn global_get(&self, store: &Store, name: &str) -> Result<WasmValue> {
-        self.global(store, name).map(|global| global.get())
+        self.global(name)?.get(store)
     }
 
-    /// Get a reference to a global export by name.
-    pub fn global<'a>(&self, store: &'a Store, name: &str) -> Result<GlobalRef<'a>> {
-        self.validate_store(store)?;
-
+    /// Get a global export by name.
+    pub fn global(&self, name: &str) -> Result<Global> {
         let export = self.require_export(name)?;
         let ExternVal::Global(global_addr) = export else {
             return Err(Error::Other(format!("Export is not a global: {name}")));
         };
 
-        Ok(GlobalRef(store.state.get_global(global_addr)))
-    }
-
-    /// Get a mutable reference to a global export by name.
-    pub fn global_mut<'a>(&self, store: &'a mut Store, name: &str) -> Result<GlobalRefMut<'a>> {
-        self.validate_store(store)?;
-
-        let export = self.require_export(name)?;
-        let ExternVal::Global(global_addr) = export else {
-            return Err(Error::Other(format!("Export is not a global: {name}")));
-        };
-
-        Ok(GlobalRefMut(store.state.get_global_mut(global_addr)))
+        Ok(Global::from_store_addr(self.0.store_id, global_addr))
     }
 
     /// Set the value of a mutable global export by name.
     pub fn global_set(&self, store: &mut Store, name: &str, value: WasmValue) -> Result<()> {
-        self.global_mut(store, name)?.set(value)
+        self.global(name)?.set(store, value)
     }
 
-    /// Get a reference to a global by its module-local index.
+    /// Get a global by its module-local index.
     ///
     /// This exposes an internal module-owned global directly and bypasses the
     /// normal export boundary. It is mainly intended for tooling and
@@ -497,26 +411,8 @@ impl ModuleInstance {
     /// that are not part of the module's public API.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
     #[cfg(feature = "guest_debug")]
-    pub fn global_by_index<'a>(&self, store: &'a Store, global_index: GlobalAddr) -> Result<GlobalRef<'a>> {
-        self.validate_store(store)?;
-        let global_addr = Self::index_addr(&self.0.global_addrs, global_index, "global")?;
-
-        Ok(GlobalRef(store.state.get_global(global_addr)))
-    }
-
-    /// Get a mutable reference to a global by its module-local index.
-    ///
-    /// This exposes an internal module-owned global directly and bypasses the
-    /// normal export boundary. It is mainly intended for tooling and
-    /// inspection. Mutating a private global can change module behavior in ways
-    /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
-    pub fn global_mut_by_index<'a>(&self, store: &'a mut Store, global_index: GlobalAddr) -> Result<GlobalRefMut<'a>> {
-        self.validate_store(store)?;
-        let global_addr = Self::index_addr(&self.0.global_addrs, global_index, "global")?;
-
-        Ok(GlobalRefMut(store.state.get_global_mut(global_addr)))
+    pub fn global_by_index(&self, global_index: GlobalAddr) -> Result<Global> {
+        Ok(Global::from_store_addr(self.0.store_id, Self::index_addr(&self.0.global_addrs, global_index, "global")?))
     }
 
     /// Get the start function of the module
@@ -525,7 +421,7 @@ impl ModuleInstance {
     /// If no start function is specified, also checks for a `_start` function in the exports
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
-    pub fn start_func(&self, store: &Store) -> Result<Option<FuncHandle>> {
+    pub fn start_func(&self, store: &Store) -> Result<Option<Function>> {
         self.validate_store(store)?;
 
         let func_index = match self.0.func_start {
@@ -542,7 +438,12 @@ impl ModuleInstance {
 
         let func_addr = self.0.resolve_func_addr(func_index);
         let ty = store.state.get_func(func_addr).func.ty();
-        Ok(Some(FuncHandle { store_id: self.0.store_id, module_addr: self.id(), addr: func_addr, ty: ty.clone() }))
+        Ok(Some(Function {
+            item: crate::StoreItem::new(self.0.store_id, func_addr),
+            module_addr: self.id(),
+            addr: func_addr,
+            ty: ty.clone(),
+        }))
     }
 
     /// Invoke the start function of the module

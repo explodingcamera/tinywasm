@@ -2,7 +2,7 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use eyre::Result;
 use tinywasm::engine::{Config, FuelPolicy};
 use tinywasm::types::TinyWasmModule;
-use tinywasm::{Engine, ExecProgress, Extern, FuncContext, FuncHandleTyped, Imports, ModuleInstance, Store};
+use tinywasm::{Engine, ExecProgress, FuncContext, FunctionTyped, HostFunction, Imports, ModuleInstance, Store};
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
 const FUEL_PER_ROUND: u32 = 512;
@@ -14,26 +14,26 @@ fn tinywasm_parse() -> Result<TinyWasmModule> {
     Ok(parser.parse_module_bytes(WASM)?)
 }
 
-fn setup_typed_func(module: TinyWasmModule, engine: Option<Engine>) -> Result<(Store, FuncHandleTyped<(), ()>)> {
+fn setup_typed_func(module: TinyWasmModule, engine: Option<Engine>) -> Result<(Store, FunctionTyped<(), ()>)> {
     let mut store = match engine {
         Some(engine) => Store::new(engine),
         None => Store::default(),
     };
 
     let mut imports = Imports::default();
-    imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(())))?;
+    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _: i32| Ok(())));
 
     let instance = ModuleInstance::instantiate(&mut store, module.into(), Some(imports))?;
-    let func = instance.func_typed::<(), ()>(&store, "hello")?;
+    let func = instance.func::<(), ()>(&store, "hello")?;
     Ok((store, func))
 }
 
-fn run_call(store: &mut Store, func: &FuncHandleTyped<(), ()>) -> Result<()> {
+fn run_call(store: &mut Store, func: &FunctionTyped<(), ()>) -> Result<()> {
     func.call(store, ())?;
     Ok(())
 }
 
-fn run_resume_with_fuel(store: &mut Store, func: &FuncHandleTyped<(), ()>) -> Result<()> {
+fn run_resume_with_fuel(store: &mut Store, func: &FunctionTyped<(), ()>) -> Result<()> {
     let mut execution = func.call_resumable(store, ())?;
     loop {
         match execution.resume_with_fuel(FUEL_PER_ROUND)? {
@@ -43,7 +43,7 @@ fn run_resume_with_fuel(store: &mut Store, func: &FuncHandleTyped<(), ()>) -> Re
     }
 }
 
-fn run_resume_with_time_budget(store: &mut Store, func: &FuncHandleTyped<(), ()>) -> Result<()> {
+fn run_resume_with_time_budget(store: &mut Store, func: &FunctionTyped<(), ()>) -> Result<()> {
     let mut execution = func.call_resumable(store, ())?;
     loop {
         match execution.resume_with_time_budget(TIME_BUDGET_PER_ROUND)? {

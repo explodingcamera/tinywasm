@@ -6,7 +6,7 @@ use tinywasm_types::*;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::TinyWasmValue;
 use crate::interpreter::stack::Stack;
-use crate::{Engine, Error, Function, ModuleInstance, Result, Trap};
+use crate::{Engine, Error, ModuleInstance, Result, Trap};
 
 mod data;
 mod element;
@@ -118,8 +118,8 @@ impl State {
     pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Rc<WasmFunction> {
         match self.funcs.get(addr as usize) {
             Some(func) => match &func.func {
-                Function::Wasm(wasm_func) => wasm_func,
-                Function::Host(_) => unreachable!(
+                FunctionDef::Wasm(wasm_func) => wasm_func,
+                FunctionDef::Host(_) => unreachable!(
                     "expected a wasm function at address {addr}, but found a host function. This should be unreachable"
                 ),
             },
@@ -423,36 +423,7 @@ impl Store {
         Ok((data_addrs.into_boxed_slice(), None))
     }
 
-    pub(crate) fn add_global(&mut self, ty: GlobalType, value: TinyWasmValue, _idx: ModuleInstanceAddr) -> Addr {
-        self.state.globals.push(GlobalInstance::new(ty, value));
-        self.state.globals.len() as Addr - 1
-    }
-
-    pub(crate) fn add_table(
-        &mut self,
-        table: TableType,
-        init: WasmValue,
-        _idx: ModuleInstanceAddr,
-    ) -> Result<TableAddr> {
-        let init = match (table.element_type, init) {
-            (ValType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
-            (ValType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
-            _ => return Err(Error::Other("invalid table init value".to_string())),
-        };
-
-        self.state.tables.push(TableInstance::new_with_init(table, init));
-        Ok(self.state.tables.len() as TableAddr - 1)
-    }
-
-    pub(crate) fn add_mem(&mut self, mem: MemoryType, _idx: ModuleInstanceAddr) -> Result<MemAddr> {
-        if let MemoryArch::I64 = mem.arch() {
-            return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
-        }
-        self.state.memories.push(MemoryInstance::new(mem));
-        Ok(self.state.memories.len() as MemAddr - 1)
-    }
-
-    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> FuncAddr {
+    pub(crate) fn add_func(&mut self, func: FunctionDef, idx: ModuleInstanceAddr) -> FuncAddr {
         self.state.funcs.push(FunctionInstance { func, owner: idx });
         self.state.funcs.len() as FuncAddr - 1
     }

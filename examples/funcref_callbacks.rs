@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Extern, FuncContext, Imports, Module, Store, types::FuncRef};
+use tinywasm::{FuncContext, HostFunction, Imports, Module, Store, types::FuncRef};
 
 const LHS: i32 = 5;
 const RHS: i32 = 3;
@@ -49,27 +49,21 @@ fn run_passed_funcref_example() -> Result<()> {
     let wasm = wat::parse_str(WASM).expect("failed to parse wat");
     let module = Module::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let mut imports = Imports::new();
 
-    imports.define(
-        "host",
-        "call_this",
-        Extern::typed_func(|mut ctx: FuncContext<'_>, func_ref: FuncRef| -> tinywasm::Result<()> {
+    let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
+    let call_this =
+        HostFunction::from(&mut store, |mut ctx: FuncContext<'_>, func_ref: FuncRef| -> tinywasm::Result<()> {
             // Host cannot call a funcref directly, so it routes through Wasm.
-            let call_by_ref = ctx.module().func_typed::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
+            let call_by_ref = ctx.module().func::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
             let _result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
             Ok(())
-        }),
-    )?;
+        });
 
-    imports.define(
-        "host",
-        "mul",
-        Extern::typed_func(|_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) }),
-    )?;
+    let mut imports = Imports::new();
+    imports.define("host", "call_this", call_this).define("host", "mul", mul);
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let caller = instance.func_typed::<(), ()>(&store, "tell_host_to_call")?;
+    let caller = instance.func::<(), ()>(&store, "tell_host_to_call")?;
 
     caller.call(&mut store, ())?;
 
@@ -113,21 +107,16 @@ fn run_returned_funcref_example() -> Result<()> {
     let mut store = Store::default();
     let mut imports = Imports::new();
 
-    imports.define(
-        "host",
-        "mul",
-        Extern::typed_func(|_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) }),
-    )?;
+    let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
+    imports.define("host", "mul", mul);
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-
     let (add_ref, sub_ref, mul_ref) = {
-        let get_funcrefs = instance.func_typed::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
+        let get_funcrefs = instance.func::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
         get_funcrefs.call(&mut store, ())?
     };
 
-    let call_by_ref = instance.func_typed::<(FuncRef, i32, i32), i32>(&store, "call_binop_by_ref")?;
-
+    let call_by_ref = instance.func::<(FuncRef, i32, i32), i32>(&store, "call_binop_by_ref")?;
     for func_ref in [add_ref, sub_ref, mul_ref] {
         let _result = call_by_ref.call(&mut store, (func_ref, LHS, RHS))?;
     }

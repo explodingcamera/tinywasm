@@ -23,7 +23,7 @@ fn fibonacci_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
 fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> {
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
-    let argon2 = instance.func_typed::<i32, i32>(
+    let argon2 = instance.func::<i32, i32>(
         &store,
         match recursive {
             true => "fibonacci_recursive",

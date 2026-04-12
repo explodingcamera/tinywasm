@@ -57,7 +57,7 @@
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.func` to get an untyped handle
 //! // that takes and returns [`WasmValue`]s
-//! let func = instance.func_typed::<(i32, i32), i32>(&mut store, "add")?;
+//! let func = instance.func::<(i32, i32), i32>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
 //! assert_eq!(res, 3);
@@ -96,9 +96,9 @@ pub(crate) mod log {
 
 mod error;
 pub use error::*;
-pub use func::{ExecProgress, FuncExecution, FuncExecutionTyped, FuncHandle, FuncHandleTyped};
+pub use func::{ExecProgress, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped, HostFunction};
 pub use imports::*;
-pub use instance::{ExternItemRef, ExternItemRefMut, ModuleInstance};
+pub use instance::{ExternItem, ModuleInstance};
 pub use module::{ExportType, ImportType, Module, ModuleExport, ModuleImport};
 pub use reference::*;
 pub use store::*;

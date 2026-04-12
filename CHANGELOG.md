@@ -21,12 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `engine::FuelPolicy` and `engine::Config::fuel_policy` for fuel accounting behavior
 - New `canonicalize_nans` feature flag to enable canonicalizing NaN values in the `f32`, `f64`, and `v128` types
 - Public API rework for runtime object access:
-  - export lookups: `func`, `func_typed`, `memory`, `memory_mut`
-  - table/global access: `table`, `table_mut`, `global`, `global_mut`, `global_get`, `global_set`
-  - generic export access: `extern_item`, `extern_item_mut`
+  - export lookups: `func_untyped`/`func`, `memory`, `table`, `global`
+  - table/global value access: `global_get`, `global_set`
+  - generic export access: `extern_item` and `ExternItem`
   - export iteration: `ModuleInstance::exports`
   - module descriptors: `Module::imports`, `Module::exports`
-  - raw memory data access: `MemoryRef::data`/`data_size`, `MemoryRefMut::data`/`data_mut`/`data_size`
+  - handle-based runtime objects with explicit store access: `Memory`, `Table`, `Global`, `Function`
 
 ### Changed
 
@@ -50,10 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Increased MSRV to 1.90
 - `Error::ParseError` was renamed to `Error::Parser`, and `Error::Twasm` was added
 - `ModuleInstance` export lookup APIs were renamed:
-  - `exported_func_untyped` -> `func`
-  - `exported_func` -> `func_typed`
+  - `exported_func_untyped` -> `func_untyped`
+  - `exported_func` -> `func`
   - `exported_memory` -> `memory`
-  - `exported_memory_mut` -> `memory_mut`
+- `ModuleInstance` mutable export lookup variants were removed:
+  - `memory_mut`, `table_mut`, `global_mut`
+  - `extern_item_mut`
+- `FuncHandle` / `FuncHandleTyped` were renamed to `Function` / `FunctionTyped`
+- `HostFunction::new` / `HostFunction::func` / `HostFunction::typed` now require `&mut Store`
 - `Imports::link_module` now takes a `ModuleInstance` instead of a raw module instance id
 - `func_typed` now validates the exact wasm signature at lookup time and fails immediately on mismatches
 

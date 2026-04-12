@@ -43,7 +43,7 @@ fn main() -> Result<()> {
     let import_instance = import_module.instantiate(&mut store, Some(imports))?;
 
     // Call the `main` function, which uses the imported `add` function.
-    let main = import_instance.func_typed::<(), i32>(&store, "main")?;
+    let main = import_instance.func::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
 
     Ok(())

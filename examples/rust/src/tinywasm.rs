@@ -1,5 +1,5 @@
 #![no_main]
-use tinywasm::{Extern, FuncContext};
+use tinywasm::{FuncContext, HostFunction};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -19,7 +19,7 @@ fn run() -> tinywasm::Result<()> {
     imports.define(
         "env",
         "printi32",
-        Extern::typed_func(|_: FuncContext<'_>, v: i32| {
+        HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
             unsafe { printi32(v) }
             Ok(())
         }),

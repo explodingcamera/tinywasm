@@ -5,7 +5,7 @@ use super::TestSuite;
 use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use log::{debug, error, info};
-use tinywasm::{Extern, Imports, ModuleInstance};
+use tinywasm::{Global, HostFunction, Imports, Memory, ModuleInstance, Table};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wasm_testsuite::data::TestFile;
 use wasm_testsuite::wast;
@@ -87,65 +87,72 @@ impl TestSuite {
         Ok(())
     }
 
-    fn imports(modules: &HashMap<std::string::String, ModuleInstance>) -> Result<Imports> {
+    fn imports(store: &mut tinywasm::Store, modules: &HashMap<std::string::String, ModuleInstance>) -> Result<Imports> {
         let mut imports = Imports::new();
 
-        let table =
-            Extern::table(TableType::new(ValType::RefFunc, 10, Some(20)), WasmValue::default_for(ValType::RefFunc));
+        let table = Table::new(
+            store,
+            TableType::new(ValType::RefFunc, 10, Some(20)),
+            WasmValue::default_for(ValType::RefFunc),
+        )?;
 
-        let print = Extern::typed_func(|_ctx: tinywasm::FuncContext, (): ()| {
+        let print = HostFunction::from(store, |_ctx: tinywasm::FuncContext, (): ()| {
             log::debug!("print");
             Ok(())
         });
 
-        let print_i32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i32| {
+        let print_i32 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, arg: i32| {
             log::debug!("print_i32: {arg}");
             Ok(())
         });
 
-        let print_i64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: i64| {
+        let print_i64 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, arg: i64| {
             log::debug!("print_i64: {arg}");
             Ok(())
         });
 
-        let print_f32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f32| {
+        let print_f32 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, arg: f32| {
             log::debug!("print_f32: {arg}");
             Ok(())
         });
 
-        let print_f64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, arg: f64| {
+        let print_f64 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, arg: f64| {
             log::debug!("print_f64: {arg}");
             Ok(())
         });
 
-        let print_i32_f32 = Extern::typed_func(|_ctx: tinywasm::FuncContext, args: (i32, f32)| {
+        let print_i32_f32 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, args: (i32, f32)| {
             log::debug!("print_i32_f32: {}, {}", args.0, args.1);
             Ok(())
         });
 
-        let print_f64_f64 = Extern::typed_func(|_ctx: tinywasm::FuncContext, args: (f64, f64)| {
+        let print_f64_f64 = HostFunction::from(store, |_ctx: tinywasm::FuncContext, args: (f64, f64)| {
             log::debug!("print_f64_f64: {}, {}", args.0, args.1);
             Ok(())
         });
 
+        let memory = Memory::new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
+        let global_i32 = Global::new(store, tinywasm_types::GlobalType::new(ValType::I32, false), WasmValue::I32(666))?;
+        let global_i64 = Global::new(store, tinywasm_types::GlobalType::new(ValType::I64, false), WasmValue::I64(666))?;
+        let global_f32 =
+            Global::new(store, tinywasm_types::GlobalType::new(ValType::F32, false), WasmValue::F32(666.6))?;
+        let global_f64 =
+            Global::new(store, tinywasm_types::GlobalType::new(ValType::F64, false), WasmValue::F64(666.6))?;
+
         imports
-            .define(
-                "spectest",
-                "memory",
-                Extern::memory(MemoryType::new(tinywasm_types::MemoryArch::I32, 1, Some(2), None)),
-            )?
-            .define("spectest", "table", table)?
-            .define("spectest", "global_i32", Extern::global(WasmValue::I32(666), false))?
-            .define("spectest", "global_i64", Extern::global(WasmValue::I64(666), false))?
-            .define("spectest", "global_f32", Extern::global(WasmValue::F32(666.6), false))?
-            .define("spectest", "global_f64", Extern::global(WasmValue::F64(666.6), false))?
-            .define("spectest", "print", print)?
-            .define("spectest", "print_i32", print_i32)?
-            .define("spectest", "print_i64", print_i64)?
-            .define("spectest", "print_f32", print_f32)?
-            .define("spectest", "print_f64", print_f64)?
-            .define("spectest", "print_i32_f32", print_i32_f32)?
-            .define("spectest", "print_f64_f64", print_f64_f64)?;
+            .define("spectest", "memory", memory)
+            .define("spectest", "table", table)
+            .define("spectest", "global_i32", global_i32)
+            .define("spectest", "global_i64", global_i64)
+            .define("spectest", "global_f32", global_f32)
+            .define("spectest", "global_f64", global_f64)
+            .define("spectest", "print", print)
+            .define("spectest", "print_i32", print_i32)
+            .define("spectest", "print_i64", print_i64)
+            .define("spectest", "print_f32", print_f32)
+            .define("spectest", "print_f64", print_f64)
+            .define("spectest", "print_i32_f32", print_i32_f32)
+            .define("spectest", "print_f64_f64", print_f64_f64);
 
         for (name, module) in modules {
             log::debug!("registering module: {name}");
@@ -208,8 +215,9 @@ impl TestSuite {
                         let (name, bytes) = encode_quote_wat(module);
                         let m = parse_module_bytes(&bytes).expect("failed to parse module bytes");
 
+                        let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
                         let module_instance = tinywasm::Module::from(m)
-                            .instantiate(&mut store, Some(Self::imports(module_registry.modules()).unwrap()))
+                            .instantiate(&mut store, Some(imports))
                             .expect("failed to instantiate module");
 
                         (name, module_instance)
@@ -310,8 +318,8 @@ impl TestSuite {
                                 let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
                                     .expect("failed to parse module");
                                 let module = tinywasm::Module::from(module);
-                                module
-                                    .instantiate(&mut store, Some(Self::imports(module_registry.modules()).unwrap()))?;
+                                let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
+                                module.instantiate(&mut store, Some(imports))?;
                                 return Ok(());
                             }
                             wast::WastExecute::Get { module: _, global: _, .. } => {
@@ -361,7 +369,8 @@ impl TestSuite {
                         let module = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
                         let module = tinywasm::Module::from(module);
-                        module.instantiate(&mut store, Some(Self::imports(module_registry.modules()).unwrap()))
+                        let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
+                        module.instantiate(&mut store, Some(imports))
                     });
 
                     match res {

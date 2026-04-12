@@ -336,6 +336,31 @@ pub struct GlobalType {
     pub ty: ValType,
 }
 
+impl GlobalType {
+    /// Create a new global type.
+    pub const fn new(ty: ValType, mutable: bool) -> Self {
+        Self { mutable, ty }
+    }
+
+    /// Set a different value type.
+    pub const fn with_ty(mut self, ty: ValType) -> Self {
+        self.ty = ty;
+        self
+    }
+
+    /// Set global mutability.
+    pub const fn with_mutable(mut self, mutable: bool) -> Self {
+        self.mutable = mutable;
+        self
+    }
+}
+
+impl Default for GlobalType {
+    fn default() -> Self {
+        Self::new(ValType::I32, false)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -367,6 +392,7 @@ pub struct MemoryType {
 }
 
 impl MemoryType {
+    /// Create a new memory type.
     pub const fn new(
         arch: MemoryArch,
         page_count_initial: u64,
@@ -404,6 +430,36 @@ impl MemoryType {
     #[inline]
     pub const fn max_size(&self) -> u64 {
         self.page_count_max() * self.page_size()
+    }
+
+    /// Set a different memory architecture.
+    pub const fn with_arch(mut self, arch: MemoryArch) -> Self {
+        self.arch = arch;
+        self
+    }
+
+    /// Set a different initial page count.
+    pub const fn with_page_count_initial(mut self, page_count_initial: u64) -> Self {
+        self.page_count_initial = page_count_initial;
+        self
+    }
+
+    /// Set a different maximum page count.
+    pub const fn with_page_count_max(mut self, page_count_max: Option<u64>) -> Self {
+        self.page_count_max = page_count_max;
+        self
+    }
+
+    /// Set a different page size.
+    pub const fn with_page_size(mut self, page_size: Option<u64>) -> Self {
+        self.page_size = page_size;
+        self
+    }
+}
+
+impl Default for MemoryType {
+    fn default() -> Self {
+        Self::new(MemoryArch::I32, 0, None, None)
     }
 }
 

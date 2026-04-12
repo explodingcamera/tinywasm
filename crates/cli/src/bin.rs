@@ -109,7 +109,7 @@ fn run(module: Module, func: Option<String>, args: &[WasmValue]) -> Result<()> {
     let instance = module.instantiate(&mut store, None)?;
 
     if let Some(func) = func {
-        let func = instance.func(&store, &func)?;
+        let func = instance.func_untyped(&store, &func)?;
         let res = func.call(&mut store, args)?;
         info!("{res:?}");
     }

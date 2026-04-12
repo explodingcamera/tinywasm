@@ -1,71 +1,25 @@
 use crate::interpreter::stack::CallFrame;
-use crate::{Error, FuncContext, InterpreterRuntime, Result, Store};
-use crate::{Function, unlikely};
+use crate::reference::StoreItem;
+use crate::{Error, FunctionDef, InterpreterRuntime, Result, Store, unlikely};
+use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-/// Progress for fuel-limited function execution.
-pub enum ExecProgress<T> {
-    /// Execution completed and produced a result.
-    Completed(T),
-    /// Execution suspended after exhausting fuel or time budget.
-    Suspended,
-}
-
-#[derive(Clone)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) struct ExecutionState {
-    pub(crate) callframe: CallFrame,
-}
-
-/// A function handle
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct FuncHandle {
-    pub(crate) store_id: usize,
-    pub(crate) module_addr: ModuleInstanceAddr,
-    pub(crate) addr: u32,
-    pub(crate) ty: FuncType,
-}
-
-/// Resumable execution for an untyped function call.
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct FuncExecution<'store> {
-    store: &'store mut Store,
-    state: FuncExecutionState,
-}
-
-#[cfg_attr(feature = "debug", derive(Debug))]
-enum FuncExecutionState {
-    Running { exec_state: ExecutionState, root_func_addr: u32 },
-    Completed { result: Option<Vec<WasmValue>> },
-}
-
-/// Resumable execution for a typed function call.
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct FuncExecutionTyped<'store, R> {
-    execution: FuncExecution<'store>,
-    marker: core::marker::PhantomData<R>,
-}
-
-impl FuncHandle {
+impl Function {
     /// Call a function (Invocation)
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
-        if self.store_id != store.id() {
-            return Err(Error::InvalidStore);
-        }
-
+        self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
         let func_inst = store.state.get_func(self.addr);
         let wasm_func = match &func_inst.func {
-            Function::Host(host_func) => {
+            FunctionDef::Host(host_func) => {
                 return host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params);
             }
-            Function::Wasm(wasm_func) => wasm_func.clone(),
+            FunctionDef::Wasm(wasm_func) => wasm_func.clone(),
         };
 
         // Reset stack, push args, allocate locals, create entry frame.
@@ -91,10 +45,7 @@ impl FuncHandle {
         store: &'store mut Store,
         params: &[WasmValue],
     ) -> Result<FuncExecution<'store>> {
-        if self.store_id != store.id() {
-            return Err(Error::InvalidStore);
-        }
-
+        self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
         let func_inst = store.state.get_func(self.addr);
@@ -102,11 +53,11 @@ impl FuncHandle {
         let func = func_inst.func.clone();
 
         match func {
-            Function::Host(host_func) => {
+            FunctionDef::Host(host_func) => {
                 let result = host_func.call(FuncContext { store, module_addr: self.module_addr }, params)?;
                 Ok(FuncExecution { store, state: FuncExecutionState::Completed { result: Some(result) } })
             }
-            Function::Wasm(wasm_func) => {
+            FunctionDef::Wasm(wasm_func) => {
                 store.stack.clear();
                 store.stack.values.extend_from_wasmvalues(params)?;
                 let locals_base = store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals)?;
@@ -123,6 +74,225 @@ impl FuncHandle {
             }
         }
     }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+/// Progress for fuel-limited function execution.
+pub enum ExecProgress<T> {
+    /// Execution completed and produced a result.
+    Completed(T),
+    /// Execution suspended after exhausting fuel or time budget.
+    Suspended,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub(crate) struct ExecutionState {
+    pub(crate) callframe: CallFrame,
+}
+
+/// A function handle
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub struct Function {
+    pub(crate) item: StoreItem,
+    pub(crate) module_addr: ModuleInstanceAddr,
+    pub(crate) addr: u32,
+    pub(crate) ty: FuncType,
+}
+
+/// A typed function handle
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub struct FunctionTyped<P, R> {
+    /// The underlying function handle
+    pub func: Function,
+    pub(crate) marker: core::marker::PhantomData<(P, R)>,
+}
+
+/// A host function
+pub struct HostFunction {
+    pub(crate) ty: tinywasm_types::FuncType,
+    pub(crate) func: HostFuncInner,
+}
+
+impl HostFunction {
+    /// Get the function's type
+    pub fn ty(&self) -> &tinywasm_types::FuncType {
+        &self.ty
+    }
+
+    /// Call the function
+    pub fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        (self.func)(ctx, args)
+    }
+
+    /// Create a new untyped host function import.
+    pub fn from_untyped(
+        store: &mut Store,
+        ty: &tinywasm_types::FuncType,
+        func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
+    ) -> Function {
+        let ty_inner = ty.clone();
+        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
+            let ty = ty_inner.clone();
+            let result = func(ctx, args)?;
+
+            if result.len() != ty.results.len() {
+                return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result });
+            };
+
+            result.iter().zip(ty.results.iter()).try_for_each(|(val, res_ty)| {
+                if val.val_type() != *res_ty {
+                    return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result.clone() });
+                }
+                Ok(())
+            })?;
+
+            Ok(result)
+        };
+
+        let addr = store.add_func(FunctionDef::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })), 0);
+        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty: ty.clone() }
+    }
+
+    /// Create a new typed host function import.
+    pub fn from<P, R>(store: &mut Store, func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static) -> Function
+    where
+        P: FromWasmValueTuple + ValTypesFromTuple,
+        R: IntoWasmValueTuple + ValTypesFromTuple,
+    {
+        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
+            let args = P::from_wasm_value_tuple(args)?;
+            let result = func(ctx, args)?;
+            Ok(result.into_wasm_value_tuple())
+        };
+
+        let results = R::val_types();
+        let ty = tinywasm_types::FuncType { params: P::val_types(), results };
+        let addr = store.add_func(FunctionDef::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })), 0);
+        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
+    }
+}
+
+pub(crate) type HostFuncInner = Box<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>>>;
+
+/// The context of a host-function call
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub struct FuncContext<'a> {
+    pub(crate) store: &'a mut crate::Store,
+    pub(crate) module_addr: ModuleInstanceAddr,
+}
+
+impl FuncContext<'_> {
+    /// Get the store.
+    pub fn store(&self) -> &crate::Store {
+        self.store
+    }
+
+    /// Get mutable access to the store.
+    pub fn store_mut(&mut self) -> &mut crate::Store {
+        self.store
+    }
+
+    /// Get the module instance.
+    pub fn module(&self) -> crate::ModuleInstance {
+        self.store.get_module_instance(self.module_addr).unwrap_or_else(|| {
+            unreachable!("invalid module instance address in host function context: {}", self.module_addr)
+        })
+    }
+
+    /// Get a memory export.
+    pub fn memory(&self, name: &str) -> Result<crate::Memory> {
+        self.module().memory(name)
+    }
+
+    /// Get any exported extern value by name.
+    pub fn extern_item(&self, name: &str) -> Result<crate::ExternItem> {
+        self.module().extern_item(name)
+    }
+
+    /// Get a table export.
+    pub fn table(&self, name: &str) -> Result<crate::Table> {
+        self.module().table(name)
+    }
+
+    /// Get the value of a global export.
+    pub fn global_get(&self, name: &str) -> Result<WasmValue> {
+        self.module().global_get(self.store, name)
+    }
+
+    /// Get a global export.
+    pub fn global(&self, name: &str) -> Result<crate::Global> {
+        self.module().global(name)
+    }
+
+    /// Set the value of a mutable global export.
+    pub fn global_set(&mut self, name: &str, value: WasmValue) -> Result<()> {
+        self.module().global_set(self.store, name, value)
+    }
+
+    /// Charge additional fuel from the currently running resumable invocation.
+    ///
+    /// This is a no-op when the current invocation is not using fuel-based
+    /// resumption.
+    pub fn charge_fuel(&mut self, fuel: u32) {
+        self.store.execution_fuel = self.store.execution_fuel.saturating_sub(fuel);
+    }
+
+    /// Get remaining fuel for the current invocation.
+    ///
+    /// Returns `0` when fuel-based resumption is not active.
+    pub fn remaining_fuel(&self) -> u32 {
+        self.store.execution_fuel
+    }
+}
+
+impl core::ops::Deref for FuncContext<'_> {
+    type Target = crate::Store;
+
+    fn deref(&self) -> &Self::Target {
+        self.store
+    }
+}
+
+impl core::ops::DerefMut for FuncContext<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.store
+    }
+}
+
+impl<'a> FuncContext<'a> {
+    /// Create a new host function context.
+    pub const fn new(store: &'a mut crate::Store, module_addr: ModuleInstanceAddr) -> Self {
+        Self { store, module_addr }
+    }
+}
+
+#[cfg(feature = "debug")]
+impl core::fmt::Debug for HostFunction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostFunction").field("ty", &self.ty).field("func", &"...").finish()
+    }
+}
+
+/// Resumable execution for an untyped function call.
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub struct FuncExecution<'store> {
+    store: &'store mut Store,
+    state: FuncExecutionState,
+}
+
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+enum FuncExecutionState {
+    Running { exec_state: ExecutionState, root_func_addr: u32 },
+    Completed { result: Option<Vec<WasmValue>> },
+}
+
+/// Resumable execution for a typed function call.
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+pub struct FuncExecutionTyped<'store, R> {
+    execution: FuncExecution<'store>,
+    marker: core::marker::PhantomData<R>,
 }
 
 impl<'store> FuncExecution<'store> {
@@ -214,19 +384,10 @@ fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> 
 }
 
 fn collect_call_results(store: &mut Store, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
-    // m values are on the top of the stack (Ensured by validation)
-    debug_assert!(store.stack.values.len() >= func_ty.results.len());
+    debug_assert!(store.stack.values.len() >= func_ty.results.len()); // m values are on the top of the stack (Ensured by validation)
     let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results.iter().rev()).collect(); // pop in reverse order since the stack is LIFO
     res.reverse(); // reverse to get the original order
     Ok(res)
-}
-
-/// A typed function handle
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct FuncHandleTyped<P, R> {
-    /// The underlying function handle
-    pub func: FuncHandle,
-    pub(crate) marker: core::marker::PhantomData<(P, R)>,
 }
 
 pub trait IntoWasmValueTuple {
@@ -239,7 +400,7 @@ pub trait FromWasmValueTuple {
         Self: Sized;
 }
 
-impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FuncHandleTyped<P, R> {
+impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FunctionTyped<P, R> {
     /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         // Convert params into Vec<WasmValue>

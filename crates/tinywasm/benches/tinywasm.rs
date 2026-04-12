@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
-use tinywasm::{Extern, FuncContext, Imports, ModuleInstance, Store, types};
+use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store, types};
 use types::TinyWasmModule;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
@@ -24,9 +24,9 @@ fn tinywasm_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
 fn tinywasm_run(module: TinyWasmModule) -> Result<()> {
     let mut store = Store::default();
     let mut imports = Imports::default();
-    imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(()))).expect("define");
+    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _: i32| Ok(())));
     let instance = ModuleInstance::instantiate(&mut store, module.into(), Some(imports)).expect("instantiate");
-    let hello = instance.func_typed::<(), ()>(&store, "hello").expect("func_typed");
+    let hello = instance.func::<(), ()>(&store, "hello").expect("func_typed");
     hello.call(&mut store, ()).expect("call");
     Ok(())
 }

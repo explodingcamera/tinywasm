@@ -158,9 +158,9 @@ impl ModuleReader {
                 validator.end(offset)?;
                 self.end_reached = true;
             }
-            Payload::CustomSection(_reader) => {
+            Payload::CustomSection(reader) => {
                 debug!("Found custom section");
-                debug!("Skipping custom section: {:?}", _reader.name());
+                debug!("Skipping custom section: {:?}", reader.name());
             }
             Payload::UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {section:?}"))),
