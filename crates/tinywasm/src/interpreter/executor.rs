@@ -8,9 +8,9 @@ use alloc::{rc::Rc, string::ToString};
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
+use super::ExecState;
 use super::num_helpers::*;
 use super::values::*;
-use super::ExecState;
 use crate::engine::FuelPolicy;
 use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
@@ -939,7 +939,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             let (dst_memory, src_memory) = self
                 .store
                 .state
-                .get_mems_mut(self.module.resolve_mem_addr(dst_mem), self.module.resolve_mem_addr(src_mem))?;
+                .get_mems_mut(self.module.resolve_mem_addr(dst_mem), self.module.resolve_mem_addr(src_mem));
 
             dst_memory.copy_from_slice(dst as usize, src_memory.load(src as usize, size as usize)?)?;
         }
@@ -1002,7 +1002,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             let (dst_table_ref, src_table_ref) = self
                 .store
                 .state
-                .get_tables_mut(self.module.resolve_table_addr(dst_table), self.module.resolve_table_addr(src_table))?;
+                .get_tables_mut(self.module.resolve_table_addr(dst_table), self.module.resolve_table_addr(src_table));
             dst_table_ref.copy_from_slice(dst as usize, src_table_ref.load(src as usize, size as usize)?)
         }
     }

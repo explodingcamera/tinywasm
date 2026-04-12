@@ -555,7 +555,7 @@ impl Value128 {
     pub fn i16x8_extadd_pairwise_i8x16_s(self) -> Self {
         let lanes = self.as_i8x16();
         let mut out = [0i16; 8];
-        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+        for (dst, pair) in out.iter_mut().zip(lanes.as_chunks::<2>().0) {
             *dst = pair[0] as i16 + pair[1] as i16;
         }
         Self::from_i16x8(out)
@@ -565,7 +565,7 @@ impl Value128 {
     pub fn i16x8_extadd_pairwise_i8x16_u(self) -> Self {
         let lanes = self.as_u8x16();
         let mut out = [0u16; 8];
-        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+        for (dst, pair) in out.iter_mut().zip(lanes.as_chunks::<2>().0) {
             *dst = pair[0] as u16 + pair[1] as u16;
         }
         Self::from_u16x8(out)
@@ -575,7 +575,7 @@ impl Value128 {
     pub fn i32x4_extadd_pairwise_i16x8_s(self) -> Self {
         let lanes = self.as_i16x8();
         let mut out = [0i32; 4];
-        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+        for (dst, pair) in out.iter_mut().zip(lanes.as_chunks::<2>().0) {
             *dst = pair[0] as i32 + pair[1] as i32;
         }
         Self::from_i32x4(out)
@@ -585,7 +585,7 @@ impl Value128 {
     pub fn i32x4_extadd_pairwise_i16x8_u(self) -> Self {
         let lanes = self.as_u16x8();
         let mut out = [0u32; 4];
-        for (dst, pair) in out.iter_mut().zip(lanes.chunks_exact(2)) {
+        for (dst, pair) in out.iter_mut().zip(lanes.as_chunks::<2>().0) {
             *dst = pair[0] as u32 + pair[1] as u32;
         }
         Self::from_u32x4(out)
@@ -712,7 +712,7 @@ impl Value128 {
         let a = self.as_i16x8();
         let b = rhs.as_i16x8();
         let mut out = [0i32; 4];
-        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.chunks_exact(2).zip(b.chunks_exact(2))) {
+        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.as_chunks::<2>().0.iter().zip(b.as_chunks::<2>().0)) {
             *dst = (a_pair[0] as i32)
                 .wrapping_mul(b_pair[0] as i32)
                 .wrapping_add((a_pair[1] as i32).wrapping_mul(b_pair[1] as i32));
@@ -751,7 +751,7 @@ impl Value128 {
         let b = rhs.as_i8x16();
         let mut out = [0i16; 8];
 
-        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.chunks_exact(2).zip(b.chunks_exact(2))) {
+        for (dst, (a_pair, b_pair)) in out.iter_mut().zip(a.as_chunks::<2>().0.iter().zip(b.as_chunks::<2>().0)) {
             let prod0 = (a_pair[0] as i16) * (b_pair[0] as i16);
             let prod1 = (a_pair[1] as i16) * (b_pair[1] as i16);
             *dst = prod0.wrapping_add(prod1);

@@ -146,9 +146,9 @@ impl ModuleInstance {
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
 
-        addrs.funcs.extend(store.init_funcs(&module.0.funcs, idx)?);
-        addrs.tables.extend(store.init_tables(&module.0.table_types, idx)?);
-        addrs.memories.extend(store.init_memories(&module.0.memory_types, idx)?);
+        addrs.funcs.extend(store.init_funcs(&module.0.funcs, idx));
+        addrs.tables.extend(store.init_tables(&module.0.table_types, idx));
+        addrs.memories.extend(store.init_memories(&module.0.memory_types, idx));
         let global_addrs = store.init_globals(addrs.globals, &module.0.globals, &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;

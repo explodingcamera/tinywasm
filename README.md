@@ -1,10 +1,12 @@
-# `tinywasm` &nbsp;[![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust&style=flat-square)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
+# <b>`tinywasm`</b>
+
+[![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust&style=flat-square)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
 
 ## Why `tinywasm`?
 
-- **Tiny**: Keeps the runtime small and focused while still being practical for real workloads.
-- **Portable**: Runs anywhere Rust runs, supports `no_std`, and keeps external dependencies to a minimum.
-- **Secure**: Written entirely safe Rust (`#[deny(unsafe_code)]`) and designed to prevent untrusted code from crashing the runtime
+- **Tiny**: TinyWasm is designed to be as small as possible without significantly compromising performance or functionality
+- **Portable**: Runs anywhere Rust can target, supports `no_std`, and keeps external dependencies to a minimum.
+- **Safe**: Written entirely safe Rust and designed to prevent untrusted code from crashing the runtime
 
 ## Current Status
 

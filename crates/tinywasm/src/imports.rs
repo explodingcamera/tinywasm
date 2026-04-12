@@ -443,7 +443,7 @@ impl Imports {
                 ResolvedExtern::Extern(ex) => match (ex, &import.kind) {
                     (Extern::Global { ty, val }, ImportKind::Global(import_ty)) => {
                         Self::compare_types(import, &ty, import_ty)?;
-                        imports.globals.push(store.add_global(ty, val.into(), idx)?);
+                        imports.globals.push(store.add_global(ty, val.into(), idx));
                     }
                     (Extern::Table { ty, init }, ImportKind::Table(import_ty)) => {
                         Self::compare_table_types(import, &ty, import_ty)?;
@@ -462,7 +462,7 @@ impl Imports {
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
 
                         Self::compare_types(import, extern_func.ty(), import_func_type)?;
-                        imports.funcs.push(store.add_func(extern_func, idx)?);
+                        imports.funcs.push(store.add_func(extern_func, idx));
                     }
                     _ => return Err(LinkingError::incompatible_import_type(import).into()),
                 },

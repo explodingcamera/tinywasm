@@ -144,14 +144,10 @@ impl State {
     }
 
     /// Get the memory at the actual index in the store
-    pub(crate) fn get_mems_mut(
-        &mut self,
-        addr: MemAddr,
-        addr2: MemAddr,
-    ) -> Result<(&mut MemoryInstance, &mut MemoryInstance)> {
-        match get_pair_mut(&mut self.memories, addr as usize, addr2 as usize) {
-            Some(mems) => Ok(mems),
-            None => unreachable!("memory {addr} or {addr2} not found. This should be unreachable"),
+    pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
+        match self.memories.get_disjoint_mut([addr as usize, addr2 as usize]) {
+            Ok([mem_a, mem_b]) => (mem_a, mem_b),
+            Err(_) => unreachable!("memory {addr} or {addr2} not found. This should be unreachable"),
         }
     }
 
@@ -176,10 +172,10 @@ impl State {
         &mut self,
         addr: TableAddr,
         addr2: TableAddr,
-    ) -> Result<(&mut TableInstance, &mut TableInstance)> {
-        match get_pair_mut(&mut self.tables, addr as usize, addr2 as usize) {
-            Some(tables) => Ok(tables),
-            None => unreachable!("table {addr} or {addr2} not found. This should be unreachable"),
+    ) -> (&mut TableInstance, &mut TableInstance) {
+        match self.tables.get_disjoint_mut([addr as usize, addr2 as usize]) {
+            Ok([table_a, table_b]) => (table_a, table_b),
+            Err(_) => unreachable!("table {addr} or {addr2} not found. This should be unreachable"),
         }
     }
 
@@ -263,36 +259,36 @@ impl Store {
 // Linking related functions
 impl Store {
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(&mut self, funcs: &[WasmFunction], idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
+    pub(crate) fn init_funcs(&mut self, funcs: &[WasmFunction], idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let func_count = self.state.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.iter().enumerate() {
             self.state.funcs.push(FunctionInstance::new_wasm(func.clone(), idx));
             func_addrs.push((i + func_count) as FuncAddr);
         }
-        Ok(func_addrs)
+        func_addrs
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn init_tables(&mut self, tables: &[TableType], _idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
+    pub(crate) fn init_tables(&mut self, tables: &[TableType], _idx: ModuleInstanceAddr) -> Vec<TableAddr> {
         let table_count = self.state.tables.len();
         let mut table_addrs = Vec::with_capacity(table_count);
         for (i, table) in tables.iter().enumerate() {
             self.state.tables.push(TableInstance::new(table.clone()));
             table_addrs.push((i + table_count) as TableAddr);
         }
-        Ok(table_addrs)
+        table_addrs
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], _idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
+    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], _idx: ModuleInstanceAddr) -> Vec<MemAddr> {
         let mem_count = self.state.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.iter().enumerate() {
             self.state.memories.push(MemoryInstance::new(*mem));
             mem_addrs.push((i + mem_count) as MemAddr);
         }
-        Ok(mem_addrs)
+        mem_addrs
     }
 
     /// Add globals to the store, returning their addresses in the store
@@ -427,14 +423,9 @@ impl Store {
         Ok((data_addrs.into_boxed_slice(), None))
     }
 
-    pub(crate) fn add_global(
-        &mut self,
-        ty: GlobalType,
-        value: TinyWasmValue,
-        _idx: ModuleInstanceAddr,
-    ) -> Result<Addr> {
+    pub(crate) fn add_global(&mut self, ty: GlobalType, value: TinyWasmValue, _idx: ModuleInstanceAddr) -> Addr {
         self.state.globals.push(GlobalInstance::new(ty, value));
-        Ok(self.state.globals.len() as Addr - 1)
+        self.state.globals.len() as Addr - 1
     }
 
     pub(crate) fn add_table(
@@ -461,9 +452,9 @@ impl Store {
         Ok(self.state.memories.len() as MemAddr - 1)
     }
 
-    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> Result<FuncAddr> {
+    pub(crate) fn add_func(&mut self, func: Function, idx: ModuleInstanceAddr) -> FuncAddr {
         self.state.funcs.push(FunctionInstance { func, owner: idx });
-        Ok(self.state.funcs.len() as FuncAddr - 1)
+        self.state.funcs.len() as FuncAddr - 1
     }
 
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
@@ -592,17 +583,4 @@ impl Store {
             other => Err(Error::Other(format!("expected reference const value, got {other:?}"))),
         }
     }
-}
-
-// remove this when the `get_many_mut` function is stabilized
-fn get_pair_mut<T>(slice: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut T)> {
-    let (first, second) = (core::cmp::min(i, j), core::cmp::max(i, j));
-    if i == j || second >= slice.len() {
-        return None;
-    }
-    let (_, tmp) = slice.split_at_mut(first);
-    let (x, rest) = tmp.split_at_mut(1);
-    let (_, y) = rest.split_at_mut(second - first - 1);
-    let pair = if i < j { (&mut x[0], &mut y[0]) } else { (&mut y[0], &mut x[0]) };
-    Some(pair)
 }
