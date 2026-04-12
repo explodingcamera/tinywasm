@@ -90,6 +90,7 @@ impl Parser {
             | WasmFeatures::BULK_MEMORY
             | WasmFeatures::SATURATING_FLOAT_TO_INT
             | WasmFeatures::SIGN_EXTENSION
+            | WasmFeatures::EXTENDED_CONST
             | WasmFeatures::FUNCTION_REFERENCES
             | WasmFeatures::TAIL_CALL
             | WasmFeatures::MULTI_MEMORY

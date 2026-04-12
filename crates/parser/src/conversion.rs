@@ -235,7 +235,7 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> ValType {
     }
 }
 
-pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstInstruction> {
+pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[ConstInstruction]>> {
     let ops = ops.into_iter().collect::<wasmparser::Result<Vec<_>>>()?;
     // In practice, the len can never be something other than 2,
     // but we'll keep this here since it's part of the spec
@@ -243,21 +243,37 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<ConstI
     assert!(ops.len() >= 2);
     assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
 
-    match &ops[ops.len() - 2] {
-        wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty) {
-            ValType::RefFunc => Ok(ConstInstruction::RefFunc(None)),
-            ValType::RefExtern => Ok(ConstInstruction::RefExtern(None)),
-            _ => unimplemented!("Unsupported heap type: {:?}", hty),
-        },
-        wasmparser::Operator::RefFunc { function_index } => Ok(ConstInstruction::RefFunc(Some(*function_index))),
-        wasmparser::Operator::I32Const { value } => Ok(ConstInstruction::I32Const(*value)),
-        wasmparser::Operator::I64Const { value } => Ok(ConstInstruction::I64Const(*value)),
-        wasmparser::Operator::F32Const { value } => Ok(ConstInstruction::F32Const(f32::from_bits(value.bits()))),
-        wasmparser::Operator::F64Const { value } => Ok(ConstInstruction::F64Const(f64::from_bits(value.bits()))),
-        wasmparser::Operator::V128Const { value } => Ok(ConstInstruction::V128Const(value.i128())),
-        wasmparser::Operator::GlobalGet { global_index } => Ok(ConstInstruction::GlobalGet(*global_index)),
-        op => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported const instruction: {op:?}"))),
+    let mut out = Vec::with_capacity(ops.len().saturating_sub(1));
+    for op in ops.iter().take(ops.len() - 1) {
+        let instr = match op {
+            wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty) {
+                ValType::RefFunc => ConstInstruction::RefFunc(None),
+                ValType::RefExtern => ConstInstruction::RefExtern(None),
+                _ => unimplemented!("Unsupported heap type: {:?}", hty),
+            },
+            wasmparser::Operator::RefFunc { function_index } => ConstInstruction::RefFunc(Some(*function_index)),
+            wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(*value),
+            wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(*value),
+            wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),
+            wasmparser::Operator::F64Const { value } => ConstInstruction::F64Const(f64::from_bits(value.bits())),
+            wasmparser::Operator::V128Const { value } => ConstInstruction::V128Const(value.i128()),
+            wasmparser::Operator::GlobalGet { global_index } => ConstInstruction::GlobalGet(*global_index),
+            wasmparser::Operator::I32Add => ConstInstruction::I32Add,
+            wasmparser::Operator::I32Sub => ConstInstruction::I32Sub,
+            wasmparser::Operator::I32Mul => ConstInstruction::I32Mul,
+            wasmparser::Operator::I64Add => ConstInstruction::I64Add,
+            wasmparser::Operator::I64Sub => ConstInstruction::I64Sub,
+            wasmparser::Operator::I64Mul => ConstInstruction::I64Mul,
+            other => {
+                return Err(crate::ParseError::UnsupportedOperator(format!(
+                    "Unsupported const instruction: {other:?}"
+                )));
+            }
+        };
+        out.push(instr);
     }
+
+    Ok(out.into_boxed_slice())
 }
 
 pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> ValType {

@@ -325,7 +325,7 @@ pub struct Export {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Global {
     pub ty: GlobalType,
-    pub init: ConstInstruction,
+    pub init: Box<[ConstInstruction]>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -458,7 +458,7 @@ pub struct Data {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum DataKind {
-    Active { mem: MemAddr, offset: ConstInstruction },
+    Active { mem: MemAddr, offset: Box<[ConstInstruction]> },
     Passive,
 }
 
@@ -472,19 +472,19 @@ pub struct Element {
     pub ty: ValType,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementKind {
     Passive,
-    Active { table: TableAddr, offset: ConstInstruction },
+    Active { table: TableAddr, offset: Box<[ConstInstruction]> },
     Declared,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum ElementItem {
     Func(FuncAddr),
-    Expr(ConstInstruction),
+    Expr(Box<[ConstInstruction]>),
 }

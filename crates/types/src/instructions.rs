@@ -40,6 +40,12 @@ pub enum ConstInstruction {
     GlobalGet(GlobalAddr),
     RefFunc(Option<FuncAddr>),
     RefExtern(Option<ExternAddr>),
+    I32Add,
+    I32Sub,
+    I32Mul,
+    I64Add,
+    I64Sub,
+    I64Mul,
 }
 
 /// A WebAssembly Instruction

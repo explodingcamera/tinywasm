@@ -128,8 +128,8 @@ impl ExternRef {
 impl WasmValue {
     #[doc(hidden)]
     #[inline]
-    pub const fn const_instr(&self) -> ConstInstruction {
-        match self {
+    pub fn const_instr(&self) -> alloc::boxed::Box<[ConstInstruction]> {
+        alloc::boxed::Box::new([match self {
             Self::I32(i) => ConstInstruction::I32Const(*i),
             Self::I64(i) => ConstInstruction::I64Const(*i),
             Self::F32(i) => ConstInstruction::F32Const(*i),
@@ -137,7 +137,7 @@ impl WasmValue {
             Self::V128(i) => ConstInstruction::V128Const(*i),
             Self::RefFunc(i) => ConstInstruction::RefFunc(i.addr()),
             Self::RefExtern(i) => ConstInstruction::RefExtern(i.addr()),
-        }
+        }])
     }
 
     /// Get the default value for a given type.

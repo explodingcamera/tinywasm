@@ -98,7 +98,6 @@ harness=false
 [[test]]
 name="test-wasm-extended-const"
 harness=false
-test=false
 
 [[test]]
 name="test-wasm-relaxed-simd"

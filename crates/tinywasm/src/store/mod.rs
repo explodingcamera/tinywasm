@@ -318,27 +318,10 @@ impl Store {
 
     fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
         let res = match item {
-            ElementItem::Func(addr) | ElementItem::Expr(ConstInstruction::RefFunc(Some(addr))) => {
-                Some(funcs.get(*addr as usize).copied().ok_or_else(|| {
-                    Error::Other(format!("function {addr} not found. This should have been caught by the validator"))
-                })?)
-            }
-            ElementItem::Expr(ConstInstruction::RefFunc(None)) => None,
-            ElementItem::Expr(ConstInstruction::RefExtern(None)) => None,
-            ElementItem::Expr(ConstInstruction::GlobalGet(addr)) => {
-                let addr = globals.get(*addr as usize).copied().ok_or_else(|| {
-                    Error::Other(format!("global {addr} not found. This should have been caught by the validator"))
-                })?;
-                self.state.globals[addr as usize].value.get().unwrap_ref()
-            }
-            #[cfg(feature = "debug")]
-            ElementItem::Expr(item) => {
-                return Err(Error::UnsupportedFeature(format!("const expression other than ref: {item:?}")));
-            }
-            #[cfg(not(feature = "debug"))]
-            ElementItem::Expr(_) => {
-                return Err(Error::UnsupportedFeature("const expression other than ref".to_string()));
-            }
+            ElementItem::Func(addr) => Some(funcs.get(*addr as usize).copied().ok_or_else(|| {
+                Error::Other(format!("function {addr} not found. This should have been caught by the validator"))
+            })?),
+            ElementItem::Expr(expr) => self.eval_ref_const(expr, globals, funcs)?,
         };
 
         Ok(res)
@@ -363,7 +346,7 @@ impl Store {
                 .map(|item| Ok(TableElement::from(self.elem_addr(item, global_addrs, func_addrs)?)))
                 .collect::<Result<Vec<_>>>()?;
 
-            let items = match element.kind {
+            let items = match &element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
                 ElementKind::Passive => Some(init),
 
@@ -372,9 +355,9 @@ impl Store {
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_size_const(offset)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
                     let table_addr = table_addrs
-                        .get(table as usize)
+                        .get(*table as usize)
                         .copied()
                         .ok_or_else(|| Error::Other(format!("table {table} not found for element {i}")))?;
 
@@ -396,7 +379,7 @@ impl Store {
                 }
             };
 
-            self.state.elements.push(ElementInstance::new(element.kind, items));
+            self.state.elements.push(ElementInstance::new(element.kind.clone(), items));
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -408,19 +391,21 @@ impl Store {
     pub(crate) fn init_data(
         &mut self,
         mem_addrs: &[MemAddr],
+        global_addrs: &[Addr],
+        func_addrs: &[FuncAddr],
         data: &[Data],
         _idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.state.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
         for (i, data) in data.iter().enumerate() {
-            let data_val = match data.kind {
+            let data_val = match &data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
-                    let Some(mem_addr) = mem_addrs.get(mem_addr as usize) else {
+                    let Some(mem_addr) = mem_addrs.get(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_size_const(offset)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
                     let Some(mem) = self.state.memories.get_mut(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
@@ -482,55 +467,130 @@ impl Store {
     }
 
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
-    fn eval_size_const(&self, const_instr: tinywasm_types::ConstInstruction) -> Result<i64> {
-        Ok(match const_instr {
-            ConstInstruction::I32Const(i) => i64::from(i),
-            ConstInstruction::I64Const(i) => i,
-            ConstInstruction::GlobalGet(addr) => match self.state.globals[addr as usize].value.get() {
-                TinyWasmValue::Value32(i) => i64::from(i),
-                TinyWasmValue::Value64(i) => i as i64,
-                other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
-            },
-            #[cfg(feature = "debug")]
-            other => return Err(Error::Other(format!("expected i32, got {other:?}"))),
-            #[cfg(not(feature = "debug"))]
-            _ => return Err(Error::Other("expected i32 or i64".to_string())),
-        })
+    fn eval_size_const(
+        &self,
+        const_instrs: &[tinywasm_types::ConstInstruction],
+        module_global_addrs: &[Addr],
+        module_func_addrs: &[FuncAddr],
+    ) -> Result<i64> {
+        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
+        match value {
+            TinyWasmValue::Value32(i) => Ok(i64::from(i)),
+            TinyWasmValue::Value64(i) => Ok(i as i64),
+            other => Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
+        }
     }
 
     /// Evaluate a constant expression
     fn eval_const(
         &self,
-        const_instr: &tinywasm_types::ConstInstruction,
+        const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
     ) -> Result<TinyWasmValue> {
         use tinywasm_types::ConstInstruction::*;
-        let val = match const_instr {
-            F32Const(f) => (*f).into(),
-            F64Const(f) => (*f).into(),
-            I32Const(i) => (*i).into(),
-            I64Const(i) => (*i).into(),
-            V128Const(i) => (*i).into(),
-            GlobalGet(addr) => {
-                let addr = module_global_addrs.get(*addr as usize).ok_or_else(|| {
-                    Error::Other(format!("global {addr} not found. This should have been caught by the validator"))
-                })?;
 
-                let global =
-                    self.state.globals.get(*addr as usize).expect("global not found. This should be unreachable");
-                global.value.get()
-            }
-            RefFunc(None) => TinyWasmValue::ValueRef(None),
-            RefExtern(None) => TinyWasmValue::ValueRef(None),
-            RefFunc(Some(idx)) => {
-                TinyWasmValue::ValueRef(Some(*module_func_addrs.get(*idx as usize).ok_or_else(|| {
-                    Error::Other(format!("function {idx} not found. This should have been caught by the validator"))
-                })?))
-            }
-            _ => return Err(Error::Other("unsupported const instruction".to_string())),
+        let resolve_global = |idx: u32| -> Result<TinyWasmValue> {
+            let addr = module_global_addrs.get(idx as usize).ok_or_else(|| {
+                Error::Other(format!("global {idx} not found. This should have been caught by the validator"))
+            })?;
+            let global = self
+                .state
+                .globals
+                .get(*addr as usize)
+                .ok_or_else(|| Error::Other(format!("global {addr} not found")))?;
+            Ok(global.value.get())
         };
-        Ok(val)
+
+        let resolve_func = |idx: u32| -> Result<u32> {
+            module_func_addrs.get(idx as usize).copied().ok_or_else(|| {
+                Error::Other(format!("function {idx} not found. This should have been caught by the validator"))
+            })
+        };
+
+        if const_instrs.len() == 1 {
+            let val = match &const_instrs[0] {
+                F32Const(f) => (*f).into(),
+                F64Const(f) => (*f).into(),
+                I32Const(i) => (*i).into(),
+                I64Const(i) => (*i).into(),
+                V128Const(i) => (*i).into(),
+                GlobalGet(addr) => resolve_global(*addr)?,
+                RefFunc(None) => TinyWasmValue::ValueRef(None),
+                RefExtern(None) => TinyWasmValue::ValueRef(None),
+                RefFunc(Some(idx)) => TinyWasmValue::ValueRef(Some(resolve_func(*idx)?)),
+                _ => return Err(Error::Other("unsupported const instruction".to_string())),
+            };
+            return Ok(val);
+        }
+
+        let mut stack = Vec::with_capacity(const_instrs.len());
+        for instr in const_instrs {
+            match instr {
+                I32Const(i) => stack.push(TinyWasmValue::Value32(*i as u32)),
+                I64Const(i) => stack.push(TinyWasmValue::Value64(*i as u64)),
+                F32Const(f) => stack.push(TinyWasmValue::Value32(f.to_bits())),
+                F64Const(f) => stack.push(TinyWasmValue::Value64(f.to_bits())),
+                V128Const(i) => stack.push(TinyWasmValue::Value128((*i).into())),
+                GlobalGet(addr) => stack.push(resolve_global(*addr)?),
+                RefFunc(None) | RefExtern(None) => stack.push(TinyWasmValue::ValueRef(None)),
+                RefFunc(Some(idx)) => stack.push(TinyWasmValue::ValueRef(Some(resolve_func(*idx)?))),
+                RefExtern(Some(_)) => {
+                    return Err(Error::Other("ref.extern constants are not supported in init expressions".to_string()));
+                }
+                I32Add | I32Sub | I32Mul => {
+                    let rhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
+                    let lhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
+                    let (TinyWasmValue::Value32(lhs), TinyWasmValue::Value32(rhs)) = (lhs, rhs) else {
+                        return Err(Error::Other("type mismatch in const i32 op".to_string()));
+                    };
+                    let lhs = lhs as i32;
+                    let rhs = rhs as i32;
+                    let out = match instr {
+                        I32Add => lhs.wrapping_add(rhs),
+                        I32Sub => lhs.wrapping_sub(rhs),
+                        I32Mul => lhs.wrapping_mul(rhs),
+                        _ => unreachable!(),
+                    };
+                    stack.push(TinyWasmValue::Value32(out as u32));
+                }
+                I64Add | I64Sub | I64Mul => {
+                    let rhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
+                    let lhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
+                    let (TinyWasmValue::Value64(lhs), TinyWasmValue::Value64(rhs)) = (lhs, rhs) else {
+                        return Err(Error::Other("type mismatch in const i64 op".to_string()));
+                    };
+                    let lhs = lhs as i64;
+                    let rhs = rhs as i64;
+                    let out = match instr {
+                        I64Add => lhs.wrapping_add(rhs),
+                        I64Sub => lhs.wrapping_sub(rhs),
+                        I64Mul => lhs.wrapping_mul(rhs),
+                        _ => unreachable!(),
+                    };
+                    stack.push(TinyWasmValue::Value64(out as u64));
+                }
+            }
+        }
+
+        let value = stack.pop().ok_or_else(|| Error::Other("empty const expression".to_string()))?;
+        if !stack.is_empty() {
+            return Err(Error::Other("const expression did not reduce to single value".to_string()));
+        }
+        Ok(value)
+    }
+
+    fn eval_ref_const(
+        &self,
+        const_instrs: &[tinywasm_types::ConstInstruction],
+        module_global_addrs: &[Addr],
+        module_func_addrs: &[FuncAddr],
+    ) -> Result<Option<u32>> {
+        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
+        match value {
+            TinyWasmValue::ValueRef(v) => Ok(v),
+            other => Err(Error::Other(format!("expected reference const value, got {other:?}"))),
+        }
     }
 }
 

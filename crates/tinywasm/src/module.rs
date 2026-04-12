@@ -1,32 +1,6 @@
 use crate::{Imports, ModuleInstance, Result, Store};
 use tinywasm_types::{ExternalKind, FuncType, TinyWasmModule};
 
-fn imported_func_type(module: &TinyWasmModule, function_index: usize) -> Option<&FuncType> {
-    let mut seen = 0usize;
-    for import in module.imports.iter() {
-        if let tinywasm_types::ImportKind::Function(type_idx) = import.kind {
-            if seen == function_index {
-                return module.func_types.get(type_idx as usize);
-            }
-            seen += 1;
-        }
-    }
-    None
-}
-
-fn imported_global_type(module: &TinyWasmModule, global_index: usize) -> Option<&tinywasm_types::GlobalType> {
-    let mut seen = 0usize;
-    for import in module.imports.iter() {
-        if let tinywasm_types::ImportKind::Global(global_ty) = &import.kind {
-            if seen == global_index {
-                return Some(global_ty);
-            }
-            seen += 1;
-        }
-    }
-    None
-}
-
 /// A module import descriptor.
 pub struct ModuleImport<'a> {
     /// Importing module name.
@@ -146,16 +120,12 @@ impl Module {
     /// The returned data mirrors the module's export section and preserves order.
     pub fn exports(&self) -> impl Iterator<Item = ModuleExport<'_>> {
         self.0.exports.iter().filter_map(|export| {
+            let imports = self.0.imports.iter();
+            let idx = export.index as usize;
             let ty = match export.kind {
                 ExternalKind::Func => {
-                    let idx = export.index as usize;
-                    let imported_funcs = self
-                        .0
-                        .imports
-                        .iter()
-                        .filter(|import| matches!(import.kind, tinywasm_types::ImportKind::Function(_)))
-                        .count();
-
+                    let imported_funcs =
+                        imports.filter(|import| matches!(import.kind, tinywasm_types::ImportKind::Function(_))).count();
                     if idx < imported_funcs {
                         ExportType::Func(imported_func_type(&self.0, idx)?)
                     } else {
@@ -163,16 +133,11 @@ impl Module {
                         ExportType::Func(&self.0.funcs.get(local_idx)?.ty)
                     }
                 }
-                ExternalKind::Table => ExportType::Table(self.0.table_types.get(export.index as usize)?),
-                ExternalKind::Memory => ExportType::Memory(self.0.memory_types.get(export.index as usize)?),
+                ExternalKind::Table => ExportType::Table(self.0.table_types.get(idx)?),
+                ExternalKind::Memory => ExportType::Memory(self.0.memory_types.get(idx)?),
                 ExternalKind::Global => {
-                    let idx = export.index as usize;
-                    let imported_globals = self
-                        .0
-                        .imports
-                        .iter()
-                        .filter(|import| matches!(import.kind, tinywasm_types::ImportKind::Global(_)))
-                        .count();
+                    let imported_globals =
+                        imports.filter(|import| matches!(import.kind, tinywasm_types::ImportKind::Global(_))).count();
                     if idx < imported_globals {
                         ExportType::Global(imported_global_type(&self.0, idx)?)
                     } else {
@@ -185,4 +150,30 @@ impl Module {
             Some(ModuleExport { name: export.name.as_ref(), ty })
         })
     }
+}
+
+fn imported_func_type(module: &TinyWasmModule, function_index: usize) -> Option<&FuncType> {
+    let mut seen = 0usize;
+    for import in module.imports.iter() {
+        if let tinywasm_types::ImportKind::Function(type_idx) = import.kind {
+            if seen == function_index {
+                return module.func_types.get(type_idx as usize);
+            }
+            seen += 1;
+        }
+    }
+    None
+}
+
+fn imported_global_type(module: &TinyWasmModule, global_index: usize) -> Option<&tinywasm_types::GlobalType> {
+    let mut seen = 0usize;
+    for import in module.imports.iter() {
+        if let tinywasm_types::ImportKind::Global(global_ty) = &import.kind {
+            if seen == global_index {
+                return Some(global_ty);
+            }
+            seen += 1;
+        }
+    }
+    None
 }
