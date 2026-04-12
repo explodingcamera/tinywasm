@@ -37,13 +37,13 @@ fn main() -> Result<()> {
 
     // Link the `adder` namespace to the `add` module's instance.
     let mut imports = tinywasm::Imports::new();
-    imports.link_module("adder", add_instance.id())?;
+    imports.link_module("adder", add_instance)?;
 
     // Instantiate the `import` module with the linked imports.
     let import_instance = import_module.instantiate(&mut store, Some(imports))?;
 
     // Call the `main` function, which uses the imported `add` function.
-    let main = import_instance.exported_func::<(), i32>(&store, "main")?;
+    let main = import_instance.func_typed::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
 
     Ok(())

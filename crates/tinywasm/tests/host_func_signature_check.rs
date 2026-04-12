@@ -43,7 +43,7 @@ fn test_return_invalid_type() -> Result<()> {
                 .unwrap();
 
             let instance = module.clone().instantiate(&mut store, Some(imports)).unwrap();
-            let caller = instance.exported_func_untyped(&store, "call_hfn").unwrap();
+            let caller = instance.func(&store, "call_hfn").unwrap();
             // Return-type mismatch is only observable at call time.
             let should_succeed = returned_values.iter().map(WasmValue::val_type).eq(func_ty.results.iter().copied());
             let call_res = caller.call(&mut store, &args);

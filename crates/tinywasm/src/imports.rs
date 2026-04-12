@@ -6,7 +6,8 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, ValTypesFromTuple};
-use crate::{LinkingError, MemoryRef, MemoryRefMut, Result, log};
+use crate::instance::{ExternItemRef, ExternItemRefMut};
+use crate::{GlobalRef, GlobalRefMut, LinkingError, MemoryRef, MemoryRefMut, Result, TableRef, TableRefMut, log};
 use tinywasm_types::*;
 
 /// The internal representation of a function
@@ -74,14 +75,54 @@ impl FuncContext<'_> {
         })
     }
 
-    /// Get a reference to an exported memory
-    pub fn exported_memory(&self, name: &str) -> Result<MemoryRef<'_>> {
-        self.module().exported_memory(self.store, name)
+    /// Get a reference to a memory export.
+    pub fn memory(&self, name: &str) -> Result<MemoryRef<'_>> {
+        self.module().memory(self.store, name)
     }
 
-    /// Get a mutable reference to an exported memory
-    pub fn exported_memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
-        self.module().exported_memory_mut(self.store, name)
+    /// Get a mutable reference to a memory export.
+    pub fn memory_mut(&mut self, name: &str) -> Result<MemoryRefMut<'_>> {
+        self.module().memory_mut(self.store, name)
+    }
+
+    /// Get any exported extern value by name.
+    pub fn extern_item(&self, name: &str) -> Result<ExternItemRef<'_>> {
+        self.module().extern_item(self.store, name)
+    }
+
+    /// Get any exported extern value by name with mutable access when applicable.
+    pub fn extern_item_mut(&mut self, name: &str) -> Result<ExternItemRefMut<'_>> {
+        self.module().extern_item_mut(self.store, name)
+    }
+
+    /// Get a reference to a table export.
+    pub fn table(&self, name: &str) -> Result<TableRef<'_>> {
+        self.module().table(self.store, name)
+    }
+
+    /// Get a mutable reference to a table export.
+    pub fn table_mut(&mut self, name: &str) -> Result<TableRefMut<'_>> {
+        self.module().table_mut(self.store, name)
+    }
+
+    /// Get the value of a global export.
+    pub fn global_get(&self, name: &str) -> Result<WasmValue> {
+        self.module().global_get(self.store, name)
+    }
+
+    /// Get a reference to a global export.
+    pub fn global(&self, name: &str) -> Result<GlobalRef<'_>> {
+        self.module().global(self.store, name)
+    }
+
+    /// Get a mutable reference to a global export.
+    pub fn global_mut(&mut self, name: &str) -> Result<GlobalRefMut<'_>> {
+        self.module().global_mut(self.store, name)
+    }
+
+    /// Set the value of a mutable global export.
+    pub fn global_set(&mut self, name: &str, value: WasmValue) -> Result<()> {
+        self.module().global_set(self.store, name, value)
     }
 
     /// Charge additional fuel from the currently running resumable invocation.
@@ -230,8 +271,12 @@ impl From<&Import> for ExternName {
 /// ```rust
 /// # use log;
 /// # fn main() -> tinywasm::Result<()> {
-/// use tinywasm::{Imports, Extern};
+/// use tinywasm::{Extern, Imports, Module, Store};
 /// use tinywasm::types::{ValType, TableType, MemoryType, MemoryArch, WasmValue};
+/// # let wasm = wat::parse_str("(module)").expect("valid wat");
+/// # let module = Module::parse_bytes(&wasm)?;
+/// # let mut store = Store::default();
+/// # let my_other_instance = module.instantiate(&mut store, None)?;
 /// let mut imports = Imports::new();
 ///
 /// // function args can be either a single
@@ -249,18 +294,16 @@ impl From<&Import> for ExternName {
 ///     .define("my_module", "table", Extern::table(table_type, table_init))?
 ///     .define("my_module", "memory", Extern::memory(MemoryType::new(MemoryArch::I32, 1, Some(2), None)))?
 ///     .define("my_module", "global_i32", Extern::global(WasmValue::I32(666), false))?
-///     .link_module("my_other_module", 0)?;
+///     .link_module("my_other_module", my_other_instance)?;
 /// # Ok(())
 /// # }
 /// ```
-///
-/// Note that module instance addresses for [`Imports::link_module`] can be obtained from [`crate::ModuleInstance::id`].
 /// Now, the imports object can be passed to [`crate::ModuleInstance::instantiate`].
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Imports {
     values: BTreeMap<ExternName, Extern>,
-    modules: BTreeMap<String, ModuleInstanceAddr>,
+    modules: BTreeMap<String, crate::ModuleInstance>,
 }
 
 pub(crate) enum ResolvedExtern<S, V> {
@@ -297,8 +340,8 @@ impl Imports {
     /// Link a module
     ///
     /// This will automatically link all imported values on instantiation
-    pub fn link_module(&mut self, name: &str, addr: ModuleInstanceAddr) -> Result<&mut Self> {
-        self.modules.insert(name.to_string(), addr);
+    pub fn link_module(&mut self, name: &str, instance: crate::ModuleInstance) -> Result<&mut Self> {
+        self.modules.insert(name.to_string(), instance);
         Ok(self)
     }
 
@@ -312,17 +355,20 @@ impl Imports {
         &mut self,
         store: &mut crate::Store,
         import: &Import,
-    ) -> Option<ResolvedExtern<ExternVal, Extern>> {
+    ) -> Result<Option<ResolvedExtern<ExternVal, Extern>>> {
         let name = ExternName::from(import);
         if let Some(v) = self.values.get(&name) {
-            return Some(ResolvedExtern::Extern(v.clone()));
+            return Ok(Some(ResolvedExtern::Extern(v.clone())));
         }
-        if let Some(addr) = self.modules.get(&name.module) {
-            let instance = store.get_module_instance(*addr)?;
-            return Some(ResolvedExtern::Store(instance.export_addr(&import.name)?));
+        if let Some(instance) = self.modules.get(&name.module) {
+            if instance.0.store_id != store.id() {
+                return Err(crate::Error::InvalidStore);
+            }
+
+            return Ok(instance.export_addr(&import.name).map(ResolvedExtern::Store));
         }
 
-        None
+        Ok(None)
     }
 
     #[cfg(not(feature = "debug"))]
@@ -392,16 +438,17 @@ impl Imports {
         let mut imports = ResolvedImports::new();
 
         for import in &*module.0.imports {
-            match self.take(store, import).ok_or_else(|| LinkingError::unknown_import(import))? {
+            match self.take(store, import)?.ok_or_else(|| LinkingError::unknown_import(import))? {
                 // A link to something that needs to be added to the store
                 ResolvedExtern::Extern(ex) => match (ex, &import.kind) {
                     (Extern::Global { ty, val }, ImportKind::Global(import_ty)) => {
                         Self::compare_types(import, &ty, import_ty)?;
                         imports.globals.push(store.add_global(ty, val.into(), idx)?);
                     }
-                    (Extern::Table { ty, .. }, ImportKind::Table(import_ty)) => {
+                    (Extern::Table { ty, init }, ImportKind::Table(import_ty)) => {
                         Self::compare_table_types(import, &ty, import_ty)?;
-                        imports.tables.push(store.add_table(ty, idx)?);
+                        Self::compare_types(import, &ty.element_type, &init.val_type())?;
+                        imports.tables.push(store.add_table(ty, init, idx)?);
                     }
                     (Extern::Memory { ty }, ImportKind::Memory(import_ty)) => {
                         Self::compare_memory_types(import, &ty, import_ty, None)?;

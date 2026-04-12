@@ -24,7 +24,7 @@ fn argon2id_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
 fn argon2id_run(module: TinyWasmModule) -> Result<()> {
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
-    let argon2 = instance.exported_func::<(i32, i32, i32), i32>(&store, "argon2id")?;
+    let argon2 = instance.func_typed::<(i32, i32, i32), i32>(&store, "argon2id")?;
     argon2.call(&mut store, (1000, 2, 1))?;
     Ok(())
 }
@@ -32,11 +32,14 @@ fn argon2id_run(module: TinyWasmModule) -> Result<()> {
 fn criterion_benchmark(c: &mut Criterion) {
     let module = argon2id_parse().expect("argon2id_parse");
     let twasm = argon2id_to_twasm(&module).expect("argon2id_to_twasm");
+    let mut group = c.benchmark_group("argon2id");
 
-    c.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
-    c.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(&module)));
-    c.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(&twasm)));
-    c.bench_function("argon2id", |b| b.iter(|| argon2id_run(module.clone())));
+    group.measurement_time(std::time::Duration::from_secs(2));
+    group.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
+    group.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(&module)));
+    group.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(&twasm)));
+    group.measurement_time(std::time::Duration::from_secs(10));
+    group.bench_function("argon2id", |b| b.iter(|| argon2id_run(module.clone())));
 }
 
 criterion_group!(benches, criterion_benchmark);

@@ -208,6 +208,14 @@ impl State {
     }
 
     /// Get the global at the actual index in the store
+    pub(crate) fn get_global_mut(&mut self, addr: GlobalAddr) -> &mut GlobalInstance {
+        match self.globals.get_mut(addr as usize) {
+            Some(global) => global,
+            None => unreachable!("global {addr} not found. This should be unreachable"),
+        }
+    }
+
+    /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
         match self.globals.get(addr as usize) {
             Some(global) => global.value.get(),
@@ -444,8 +452,19 @@ impl Store {
         Ok(self.state.globals.len() as Addr - 1)
     }
 
-    pub(crate) fn add_table(&mut self, table: TableType, _idx: ModuleInstanceAddr) -> Result<TableAddr> {
-        self.state.tables.push(TableInstance::new(table));
+    pub(crate) fn add_table(
+        &mut self,
+        table: TableType,
+        init: WasmValue,
+        _idx: ModuleInstanceAddr,
+    ) -> Result<TableAddr> {
+        let init = match (table.element_type, init) {
+            (ValType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
+            (ValType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
+            _ => return Err(Error::Other("invalid table init value".to_string())),
+        };
+
+        self.state.tables.push(TableInstance::new_with_init(table, init));
         Ok(self.state.tables.len() as TableAddr - 1)
     }
 

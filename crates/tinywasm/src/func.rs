@@ -22,6 +22,7 @@ pub(crate) struct ExecutionState {
 /// A function handle
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct FuncHandle {
+    pub(crate) store_id: usize,
     pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) addr: u32,
     pub(crate) ty: FuncType,
@@ -53,6 +54,10 @@ impl FuncHandle {
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        if self.store_id != store.id() {
+            return Err(Error::InvalidStore);
+        }
+
         validate_call_params(&self.ty, params)?;
 
         let func_inst = store.state.get_func(self.addr);
@@ -86,6 +91,10 @@ impl FuncHandle {
         store: &'store mut Store,
         params: &[WasmValue],
     ) -> Result<FuncExecution<'store>> {
+        if self.store_id != store.id() {
+            return Err(Error::InvalidStore);
+        }
+
         validate_call_params(&self.ty, params)?;
 
         let func_inst = store.state.get_func(self.addr);

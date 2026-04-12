@@ -22,10 +22,14 @@
 //!  Enables the `tinywasm-parser` crate. This is enabled by default.
 //!- **`archive`**\
 //!  Enables pre-parsing of archives. This is enabled by default.
+//!- **`guest_debug`**\
+//!  Enables module-internal by-index inspection APIs (`*_by_index`).
 //!
 //! With all these features disabled, `TinyWasm` only depends on `core`, `alloc` and `libm`.
 //! By disabling `std`, you can use `TinyWasm` in `no_std` environments. This requires
 //! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //!
 //! ## Getting Started
 //! The easiest way to get started is to use the [`Module::parse_bytes`] function to load a
@@ -51,9 +55,9 @@
 //! let instance = module.instantiate(&mut store, None)?;
 //!
 //! // Get a typed handle to the exported "add" function
-//! // Alternatively, you can use `instance.get_func` to get an untyped handle
+//! // Alternatively, you can use `instance.func` to get an untyped handle
 //! // that takes and returns [`WasmValue`]s
-//! let func = instance.exported_func::<(i32, i32), i32>(&mut store, "add")?;
+//! let func = instance.func_typed::<(i32, i32), i32>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
 //! assert_eq!(res, 3);
@@ -94,8 +98,8 @@ mod error;
 pub use error::*;
 pub use func::{ExecProgress, FuncExecution, FuncExecutionTyped, FuncHandle, FuncHandleTyped};
 pub use imports::*;
-pub use instance::ModuleInstance;
-pub use module::Module;
+pub use instance::{ExternItemRef, ExternItemRefMut, ModuleInstance};
+pub use module::{ExportType, ImportType, Module, ModuleExport, ModuleImport};
 pub use reference::*;
 pub use store::*;
 

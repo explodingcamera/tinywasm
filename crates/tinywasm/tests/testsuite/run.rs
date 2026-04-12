@@ -13,57 +13,61 @@ use wasm_testsuite::wast::{Wast, lexer::Lexer, parser::ParseBuffer};
 
 #[derive(Default)]
 struct ModuleRegistry {
-    modules: HashMap<String, ModuleInstanceAddr>,
+    modules: HashMap<String, ModuleInstance>,
 
-    named_modules: HashMap<String, ModuleInstanceAddr>,
-    last_module: Option<ModuleInstanceAddr>,
+    named_modules: HashMap<String, ModuleInstance>,
+    last_module: Option<ModuleInstance>,
 }
 
 impl ModuleRegistry {
-    fn modules(&self) -> &HashMap<String, ModuleInstanceAddr> {
+    fn modules(&self) -> &HashMap<String, ModuleInstance> {
         &self.modules
     }
 
-    fn update_last_module(&mut self, addr: ModuleInstanceAddr, name: Option<String>) {
-        self.last_module = Some(addr);
+    fn update_last_module(&mut self, module: ModuleInstance, name: Option<String>) {
+        self.last_module = Some(module.clone());
         if let Some(name) = name {
-            self.named_modules.insert(name, addr);
+            self.named_modules.insert(name, module);
         }
     }
-    fn register(&mut self, name: String, addr: ModuleInstanceAddr) {
+    fn register(&mut self, name: String, module: ModuleInstance) {
         log::debug!("registering module: {name}");
-        self.modules.insert(name.clone(), addr);
+        self.modules.insert(name.clone(), module.clone());
 
-        self.last_module = Some(addr);
-        self.named_modules.insert(name, addr);
+        self.last_module = Some(module.clone());
+        self.named_modules.insert(name, module);
     }
 
-    fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<&ModuleInstanceAddr> {
+    fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<ModuleInstanceAddr> {
         match module_id {
             Some(module) => {
                 log::debug!("getting module: {}", module.name());
 
-                if let Some(addr) = self.modules.get(module.name()) {
-                    return Some(addr);
+                if let Some(module) = self.modules.get(module.name()) {
+                    return Some(module.id());
                 }
 
-                if let Some(addr) = self.named_modules.get(module.name()) {
-                    return Some(addr);
+                if let Some(module) = self.named_modules.get(module.name()) {
+                    return Some(module.id());
                 }
 
                 None
             }
-            None => self.last_module.as_ref(),
+            None => self.last_module.as_ref().map(ModuleInstance::id),
         }
     }
 
-    fn get(&self, module_id: Option<wast::token::Id<'_>>, store: &tinywasm::Store) -> Option<ModuleInstance> {
-        let addr = self.get_idx(module_id)?;
-        store.get_module_instance(*addr)
+    fn get(&self, module_id: Option<wast::token::Id<'_>>) -> Option<ModuleInstance> {
+        match module_id {
+            Some(module_id) => {
+                self.modules.get(module_id.name()).or_else(|| self.named_modules.get(module_id.name())).cloned()
+            }
+            None => self.last_module.clone(),
+        }
     }
 
-    fn last(&self, store: &tinywasm::Store) -> Option<ModuleInstance> {
-        store.get_module_instance(*self.last_module.as_ref()?)
+    fn last(&self) -> Option<ModuleInstance> {
+        self.last_module.clone()
     }
 }
 
@@ -83,7 +87,7 @@ impl TestSuite {
         Ok(())
     }
 
-    fn imports(modules: &HashMap<std::string::String, u32>) -> Result<Imports> {
+    fn imports(modules: &HashMap<std::string::String, ModuleInstance>) -> Result<Imports> {
         let mut imports = Imports::new();
 
         let table =
@@ -143,9 +147,9 @@ impl TestSuite {
             .define("spectest", "print_i32_f32", print_i32_f32)?
             .define("spectest", "print_f64_f64", print_f64_f64)?;
 
-        for (name, addr) in modules {
+        for (name, module) in modules {
             log::debug!("registering module: {name}");
-            imports.link_module(name, *addr)?;
+            imports.link_module(name, module.clone())?;
         }
 
         Ok(imports)
@@ -186,7 +190,7 @@ impl TestSuite {
 
             match directive {
                 Register { span, name, .. } => {
-                    let Some(last) = module_registry.last(&store) else {
+                    let Some(last) = module_registry.last() else {
                         test_group.add_result(
                             &format!("Register({i})"),
                             span.linecol_in(wast_raw),
@@ -194,7 +198,7 @@ impl TestSuite {
                         );
                         continue;
                     };
-                    module_registry.register(name.to_string(), last.id());
+                    module_registry.register(name.to_string(), last);
                     test_group.add_result(&format!("Register({i})"), span.linecol_in(wast_raw), Ok(()));
                 }
 
@@ -214,7 +218,7 @@ impl TestSuite {
 
                     match &result {
                         Err(err) => debug!("failed to parse module: {err:?}"),
-                        Ok((name, module)) => module_registry.update_last_module(module.id(), name.clone()),
+                        Ok((name, module)) => module_registry.update_last_module(module.clone(), name.clone()),
                     };
 
                     test_group.add_result(&format!("Wat({i})"), span.linecol_in(wast_raw), result.map(|_| ()));
@@ -425,7 +429,7 @@ impl TestSuite {
                     let invoke = match match exec {
                         wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
                         wast::WastExecute::Get { module: module_id, global, .. } => {
-                            let module = module_registry.get(module_id, &store);
+                            let module = module_registry.get(module_id);
                             let Some(module) = module else {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),

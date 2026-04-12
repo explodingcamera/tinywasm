@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
+- Support for the `custom_page_sizes` proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
 - Support for the `tail_call` proposal
 - Support for the `memory64` proposal
-- Support for the fixed-width `simd` proposal
+- Support for the `simd` proposal
 - Support for the `relaxed_simd` proposal
 - Support for the `wide_arithmetic` proposal
 - New `Engine` API (`tinywasm::Engine` and `engine::Config`) for runtime configuration
@@ -20,12 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host-function fuel APIs: `FuncContext::charge_fuel` and `FuncContext::remaining_fuel`
 - `engine::FuelPolicy` and `engine::Config::fuel_policy` for fuel accounting behavior
 - New `canonicalize_nans` feature flag to enable canonicalizing NaN values in the `f32`, `f64`, and `v128` types
+- Public API rework for runtime object access:
+  - export lookups: `func`, `func_typed`, `memory`, `memory_mut`
+  - table/global access: `table`, `table_mut`, `global`, `global_mut`, `global_get`, `global_set`
+  - generic export access: `extern_item`, `extern_item_mut`
+  - export iteration: `ModuleInstance::exports`
+  - module descriptors: `Module::imports`, `Module::exports`
+  - raw memory data access: `MemoryRef::data`/`data_size`, `MemoryRefMut::data`/`data_mut`/`data_size`
 
 ### Changed
 
 - Locals are now stored in the typed value stacks instead of a separate locals structure
 - Structured control flow is fully lowered to jump-oriented internal instructions during parsing
-- Stack and call-stack limits are configured via `engine::Config`
+- Stack and call-stack limits can now be configured via `engine::Config`
+- Module-internal by-index inspection APIs are now gated behind the `guest_debug` feature
 
 ### Breaking Changes
 
@@ -41,12 +49,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cargo feature `logging` was renamed to `log`
 - Increased MSRV to 1.90
 - `Error::ParseError` was renamed to `Error::Parser`, and `Error::Twasm` was added
+- `ModuleInstance` export lookup APIs were renamed:
+  - `exported_func_untyped` -> `func`
+  - `exported_func` -> `func_typed`
+  - `exported_memory` -> `memory`
+  - `exported_memory_mut` -> `memory_mut`
+- `Imports::link_module` now takes a `ModuleInstance` instead of a raw module instance id
+- `func_typed` now validates the exact wasm signature at lookup time and fails immediately on mismatches
 
 ### Fixed
 
 - Fixed archive **no_std** support which was broken in the previous release, and added more tests to ensure it stays working
 - `ModuleInstance::exported_memory` and `FuncContext::exported_memory` are now actually immutable ([#41](https://github.com/explodingcamera/tinywasm/pull/41))
 - Check returns in untyped host functions ([#27](https://github.com/explodingcamera/tinywasm/pull/27)) (thanks [@WhaleKit](https://github.com/WhaleKit))
+- `MemoryRefMut::copy_within(src, dst, len)` now follows its documented argument order
+- Imported tables created with `Extern::table(ty, init)` now honor the provided init value
 
 ## [0.8.0] - 2024-08-29
 

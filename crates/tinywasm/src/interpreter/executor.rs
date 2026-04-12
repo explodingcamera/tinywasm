@@ -306,7 +306,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
 
                 // Bulk memory operations
-                MemoryCopy(from, to) => self.exec_memory_copy(*from, *to)?,
+                MemoryCopy { dst_mem, src_mem } => self.exec_memory_copy(*dst_mem, *src_mem)?,
                 MemoryFill(addr) => self.exec_memory_fill(*addr)?,
                 MemoryFillImm(addr, val, size) => self.exec_memory_fill_imm(*addr, *val, *size)?,
                 MemoryInit(data_idx, mem_idx) => self.exec_memory_init(*data_idx, *mem_idx)?,
@@ -320,7 +320,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 TableInit(elem_idx, table_idx) => self.exec_table_init(*elem_idx, *table_idx)?,
                 TableGrow(table_idx) => self.exec_table_grow(*table_idx)?,
                 TableFill(table_idx) => self.exec_table_fill(*table_idx)?,
-                TableCopy { from, to } => self.exec_table_copy(*from, *to)?,
+                TableCopy { dst_table, src_table } => self.exec_table_copy(*dst_table, *src_table)?,
 
                 // Core memory load/store operations
                 I32Store(m) => self.exec_mem_store::<i32, i32, 4>(m.mem_addr(), m.offset(), |v| v)?,
@@ -919,21 +919,23 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
-    fn exec_memory_copy(&mut self, from: u32, to: u32) -> Result<()> {
+    fn exec_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Result<()> {
         let size: i32 = self.store.stack.values.pop();
         let src: i32 = self.store.stack.values.pop();
         let dst: i32 = self.store.stack.values.pop();
 
-        if from == to {
-            let mem_from = self.store.state.get_mem_mut(self.module.resolve_mem_addr(from));
+        if dst_mem == src_mem {
+            let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(dst_mem));
             // copy within the same memory
-            mem_from.copy_within(dst as usize, src as usize, size as usize)?;
+            mem.copy_within(dst as usize, src as usize, size as usize)?;
         } else {
             // copy between two memories
-            let (mem_from, mem_to) =
-                self.store.state.get_mems_mut(self.module.resolve_mem_addr(from), self.module.resolve_mem_addr(to))?;
+            let (dst_memory, src_memory) = self
+                .store
+                .state
+                .get_mems_mut(self.module.resolve_mem_addr(dst_mem), self.module.resolve_mem_addr(src_mem))?;
 
-            mem_from.copy_from_slice(dst as usize, mem_to.load(src as usize, size as usize)?)?;
+            dst_memory.copy_from_slice(dst as usize, src_memory.load(src as usize, size as usize)?)?;
         }
         Ok(())
     }
@@ -977,25 +979,25 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let Some(data) = &data.data else { return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()) };
         mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])
     }
-    fn exec_table_copy(&mut self, from: u32, to: u32) -> Result<()> {
+    fn exec_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<()> {
         let size: i32 = self.store.stack.values.pop();
         let src: i32 = self.store.stack.values.pop();
         let dst: i32 = self.store.stack.values.pop();
 
-        if from == to {
-            // copy within the same memory
-            self.store.state.get_table_mut(self.module.resolve_table_addr(from)).copy_within(
+        if dst_table == src_table {
+            // copy within the same table
+            self.store.state.get_table_mut(self.module.resolve_table_addr(dst_table)).copy_within(
                 dst as usize,
                 src as usize,
                 size as usize,
             )
         } else {
-            // copy between two memories
-            let (table_from, table_to) = self
+            // copy between two tables
+            let (dst_table_ref, src_table_ref) = self
                 .store
                 .state
-                .get_tables_mut(self.module.resolve_table_addr(from), self.module.resolve_table_addr(to))?;
-            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)
+                .get_tables_mut(self.module.resolve_table_addr(dst_table), self.module.resolve_table_addr(src_table))?;
+            dst_table_ref.copy_from_slice(dst as usize, src_table_ref.load(src as usize, size as usize)?)
         }
     }
 

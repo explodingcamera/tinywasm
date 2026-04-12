@@ -21,7 +21,7 @@ fn main() -> Result<()> {
     let module: Module = TinyWasmModule::from_twasm(&twasm)?.into();
     let mut store = Store::default();
     let instance = module.instantiate(&mut store, None)?;
-    let add = instance.exported_func::<(i32, i32), i32>(&store, "add")?;
+    let add = instance.func_typed::<(i32, i32), i32>(&store, "add")?;
 
     assert_eq!(add.call(&mut store, (1, 2))?, 3);
 

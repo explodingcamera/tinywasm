@@ -23,7 +23,7 @@ fn fibonacci_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
 fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> {
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
-    let argon2 = instance.exported_func::<i32, i32>(
+    let argon2 = instance.func_typed::<i32, i32>(
         &store,
         match recursive {
             true => "fibonacci_recursive",
@@ -37,12 +37,15 @@ fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> 
 fn criterion_benchmark(c: &mut Criterion) {
     let module = fibonacci_parse().expect("fibonacci_parse");
     let twasm = fibonacci_to_twasm(&module).expect("fibonacci_to_twasm");
+    let mut group = c.benchmark_group("fibonacci");
 
-    c.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
-    c.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
-    c.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
-    c.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
-    c.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
+    group.measurement_time(std::time::Duration::from_secs(2));
+    group.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
+    group.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
+    group.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
+    group.measurement_time(std::time::Duration::from_secs(10));
+    group.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
+    group.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
 }
 
 criterion_group!(benches, criterion_benchmark);

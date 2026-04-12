@@ -15,7 +15,11 @@ pub(crate) struct TableInstance {
 
 impl TableInstance {
     pub(crate) fn new(kind: TableType) -> Self {
-        Self { elements: vec![TableElement::Uninitialized; kind.size_initial as usize], kind }
+        Self::new_with_init(kind, TableElement::Uninitialized)
+    }
+
+    pub(crate) fn new_with_init(kind: TableType, init: TableElement) -> Self {
+        Self { elements: vec![init; kind.size_initial as usize], kind }
     }
 
     #[inline(never)]

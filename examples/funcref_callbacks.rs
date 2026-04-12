@@ -56,8 +56,7 @@ fn run_passed_funcref_example() -> Result<()> {
         "call_this",
         Extern::typed_func(|mut ctx: FuncContext<'_>, func_ref: FuncRef| -> tinywasm::Result<()> {
             // Host cannot call a funcref directly, so it routes through Wasm.
-            let call_by_ref =
-                ctx.module().exported_func::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
+            let call_by_ref = ctx.module().func_typed::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
             let _result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
             Ok(())
         }),
@@ -70,7 +69,7 @@ fn run_passed_funcref_example() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let caller = instance.exported_func::<(), ()>(&store, "tell_host_to_call")?;
+    let caller = instance.func_typed::<(), ()>(&store, "tell_host_to_call")?;
 
     caller.call(&mut store, ())?;
 
@@ -123,12 +122,11 @@ fn run_returned_funcref_example() -> Result<()> {
     let instance = module.instantiate(&mut store, Some(imports))?;
 
     let (add_ref, sub_ref, mul_ref) = {
-        let get_funcrefs =
-            instance.exported_func::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
+        let get_funcrefs = instance.func_typed::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
         get_funcrefs.call(&mut store, ())?
     };
 
-    let call_by_ref = instance.exported_func::<(FuncRef, i32, i32), i32>(&store, "call_binop_by_ref")?;
+    let call_by_ref = instance.func_typed::<(FuncRef, i32, i32), i32>(&store, "call_binop_by_ref")?;
 
     for func_ref in [add_ref, sub_ref, mul_ref] {
         let _result = call_by_ref.call(&mut store, (func_ref, LHS, RHS))?;

@@ -13,7 +13,7 @@ pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
 }
 
 pub fn exec_fn_instance(
-    instance: Option<&ModuleInstanceAddr>,
+    instance: Option<ModuleInstanceAddr>,
     store: &mut tinywasm::Store,
     name: &str,
     args: &[tinywasm_types::WasmValue],
@@ -22,11 +22,11 @@ pub fn exec_fn_instance(
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
 
-    let Some(instance) = store.get_module_instance(*instance) else {
+    let Some(instance) = store.get_module_instance(instance) else {
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
 
-    let func = instance.exported_func_untyped(store, name)?;
+    let func = instance.func(store, name)?;
     func.call(store, args)
 }
 
@@ -43,7 +43,7 @@ pub fn exec_fn(
     let mut store = tinywasm::Store::default();
     let module = tinywasm::Module::from(module);
     let instance = module.instantiate(&mut store, imports)?;
-    instance.exported_func_untyped(&store, name)?.call(&mut store, args)
+    instance.func(&store, name)?.call(&mut store, args)
 }
 
 pub fn catch_unwind_silent<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {

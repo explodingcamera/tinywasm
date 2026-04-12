@@ -15,6 +15,10 @@ readme="../../README.md"
 name="tinywasm"
 path="src/lib.rs"
 
+[package.metadata.docs.rs]
+features=["std", "parser", "archive", "log", "canonicalize_nans", "debug", "guest_debug"]
+rustdoc-args=["--cfg", "docsrs"]
+
 [dependencies]
 log={workspace=true, optional=true}
 tinywasm-parser={version="0.9.0-alpha.0", path="../parser", default-features=false, optional=true}
@@ -50,6 +54,9 @@ canonicalize_nans=[]
 
 # derive Debug for runtime/types structs
 debug=["tinywasm-types/debug"]
+
+# expose module-internal by-index inspection APIs
+guest_debug=[]
 
 # enable x86-specific SIMD intrinsics in Value128 (uses unsafe code)
 # note: for x86 backend selection, compile with x86-64-v3 target features

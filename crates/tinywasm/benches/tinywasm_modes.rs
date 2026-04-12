@@ -24,7 +24,7 @@ fn setup_typed_func(module: TinyWasmModule, engine: Option<Engine>) -> Result<(S
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _: i32| Ok(())))?;
 
     let instance = ModuleInstance::instantiate(&mut store, module.into(), Some(imports))?;
-    let func = instance.exported_func::<(), ()>(&store, "hello")?;
+    let func = instance.func_typed::<(), ()>(&store, "hello")?;
     Ok((store, func))
 }
 

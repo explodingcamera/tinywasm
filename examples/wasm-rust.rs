@@ -79,7 +79,7 @@ fn tinywasm() -> Result<()> {
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _x: i32| Ok(())))?;
     let instance = module.instantiate(&mut store, Some(black_box(imports)))?;
 
-    let hello = instance.exported_func::<(), ()>(&store, "hello")?;
+    let hello = instance.func_typed::<(), ()>(&store, "hello")?;
     hello.call(&mut store, black_box(()))?;
     hello.call(&mut store, black_box(()))?;
     hello.call(&mut store, black_box(()))?;
@@ -94,7 +94,7 @@ fn tinywasm_no_std() -> Result<()> {
     imports.define("env", "printi32", Extern::typed_func(|_: FuncContext<'_>, _x: i32| Ok(())))?;
     let instance = module.instantiate(&mut store, Some(black_box(imports)))?;
 
-    let hello = instance.exported_func::<(), ()>(&store, "hello")?;
+    let hello = instance.func_typed::<(), ()>(&store, "hello")?;
     hello.call(&mut store, black_box(()))?;
     hello.call(&mut store, black_box(()))?;
     hello.call(&mut store, black_box(()))?;
@@ -109,22 +109,20 @@ fn hello() -> Result<()> {
     imports.define(
         "env",
         "print_utf8",
-        Extern::typed_func(|ctx: FuncContext<'_>, args: (i64, i32)| {
-            let mem = ctx.exported_memory("memory")?;
-            let ptr = args.0 as usize;
-            let len = args.1 as usize;
-            let string = mem.load_string(ptr, len)?;
+        Extern::typed_func(|ctx: FuncContext<'_>, (ptr, len): (i64, i32)| {
+            let mem = ctx.memory("memory")?;
+            let string = mem.load_string(ptr as usize, len as usize)?;
             println!("{string}");
             Ok(())
         }),
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let arg_ptr = instance.exported_func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
+    let arg_ptr = instance.func_typed::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
-    instance.exported_memory_mut(&mut store, "memory")?.store(arg_ptr as usize, arg.len(), arg)?;
-    let hello = instance.exported_func::<i32, ()>(&store, "hello")?;
+    instance.memory_mut(&mut store, "memory")?.store(arg_ptr as usize, arg.len(), arg)?;
+    let hello = instance.func_typed::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 
     Ok(())
@@ -145,7 +143,7 @@ fn host_fn() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let host_fn = instance.exported_func::<(), i32>(&store, "foo")?;
+    let host_fn = instance.func_typed::<(), i32>(&store, "foo")?;
     assert_eq!(host_fn.call(&mut store, ())?, 3);
     Ok(())
 }
@@ -165,7 +163,7 @@ fn printi32() -> Result<()> {
     )?;
 
     let instance = module.instantiate(&mut store, Some(imports))?;
-    let add_and_print = instance.exported_func::<(i32, i32), ()>(&store, "add_and_print")?;
+    let add_and_print = instance.func_typed::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
 
     Ok(())
@@ -176,7 +174,7 @@ fn fibonacci() -> Result<()> {
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
-    let fibonacci = instance.exported_func::<i32, i32>(&store, "fibonacci_recursive")?;
+    let fibonacci = instance.func_typed::<i32, i32>(&store, "fibonacci_recursive")?;
     let n = 26;
     let result = fibonacci.call(&mut store, n)?;
     println!("fibonacci({n}) = {result}");
@@ -189,7 +187,7 @@ fn argon2id() -> Result<()> {
     let mut store = Store::default();
 
     let instance = module.instantiate(&mut store, None)?;
-    let argon2id = instance.exported_func::<(i32, i32, i32), i32>(&store, "argon2id")?;
+    let argon2id = instance.func_typed::<(i32, i32, i32), i32>(&store, "argon2id")?;
     argon2id.call(&mut store, (1000, 2, 1))?;
 
     Ok(())

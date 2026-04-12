@@ -200,7 +200,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         visit_ref_func(RefFunc, u32), visit_table_fill(TableFill, u32), visit_table_get(TableGet, u32), visit_table_set(TableSet, u32), visit_table_grow(TableGrow, u32), visit_table_size(TableSize, u32),
 
         // Bulk Memory
-        visit_memory_init(MemoryInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_memory_copy(MemoryCopy, u32, u32), visit_table_init(TableInit, u32, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
+        visit_memory_init(MemoryInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_table_init(TableInit, u32, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
 
         // Wide Arithmetic
         visit_i64_add128(I64Add128), visit_i64_sub128(I64Sub128), visit_i64_mul_wide_s(I64MulWideS), visit_i64_mul_wide_u(I64MulWideU)
@@ -440,7 +440,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
-        self.instructions.push(Instruction::TableCopy { from: src_table, to: dst_table });
+        self.instructions.push(Instruction::TableCopy { dst_table, src_table });
+    }
+
+    fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
+        self.instructions.push(Instruction::MemoryCopy { dst_mem, src_mem });
     }
 
     // Reference Types

@@ -171,14 +171,14 @@ pub enum Instruction {
     TableInit(ElemAddr, TableAddr),
     TableGet(TableAddr),
     TableSet(TableAddr),
-    TableCopy { from: TableAddr, to: TableAddr },
+    TableCopy { dst_table: TableAddr, src_table: TableAddr },
     TableGrow(TableAddr),
     TableSize(TableAddr),
     TableFill(TableAddr),
 
     // > Bulk Memory Instructions
     MemoryInit(MemAddr, DataAddr),
-    MemoryCopy(MemAddr, MemAddr),
+    MemoryCopy { dst_mem: MemAddr, src_mem: MemAddr },
     MemoryFill(MemAddr),
     MemoryFillImm(MemAddr, u8, i32),
     DataDrop(DataAddr),
