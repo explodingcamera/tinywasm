@@ -710,21 +710,20 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_call<const IS_RETURN_CALL: bool>(
         &mut self,
-        wasm_func: Rc<WasmFunction>,
+        wasm_func: WasmFunctionInstance,
         func_addr: FuncAddr,
-        owner: ModuleInstanceAddr,
     ) -> Result<()> {
-        if !Rc::ptr_eq(&self.func, &wasm_func) {
-            self.func = wasm_func.clone();
+        if !Rc::ptr_eq(&self.func, &wasm_func.func) {
+            self.func = wasm_func.func.clone();
         }
 
         if IS_RETURN_CALL {
-            self.store.stack.values.truncate_keep_counts(self.cf.locals_base, wasm_func.params);
+            self.store.stack.values.truncate_keep_counts(self.cf.locals_base, wasm_func.func.params);
         }
 
-        let res = self.store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals);
+        let res = self.store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals);
         let locals_base = res.map_err(|err| if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) })?;
-        let new_call_frame = CallFrame::new(func_addr, owner, locals_base, wasm_func.locals);
+        let new_call_frame = CallFrame::new(func_addr, wasm_func.owner, locals_base, wasm_func.func.locals);
 
         if !IS_RETURN_CALL {
             self.cf.incr_instr_ptr(); // skip the call instruction
@@ -748,12 +747,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> Result<()> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
-        let func_inst = self.store.state.get_func(addr);
-        match &func_inst.func {
-            crate::FunctionDef::Wasm(wasm_func) => {
-                self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), addr, func_inst.owner)
-            }
-            crate::FunctionDef::Host(host_func) => self.exec_call_host(host_func.clone()),
+        match self.store.state.get_func(addr) {
+            crate::FunctionInstance::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), addr),
+            crate::FunctionInstance::Host(host_func) => self.exec_call_host(host_func.clone()),
         }
     }
 
@@ -790,22 +786,20 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             table.addr().ok_or_else(|| Error::from(Trap::UninitializedElement { index: table_idx as usize }))?
         };
 
-        let func_inst = self.store.state.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
-
-        match &func_inst.func {
-            crate::FunctionDef::Wasm(wasm_func) => {
-                if wasm_func.ty != *call_ty {
+        match self.store.state.get_func(func_ref) {
+            crate::FunctionInstance::Wasm(wasm_func) => {
+                if wasm_func.ty() != call_ty {
                     return Err(Trap::IndirectCallTypeMismatch {
-                        actual: wasm_func.ty.clone(),
+                        actual: wasm_func.ty().clone(),
                         expected: call_ty.clone(),
                     }
                     .into());
                 }
 
-                self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_ref, func_inst.owner)
+                self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_ref)
             }
-            crate::FunctionDef::Host(host_func) => {
+            crate::FunctionInstance::Host(host_func) => {
                 if host_func.ty != *call_ty {
                     return Err(Trap::IndirectCallTypeMismatch {
                         actual: host_func.ty.clone(),

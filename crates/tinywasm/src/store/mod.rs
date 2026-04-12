@@ -117,9 +117,9 @@ impl State {
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
     pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Rc<WasmFunction> {
         match self.funcs.get(addr as usize) {
-            Some(func) => match &func.func {
-                FunctionDef::Wasm(wasm_func) => wasm_func,
-                FunctionDef::Host(_) => unreachable!(
+            Some(func) => match func {
+                FunctionInstance::Wasm(wasm_func) => &wasm_func.func,
+                FunctionInstance::Host(_) => unreachable!(
                     "expected a wasm function at address {addr}, but found a host function. This should be unreachable"
                 ),
             },
@@ -423,8 +423,8 @@ impl Store {
         Ok((data_addrs.into_boxed_slice(), None))
     }
 
-    pub(crate) fn add_func(&mut self, func: FunctionDef, idx: ModuleInstanceAddr) -> FuncAddr {
-        self.state.funcs.push(FunctionInstance { func, owner: idx });
+    pub(crate) fn add_func(&mut self, func: FunctionInstance) -> FuncAddr {
+        self.state.funcs.push(func);
         self.state.funcs.len() as FuncAddr - 1
     }
 

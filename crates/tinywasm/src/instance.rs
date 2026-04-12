@@ -273,7 +273,7 @@ impl ModuleInstance {
             return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
-        let ty = store.state.get_func(func_addr).func.ty();
+        let ty = store.state.get_func(func_addr).ty();
         Ok(Function {
             item: crate::StoreItem::new(self.0.store_id, func_addr),
             addr: func_addr,
@@ -294,7 +294,7 @@ impl ModuleInstance {
         self.validate_store(store)?;
         let func_addr = Self::index_addr(&self.0.func_addrs, func_index, "function")?;
 
-        let ty = store.state.get_func(func_addr).func.ty();
+        let ty = store.state.get_func(func_addr).ty();
         Ok(Function {
             item: crate::StoreItem::new(self.0.store_id, func_addr),
             addr: func_addr,
@@ -437,7 +437,7 @@ impl ModuleInstance {
         };
 
         let func_addr = self.0.resolve_func_addr(func_index);
-        let ty = store.state.get_func(func_addr).func.ty();
+        let ty = store.state.get_func(func_addr).ty();
         Ok(Some(Function {
             item: crate::StoreItem::new(self.0.store_id, func_addr),
             module_addr: self.id(),

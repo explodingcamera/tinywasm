@@ -1,6 +1,6 @@
 use crate::interpreter::stack::CallFrame;
 use crate::reference::StoreItem;
-use crate::{Error, FunctionDef, InterpreterRuntime, Result, Store, unlikely};
+use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
 use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, ValType, WasmValue};
@@ -14,20 +14,19 @@ impl Function {
         self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
-        let func_inst = store.state.get_func(self.addr);
-        let wasm_func = match &func_inst.func {
-            FunctionDef::Host(host_func) => {
+        let wasm_func = match store.state.get_func(self.addr) {
+            FunctionInstance::Host(host_func) => {
                 return host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params);
             }
-            FunctionDef::Wasm(wasm_func) => wasm_func.clone(),
+            FunctionInstance::Wasm(wasm_func) => wasm_func,
         };
 
         // Reset stack, push args, allocate locals, create entry frame.
         store.stack.clear();
         store.stack.values.extend_from_wasmvalues(params)?;
-        let locals_base = store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals)?;
-        let stack_offset = wasm_func.locals;
-        let callframe = CallFrame::new(self.addr, func_inst.owner, locals_base, stack_offset);
+        let locals_base = store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+        let stack_offset = wasm_func.func.locals;
+        let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
 
         // Execute until completion and then collect result values from the stack.
         InterpreterRuntime::exec(store, callframe)?;
@@ -48,21 +47,17 @@ impl Function {
         self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
-        let func_inst = store.state.get_func(self.addr);
-        let func_inst_owner = func_inst.owner;
-        let func = func_inst.func.clone();
-
-        match func {
-            FunctionDef::Host(host_func) => {
-                let result = host_func.call(FuncContext { store, module_addr: self.module_addr }, params)?;
+        match store.state.get_func(self.addr) {
+            FunctionInstance::Host(host_func) => {
+                let result = host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params)?;
                 Ok(FuncExecution { store, state: FuncExecutionState::Completed { result: Some(result) } })
             }
-            FunctionDef::Wasm(wasm_func) => {
+            FunctionInstance::Wasm(wasm_func) => {
                 store.stack.clear();
                 store.stack.values.extend_from_wasmvalues(params)?;
-                let locals_base = store.stack.values.enter_locals(&wasm_func.params, &wasm_func.locals)?;
-                let stack_offset = wasm_func.locals;
-                let callframe = CallFrame::new(self.addr, func_inst_owner, locals_base, stack_offset);
+                let locals_base = store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+                let stack_offset = wasm_func.func.locals;
+                let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
 
                 Ok(FuncExecution {
                     store,
@@ -151,7 +146,7 @@ impl HostFunction {
             Ok(result)
         };
 
-        let addr = store.add_func(FunctionDef::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })), 0);
+        let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
         Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty: ty.clone() }
     }
 
@@ -169,7 +164,7 @@ impl HostFunction {
 
         let results = R::val_types();
         let ty = tinywasm_types::FuncType { params: P::val_types(), results };
-        let addr = store.add_func(FunctionDef::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })), 0);
+        let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
         Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
     }
 }
@@ -317,7 +312,7 @@ impl<'store> FuncExecution<'store> {
 
         match InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel)? {
             crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(*root_func_addr).func.ty().clone();
+                let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
                 let result = collect_call_results(self.store, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
                 Ok(ExecProgress::Completed(result))
@@ -354,7 +349,7 @@ impl<'store> FuncExecution<'store> {
 
         match InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget)? {
             crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(*root_func_addr).func.ty().clone();
+                let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
                 let result = collect_call_results(self.store, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
                 Ok(ExecProgress::Completed(result))

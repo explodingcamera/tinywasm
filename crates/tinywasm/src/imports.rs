@@ -339,7 +339,7 @@ impl Imports {
                             .get(*ty as usize)
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
 
-                        Self::compare_types(import, func.func.ty(), import_func_type)?;
+                        Self::compare_types(import, func.ty(), import_func_type)?;
                         imports.funcs.push(func_addr);
                     }
                     _ => return Err(LinkingError::incompatible_import_type(import).into()),

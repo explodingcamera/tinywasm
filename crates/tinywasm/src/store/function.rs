@@ -8,33 +8,40 @@ use crate::func::HostFunction;
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) struct FunctionInstance {
-    pub(crate) func: FunctionDef,
-    pub(crate) owner: ModuleInstanceAddr, // index into store.module_instances, none for host functions
-}
-
-/// The internal representation of a function
-#[derive(Clone)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) enum FunctionDef {
+pub(crate) enum FunctionInstance {
     /// A host function
     Host(Rc<HostFunction>),
 
     /// A pointer to a WebAssembly function
-    Wasm(Rc<WasmFunction>),
+    Wasm(WasmFunctionInstance),
 }
 
-impl FunctionDef {
+impl FunctionInstance {
+    #[inline]
     pub(crate) fn ty(&self) -> &FuncType {
         match self {
             Self::Host(f) => &f.ty,
-            Self::Wasm(f) => &f.ty,
+            Self::Wasm(f) => f.ty(),
         }
     }
 }
 
 impl FunctionInstance {
     pub(crate) fn new_wasm(func: WasmFunction, owner: ModuleInstanceAddr) -> Self {
-        Self { func: FunctionDef::Wasm(Rc::new(func)), owner }
+        Self::Wasm(WasmFunctionInstance { func: Rc::new(func), owner })
+    }
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub(crate) struct WasmFunctionInstance {
+    pub(crate) func: Rc<WasmFunction>,
+    pub(crate) owner: ModuleInstanceAddr,
+}
+
+impl WasmFunctionInstance {
+    #[inline]
+    pub(crate) fn ty(&self) -> &FuncType {
+        &self.func.ty
     }
 }
