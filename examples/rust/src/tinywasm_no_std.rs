@@ -1,19 +1,18 @@
 #![no_main]
 #![no_std]
-use lol_alloc::{AssumeSingleThreaded, FreeListAllocator};
+use dlmalloc::GlobalDlmalloc;
 use tinywasm::{FuncContext, HostFunction};
 
 extern crate alloc;
+
+#[global_allocator]
+static ALLOCATOR: GlobalDlmalloc = GlobalDlmalloc;
 
 #[cfg(not(feature = "std"))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
-
-#[global_allocator]
-static ALLOCATOR: AssumeSingleThreaded<FreeListAllocator> =
-    unsafe { AssumeSingleThreaded::new(FreeListAllocator::new()) };
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -33,17 +32,14 @@ fn run() -> tinywasm::Result<()> {
     let twasm = res.serialize_twasm()?;
     let module = tinywasm::Module::parse_bytes(&twasm)?;
 
-    imports.define(
-        "env",
-        "printi32",
-        HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
-            unsafe { printi32(v) }
-            Ok(())
-        }),
-    )?;
-    let instance = module.instantiate(&mut store, Some(imports))?;
+    let printi32 = HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
+        unsafe { printi32(v) }
+        Ok(())
+    });
 
-    let add_and_print = instance.func_typed::<(i32, i32), ()>(&store, "add_and_print")?;
+    imports.define("env", "printi32", printi32);
+    let instance = module.instantiate(&mut store, Some(imports))?;
+    let add_and_print = instance.func::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
     Ok(())
 }

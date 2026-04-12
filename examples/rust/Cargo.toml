@@ -12,7 +12,7 @@ edition="2021"
 [dependencies]
 tinywasm={path="../../crates/tinywasm", default-features=false, features=["parser", "archive"]}
 argon2={version="0.5"}
-lol_alloc="0.4.1"
+dlmalloc={version="0.2", features=["global"]}
 
 [features]
 default=["std"]
