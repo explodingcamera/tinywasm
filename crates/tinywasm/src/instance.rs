@@ -343,10 +343,13 @@ impl ModuleInstance {
     ) -> Result<()> {
         let expected = FuncType { params: P::val_types(), results: R::val_types() };
         if func.ty != expected {
+            #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
                 "function type mismatch for {func_name}: expected {expected:?}, actual {:?}",
                 func.ty
             )));
+            #[cfg(not(feature = "debug"))]
+            return Err(Error::Other(format!("function type mismatch for {func_name}")));
         }
 
         Ok(())

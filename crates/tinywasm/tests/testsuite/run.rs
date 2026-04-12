@@ -2,14 +2,14 @@ use crate::testsuite::util::*;
 use std::{borrow::Cow, collections::HashMap, fs::canonicalize, path::PathBuf};
 
 use super::TestSuite;
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use indexmap::IndexMap;
 use log::{debug, error, info};
 use tinywasm::{Extern, Imports, ModuleInstance};
 use tinywasm_types::{ExternVal, MemoryType, ModuleInstanceAddr, TableType, ValType, WasmValue};
 use wasm_testsuite::data::TestFile;
 use wasm_testsuite::wast;
-use wasm_testsuite::wast::{lexer::Lexer, parser::ParseBuffer, Wast};
+use wasm_testsuite::wast::{Wast, lexer::Lexer, parser::ParseBuffer};
 
 #[derive(Default)]
 struct ModuleRegistry {
