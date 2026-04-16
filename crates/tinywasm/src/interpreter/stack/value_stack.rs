@@ -4,16 +4,14 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValueCounts, WasmType, WasmValue};
 
-use crate::{Result, Trap, engine::Config, interpreter::*};
-
 use super::{CallFrame, StackBase};
+use crate::{Result, Trap, engine::Config, interpreter::*};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ValueStack {
     pub(crate) stack_32: Stack<Value32>,
     pub(crate) stack_64: Stack<Value64>,
     pub(crate) stack_128: Stack<Value128>,
-    pub(crate) stack_ref: Stack<ValueRef>,
 }
 
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -160,7 +158,6 @@ impl ValueStack {
             stack_32: Stack::new(config.stack_32_size),
             stack_64: Stack::new(config.stack_64_size),
             stack_128: Stack::new(config.stack_128_size),
-            stack_ref: Stack::new(config.stack_ref_size),
         }
     }
 
@@ -168,12 +165,11 @@ impl ValueStack {
         self.stack_32.clear();
         self.stack_64.clear();
         self.stack_128.clear();
-        self.stack_ref.clear();
     }
 
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
-        self.stack_32.len + self.stack_64.len + self.stack_128.len + self.stack_ref.len
+        self.stack_32.len + self.stack_64.len + self.stack_128.len
     }
 
     #[inline(always)]
@@ -213,7 +209,6 @@ impl ValueStack {
         self.stack_32.select_many(counts.c32 as usize, condition);
         self.stack_64.select_many(counts.c64 as usize, condition);
         self.stack_128.select_many(counts.c128 as usize, condition);
-        self.stack_ref.select_many(counts.cref as usize, condition);
     }
 
     pub(crate) fn pop_types<'a>(
@@ -239,13 +234,7 @@ impl ValueStack {
         } else {
             self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?
         };
-        let locals_baseref = if params.cref == 0 && locals.cref == 0 {
-            self.stack_ref.len as u32
-        } else {
-            self.stack_ref.enter_locals(params.cref as usize, locals.cref as usize)?
-        };
-
-        Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128, sref: locals_baseref })
+        Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 
     pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCounts) {
@@ -253,14 +242,12 @@ impl ValueStack {
             self.stack_32.len = base.s32 as usize;
             self.stack_64.len = base.s64 as usize;
             self.stack_128.len = base.s128 as usize;
-            self.stack_ref.len = base.sref as usize;
             return;
         }
 
         self.stack_32.truncate_keep(base.s32 as usize, keep.c32 as usize);
         self.stack_64.truncate_keep(base.s64 as usize, keep.c64 as usize);
         self.stack_128.truncate_keep(base.s128 as usize, keep.c128 as usize);
-        self.stack_ref.truncate_keep(base.sref as usize, keep.cref as usize);
     }
 
     #[inline]
@@ -288,7 +275,7 @@ impl ValueStack {
             TinyWasmValue::Value32(v) => self.stack_32.push(v)?,
             TinyWasmValue::Value64(v) => self.stack_64.push(v)?,
             TinyWasmValue::Value128(v) => self.stack_128.push(v)?,
-            TinyWasmValue::ValueRef(v) => self.stack_ref.push(v)?,
+            TinyWasmValue::ValueRef(v) => self.stack_32.push(v.raw())?,
         }
         Ok(())
     }
@@ -299,8 +286,8 @@ impl ValueStack {
             WasmType::I64 => WasmValue::I64(self.pop()),
             WasmType::F32 => WasmValue::F32(self.pop()),
             WasmType::F64 => WasmValue::F64(self.pop()),
-            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(self.pop())),
-            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(self.pop())),
+            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::from_raw(self.pop::<ValueRef>().raw())),
+            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::from_raw(self.pop::<ValueRef>().raw())),
             WasmType::V128 => WasmValue::V128(self.pop::<Value128>().into()),
         }
     }
@@ -312,8 +299,8 @@ impl ValueStack {
                 WasmValue::I64(v) => self.stack_64.push(*v as u64)?,
                 WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
                 WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
-                WasmValue::RefExtern(v) => self.stack_ref.push(v.addr())?,
-                WasmValue::RefFunc(v) => self.stack_ref.push(v.addr())?,
+                WasmValue::RefExtern(v) => self.stack_32.push(v.raw())?,
+                WasmValue::RefFunc(v) => self.stack_32.push(v.raw())?,
                 WasmValue::V128(v) => self.stack_128.push((*v).into())?,
             }
         }

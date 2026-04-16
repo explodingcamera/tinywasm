@@ -230,13 +230,12 @@ pub struct ValueCounts {
     pub c32: u16,
     pub c64: u16,
     pub c128: u16,
-    pub cref: u16,
 }
 
 impl ValueCounts {
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.c32 == 0 && self.c64 == 0 && self.c128 == 0 && self.cref == 0
+        self.c32 == 0 && self.c64 == 0 && self.c128 == 0
     }
 }
 
@@ -248,7 +247,7 @@ impl<'a> FromIterator<&'a WasmType> for ValueCounts {
                 WasmType::I32 | WasmType::F32 => counts.c32 += 1,
                 WasmType::I64 | WasmType::F64 => counts.c64 += 1,
                 WasmType::V128 => counts.c128 += 1,
-                WasmType::RefExtern | WasmType::RefFunc => counts.cref += 1,
+                WasmType::RefExtern | WasmType::RefFunc => counts.c32 += 1,
             }
             counts
         })

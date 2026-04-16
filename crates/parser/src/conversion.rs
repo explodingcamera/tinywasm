@@ -191,8 +191,8 @@ pub(crate) fn convert_module_code(
                 local_counts.c128 += 1;
             }
             Some(wasmparser::ValType::Ref(_)) => {
-                local_addr_map.push(local_counts.cref);
-                local_counts.cref += 1;
+                local_addr_map.push(local_counts.c32);
+                local_counts.c32 += 1;
             }
             None => return Err(crate::ParseError::UnsupportedOperator("Unknown local type".to_string())),
         }

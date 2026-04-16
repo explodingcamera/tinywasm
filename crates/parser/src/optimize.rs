@@ -21,7 +21,6 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
             Instruction::LocalCopy32(a, b) if a == b => instructions[read] = Instruction::Nop,
             Instruction::LocalCopy64(a, b) if a == b => instructions[read] = Instruction::Nop,
             Instruction::LocalCopy128(a, b) if a == b => instructions[read] = Instruction::Nop,
-            Instruction::LocalCopyRef(a, b) if a == b => instructions[read] = Instruction::Nop,
             Instruction::Call(addr) if addr == self_func_addr => instructions[read] = Instruction::CallSelf,
             Instruction::ReturnCall(addr) if addr == self_func_addr => instructions[read] = Instruction::ReturnCallSelf,
             Instruction::I32Add => {
@@ -154,16 +153,6 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                     instructions[read] = Instruction::Nop;
                 }
             }
-            Instruction::LocalGetRef(dst) => {
-                if read > 0
-                    && let Instruction::LocalSetRef(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read - 1] = Instruction::LocalTeeRef(src);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-
             Instruction::LocalSet32(dst) => {
                 if read > 0 {
                     match instructions[read - 1] {
@@ -243,16 +232,6 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                         if src == dst { Instruction::Nop } else { Instruction::LocalCopy128(src, dst) };
                 }
             }
-            Instruction::LocalSetRef(dst) => {
-                if read > 0
-                    && let Instruction::LocalGetRef(src) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] =
-                        if src == dst { Instruction::Nop } else { Instruction::LocalCopyRef(src, dst) };
-                }
-            }
-
             Instruction::LocalTee32(dst) => {
                 if read > 0
                     && let Instruction::LocalGet32(src) = instructions[read - 1]
@@ -289,15 +268,6 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                     instructions[read] = Instruction::Nop;
                 }
             }
-            Instruction::LocalTeeRef(dst) => {
-                if read > 0
-                    && let Instruction::LocalGetRef(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-
             Instruction::Drop32 => {
                 if read > 0
                     && let Instruction::LocalTee32(local) = instructions[read - 1]
@@ -319,14 +289,6 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                     && let Instruction::LocalTee128(local) = instructions[read - 1]
                 {
                     instructions[read - 1] = Instruction::LocalSet128(local);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::DropRef => {
-                if read > 0
-                    && let Instruction::LocalTeeRef(local) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::LocalSetRef(local);
                     instructions[read] = Instruction::Nop;
                 }
             }

@@ -59,7 +59,7 @@ pub enum ConstInstruction {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
-    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr), LocalCopyRef(LocalAddr, LocalAddr),
+    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
     I32AddLocals(LocalAddr, LocalAddr), I64AddLocals(LocalAddr, LocalAddr),
     I32AddConst(i32), I64AddConst(i64),
     LocalAddConst32(LocalAddr, i32), LocalAddConst64(LocalAddr, i64),
@@ -78,11 +78,10 @@ pub enum Instruction {
     Jump(u32),
     JumpIfZero(u32),
     JumpIfNonZero(u32),
-    DropKeepSmall { base32: u8, keep32: u8, base64: u8, keep64: u8, base128: u8, keep128: u8, base_ref: u8, keep_ref: u8 },
+    DropKeep { base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8 },
     DropKeep32(u16, u16),
     DropKeep64(u16, u16),
     DropKeep128(u16, u16),
-    DropKeepRef(u16, u16),
     BranchTable(u32, u32, u32),  // (default_landing_pad_ip, branch_table_start, target_count)
     Return,
     Call(FuncAddr),
@@ -97,7 +96,6 @@ pub enum Instruction {
     Drop32, Select32,
     Drop64, Select64,
     Drop128, Select128,
-    DropRef, SelectRef,
     SelectMulti(ValueCounts),
 
     // > Variable Instructions
@@ -106,7 +104,6 @@ pub enum Instruction {
     LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr), GlobalSet32(GlobalAddr),
     LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr), GlobalSet64(GlobalAddr),
     LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr), GlobalSet128(GlobalAddr),
-    LocalGetRef(LocalAddr), LocalSetRef(LocalAddr), LocalTeeRef(LocalAddr), GlobalSetRef(GlobalAddr),
 
     // > Memory Instructions
     I32Load(MemoryArg),

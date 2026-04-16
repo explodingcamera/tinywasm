@@ -135,11 +135,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 Drop32 => self.store.stack.values.drop::<Value32>(),
                 Drop64 => self.store.stack.values.drop::<Value64>(),
                 Drop128 => self.store.stack.values.drop::<Value128>(),
-                DropRef => self.store.stack.values.drop::<ValueRef>(),
                 Select32 => self.store.stack.values.select::<Value32>()?,
                 Select64 => self.store.stack.values.select::<Value64>()?,
                 Select128 => self.store.stack.values.select::<Value128>()?,
-                SelectRef => self.store.stack.values.select::<ValueRef>()?,
                 SelectMulti(counts) => self.store.stack.values.select_multi(*counts),
                 Call(v) => { self.exec_call_direct::<false>(*v)?; continue; }
                 CallSelf => { self.exec_call_self::<false>()?; continue; }
@@ -150,28 +148,24 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 Jump(ip) => { self.exec_jump(*ip); continue; }
                 JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { continue; },
                 JumpIfNonZero(ip) => if self.exec_jump_if_non_zero(*ip) { continue; },
-                DropKeepSmall { base32, keep32, base64, keep64, base128, keep128, base_ref, keep_ref } => {
-                    let mut base = self.cf.stack_base(); base.s32 += *base32 as u32; base.s64 += *base64 as u32; base.s128 += *base128 as u32; base.sref += *base_ref as u32;
-                    self.store.stack.values.truncate_keep_counts(base, ValueCounts { c32: *keep32 as u16, c64: *keep64 as u16, c128: *keep128 as u16, cref: *keep_ref as u16 });
+                DropKeep { base32, keep32, base64, keep64, base128, keep128 } => {
+                    let mut base = self.cf.stack_base(); base.s32 += *base32 as u32; base.s64 += *base64 as u32; base.s128 += *base128 as u32;
+                    self.store.stack.values.truncate_keep_counts(base, ValueCounts { c32: *keep32 as u16, c64: *keep64 as u16, c128: *keep128 as u16 });
                 }
                 DropKeep32(base, keep) => self.store.stack.values.stack_32.truncate_keep((self.cf.stack_base().s32 + *base as u32) as usize, *keep as usize),
                 DropKeep64(base, keep) => self.store.stack.values.stack_64.truncate_keep((self.cf.stack_base().s64 + *base as u32) as usize, *keep as usize),
                 DropKeep128(base, keep) => self.store.stack.values.stack_128.truncate_keep((self.cf.stack_base().s128 + *base as u32) as usize, *keep as usize),
-                DropKeepRef(base, keep) => self.store.stack.values.stack_ref.truncate_keep((self.cf.stack_base().sref + *base as u32) as usize, *keep as usize),
                 BranchTable(default_ip, start, len) => { self.exec_branch_table(*default_ip, *start, *len); continue; }
                 Return => { if self.exec_return() { return Ok(Some(())); } continue; }
                 LocalGet32(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value32>(&self.cf, *local_index))?,
                 LocalGet64(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value64>(&self.cf, *local_index))?,
                 LocalGet128(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<Value128>(&self.cf, *local_index))?,
-                LocalGetRef(local_index) => self.store.stack.values.push(self.store.stack.values.local_get::<ValueRef>(&self.cf, *local_index))?,
                 LocalSet32(local_index) => stack_op!(local_set_pop Value32, local_index),
                 LocalSet64(local_index) => stack_op!(local_set_pop Value64, local_index),
                 LocalSet128(local_index) => stack_op!(local_set_pop Value128, local_index),
-                LocalSetRef(local_index) => stack_op!(local_set_pop ValueRef, local_index),
                 LocalCopy32(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value32>(&self.cf, *from)),
                 LocalCopy64(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value64>(&self.cf, *from)),
                 LocalCopy128(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value128>(&self.cf, *from)),
-                LocalCopyRef(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<ValueRef>(&self.cf, *from)),
                 I32AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)))?,
                 I64AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)))?,
                 I32AddConst(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
@@ -192,12 +186,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 LocalTee32(local_index) => stack_op!(local_tee Value32, local_index),
                 LocalTee64(local_index) => stack_op!(local_tee Value64, local_index),
                 LocalTee128(local_index) => stack_op!(local_tee Value128, local_index),
-                LocalTeeRef(local_index) => stack_op!(local_tee ValueRef, local_index),
                 GlobalGet(global_index) => self.exec_global_get(*global_index)?,
-                GlobalSet32(global_index) => self.exec_global_set::<Value32>(*global_index),
+                GlobalSet32(global_index) => self.exec_global_set_32(*global_index),
                 GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
                 GlobalSet128(global_index) => self.exec_global_set::<Value128>(*global_index),
-                GlobalSetRef(global_index) => self.exec_global_set::<ValueRef>(*global_index),
                 I32Const(val) => self.exec_const(*val)?,
                 I64Const(val) => self.exec_const(*val)?,
                 F32Const(val) => self.exec_const(*val)?,
@@ -302,8 +294,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 I64Popcnt => stack_op!(unary i64, |v| i64::from(v.count_ones())),
 
                 // Reference types
-                RefFunc(func_idx) => self.exec_const::<ValueRef>(Some(self.module.resolve_func_addr(*func_idx)))?,
-                RefNull(_) => self.exec_const::<ValueRef>(None)?,
+                RefFunc(func_idx) => self.exec_const(ValueRef::from_addr(Some(self.module.resolve_func_addr(*func_idx))))?,
+                RefNull(_) => self.exec_const(ValueRef::NULL)?,
                 RefIsNull => self.exec_ref_is_null()?,
                 MemorySize(addr) => self.exec_memory_size(*addr)?,
                 MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
@@ -909,11 +901,24 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let val = self.store.stack.values.pop::<T>().into();
         self.store.state.set_global_val(self.module.resolve_global_addr(global_index), val);
     }
+
+    fn exec_global_set_32(&mut self, global_index: u32) {
+        let global_addr = self.module.resolve_global_addr(global_index);
+        let raw = self.store.stack.values.pop::<Value32>();
+        let ty = self.store.state.get_global(global_addr).ty.ty;
+        let value = match ty {
+            WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(raw),
+            WasmType::RefExtern | WasmType::RefFunc => TinyWasmValue::ValueRef(ValueRef::from_raw(raw)),
+            WasmType::I64 | WasmType::F64 | WasmType::V128 => unreachable!("invalid global.set.32 target type"),
+        };
+        self.store.state.set_global_val(global_addr, value);
+    }
+
     fn exec_const<T: InternalValue>(&mut self, val: T) -> Result<()> {
         self.store.stack.values.push(val)
     }
     fn exec_ref_is_null(&mut self) -> Result<()> {
-        let is_null = i32::from(self.store.stack.values.pop::<ValueRef>().is_none());
+        let is_null = i32::from(self.store.stack.values.pop::<ValueRef>().is_null());
         self.store.stack.values.push::<i32>(is_null)
     }
 
@@ -1137,7 +1142,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let val = self.store.stack.values.pop::<ValueRef>();
         let idx = self.store.stack.values.pop::<i32>() as u32;
         let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
-        table.set(idx, val.into())
+        table.set(idx, val.addr().into())
     }
     fn exec_table_size(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
@@ -1194,7 +1199,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let n = self.store.stack.values.pop::<i32>();
         let val = self.store.stack.values.pop::<ValueRef>();
 
-        match table.grow(n, val.into()) {
+        match table.grow(n, val.addr().into()) {
             Ok(()) => self.store.stack.values.push(sz)?,
             Err(_) => self.store.stack.values.push(-1_i32)?,
         }
@@ -1221,7 +1226,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Ok(());
         }
 
-        table.fill(self.module.func_addrs(), i as usize, n as usize, val.into())
+        table.fill(self.module.func_addrs(), i as usize, n as usize, val.addr().into())
     }
 }
 

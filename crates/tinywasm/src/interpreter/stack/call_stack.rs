@@ -48,7 +48,6 @@ pub(crate) struct StackBase {
     pub(crate) s32: u32,
     pub(crate) s64: u32,
     pub(crate) s128: u32,
-    pub(crate) sref: u32,
 }
 
 impl CallFrame {
@@ -67,7 +66,6 @@ impl CallFrame {
             s32: self.locals_base.s32 + self.stack_offset.c32 as u32,
             s64: self.locals_base.s64 + self.stack_offset.c64 as u32,
             s128: self.locals_base.s128 + self.stack_offset.c128 as u32,
-            sref: self.locals_base.sref + self.stack_offset.cref as u32,
         }
     }
 

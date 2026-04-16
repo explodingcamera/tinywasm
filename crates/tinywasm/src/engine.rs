@@ -39,17 +39,14 @@ pub enum FuelPolicy {
     Weighted,
 }
 
-/// Default size for the 32-bit value stack (i32, f32 values).
-pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 32 * 1024; // 32k slots
+/// Default size for the 32-bit value stack (i32, f32, ref values).
+pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 36 * 1024; // 36k slots
 
 /// Default size for the 64-bit value stack (i64, f64 values).
 pub const DEFAULT_VALUE_STACK_64_SIZE: usize = 32 * 1024; // 32k slots
 
 /// Default size for the 128-bit value stack (v128 values).
 pub const DEFAULT_VALUE_STACK_128_SIZE: usize = 4 * 1024; // 4k slots
-
-/// Default size for the reference value stack (funcref, externref values).
-pub const DEFAULT_VALUE_STACK_REF_SIZE: usize = 4 * 1024; // 4k slots
 
 /// Default maximum size for the call stack (function frames).
 pub const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
@@ -59,14 +56,12 @@ pub const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub struct Config {
-    /// Size of the 32-bit value stack (i32, f32 values).
+    /// Size of the 32-bit value stack (i32, f32, ref values).
     pub stack_32_size: usize,
     /// Size of the 64-bit value stack (i64, f64 values).
     pub stack_64_size: usize,
     /// Size of the 128-bit value stack (v128 values).
     pub stack_128_size: usize,
-    /// Size of the reference value stack (funcref, externref values).
-    pub stack_ref_size: usize,
     /// Maximum size of the call stack
     pub max_call_stack_size: usize,
     /// Fuel accounting policy used by budgeted execution.
@@ -92,7 +87,6 @@ impl Default for Config {
             stack_32_size: DEFAULT_VALUE_STACK_32_SIZE,
             stack_64_size: DEFAULT_VALUE_STACK_64_SIZE,
             stack_128_size: DEFAULT_VALUE_STACK_128_SIZE,
-            stack_ref_size: DEFAULT_VALUE_STACK_REF_SIZE,
             max_call_stack_size: DEFAULT_MAX_CALL_STACK_SIZE,
             fuel_policy: FuelPolicy::default(),
         }

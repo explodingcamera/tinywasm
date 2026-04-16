@@ -4,8 +4,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::instance::ModuleInstanceInner;
-use crate::interpreter::TinyWasmValue;
 use crate::interpreter::stack::Stack;
+use crate::interpreter::{TinyWasmValue, ValueRef};
 use crate::{Engine, Error, ModuleInstance, Result, Trap};
 
 mod data;
@@ -478,9 +478,9 @@ impl Store {
                 I64Const(i) => (*i).into(),
                 V128Const(i) => (*i).into(),
                 GlobalGet(addr) => resolve_global(*addr)?,
-                RefFunc(None) => TinyWasmValue::ValueRef(None),
-                RefExtern(None) => TinyWasmValue::ValueRef(None),
-                RefFunc(Some(idx)) => TinyWasmValue::ValueRef(Some(resolve_func(*idx)?)),
+                RefFunc(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
+                RefExtern(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
+                RefFunc(Some(idx)) => TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))),
                 _ => return Err(Error::Other("unsupported const instruction".to_string())),
             };
             return Ok(val);
@@ -495,8 +495,10 @@ impl Store {
                 F64Const(f) => stack.push(TinyWasmValue::Value64(f.to_bits())),
                 V128Const(i) => stack.push(TinyWasmValue::Value128((*i).into())),
                 GlobalGet(addr) => stack.push(resolve_global(*addr)?),
-                RefFunc(None) | RefExtern(None) => stack.push(TinyWasmValue::ValueRef(None)),
-                RefFunc(Some(idx)) => stack.push(TinyWasmValue::ValueRef(Some(resolve_func(*idx)?))),
+                RefFunc(None) | RefExtern(None) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
+                RefFunc(Some(idx)) => {
+                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))))
+                }
                 RefExtern(Some(_)) => {
                     return Err(Error::Other("ref.extern constants are not supported in init expressions".to_string()));
                 }
@@ -550,7 +552,7 @@ impl Store {
     ) -> Result<Option<u32>> {
         let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
         match value {
-            TinyWasmValue::ValueRef(v) => Ok(v),
+            TinyWasmValue::ValueRef(v) => Ok(v.addr()),
             other => Err(Error::Other(format!("expected reference const value, got {other:?}"))),
         }
     }

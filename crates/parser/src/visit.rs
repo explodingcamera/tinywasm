@@ -22,7 +22,6 @@ struct StackBase {
     s32: u16,
     s64: u16,
     s128: u16,
-    sref: u16,
 }
 
 struct LoweringCtx {
@@ -214,7 +213,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::I64 => Instruction::GlobalSet64(global_index),
                 wasmparser::ValType::F64 => Instruction::GlobalSet64(global_index),
                 wasmparser::ValType::V128 => Instruction::GlobalSet128(global_index),
-                wasmparser::ValType::Ref(_) => Instruction::GlobalSetRef(global_index),
+                wasmparser::ValType::Ref(_) => Instruction::GlobalSet32(global_index),
             })
         }
     }
@@ -227,7 +226,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::I64 => Instruction::Drop64,
                 wasmparser::ValType::F64 => Instruction::Drop64,
                 wasmparser::ValType::V128 => Instruction::Drop128,
-                wasmparser::ValType::Ref(_) => Instruction::DropRef,
+                wasmparser::ValType::Ref(_) => Instruction::Drop32,
             })
         }
     }
@@ -257,7 +256,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                     self.instructions.push(Instruction::LocalGet128(resolved_idx));
                 }
                 wasmparser::ValType::Ref(_) => {
-                    self.instructions.push(Instruction::LocalGetRef(resolved_idx));
+                    self.instructions.push(Instruction::LocalGet32(resolved_idx));
                 }
             }
         }
@@ -272,7 +271,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::I64 => Instruction::LocalSet64(resolved_idx),
                 wasmparser::ValType::F64 => Instruction::LocalSet64(resolved_idx),
                 wasmparser::ValType::V128 => Instruction::LocalSet128(resolved_idx),
-                wasmparser::ValType::Ref(_) => Instruction::LocalSetRef(resolved_idx),
+                wasmparser::ValType::Ref(_) => Instruction::LocalSet32(resolved_idx),
             })
         }
     }
@@ -286,7 +285,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                 wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
                 wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
                 wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
-                wasmparser::ValType::Ref(_) => Instruction::LocalTeeRef(resolved_idx),
+                wasmparser::ValType::Ref(_) => Instruction::LocalTee32(resolved_idx),
             })
         }
     }
@@ -457,8 +456,8 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
-        let (c32, c64, c128, cref) = Self::label_keep_counts(&tys);
-        self.instructions.push(Instruction::SelectMulti(tinywasm_types::ValueCounts { c32, c64, c128, cref }));
+        let (c32, c64, c128) = Self::label_keep_counts(&tys);
+        self.instructions.push(Instruction::SelectMulti(tinywasm_types::ValueCounts { c32, c64, c128 }));
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
@@ -468,7 +467,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             wasmparser::ValType::I64 => Instruction::Select64,
             wasmparser::ValType::F64 => Instruction::Select64,
             wasmparser::ValType::V128 => Instruction::Select128,
-            wasmparser::ValType::Ref(_) => Instruction::SelectRef,
+            wasmparser::ValType::Ref(_) => Instruction::Select32,
         });
     }
 
@@ -595,7 +594,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
                     wasmparser::ValType::I32 | wasmparser::ValType::F32 => base.s32 += 1,
                     wasmparser::ValType::I64 | wasmparser::ValType::F64 => base.s64 += 1,
                     wasmparser::ValType::V128 => base.s128 += 1,
-                    wasmparser::ValType::Ref(_) => base.sref += 1,
+                    wasmparser::ValType::Ref(_) => base.s32 += 1,
                 }
             }
         }
@@ -617,16 +616,8 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         Some(idx)
     }
 
-    fn emit_dropkeep(&mut self, base: StackBase, c32: u16, c64: u16, c128: u16, cref: u16) {
-        if base.s32 == 0
-            && c32 == 0
-            && base.s64 == 0
-            && c64 == 0
-            && base.s128 == 0
-            && c128 == 0
-            && base.sref == 0
-            && cref == 0
-        {
+    fn emit_dropkeep(&mut self, base: StackBase, c32: u16, c64: u16, c128: u16) {
+        if base.s32 == 0 && c32 == 0 && base.s64 == 0 && c64 == 0 && base.s128 == 0 && c128 == 0 {
             return;
         }
 
@@ -635,26 +626,21 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
             && base.s64 <= u8::MAX as u16
             && c64 <= u8::MAX as u16
             && base.s128 <= u8::MAX as u16
-            && c128 <= u8::MAX as u16
-            && base.sref <= u8::MAX as u16
-            && cref <= u8::MAX as u16;
+            && c128 <= u8::MAX as u16;
 
         if fits_u8 {
-            self.instructions.push(Instruction::DropKeepSmall {
-                base32: base.s32 as u8,
+            self.instructions.push(Instruction::DropKeep {
+                base32: base.s32,
                 keep32: c32 as u8,
-                base64: base.s64 as u8,
+                base64: base.s64,
                 keep64: c64 as u8,
-                base128: base.s128 as u8,
+                base128: base.s128,
                 keep128: c128 as u8,
-                base_ref: base.sref as u8,
-                keep_ref: cref as u8,
             });
         } else {
             self.instructions.push(Instruction::DropKeep32(base.s32, c32));
             self.instructions.push(Instruction::DropKeep64(base.s64, c64));
             self.instructions.push(Instruction::DropKeep128(base.s128, c128));
-            self.instructions.push(Instruction::DropKeepRef(base.sref, cref));
         }
     }
 
@@ -673,18 +659,18 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         }
     }
 
-    fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16, u16) {
-        let (mut c32, mut c64, mut c128, mut cref) = (0, 0, 0, 0);
+    fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16) {
+        let (mut c32, mut c64, mut c128) = (0, 0, 0);
         for ty in label_types {
             match ty {
                 wasmparser::ValType::I32 | wasmparser::ValType::F32 => c32 += 1,
                 wasmparser::ValType::I64 | wasmparser::ValType::F64 => c64 += 1,
                 wasmparser::ValType::V128 => c128 += 1,
-                wasmparser::ValType::Ref(_) => cref += 1,
+                wasmparser::ValType::Ref(_) => c32 += 1,
             }
         }
 
-        (c32, c64, c128, cref)
+        (c32, c64, c128)
     }
 
     fn emit_dropkeep_to_label(&mut self, label_depth: u32) {
@@ -698,9 +684,9 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
         let base = self.stack_base_at_frame(label_depth as usize);
         let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
+        let (c32, c64, c128) = Self::label_keep_counts(&label_types);
 
-        self.emit_dropkeep(base, c32, c64, c128, cref);
+        self.emit_dropkeep(base, c32, c64, c128);
     }
 
     fn label_types_for_frame(&self, frame: &wasmparser::Frame) -> Vec<wasmparser::ValType> {
@@ -746,8 +732,8 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
         let base = self.stack_base_at_frame(depth as usize);
         let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128, cref) = Self::label_keep_counts(&label_types);
-        self.emit_dropkeep(base, c32, c64, c128, cref);
+        let (c32, c64, c128) = Self::label_keep_counts(&label_types);
+        self.emit_dropkeep(base, c32, c64, c128);
 
         let jump_ip = self.instructions.len();
         self.instructions.push(Instruction::Jump(0));
