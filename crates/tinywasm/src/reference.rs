@@ -1,4 +1,5 @@
 use core::ffi::CStr;
+use core::hint::cold_path;
 
 use alloc::string::{String, ToString};
 use alloc::{ffi::CString, format};
@@ -291,16 +292,19 @@ impl Global {
     /// Get the current value of the global.
     pub fn get(&self, store: &Store) -> Result<WasmValue> {
         let global = self.instance(store)?;
-        Ok(global.value.get().attach_type(global.ty.ty))
+        let value = global.value.get().attach_type(global.ty.ty);
+        Ok(value.unwrap_or_else(|| unreachable!("Global value type does not match global type, this is a bug")))
     }
 
     /// Set the current value of the global.
     pub fn set(&self, store: &mut Store, value: WasmValue) -> Result<()> {
         let global = self.instance_mut(store)?;
         if !global.ty.mutable {
+            cold_path();
             return Err(Error::Other("global is immutable".to_string()));
         }
         if WasmType::from(value) != global.ty.ty {
+            cold_path();
             return Err(Error::Other("invalid global value type".to_string()));
         }
         global.value.set(value.into());

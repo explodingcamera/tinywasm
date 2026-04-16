@@ -1,33 +1,12 @@
 #![allow(unused_macros)]
 
 macro_rules! simd_impl {
-    ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {{
-        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
-        {
-            simd_impl!(@pick_wasm $( $wasm )? ; $generic)
-        }
+    ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {
+        cfg_select! {
+            any(target_arch = "wasm32", target_arch = "wasm64") => {
+                simd_impl!(@pick_wasm $( $wasm )? ; $generic)
+            },
 
-        #[cfg(all(
-            not(any(target_arch = "wasm32", target_arch = "wasm64")),
-            feature = "simd-x86",
-            target_arch = "x86_64",
-            target_feature = "sse4.2",
-            target_feature = "avx",
-            target_feature = "avx2",
-            target_feature = "bmi1",
-            target_feature = "bmi2",
-            target_feature = "fma",
-            target_feature = "lzcnt",
-            target_feature = "movbe",
-            target_feature = "popcnt"
-        ))]
-        {
-            simd_impl!(@pick_x86 $( $x86 )? ; $generic)
-        }
-
-        #[allow(unreachable_code)]
-        #[cfg(not(any(
-            any(target_arch = "wasm32", target_arch = "wasm64"),
             all(
                 feature = "simd-x86",
                 target_arch = "x86_64",
@@ -40,12 +19,15 @@ macro_rules! simd_impl {
                 target_feature = "lzcnt",
                 target_feature = "movbe",
                 target_feature = "popcnt"
-            )
-        )))]
-        {
-            $generic
+            ) => {
+                simd_impl!(@pick_x86 $( $x86 )? ; $generic)
+            },
+
+            _ => {
+                $generic
+            }
         }
-    }};
+    };
 
     (@pick_wasm $wasm:block ; $generic:block) => {
         $wasm

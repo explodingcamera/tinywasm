@@ -1,3 +1,5 @@
+use core::hint::cold_path;
+
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
 use super::no_std_floats::NoStdFloatExt;
@@ -17,9 +19,6 @@ use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
 use crate::*;
 
-#[cfg(feature = "std")]
-const TIME_BUDGET_CHECK_INTERVAL: usize = 2048;
-const FUEL_ACCOUNTING_INTERVAL: usize = 1024;
 const FUEL_COST_CALL_TOTAL: u32 = 5;
 
 pub(crate) struct Executor<'store, const BUDGETED: bool> {
@@ -119,11 +118,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
             let next = match self.func.instructions.0.get(self.cf.instr_ptr as usize) {
                 Some(instr) => instr,
-                None => unreachable!(
-                    "Instruction pointer out of bounds: {} ({} instructions)",
-                    self.cf.instr_ptr,
-                    self.func.instructions.0.len()
-                ),
+                None => {
+                    cold_path();
+                    unreachable!(
+                        "Instruction pointer out of bounds: {} ({} instructions)",
+                        self.cf.instr_ptr,
+                        self.func.instructions.0.len()
+                    )
+                }
             };
 
             #[rustfmt::skip]
@@ -722,7 +724,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
 
         let res = self.store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals);
-        let locals_base = res.map_err(|err| if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) })?;
+        let locals_base = res.map_err(|err| {
+            cold_path();
+            if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) }
+        })?;
+
         let new_call_frame = CallFrame::new(func_addr, wasm_func.owner, locals_base, wasm_func.func.locals);
 
         if !IS_RETURN_CALL {
@@ -763,7 +769,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
 
         let res = self.store.stack.values.enter_locals(&params, &locals);
-        let locals_base = res.map_err(|err| if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) })?;
+        let locals_base = res.map_err(|err| {
+            cold_path();
+            if IS_RETURN_CALL { err } else { Error::Trap(Trap::CallStackOverflow) }
+        })?;
         let new_call_frame = CallFrame::new(self.cf.func_addr, self.cf.module_addr, locals_base, locals);
 
         if !IS_RETURN_CALL {
@@ -781,15 +790,23 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             let table_idx: u32 = self.store.stack.values.pop::<i32>() as u32;
             let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
             assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
-            let table =
-                table.get(table_idx).map_err(|_| Error::from(Trap::UndefinedElement { index: table_idx as usize }))?;
-            table.addr().ok_or_else(|| Error::from(Trap::UninitializedElement { index: table_idx as usize }))?
+
+            let table = table.get(table_idx).map_err(|_| {
+                cold_path();
+                Error::from(Trap::UndefinedElement { index: table_idx as usize })
+            })?;
+
+            table.addr().ok_or_else(|| {
+                cold_path();
+                Error::from(Trap::UninitializedElement { index: table_idx as usize })
+            })?
         };
 
         let call_ty = self.module.func_ty(type_addr);
         match self.store.state.get_func(func_ref) {
             crate::FunctionInstance::Wasm(wasm_func) => {
                 if wasm_func.ty() != call_ty {
+                    cold_path();
                     return Err(Trap::IndirectCallTypeMismatch {
                         actual: wasm_func.ty().clone(),
                         expected: call_ty.clone(),
@@ -801,6 +818,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             }
             crate::FunctionInstance::Host(host_func) => {
                 if host_func.ty != *call_ty {
+                    cold_path();
                     return Err(Trap::IndirectCallTypeMismatch {
                         actual: host_func.ty.clone(),
                         expected: call_ty.clone(),
@@ -833,6 +851,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn local_mem_addr<const N: usize>(&self, memarg: MemoryArg, addr_local: u8) -> Result<usize> {
         let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, u16::from(addr_local)));
         let Some(Ok(addr)) = memarg.offset().checked_add(addr).map(|a| a.try_into()) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
         };
         Ok(addr)
@@ -850,9 +869,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let addr = u64::from(self.store.stack.values.local_get::<u32>(&self.cf, u16::from(addr_local)));
         let value = cast(self.store.stack.values.local_get::<T>(&self.cf, u16::from(value_local))).to_mem_bytes();
         let Some(effective_addr) = memarg.offset().checked_add(addr) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
         };
         let Ok(effective_addr) = usize::try_from(effective_addr) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
         };
         mem.store(effective_addr, value.len(), &value)?;
@@ -970,6 +991,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let data_len = data.data.as_ref().map_or(0, |d| d.len());
 
         if ((size + offset) as usize > data_len) || ((dst + size) as usize > mem.len()) {
+            cold_path();
             return Err(Trap::MemoryOutOfBounds { offset: offset as usize, len: size as usize, max: data_len }.into());
         }
 
@@ -977,7 +999,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Ok(());
         }
 
-        let Some(data) = &data.data else { return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into()) };
+        let Some(data) = &data.data else {
+            cold_path();
+            return Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }.into());
+        };
+
         mem.store(dst as usize, size as usize, &data[offset as usize..((offset + size) as usize)])
     }
     fn exec_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<()> {
@@ -1012,6 +1038,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let val = self.store.stack.values.pop::<i32>() as u64;
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
         let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: val as usize, len: LOAD_SIZE, max: 0 }));
         };
         let val = mem.load_as::<LOAD_SIZE, LOAD>(addr)?.to_mem_bytes();
@@ -1038,11 +1065,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             self.store.stack.values.pop::<i32>() as u32 as u64
         };
 
-        let Some(addr) = base.checked_add(offset) else {
-            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: base as usize, len: LOAD_SIZE, max: 0 }));
-        };
-
-        let Ok(addr) = usize::try_from(addr) else {
+        let Some(Ok(addr)) = base.checked_add(offset).map(usize::try_from) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: base as usize, len: LOAD_SIZE, max: 0 }));
         };
 
@@ -1068,10 +1092,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => self.store.stack.values.pop::<i32>() as u32 as u64,
         };
 
-        let Some(effective_addr) = offset.checked_add(addr) else {
-            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
-        };
-        let Ok(effective_addr) = usize::try_from(effective_addr) else {
+        let Some(Ok(effective_addr)) = offset.checked_add(addr).map(usize::try_from) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
         };
 
@@ -1095,15 +1117,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => u64::from(self.store.stack.values.pop::<i32>() as u32),
         };
 
-        let Some(effective_addr) = offset.checked_add(addr) else {
-            return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
-        };
-        let Ok(effective_addr) = usize::try_from(effective_addr) else {
+        let Some(Ok(effective_addr)) = offset.checked_add(addr).map(usize::try_from) else {
+            cold_path();
             return Err(Error::Trap(Trap::MemoryOutOfBounds { offset: addr as usize, len: N, max: 0 }));
         };
 
         mem.store(effective_addr, val.len(), &val)?;
-
         Ok(())
     }
 
@@ -1148,6 +1167,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let table_len = table.size();
 
         if size < 0 || ((size + offset) as usize > elem_len) || ((dst + size) > table_len) {
+            cold_path();
             return Err(Trap::TableOutOfBounds { offset: offset as usize, len: size as usize, max: elem_len }.into());
         }
 
@@ -1156,10 +1176,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
 
         if let ElementKind::Active { .. } = elem.kind {
+            cold_path();
             return Err(Error::Other("table.init with active element".to_string()));
         }
 
         let Some(items) = elem.items.as_ref() else {
+            cold_path();
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
@@ -1187,6 +1209,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let i = self.store.stack.values.pop::<i32>();
 
         if i + n > table.size() {
+            cold_path();
             return Err(Error::Trap(Trap::TableOutOfBounds {
                 offset: i as usize,
                 len: n as usize,
@@ -1205,10 +1228,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 impl<'store> Executor<'store, false> {
     #[inline(always)]
     pub(crate) fn run_to_completion(&mut self) -> Result<()> {
-        if self.exec::<{ usize::MAX }>()?.is_some() {
-            return Ok(());
+        // direct loop+match has worse codegen than a fixed for loop here for some reason (like ~5% worse)
+        // ideally we use `loop_match` / `become` once thats stabilized
+        loop {
+            if self.exec::<1024>()?.is_some() {
+                return Ok(());
+            }
         }
-        unreachable!();
     }
 
     #[cfg(feature = "std")]
@@ -1221,7 +1247,7 @@ impl<'store> Executor<'store, false> {
         }
 
         loop {
-            if self.exec::<TIME_BUDGET_CHECK_INTERVAL>()?.is_some() {
+            if self.exec::<1024>()?.is_some() {
                 return Ok(ExecState::Completed);
             }
 
@@ -1241,11 +1267,11 @@ impl<'store> Executor<'store, true> {
         }
 
         loop {
-            if self.exec::<FUEL_ACCOUNTING_INTERVAL>()?.is_some() {
+            if self.exec::<1024>()?.is_some() {
                 return Ok(ExecState::Completed);
             }
 
-            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(FUEL_ACCOUNTING_INTERVAL as u32);
+            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(1024_u32);
             if self.store.execution_fuel == 0 {
                 return Ok(ExecState::Suspended(self.cf));
             }

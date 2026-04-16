@@ -1,8 +1,10 @@
+use core::hint::cold_path;
+
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValueCounts, WasmType, WasmValue};
 
-use crate::{Result, Trap, engine::Config, interpreter::*, unlikely};
+use crate::{Result, Trap, engine::Config, interpreter::*};
 
 use super::{CallFrame, StackBase};
 
@@ -21,7 +23,7 @@ pub(crate) struct Stack<T: Copy + Default> {
 }
 
 impl<T: Copy + Default> Stack<T> {
-    pub(crate) fn with_size(size: usize) -> Self {
+    pub(crate) fn new(size: usize) -> Self {
         let mut data = Vec::with_capacity(size);
         data.resize_with(size, T::default);
         Self { data: data.into_boxed_slice(), len: 0 }
@@ -33,113 +35,132 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<()> {
-        if unlikely(self.len >= self.data.len()) {
+        if let Some(slot) = self.data.get_mut(self.len) {
+            *slot = value;
+            self.len += 1;
+        } else {
+            cold_path();
             return Err(Trap::ValueStackOverflow.into());
         }
-        self.data[self.len] = value;
-        self.len += 1;
         Ok(())
     }
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        if self.len == 0 {
-            unreachable!("ValueStack underflow, this is a bug");
-        }
         self.len -= 1;
-        self.data[self.len]
+        *self.data.get(self.len).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("ValueStack underflow, this is a bug");
+        })
     }
 
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        if self.len == 0 {
+        self.data.get(self.len - 1).unwrap_or_else(|| {
+            cold_path();
             unreachable!("ValueStack underflow, this is a bug");
-        }
-        &self.data[self.len - 1]
+        })
     }
 
     #[inline(always)]
-    pub(crate) fn get(&self, index: usize) -> T {
-        match self.data.get(index) {
-            Some(v) => *v,
-            None => unreachable!("Stack index out of bounds, this is a bug"),
-        }
+    pub(crate) fn get(&self, index: usize) -> &T {
+        self.data.get(index).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack index out of bounds, this is a bug");
+        })
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
-        match self.data.get_mut(index) {
-            Some(v) => *v = value,
-            None => unreachable!("Stack index out of bounds, this is a bug"),
-        }
+        *self.data.get_mut(index).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack index out of bounds, this is a bug");
+        }) = value;
     }
 
     #[inline(always)]
     pub(crate) fn get_mut(&mut self, index: usize) -> &mut T {
-        match self.data.get_mut(index) {
-            Some(v) => v,
-            None => unreachable!("Stack index out of bounds, this is a bug"),
-        }
+        self.data.get_mut(index).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack index out of bounds, this is a bug");
+        })
     }
 
+    #[inline(always)]
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
-        debug_assert!(n <= self.len);
         let len = self.len;
+        debug_assert!(n <= len);
+
         if n >= len {
             return;
         }
 
-        if end_keep == 0 {
-            self.len = n;
-            return;
+        let dropped = len - n;
+        let keep = dropped.min(end_keep);
+
+        if keep > 0 {
+            self.data.copy_within(len - keep..len, n);
         }
 
-        let keep = (len - n).min(end_keep);
-        self.data.copy_within((len - keep)..len, n);
         self.len = n + keep;
     }
 
+    #[inline(always)]
     pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32> {
+        let len = self.len;
         debug_assert!(param_count <= local_count);
-        let start = self.len - param_count;
+        debug_assert!(param_count <= len);
+
+        let start = len - param_count;
         let end = start + local_count;
 
-        if unlikely(end > self.data.len()) {
+        if end > self.data.len() {
+            cold_path();
             return Err(Trap::ValueStackOverflow.into());
         }
 
-        let init_start = start + param_count;
-        if init_start != end {
-            self.data[init_start..end].fill(T::default());
+        if len != end {
+            self.data[len..end].fill(T::default());
         }
+
         self.len = end;
         Ok(start as u32)
     }
 
+    #[inline(always)]
     pub(crate) fn select_many(&mut self, count: usize, condition: bool) {
         if count == 0 {
             return;
         }
-        if self.len < count * 2 {
+
+        let len = self.len;
+        let needed = count.checked_mul(2).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack underflow, this is a bug");
+        });
+
+        if len < needed {
+            cold_path();
             unreachable!("Stack underflow, this is a bug");
         }
 
         if !condition {
-            let start = self.len - (count * 2);
-            let second_start = self.len - count;
-            self.data.copy_within(second_start..self.len, start);
+            let dst = len - needed;
+            let src = len - count;
+            self.data.copy_within(src..len, dst);
         }
-        self.len -= count;
+
+        self.len = len - count;
     }
 }
 
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
-            stack_32: Stack::with_size(config.stack_32_size),
-            stack_64: Stack::with_size(config.stack_64_size),
-            stack_128: Stack::with_size(config.stack_128_size),
-            stack_ref: Stack::with_size(config.stack_ref_size),
+            stack_32: Stack::new(config.stack_32_size),
+            stack_64: Stack::new(config.stack_64_size),
+            stack_128: Stack::new(config.stack_128_size),
+            stack_ref: Stack::new(config.stack_ref_size),
         }
     }
 

@@ -470,7 +470,7 @@ impl TestSuite {
                             let expected = expected_alternatives
                                 .iter()
                                 .filter_map(|alts| alts.first())
-                                .find(|exp| module_global.attach_type(WasmType::from(*exp)).eq_loose(exp));
+                                .find(|exp| module_global.attach_type(WasmType::from(*exp)).unwrap().eq_loose(exp));
 
                             if expected.is_none() {
                                 test_group.add_result(

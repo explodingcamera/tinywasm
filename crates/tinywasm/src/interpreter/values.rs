@@ -22,53 +22,52 @@ pub enum TinyWasmValue {
 }
 
 impl TinyWasmValue {
-    /// Asserts that the value is a 32-bit value and returns it (panics if the value is the wrong size)
-    pub fn unwrap_32(&self) -> Value32 {
+    /// Converts the value to a 32-bit value (returns None if the value is not a 32-bit value)
+    pub fn as_32(self) -> Option<Value32> {
         match self {
-            Self::Value32(v) => *v,
-            _ => panic!("Expected Value32"),
+            Self::Value32(v) => Some(v),
+            _ => None,
         }
     }
 
-    /// Asserts that the value is a 64-bit value and returns it (panics if the value is the wrong size)
-    pub fn unwrap_64(&self) -> Value64 {
+    /// Converts the value to a 64-bit value (returns None if the value is not a 64-bit value)
+    pub fn as_64(self) -> Option<Value64> {
         match self {
-            Self::Value64(v) => *v,
-            _ => panic!("Expected Value64"),
+            Self::Value64(v) => Some(v),
+            _ => None,
         }
     }
 
-    /// Asserts that the value is a 128-bit value and returns it (panics if the value is the wrong size)
-    pub fn unwrap_128(&self) -> Value128 {
+    /// Converts the value to a 128-bit value (returns None if the value is not a 128-bit value)
+    pub fn as_128(self) -> Option<Value128> {
         match self {
-            Self::Value128(v) => *v,
-            _ => panic!("Expected Value128"),
+            Self::Value128(v) => Some(v),
+            _ => None,
         }
     }
 
-    /// Asserts that the value is a reference value and returns it (panics if the value is the wrong size)
-    pub fn unwrap_ref(&self) -> ValueRef {
+    /// Converts the value to a reference value (returns None if the value is not a reference value)
+    pub fn as_ref(self) -> Option<ValueRef> {
         match self {
-            Self::ValueRef(v) => *v,
-            _ => panic!("Expected ValueRef"),
+            Self::ValueRef(v) => Some(v),
+            _ => None,
         }
     }
 
     /// Attaches a type to the value (panics if the size of the value is not the same as the type)
-    pub fn attach_type(&self, ty: WasmType) -> WasmValue {
+    pub fn attach_type(self, ty: WasmType) -> Option<WasmValue> {
         match (self, ty) {
-            (Self::Value32(v), WasmType::I32) => WasmValue::I32(*v as i32),
-            (Self::Value64(v), WasmType::I64) => WasmValue::I64(*v as i64),
-            (Self::Value32(v), WasmType::F32) => WasmValue::F32(f32::from_bits(*v)),
-            (Self::Value64(v), WasmType::F64) => WasmValue::F64(f64::from_bits(*v)),
-            (Self::ValueRef(v), WasmType::RefExtern) => WasmValue::RefExtern(ExternRef::new(*v)),
-            (Self::ValueRef(v), WasmType::RefFunc) => WasmValue::RefFunc(FuncRef::new(*v)),
-            (Self::Value128(v), WasmType::V128) => WasmValue::V128((*v).into()),
-
-            (_, WasmType::I32 | WasmType::F32) => panic!("Expected Value32"),
-            (_, WasmType::I64 | WasmType::F64) => panic!("Expected Value64"),
-            (_, WasmType::RefExtern | WasmType::RefFunc) => panic!("Expected ValueRef"),
-            (_, WasmType::V128) => panic!("Expected Value128"),
+            (Self::Value32(v), WasmType::I32) => Some(WasmValue::I32(v as i32)),
+            (Self::Value64(v), WasmType::I64) => Some(WasmValue::I64(v as i64)),
+            (Self::Value32(v), WasmType::F32) => Some(WasmValue::F32(f32::from_bits(v))),
+            (Self::Value64(v), WasmType::F64) => Some(WasmValue::F64(f64::from_bits(v))),
+            (Self::ValueRef(v), WasmType::RefExtern) => Some(WasmValue::RefExtern(ExternRef::new(v))),
+            (Self::ValueRef(v), WasmType::RefFunc) => Some(WasmValue::RefFunc(FuncRef::new(v))),
+            (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128((v).into())),
+            (_, WasmType::I32 | WasmType::F32) => None,
+            (_, WasmType::I64 | WasmType::F64) => None,
+            (_, WasmType::RefExtern | WasmType::RefFunc) => None,
+            (_, WasmType::V128) => None,
         }
     }
 }
@@ -132,7 +131,7 @@ macro_rules! impl_internalvalue {
 
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
-                    $to_outer(stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize))
+                    $to_outer(*stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize))
                 }
 
                 #[inline(always)]

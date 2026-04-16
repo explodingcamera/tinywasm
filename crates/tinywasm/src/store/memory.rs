@@ -1,8 +1,10 @@
+use core::hint::cold_path;
+
 use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryArch, MemoryType};
 
-use crate::{Error, Result, cold, interpreter::Value128, log};
+use crate::{Error, Result, interpreter::Value128, log};
 
 /// A WebAssembly Memory Instance
 ///
@@ -30,17 +32,16 @@ impl MemoryInstance {
     }
 
     const fn trap_oob(&self, addr: usize, len: usize) -> Error {
+        cold_path();
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
     }
 
     pub(crate) fn store(&mut self, addr: usize, len: usize, data: &[u8]) -> Result<()> {
         let Some(end) = addr.checked_add(len) else {
-            cold();
             return Err(self.trap_oob(addr, data.len()));
         };
 
         if end > self.data.len() || end < addr {
-            cold();
             return Err(self.trap_oob(addr, data.len()));
         }
         self.data[addr..end].copy_from_slice(data);
@@ -49,12 +50,10 @@ impl MemoryInstance {
 
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[u8]> {
         let Some(end) = addr.checked_add(len) else {
-            cold();
             return Err(self.trap_oob(addr, len));
         };
 
         if end > self.data.len() || end < addr {
-            cold();
             return Err(self.trap_oob(addr, len));
         }
 
