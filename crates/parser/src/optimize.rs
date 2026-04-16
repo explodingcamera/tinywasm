@@ -1,6 +1,37 @@
 use crate::ParserOptions;
 use alloc::vec::Vec;
-use tinywasm_types::{Instruction, WasmFunctionData};
+use tinywasm_types::{CmpOp, Instruction, WasmFunctionData};
+
+fn cmp_op(instr: Instruction) -> Option<CmpOp> {
+    Some(match instr {
+        Instruction::I32Eq => CmpOp::Eq,
+        Instruction::I32Ne => CmpOp::Ne,
+        Instruction::I32LtS => CmpOp::LtS,
+        Instruction::I32LtU => CmpOp::LtU,
+        Instruction::I32GtS => CmpOp::GtS,
+        Instruction::I32GtU => CmpOp::GtU,
+        Instruction::I32LeS => CmpOp::LeS,
+        Instruction::I32LeU => CmpOp::LeU,
+        Instruction::I32GeS => CmpOp::GeS,
+        Instruction::I32GeU => CmpOp::GeU,
+        _ => return None,
+    })
+}
+
+fn inverse_cmp_op(op: CmpOp) -> CmpOp {
+    match op {
+        CmpOp::Eq => CmpOp::Ne,
+        CmpOp::Ne => CmpOp::Eq,
+        CmpOp::LtS => CmpOp::GeS,
+        CmpOp::LtU => CmpOp::GeU,
+        CmpOp::GtS => CmpOp::LeS,
+        CmpOp::GtU => CmpOp::LeU,
+        CmpOp::LeS => CmpOp::GtS,
+        CmpOp::LeU => CmpOp::GtU,
+        CmpOp::GeS => CmpOp::LtS,
+        CmpOp::GeU => CmpOp::LtU,
+    }
+}
 
 pub(crate) fn optimize_instructions(
     mut instructions: Vec<Instruction>,
@@ -30,7 +61,7 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I32AddLocals(a, b);
+                    instructions[read] = Instruction::AddLocalLocal32(a, b);
                 }
 
                 if read > 0 {
@@ -39,15 +70,15 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                             if let Instruction::LocalGet32(local) = instructions[read - 2] {
                                 instructions[read - 2] = Instruction::Nop;
                                 instructions[read - 1] = Instruction::LocalGet32(local);
-                                instructions[read] = Instruction::I32AddConst(c);
+                                instructions[read] = Instruction::AddConst32(c);
                             } else {
                                 instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::I32AddConst(c);
+                                instructions[read] = Instruction::AddConst32(c);
                             }
                         }
                         Instruction::I32Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::I32AddConst(c);
+                            instructions[read] = Instruction::AddConst32(c);
                         }
                         _ => {}
                     }
@@ -60,7 +91,7 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I64AddLocals(a, b);
+                    instructions[read] = Instruction::AddLocalLocal64(a, b);
                 }
 
                 if read > 0 {
@@ -69,15 +100,15 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                             if let Instruction::LocalGet64(local) = instructions[read - 2] {
                                 instructions[read - 2] = Instruction::Nop;
                                 instructions[read - 1] = Instruction::LocalGet64(local);
-                                instructions[read] = Instruction::I64AddConst(c);
+                                instructions[read] = Instruction::AddConst64(c);
                             } else {
                                 instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::I64AddConst(c);
+                                instructions[read] = Instruction::AddConst64(c);
                             }
                         }
                         Instruction::I64Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::I64AddConst(c);
+                            instructions[read] = Instruction::AddConst64(c);
                         }
                         _ => {}
                     }
@@ -90,7 +121,7 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I64XorRotlConst(c);
+                    instructions[read] = Instruction::XorRotlConst64(c);
                 }
             }
             Instruction::I32Store(memarg) => {
@@ -101,7 +132,7 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I32StoreLocalLocal(memarg, addr_local, value_local);
+                    instructions[read] = Instruction::StoreLocalLocal32(memarg, addr_local, value_local);
                 }
             }
             Instruction::I64Store(memarg) => {
@@ -112,7 +143,16 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I64StoreLocalLocal(memarg, addr_local, value_local);
+                    instructions[read] = Instruction::StoreLocalLocal64(memarg, addr_local, value_local);
+                }
+            }
+            Instruction::I32Load(memarg) => {
+                if read > 0
+                    && let Instruction::LocalGet32(addr_local) = instructions[read - 1]
+                    && let Ok(addr_local) = u8::try_from(addr_local)
+                {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] = Instruction::LoadLocal32(memarg, addr_local);
                 }
             }
             Instruction::MemoryFill(mem) => {
@@ -163,12 +203,12 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                         }
                         Instruction::I32Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::LocalSetConst32(dst, c);
+                            instructions[read] = Instruction::SetLocalConst32(dst, c);
                         }
                         Instruction::F32Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
                             instructions[read] =
-                                Instruction::LocalSetConst32(dst, i32::from_ne_bytes(c.to_bits().to_ne_bytes()));
+                                Instruction::SetLocalConst32(dst, i32::from_ne_bytes(c.to_bits().to_ne_bytes()));
                         }
                         _ => {}
                     }
@@ -176,20 +216,28 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
 
                 if read > 1 {
                     match (instructions[read - 2], instructions[read - 1]) {
-                        (Instruction::LocalGet32(src), Instruction::I32AddConst(c)) if src == dst => {
+                        (Instruction::LocalGet32(src), Instruction::AddConst32(c)) if src == dst => {
                             instructions[read - 2] = Instruction::Nop;
                             instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::LocalAddConst32(dst, c);
+                            instructions[read] = Instruction::AddLocalConst32(dst, c);
                         }
                         (Instruction::LocalGet32(addr), Instruction::I32Load(memarg)) => {
                             if let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst)) {
                                 instructions[read - 2] = Instruction::Nop;
                                 instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::I32LoadLocalSet(memarg, addr, dst);
+                                instructions[read] = Instruction::LoadLocalSet32(memarg, addr, dst);
                             }
                         }
                         _ => {}
                     }
+                }
+
+                if read > 0
+                    && let Instruction::LoadLocal32(memarg, addr) = instructions[read - 1]
+                    && let Ok(dst) = u8::try_from(dst)
+                {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] = Instruction::LoadLocalSet32(memarg, addr, dst);
                 }
             }
             Instruction::LocalSet64(dst) => {
@@ -202,25 +250,25 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                         }
                         Instruction::I64Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::LocalSetConst64(dst, c);
+                            instructions[read] = Instruction::SetLocalConst64(dst, c);
                         }
                         Instruction::F64Const(c) => {
                             instructions[read - 1] = Instruction::Nop;
                             instructions[read] =
-                                Instruction::LocalSetConst64(dst, i64::from_ne_bytes(c.to_bits().to_ne_bytes()));
+                                Instruction::SetLocalConst64(dst, i64::from_ne_bytes(c.to_bits().to_ne_bytes()));
                         }
                         _ => {}
                     }
                 }
 
                 if read > 1
-                    && let (Instruction::LocalGet64(src), Instruction::I64AddConst(c)) =
+                    && let (Instruction::LocalGet64(src), Instruction::AddConst64(c)) =
                         (instructions[read - 2], instructions[read - 1])
                     && src == dst
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::LocalAddConst64(dst, c);
+                    instructions[read] = Instruction::AddLocalConst64(dst, c);
                 }
             }
             Instruction::LocalSet128(dst) => {
@@ -247,16 +295,24 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 2] = Instruction::Nop;
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I32LoadLocalTee(memarg, addr, dst);
+                    instructions[read] = Instruction::LoadLocalTee32(memarg, addr, dst);
+                }
+
+                if read > 0
+                    && let Instruction::LoadLocal32(memarg, addr) = instructions[read - 1]
+                    && let Ok(dst) = u8::try_from(dst)
+                {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] = Instruction::LoadLocalTee32(memarg, addr, dst);
                 }
             }
             Instruction::LocalTee64(dst) if read > 0 => match instructions[read - 1] {
                 Instruction::LocalGet64(src) if src == dst => {
                     instructions[read] = Instruction::Nop;
                 }
-                Instruction::I64XorRotlConst(c) => {
+                Instruction::XorRotlConst64(c) => {
                     instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::I64XorRotlConstTee(c, dst);
+                    instructions[read] = Instruction::XorRotlConstTee64(c, dst);
                 }
                 _ => {}
             },
@@ -290,6 +346,87 @@ fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
                 {
                     instructions[read - 1] = Instruction::LocalSet128(local);
                     instructions[read] = Instruction::Nop;
+                }
+            }
+            Instruction::JumpIfZero(ip) => {
+                if read > 0 && instructions[read - 1] == Instruction::I32Eqz {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] = Instruction::JumpIfNonZero(ip);
+                    continue;
+                }
+
+                if read > 2 {
+                    match (instructions[read - 2], instructions[read - 1]) {
+                        (Instruction::I32Const(imm), cmp) => {
+                            if read > 3
+                                && let Instruction::LocalGet32(local) = instructions[read - 3]
+                                && let Some(op) = cmp_op(cmp)
+                            {
+                                instructions[read - 3] = Instruction::Nop;
+                                instructions[read - 2] = Instruction::Nop;
+                                instructions[read - 1] = Instruction::Nop;
+                                instructions[read] = Instruction::JumpCmpLocalConst32 {
+                                    target_ip: ip,
+                                    local,
+                                    imm,
+                                    op: inverse_cmp_op(op),
+                                };
+                            }
+                        }
+                        (Instruction::LocalGet32(right), cmp) => {
+                            if read > 3
+                                && let Instruction::LocalGet32(left) = instructions[read - 3]
+                                && let Some(op) = cmp_op(cmp)
+                            {
+                                instructions[read - 3] = Instruction::Nop;
+                                instructions[read - 2] = Instruction::Nop;
+                                instructions[read - 1] = Instruction::Nop;
+                                instructions[read] = Instruction::JumpCmpLocalLocal32 {
+                                    target_ip: ip,
+                                    left,
+                                    right,
+                                    op: inverse_cmp_op(op),
+                                };
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Instruction::JumpIfNonZero(ip) => {
+                if read > 0 && instructions[read - 1] == Instruction::I32Eqz {
+                    instructions[read - 1] = Instruction::Nop;
+                    instructions[read] = Instruction::JumpIfZero(ip);
+                    continue;
+                }
+
+                if read > 2 {
+                    match (instructions[read - 2], instructions[read - 1]) {
+                        (Instruction::I32Const(imm), cmp) => {
+                            if read > 3
+                                && let Instruction::LocalGet32(local) = instructions[read - 3]
+                                && let Some(op) = cmp_op(cmp)
+                            {
+                                instructions[read - 3] = Instruction::Nop;
+                                instructions[read - 2] = Instruction::Nop;
+                                instructions[read - 1] = Instruction::Nop;
+                                instructions[read] = Instruction::JumpCmpLocalConst32 { target_ip: ip, local, imm, op };
+                            }
+                        }
+                        (Instruction::LocalGet32(right), cmp) => {
+                            if read > 3
+                                && let Instruction::LocalGet32(left) = instructions[read - 3]
+                                && let Some(op) = cmp_op(cmp)
+                            {
+                                instructions[read - 3] = Instruction::Nop;
+                                instructions[read - 2] = Instruction::Nop;
+                                instructions[read - 1] = Instruction::Nop;
+                                instructions[read] =
+                                    Instruction::JumpCmpLocalLocal32 { target_ip: ip, left, right, op };
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => {}
@@ -330,6 +467,8 @@ fn dce(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData
             Instruction::Jump(ip)
             | Instruction::JumpIfZero(ip)
             | Instruction::JumpIfNonZero(ip)
+            | Instruction::JumpCmpLocalConst32 { target_ip: ip, .. }
+            | Instruction::JumpCmpLocalLocal32 { target_ip: ip, .. }
             | Instruction::BranchTable(ip, _, _) => ip,
             _ => return !matches!(instr, Instruction::Nop),
         };

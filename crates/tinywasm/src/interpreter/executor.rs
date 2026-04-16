@@ -148,6 +148,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 Jump(ip) => { self.exec_jump(*ip); continue; }
                 JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { continue; },
                 JumpIfNonZero(ip) => if self.exec_jump_if_non_zero(*ip) { continue; },
+                JumpCmpLocalConst32 { target_ip, local, imm, op } => {
+                    if self.exec_jump_cmp_local_const_32(*target_ip, *local, *imm, *op) { continue; }
+                }
+                JumpCmpLocalLocal32 { target_ip, left, right, op } => {
+                    if self.exec_jump_cmp_local_local_32(*target_ip, *left, *right, *op) { continue; }
+                }
                 DropKeep { base32, keep32, base64, keep64, base128, keep128 } => {
                     let mut base = self.cf.stack_base(); base.s32 += *base32 as u32; base.s64 += *base64 as u32; base.s128 += *base128 as u32;
                     self.store.stack.values.truncate_keep_counts(base, ValueCounts { c32: *keep32 as u16, c64: *keep64 as u16, c128: *keep128 as u16 });
@@ -166,20 +172,21 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 LocalCopy32(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value32>(&self.cf, *from)),
                 LocalCopy64(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value64>(&self.cf, *from)),
                 LocalCopy128(from, to) => self.store.stack.values.local_set(&self.cf, *to, self.store.stack.values.local_get::<Value128>(&self.cf, *from)),
-                I32AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)))?,
-                I64AddLocals(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)))?,
-                I32AddConst(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
-                I64AddConst(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
-                LocalAddConst32(local_index, c) => self.store.stack.values.local_update::<Value32>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u32)),
-                LocalAddConst64(local_index, c) => self.store.stack.values.local_update::<Value64>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u64)),
-                LocalSetConst32(local_index, c) => self.store.stack.values.local_set::<i32>(&self.cf, *local_index, *c),
-                LocalSetConst64(local_index, c) => self.store.stack.values.local_set::<i64>(&self.cf, *local_index, *c),
-                I32StoreLocalLocal(m, addr_local, value_local) => self.exec_store_local_local::<u32, u32, 4>(*m, *addr_local, *value_local, |v| v)?,
-                I64StoreLocalLocal(m, addr_local, value_local) =>self.exec_store_local_local::<i64, i64, 8>(*m, *addr_local, *value_local, |v| v)?,
-                I32LoadLocalTee(m, addr_local, dst_local) => self.exec_i32_load_local_tee(*m, *addr_local, *dst_local)?,
-                I32LoadLocalSet(m, addr_local, dst_local) => self.exec_i32_load_local_set(*m, *addr_local, *dst_local)?,
-                I64XorRotlConst(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
-                I64XorRotlConstTee(c, local_index) => {
+                AddLocalLocal32(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i32>(&self.cf, *b)))?,
+                AddLocalLocal64(a, b) => self.store.stack.values.push(self.store.stack.values.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.stack.values.local_get::<i64>(&self.cf, *b)))?,
+                AddConst32(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
+                AddConst64(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
+                AddLocalConst32(local_index, c) => self.store.stack.values.local_update::<Value32>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u32)),
+                AddLocalConst64(local_index, c) => self.store.stack.values.local_update::<Value64>(&self.cf, *local_index, |local| *local = local.wrapping_add(*c as u64)),
+                SetLocalConst32(local_index, c) => self.store.stack.values.local_set::<i32>(&self.cf, *local_index, *c),
+                SetLocalConst64(local_index, c) => self.store.stack.values.local_set::<i64>(&self.cf, *local_index, *c),
+                StoreLocalLocal32(m, addr_local, value_local) => self.exec_store_local_local::<u32, u32, 4>(*m, *addr_local, *value_local, |v| v)?,
+                StoreLocalLocal64(m, addr_local, value_local) =>self.exec_store_local_local::<i64, i64, 8>(*m, *addr_local, *value_local, |v| v)?,
+                LoadLocal32(m, addr_local) => self.exec_i32_load_local(*m, *addr_local)?,
+                LoadLocalTee32(m, addr_local, dst_local) => self.exec_i32_load_local_tee(*m, *addr_local, *dst_local)?,
+                LoadLocalSet32(m, addr_local, dst_local) => self.exec_i32_load_local_set(*m, *addr_local, *dst_local)?,
+                XorRotlConst64(c) => stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32)),
+                XorRotlConstTee64(c, local_index) => {
                     stack_op!(binary i64, |lhs, rhs| (lhs ^ rhs).rotate_left(*c as u32));
                     stack_op!(local_tee i64, local_index);
                 }
@@ -691,6 +698,27 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
+    fn exec_jump_cmp_local_const_32(&mut self, target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp) -> bool {
+        let lhs = self.store.stack.values.local_get::<i32>(&self.cf, local);
+        if cmp_i32(lhs, imm, op) {
+            self.cf.instr_ptr = target_ip;
+            return true;
+        }
+        false
+    }
+
+    #[inline(always)]
+    fn exec_jump_cmp_local_local_32(&mut self, target_ip: u32, left: LocalAddr, right: LocalAddr, op: CmpOp) -> bool {
+        let lhs = self.store.stack.values.local_get::<i32>(&self.cf, left);
+        let rhs = self.store.stack.values.local_get::<i32>(&self.cf, right);
+        if cmp_i32(lhs, rhs, op) {
+            self.cf.instr_ptr = target_ip;
+            return true;
+        }
+        false
+    }
+
+    #[inline(always)]
     fn exec_branch_table(&mut self, default_ip: u32, start: u32, len: u32) {
         let idx = self.store.stack.values.pop::<i32>();
         let target_ip = if idx >= 0 && (idx as u32) < len {
@@ -876,6 +904,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_i32_load_local_value(&self, memarg: MemoryArg, addr_local: u8) -> Result<i32> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(memarg.mem_addr()));
         mem.load_as::<4, i32>(self.local_mem_addr::<4>(memarg, addr_local)?)
+    }
+
+    #[inline(always)]
+    fn exec_i32_load_local(&mut self, memarg: MemoryArg, addr_local: u8) -> Result<()> {
+        let value = self.exec_i32_load_local_value(memarg, addr_local)?;
+        self.store.stack.values.push(value)
     }
 
     #[inline(always)]
@@ -1281,5 +1315,21 @@ impl<'store> Executor<'store, true> {
                 return Ok(ExecState::Suspended(self.cf));
             }
         }
+    }
+}
+
+#[inline(always)]
+fn cmp_i32(lhs: i32, rhs: i32, op: CmpOp) -> bool {
+    match op {
+        CmpOp::Eq => lhs == rhs,
+        CmpOp::Ne => lhs != rhs,
+        CmpOp::LtS => lhs < rhs,
+        CmpOp::LtU => (lhs as u32) < (rhs as u32),
+        CmpOp::GtS => lhs > rhs,
+        CmpOp::GtU => (lhs as u32) > (rhs as u32),
+        CmpOp::LeS => lhs <= rhs,
+        CmpOp::LeU => (lhs as u32) <= (rhs as u32),
+        CmpOp::GeS => lhs >= rhs,
+        CmpOp::GeU => (lhs as u32) >= (rhs as u32),
     }
 }

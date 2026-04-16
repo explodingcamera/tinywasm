@@ -48,6 +48,23 @@ pub enum ConstInstruction {
     I64Mul,
 }
 
+/// An integer comparison operator, currently only used for conditional jumps.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    LtS,
+    LtU,
+    GtS,
+    GtU,
+    LeS,
+    LeU,
+    GeS,
+    GeU,
+}
+
 /// A WebAssembly Instruction
 ///
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
@@ -60,16 +77,17 @@ pub enum ConstInstruction {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
-    I32AddLocals(LocalAddr, LocalAddr), I64AddLocals(LocalAddr, LocalAddr),
-    I32AddConst(i32), I64AddConst(i64),
-    LocalAddConst32(LocalAddr, i32), LocalAddConst64(LocalAddr, i64),
-    LocalSetConst32(LocalAddr, i32), LocalSetConst64(LocalAddr, i64),
-    I32StoreLocalLocal(MemoryArg, u8, u8),
-    I64StoreLocalLocal(MemoryArg, u8, u8),
-    I32LoadLocalTee(MemoryArg, u8, u8),
-    I32LoadLocalSet(MemoryArg, u8, u8),
-    I64XorRotlConst(i64),
-    I64XorRotlConstTee(i64, LocalAddr),
+    AddLocalLocal32(LocalAddr, LocalAddr), AddLocalLocal64(LocalAddr, LocalAddr),
+    AddConst32(i32), AddConst64(i64),
+    AddLocalConst32(LocalAddr, i32), AddLocalConst64(LocalAddr, i64),
+    SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64),
+    StoreLocalLocal32(MemoryArg, u8, u8),
+    StoreLocalLocal64(MemoryArg, u8, u8),
+    LoadLocal32(MemoryArg, u8),
+    LoadLocalTee32(MemoryArg, u8, u8),
+    LoadLocalSet32(MemoryArg, u8, u8),
+    XorRotlConst64(i64),
+    XorRotlConstTee64(i64, LocalAddr),
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
@@ -78,6 +96,8 @@ pub enum Instruction {
     Jump(u32),
     JumpIfZero(u32),
     JumpIfNonZero(u32),
+    JumpCmpLocalConst32 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
+    JumpCmpLocalLocal32 { target_ip: u32, left: LocalAddr, right: LocalAddr, op: CmpOp },
     DropKeep { base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8 },
     DropKeep32(u16, u16),
     DropKeep64(u16, u16),
