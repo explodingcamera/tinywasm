@@ -1,6 +1,5 @@
-use core::fmt::{Debug, Display};
-
 use alloc::string::{String, ToString};
+use core::fmt::{Debug, Display};
 use wasmparser::Encoding;
 
 #[derive(Debug)]

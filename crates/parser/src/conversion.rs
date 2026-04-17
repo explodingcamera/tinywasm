@@ -1,5 +1,4 @@
-use crate::Result;
-use crate::{module::Code, visit::process_operators_and_validate};
+use crate::{Result, module::Code, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};

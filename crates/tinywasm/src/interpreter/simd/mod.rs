@@ -14,7 +14,7 @@ use core::arch::wasm64 as wasm;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// A 128-bit SIMD value
-pub struct Value128(i128);
+pub struct Value128(pub(crate) i128);
 
 impl From<Value128> for i128 {
     fn from(val: Value128) -> Self {
@@ -46,12 +46,12 @@ impl Value128 {
         Self::from_le_bytes([ wasm::u8x16_extract_lane::<0>(value), wasm::u8x16_extract_lane::<1>(value), wasm::u8x16_extract_lane::<2>(value), wasm::u8x16_extract_lane::<3>(value), wasm::u8x16_extract_lane::<4>(value), wasm::u8x16_extract_lane::<5>(value), wasm::u8x16_extract_lane::<6>(value), wasm::u8x16_extract_lane::<7>(value), wasm::u8x16_extract_lane::<8>(value), wasm::u8x16_extract_lane::<9>(value), wasm::u8x16_extract_lane::<10>(value), wasm::u8x16_extract_lane::<11>(value), wasm::u8x16_extract_lane::<12>(value), wasm::u8x16_extract_lane::<13>(value), wasm::u8x16_extract_lane::<14>(value), wasm::u8x16_extract_lane::<15>(value)])
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn from_le_bytes(bytes: [u8; 16]) -> Self {
         Self(i128::from_le_bytes(bytes))
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn to_le_bytes(self) -> [u8; 16] {
         self.0.to_le_bytes()
     }

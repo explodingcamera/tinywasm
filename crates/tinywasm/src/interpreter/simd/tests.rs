@@ -53,7 +53,9 @@ fn shuffle_matches_reference() {
             *byte = (x & 0xff) as u8;
         }
 
-        let got = Value128::i8x16_shuffle(Value128::from_le_bytes(a), Value128::from_le_bytes(b), idx).to_le_bytes();
+        let got =
+            Value128::i8x16_shuffle(Value128::from_le_bytes(a), Value128::from_le_bytes(b), i128::from_le_bytes(idx))
+                .to_le_bytes();
         let expected = ref_shuffle(a, b, idx);
         assert_eq!(got, expected, "seed={seed}");
     }

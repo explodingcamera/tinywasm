@@ -1,9 +1,6 @@
-use crate::Result;
-
-use crate::conversion::convert_heaptype;
+use crate::{Result, conversion::convert_heaptype, macros::visit::*};
 use alloc::string::ToString;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use tinywasm_types::{Instruction, MemoryArg, WasmFunctionData};
 use wasmparser::{
     FrameKind, FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, VisitSimdOperator,
@@ -48,16 +45,6 @@ impl FunctionDataBuilder {
 
 struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
 
-macro_rules! validate_then_visit {
-    ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
-        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-            self.1.$visit($($($arg.clone()),*)?);
-            self.1.validator_visitor(self.0).$visit($($($arg),*)?)?;
-            Ok(())
-        }
-    )*};
-}
-
 impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> {
     type Output = Result<()>;
     wasmparser::for_each_visit_operator!(validate_then_visit);
@@ -92,56 +79,6 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     Ok((builder.instructions, builder.data.finish(), builder.validator.into_allocations()))
 }
 
-macro_rules! define_operand {
-    ($name:ident($instr:expr, $ty:ty)) => {
-        fn $name(&mut self, arg: $ty) -> Self::Output {
-            self.instructions.push($instr(arg).into());
-        }
-    };
-
-    ($name:ident($instr:expr, $ty:ty, $ty2:ty)) => {
-        fn $name(&mut self, arg: $ty, arg2: $ty2) -> Self::Output {
-            self.instructions.push($instr(arg, arg2).into());
-        }
-    };
-
-    ($name:ident($instr:expr)) => {
-        fn $name(&mut self) -> Self::Output {
-            self.instructions.push($instr.into());
-        }
-    };
-}
-
-macro_rules! define_operands {
-    ($($name:ident($instr:ident $(,$ty:ty)*)),*) => {$(
-        define_operand!($name(Instruction::$instr $(,$ty)*));
-    )*};
-}
-
-macro_rules! define_mem_operands {
-    ($($name:ident($instr:ident)),*) => {$(
-        fn $name(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
-            self.instructions.push(Instruction::$instr(MemoryArg::new(memarg.offset, memarg.memory)));
-        }
-    )*};
-}
-
-macro_rules! define_mem_operands_simd {
-    ($($name:ident($instr:ident)),*) => {$(
-        fn $name(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
-            self.instructions.push(Instruction::$instr(MemoryArg::new(memarg.offset, memarg.memory)).into());
-        }
-    )*};
-}
-
-macro_rules! define_mem_operands_simd_lane {
-    ($($name:ident($instr:ident)),*) => {$(
-        fn $name(&mut self, memarg: wasmparser::MemArg, lane: u8) -> Self::Output {
-            self.instructions.push(Instruction::$instr(MemoryArg::new(memarg.offset, memarg.memory), lane).into());
-        }
-    )*};
-}
-
 pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     validator: FuncValidator<R>,
     instructions: Vec<Instruction>,
@@ -149,28 +86,6 @@ pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
     ctx_stack: Vec<LoweringCtx>,
     local_addr_map: Vec<u16>,
     errors: Vec<crate::ParseError>,
-}
-
-macro_rules! impl_visit_operator {
-    ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
-        $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann:tt)*));)*
-    };
-
-    (@@mvp $($rest:tt)* ) => {};
-    (@@reference_types $($rest:tt)* ) => {};
-    (@@sign_extension $($rest:tt)* ) => {};
-    (@@saturating_float_to_int $($rest:tt)* ) => {};
-    (@@bulk_memory $($rest:tt)* ) => {};
-    (@@simd $($rest:tt)* ) => {};
-    (@@wide_arithmetic $($rest:tt)* ) => {};
-    (@@relaxed_simd $($rest:tt)* ) => {};
-    (@@tail_call $($rest:tt)* ) => {};
-
-    (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
-        fn $visit(&mut self $($(,_: $argty)*)?) {
-            self.unsupported(stringify!($visit))
-        }
-    };
 }
 
 impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
@@ -182,24 +97,59 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     define_mem_operands! {
-        visit_i32_load(I32Load), visit_i64_load(I64Load), visit_f32_load(F32Load), visit_f64_load(F64Load), visit_i32_load8_s(I32Load8S), visit_i32_load8_u(I32Load8U), visit_i32_load16_s(I32Load16S), visit_i32_load16_u(I32Load16U), visit_i64_load8_s(I64Load8S), visit_i64_load8_u(I64Load8U), visit_i64_load16_s(I64Load16S), visit_i64_load16_u(I64Load16U), visit_i64_load32_s(I64Load32S), visit_i64_load32_u(I64Load32U), visit_f32_store(F32Store), visit_f64_store(F64Store), visit_i32_store8(I32Store8), visit_i32_store16(I32Store16), visit_i64_store8(I64Store8), visit_i64_store16(I64Store16), visit_i64_store32(I64Store32), visit_i32_store(I32Store), visit_i64_store(I64Store)
+        visit_i32_load(I32Load), visit_i64_load(I64Load), visit_f32_load(F32Load), visit_f64_load(F64Load),
+        visit_i32_load8_s(I32Load8S), visit_i32_load8_u(I32Load8U), visit_i32_load16_s(I32Load16S),
+        visit_i32_load16_u(I32Load16U), visit_i64_load8_s(I64Load8S), visit_i64_load8_u(I64Load8U),
+        visit_i64_load16_s(I64Load16S), visit_i64_load16_u(I64Load16U), visit_i64_load32_s(I64Load32S),
+        visit_i64_load32_u(I64Load32U), visit_f32_store(F32Store), visit_f64_store(F64Store), visit_i32_store8(I32Store8),
+        visit_i32_store16(I32Store16), visit_i64_store8(I64Store8), visit_i64_store16(I64Store16),
+        visit_i64_store32(I64Store32), visit_i32_store(I32Store), visit_i64_store(I64Store)
     }
 
     define_operands! {
         // basic instructions
-        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_call(Call, u32), visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable), visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU), visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS), visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU), visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU), visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq), visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz), visit_i32_popcnt(I32Popcnt), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS), visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS), visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt), visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU), visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU), visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc), visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div), visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil), visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub), visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64), visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U), visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U), visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U), visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S), visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32), visit_i32_add(I32Add), visit_i64_add(I64Add), visit_i64_rotl(I64Rotl),
+        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_return(Return),
+        visit_call(Call, u32), visit_call_indirect(CallIndirect, u32, u32), visit_return_call_indirect(ReturnCallIndirect, u32, u32),
+        visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable),
+        visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU),
+        visit_i32_gt_s(I32GtS), visit_i32_gt_u(I32GtU), visit_i32_le_s(I32LeS), visit_i32_le_u(I32LeU), visit_i32_ge_s(I32GeS),
+        visit_i32_ge_u(I32GeU), visit_i64_eqz(I64Eqz), visit_i64_eq(I64Eq), visit_i64_ne(I64Ne), visit_i64_lt_s(I64LtS), visit_i64_lt_u(I64LtU),
+        visit_i64_gt_s(I64GtS), visit_i64_gt_u(I64GtU), visit_i64_le_s(I64LeS), visit_i64_le_u(I64LeU), visit_i64_ge_s(I64GeS), visit_i64_ge_u(I64GeU),
+        visit_f32_eq(F32Eq), visit_f32_ne(F32Ne), visit_f32_lt(F32Lt), visit_f32_gt(F32Gt), visit_f32_le(F32Le), visit_f32_ge(F32Ge), visit_f64_eq(F64Eq),
+        visit_f64_ne(F64Ne), visit_f64_lt(F64Lt), visit_f64_gt(F64Gt), visit_f64_le(F64Le), visit_f64_ge(F64Ge), visit_i32_clz(I32Clz), visit_i32_ctz(I32Ctz),
+        visit_i32_popcnt(I32Popcnt), visit_i32_sub(I32Sub), visit_i32_mul(I32Mul), visit_i32_div_s(I32DivS), visit_i32_div_u(I32DivU), visit_i32_rem_s(I32RemS),
+        visit_i32_rem_u(I32RemU), visit_i32_and(I32And), visit_i32_or(I32Or), visit_i32_xor(I32Xor), visit_i32_shl(I32Shl), visit_i32_shr_s(I32ShrS),
+        visit_i32_shr_u(I32ShrU), visit_i32_rotl(I32Rotl), visit_i32_rotr(I32Rotr), visit_i64_clz(I64Clz), visit_i64_ctz(I64Ctz), visit_i64_popcnt(I64Popcnt),
+        visit_i64_sub(I64Sub), visit_i64_mul(I64Mul), visit_i64_div_s(I64DivS), visit_i64_div_u(I64DivU), visit_i64_rem_s(I64RemS), visit_i64_rem_u(I64RemU),
+        visit_i64_and(I64And), visit_i64_or(I64Or), visit_i64_xor(I64Xor), visit_i64_shl(I64Shl), visit_i64_shr_s(I64ShrS), visit_i64_shr_u(I64ShrU),
+        visit_i64_rotr(I64Rotr), visit_f32_abs(F32Abs), visit_f32_neg(F32Neg), visit_f32_ceil(F32Ceil), visit_f32_floor(F32Floor), visit_f32_trunc(F32Trunc),
+        visit_f32_nearest(F32Nearest), visit_f32_sqrt(F32Sqrt), visit_f32_add(F32Add), visit_f32_sub(F32Sub), visit_f32_mul(F32Mul), visit_f32_div(F32Div),
+        visit_f32_min(F32Min), visit_f32_max(F32Max), visit_f32_copysign(F32Copysign), visit_f64_abs(F64Abs), visit_f64_neg(F64Neg), visit_f64_ceil(F64Ceil),
+        visit_f64_floor(F64Floor), visit_f64_trunc(F64Trunc), visit_f64_nearest(F64Nearest), visit_f64_sqrt(F64Sqrt), visit_f64_add(F64Add), visit_f64_sub(F64Sub),
+        visit_f64_mul(F64Mul), visit_f64_div(F64Div), visit_f64_min(F64Min), visit_f64_max(F64Max), visit_f64_copysign(F64Copysign), visit_i32_wrap_i64(I32WrapI64),
+        visit_i32_trunc_f32_s(I32TruncF32S), visit_i32_trunc_f32_u(I32TruncF32U), visit_i32_trunc_f64_s(I32TruncF64S), visit_i32_trunc_f64_u(I32TruncF64U),
+        visit_i64_extend_i32_s(I64ExtendI32S), visit_i64_extend_i32_u(I64ExtendI32U), visit_i64_trunc_f32_s(I64TruncF32S), visit_i64_trunc_f32_u(I64TruncF32U),
+        visit_i64_trunc_f64_s(I64TruncF64S), visit_i64_trunc_f64_u(I64TruncF64U), visit_f32_convert_i32_s(F32ConvertI32S), visit_f32_convert_i32_u(F32ConvertI32U),
+        visit_f32_convert_i64_s(F32ConvertI64S), visit_f32_convert_i64_u(F32ConvertI64U), visit_f32_demote_f64(F32DemoteF64), visit_f64_convert_i32_s(F64ConvertI32S),
+        visit_f64_convert_i32_u(F64ConvertI32U), visit_f64_convert_i64_s(F64ConvertI64S), visit_f64_convert_i64_u(F64ConvertI64U), visit_f64_promote_f32(F64PromoteF32),
+        visit_i32_add(I32Add), visit_i64_add(I64Add), visit_i64_rotl(I64Rotl),
 
         // sign_extension
-        visit_i32_extend8_s(I32Extend8S), visit_i32_extend16_s(I32Extend16S), visit_i64_extend8_s(I64Extend8S), visit_i64_extend16_s(I64Extend16S), visit_i64_extend32_s(I64Extend32S),
+        visit_i32_extend8_s(I32Extend8S), visit_i32_extend16_s(I32Extend16S), visit_i64_extend8_s(I64Extend8S), visit_i64_extend16_s(I64Extend16S),
+        visit_i64_extend32_s(I64Extend32S),
 
         // Non-trapping Float-to-int Conversions
-        visit_i32_trunc_sat_f32_s(I32TruncSatF32S), visit_i32_trunc_sat_f32_u(I32TruncSatF32U), visit_i32_trunc_sat_f64_s(I32TruncSatF64S), visit_i32_trunc_sat_f64_u(I32TruncSatF64U), visit_i64_trunc_sat_f32_s(I64TruncSatF32S), visit_i64_trunc_sat_f32_u(I64TruncSatF32U), visit_i64_trunc_sat_f64_s(I64TruncSatF64S), visit_i64_trunc_sat_f64_u(I64TruncSatF64U),
+        visit_i32_trunc_sat_f32_s(I32TruncSatF32S), visit_i32_trunc_sat_f32_u(I32TruncSatF32U), visit_i32_trunc_sat_f64_s(I32TruncSatF64S),
+        visit_i32_trunc_sat_f64_u(I32TruncSatF64U), visit_i64_trunc_sat_f32_s(I64TruncSatF32S), visit_i64_trunc_sat_f32_u(I64TruncSatF32U),
+        visit_i64_trunc_sat_f64_s(I64TruncSatF64S), visit_i64_trunc_sat_f64_u(I64TruncSatF64U),
 
         // Reference Types
-        visit_ref_func(RefFunc, u32), visit_table_fill(TableFill, u32), visit_table_get(TableGet, u32), visit_table_set(TableSet, u32), visit_table_grow(TableGrow, u32), visit_table_size(TableSize, u32),
+        visit_ref_func(RefFunc, u32), visit_table_fill(TableFill, u32), visit_table_get(TableGet, u32), visit_table_set(TableSet, u32),
+        visit_table_grow(TableGrow, u32), visit_table_size(TableSize, u32), visit_ref_is_null(RefIsNull),
 
         // Bulk Memory
-        visit_memory_init(MemoryInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_table_init(TableInit, u32, u32), visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
+        visit_memory_init(MemoryInit, u32, u32), visit_memory_fill(MemoryFill, u32), visit_table_init(TableInit, u32, u32),
+        visit_data_drop(DataDrop, u32), visit_elem_drop(ElemDrop, u32),
 
         // Wide Arithmetic
         visit_i64_add128(I64Add128), visit_i64_sub128(I64Sub128), visit_i64_mul_wide_s(I64MulWideS), visit_i64_mul_wide_u(I64MulWideU)
@@ -238,26 +188,15 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         };
     }
 
-    fn visit_return(&mut self) -> Self::Output {
-        self.instructions.push(Instruction::Return);
-    }
-
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
+        use wasmparser::ValType::*;
         if let Some(t) = self.validator.get_local_type(idx) {
             match t {
-                wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
-                    self.instructions.push(Instruction::LocalGet32(resolved_idx));
-                }
-                wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
-                    self.instructions.push(Instruction::LocalGet64(resolved_idx));
-                }
-                wasmparser::ValType::V128 => {
-                    self.instructions.push(Instruction::LocalGet128(resolved_idx));
-                }
-                wasmparser::ValType::Ref(_) => {
-                    self.instructions.push(Instruction::LocalGet32(resolved_idx));
-                }
+                I32 | F32 => self.instructions.push(Instruction::LocalGet32(resolved_idx)),
+                I64 | F64 => self.instructions.push(Instruction::LocalGet64(resolved_idx)),
+                V128 => self.instructions.push(Instruction::LocalGet128(resolved_idx)),
+                Ref(_) => self.instructions.push(Instruction::LocalGet32(resolved_idx)),
             }
         }
     }
@@ -309,14 +248,12 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_if(&mut self, _ty: wasmparser::BlockType) -> Self::Output {
-        let cond_jump_ip = self.instructions.len();
         self.instructions.push(Instruction::JumpIfZero(0));
-        let start_ip = self.instructions.len();
         self.ctx_stack.push(LoweringCtx {
             kind: BlockKind::If,
             has_else: false,
-            start_ip,
-            branch_jumps: alloc::vec![cond_jump_ip],
+            start_ip: self.instructions.len(),
+            branch_jumps: alloc::vec![self.instructions.len() - 1],
         });
     }
 
@@ -422,14 +359,6 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         }
     }
 
-    fn visit_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
-        self.instructions.push(Instruction::CallIndirect(ty, table));
-    }
-
-    fn visit_return_call_indirect(&mut self, ty: u32, table: u32) -> Self::Output {
-        self.instructions.push(Instruction::ReturnCallIndirect(ty, table));
-    }
-
     fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
         self.instructions.push(Instruction::F32Const(f32::from_bits(val.bits())));
     }
@@ -449,10 +378,6 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     // Reference Types
     fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
         self.instructions.push(Instruction::RefNull(convert_heaptype(ty)));
-    }
-
-    fn visit_ref_is_null(&mut self) -> Self::Output {
-        self.instructions.push(Instruction::RefIsNull);
     }
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {

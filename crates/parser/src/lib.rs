@@ -31,6 +31,7 @@ pub(crate) mod log {
 
 mod conversion;
 mod error;
+mod macros;
 mod module;
 mod optimize;
 mod visit;
@@ -42,19 +43,8 @@ pub use tinywasm_types::TinyWasmModule;
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
-#[derive(Debug, Clone)]
-pub struct ParserOptions {
-    /// Enable post-lowering DCE pass.
-    /// Should be enabled by default, since the parser performs some optimizations that can result in dead code.
-    /// Disabling this may result in larger modules, but faster parsing time.
-    pub dce: bool,
-}
-
-impl Default for ParserOptions {
-    fn default() -> Self {
-        Self { dce: true }
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct ParserOptions {}
 
 /// A WebAssembly parser
 #[derive(Debug, Default)]

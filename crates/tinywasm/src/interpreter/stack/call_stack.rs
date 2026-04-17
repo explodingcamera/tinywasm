@@ -1,4 +1,5 @@
-use crate::{Result, Trap, unlikely};
+use crate::{Result, Trap};
+use core::hint::cold_path;
 
 use alloc::vec::Vec;
 use tinywasm_types::{FuncAddr, ModuleInstanceAddr, ValueCounts};
@@ -24,9 +25,11 @@ impl CallStack {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
-        if unlikely(self.stack.len() == self.stack.capacity()) {
+        if self.stack.len() == self.stack.capacity() {
+            cold_path();
             return Err(Trap::CallStackOverflow.into());
         }
+
         self.stack.push(call_frame);
         Ok(())
     }

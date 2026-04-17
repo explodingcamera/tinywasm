@@ -189,11 +189,12 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.shuffle")]
-    pub fn i8x16_shuffle(a: Self, b: Self, idx: [u8; 16]) -> Self {
+    pub fn i8x16_shuffle(a: Self, b: Self, idx: i128) -> Self {
         simd_impl! {
             x86 => {
                 let a_bytes = a.to_le_bytes();
                 let b_bytes = b.to_le_bytes();
+                let idx = idx.to_le_bytes();
                 let mut mask_a = [0u8; 16];
                 let mut mask_b = [0u8; 16];
                 for i in 0..16 {
@@ -221,6 +222,7 @@ impl Value128 {
             generic => {
                 let a_bytes = a.to_le_bytes();
                 let b_bytes = b.to_le_bytes();
+                let idx = idx.to_le_bytes();
                 let mut out = [0u8; 16];
                 for i in 0..16 {
                     let j = idx[i] & 31;

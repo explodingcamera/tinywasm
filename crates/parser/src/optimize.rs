@@ -1,6 +1,192 @@
-use crate::ParserOptions;
+use crate::macros::optimize::*;
 use alloc::vec::Vec;
 use tinywasm_types::{CmpOp, Instruction, WasmFunctionData};
+
+pub(crate) fn optimize_instructions(
+    mut instructions: Vec<Instruction>,
+    function_data: &mut WasmFunctionData,
+    self_func_addr: u32,
+) -> Vec<Instruction> {
+    rewrite(&mut instructions, self_func_addr);
+    remove_nop(&mut instructions, function_data);
+    instructions
+}
+
+fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
+    use Instruction::*;
+    for i in 0..instrs.len() {
+        match instrs[i] {
+            LocalCopy32(a, b) if a == b => instrs[i] = Nop,
+            LocalCopy64(a, b) if a == b => instrs[i] = Nop,
+            LocalCopy128(a, b) if a == b => instrs[i] = Nop,
+            Call(addr) if addr == self_func_addr => instrs[i] = CallSelf,
+            ReturnCall(addr) if addr == self_func_addr => instrs[i] = ReturnCallSelf,
+            I32Add => {
+                rewrite!(instrs, i, [I32Const(c)] => AddConst32(c));
+                rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => AddLocalLocal32(a, b));
+                rewrite!(instrs, i, [LocalGet32(local), I32Const(c)] => [ Nop, LocalGet32(local), AddConst32(c)]);
+            }
+            I64Add => {
+                rewrite!(instrs, i, [I64Const(c)] => AddConst64(c));
+                rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => AddLocalLocal64(a, b));
+                rewrite!(instrs, i, [LocalGet64(local), I64Const(c)] => [ Nop, LocalGet64(local), AddConst64(c)]);
+            }
+            I64Rotl => rewrite!(instrs, i, [I64Xor, I64Const(c)] => XorRotlConst64(c)),
+            I32Store(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local), LocalGet32(value_local)] if
+                    (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
+                    StoreLocalLocal32(memarg, addr_local, value_local)
+                );
+            }
+            I64Store(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local), LocalGet64(value_local)] if
+                    (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
+                    StoreLocalLocal64(memarg, addr_local, value_local)
+                );
+            }
+            V128Store(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local), LocalGet128(value_local)] if
+                    (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
+                    StoreLocalLocal128(memarg, addr_local, value_local)
+                );
+            }
+            I32Load(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal32(memarg, addr_local)
+                );
+            }
+            MemoryFill(mem) => {
+                rewrite!(instrs, i, [I32Const(val), I32Const(size)] => MemoryFillImm(mem, val as u8, size))
+            }
+            LocalGet32(dst) => rewrite!(instrs, i, [LocalSet32(src)] if (src == dst) => [LocalTee32(src), Nop]),
+            LocalGet64(dst) => rewrite!(instrs, i, [LocalSet64(src)] if (src == dst) => [LocalTee64(src), Nop]),
+            LocalGet128(dst) => rewrite!(instrs, i, [LocalSet128(src)] if (src == dst) => [LocalTee128(src), Nop]),
+            LocalSet32(dst) => {
+                rewrite!(instrs, i, [LocalGet32(src)] => if src == dst { Nop } else { LocalCopy32(src, dst) });
+                rewrite!(instrs, i, [I32Const(c)] => SetLocalConst32(dst, c));
+                rewrite!(instrs, i, [F32Const(c)] => SetLocalConst32(dst, i32::from_ne_bytes(c.to_bits().to_ne_bytes())));
+                rewrite!(instrs, i, [LocalGet32(src), AddConst32(c)] if (src == dst) => AddLocalConst32(dst, c));
+                rewrite!(instrs, i, [LoadLocal32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet32(memarg, addr, dst));
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), I32Load(memarg)] if
+                    (let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))) =>
+                    LoadLocalSet32(memarg, addr, dst)
+                );
+            }
+            LocalSet64(dst) => {
+                rewrite!(instrs, i, [LocalGet64(src)] => if src == dst { Nop } else { LocalCopy64(src, dst) });
+                rewrite!(instrs, i, [I64Const(c)] => SetLocalConst64(dst, c));
+                rewrite!(instrs, i, [F64Const(c)] => SetLocalConst64(dst, i64::from_ne_bytes(c.to_bits().to_ne_bytes())));
+                rewrite!(instrs, i,
+                    [LocalGet64(src), AddConst64(c)] if (src == dst) =>
+                    AddLocalConst64(dst, c)
+                );
+            }
+            LocalSet128(dst) => {
+                rewrite!(instrs, i, [LocalGet128(src)] => if src == dst { Nop } else { LocalCopy128(src, dst) });
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), V128Load(memarg)] if
+                    (let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))) =>
+                    LoadLocalSet128(memarg, addr, dst)
+                );
+            }
+            LocalTee32(dst) => {
+                rewrite!(instrs, i, [LocalGet32(src)] if (src == dst) => [LocalGet32(src), Nop]);
+                rewrite!(instrs, i, [I32Const(c), I32And] => AndConstTee32(c, dst));
+                rewrite!(instrs, i, [I32Const(c), I32Sub] => SubConstTee32(c, dst));
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), I32Load(memarg)] if
+                    (let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))) =>
+                    LoadLocalTee32(memarg, addr, dst)
+                );
+                rewrite!(instrs, i,
+                    [LoadLocal32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
+                    LoadLocalTee32(memarg, addr, dst)
+                );
+            }
+            LocalTee64(dst) => {
+                rewrite!(instrs, i, [LocalGet64(src)] if (src == dst) => [LocalGet64(src), Nop]);
+                rewrite!(instrs, i, [I64Const(c), I64And] => AndConstTee64(c, dst));
+                rewrite!(instrs, i, [I64Const(c), I64Sub] => SubConstTee64(c, dst));
+                rewrite!(instrs, i, [XorRotlConst64(c)] => XorRotlConstTee64(c, dst));
+            }
+            LocalTee128(dst) => {
+                rewrite!(instrs, i, [LocalGet128(src)] if (src == dst) => [LocalGet128(src), Nop]);
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), V128Load(memarg)] if
+                    (let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))) =>
+                    LoadLocalTee128(memarg, addr, dst)
+                );
+            }
+            Drop32 => rewrite!(instrs, i, [LocalTee32(local)] => [LocalSet32(local), Nop]),
+            Drop64 => rewrite!(instrs, i, [LocalTee64(local)] => [LocalSet64(local), Nop]),
+            Drop128 => rewrite!(instrs, i, [LocalTee128(local)] => [LocalSet128(local), Nop]),
+            JumpIfZero(ip) => {
+                rewrite!(instrs, i, [I32Eqz] => {
+                    replace!(instrs, i, 1 => [Nop, JumpIfNonZero(ip)]);
+                    continue;
+                });
+                rewrite!(instrs, i, [cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpStackConst32 { target_ip: ip, imm, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i, [cmp, I64Const(imm)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpStackConst64 { target_ip: ip, imm, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet32(local), cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpLocalConst32 { target_ip: ip, local, imm, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(local), cmp, I64Const(imm)] if
+                    (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
+                    JumpCmpLocalConst64 { target_ip: ip, local, imm, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet32(left), cmp, LocalGet32(right)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpLocalLocal32 { target_ip: ip, left, right, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(left), cmp, LocalGet64(right)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpLocalLocal64 { target_ip: ip, left, right, op: inverse_cmp_op(op) }
+                );
+            }
+            JumpIfNonZero(ip) => {
+                rewrite!(instrs, i, [I32Eqz] => {
+                    replace!(instrs, i, 1 => [Nop, JumpIfZero(ip)]);
+                    continue;
+                });
+                rewrite!(instrs, i, [cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpStackConst32 { target_ip: ip, imm, op }
+                );
+                rewrite!(instrs, i, [cmp, I64Const(imm)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpStackConst64 { target_ip: ip, imm, op }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet32(local), cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpLocalConst32 { target_ip: ip, local, imm, op }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(local), cmp, I64Const(imm)] if
+                    (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
+                    JumpCmpLocalConst64 { target_ip: ip, local, imm, op }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet32(left), cmp, LocalGet32(right)] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpLocalLocal32 { target_ip: ip, left, right, op }
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(left), cmp, LocalGet64(right)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpLocalLocal64 { target_ip: ip, left, right, op }
+                );
+            }
+            _ => {}
+        }
+    }
+}
 
 fn cmp_op(instr: Instruction) -> Option<CmpOp> {
     Some(match instr {
@@ -14,6 +200,22 @@ fn cmp_op(instr: Instruction) -> Option<CmpOp> {
         Instruction::I32LeU => CmpOp::LeU,
         Instruction::I32GeS => CmpOp::GeS,
         Instruction::I32GeU => CmpOp::GeU,
+        _ => return None,
+    })
+}
+
+fn cmp_op_64(instr: Instruction) -> Option<CmpOp> {
+    Some(match instr {
+        Instruction::I64Eq => CmpOp::Eq,
+        Instruction::I64Ne => CmpOp::Ne,
+        Instruction::I64LtS => CmpOp::LtS,
+        Instruction::I64LtU => CmpOp::LtU,
+        Instruction::I64GtS => CmpOp::GtS,
+        Instruction::I64GtU => CmpOp::GtU,
+        Instruction::I64LeS => CmpOp::LeS,
+        Instruction::I64LeU => CmpOp::LeU,
+        Instruction::I64GeS => CmpOp::GeS,
+        Instruction::I64GeU => CmpOp::GeU,
         _ => return None,
     })
 }
@@ -33,408 +235,7 @@ fn inverse_cmp_op(op: CmpOp) -> CmpOp {
     }
 }
 
-pub(crate) fn optimize_instructions(
-    mut instructions: Vec<Instruction>,
-    function_data: &mut WasmFunctionData,
-    self_func_addr: u32,
-    options: &ParserOptions,
-) -> Vec<Instruction> {
-    rewrite(&mut instructions, self_func_addr);
-    if options.dce {
-        dce(&mut instructions, function_data);
-    }
-    instructions
-}
-
-fn rewrite(instructions: &mut [Instruction], self_func_addr: u32) {
-    for read in 0..instructions.len() {
-        match instructions[read] {
-            Instruction::LocalCopy32(a, b) if a == b => instructions[read] = Instruction::Nop,
-            Instruction::LocalCopy64(a, b) if a == b => instructions[read] = Instruction::Nop,
-            Instruction::LocalCopy128(a, b) if a == b => instructions[read] = Instruction::Nop,
-            Instruction::Call(addr) if addr == self_func_addr => instructions[read] = Instruction::CallSelf,
-            Instruction::ReturnCall(addr) if addr == self_func_addr => instructions[read] = Instruction::ReturnCallSelf,
-            Instruction::I32Add => {
-                if read > 1
-                    && let (Instruction::LocalGet32(a), Instruction::LocalGet32(b)) =
-                        (instructions[read - 2], instructions[read - 1])
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::AddLocalLocal32(a, b);
-                }
-
-                if read > 0 {
-                    match instructions[read - 1] {
-                        Instruction::I32Const(c) if read > 1 => {
-                            if let Instruction::LocalGet32(local) = instructions[read - 2] {
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::LocalGet32(local);
-                                instructions[read] = Instruction::AddConst32(c);
-                            } else {
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::AddConst32(c);
-                            }
-                        }
-                        Instruction::I32Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::AddConst32(c);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Instruction::I64Add => {
-                if read > 1
-                    && let (Instruction::LocalGet64(a), Instruction::LocalGet64(b)) =
-                        (instructions[read - 2], instructions[read - 1])
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::AddLocalLocal64(a, b);
-                }
-
-                if read > 0 {
-                    match instructions[read - 1] {
-                        Instruction::I64Const(c) if read > 1 => {
-                            if let Instruction::LocalGet64(local) = instructions[read - 2] {
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::LocalGet64(local);
-                                instructions[read] = Instruction::AddConst64(c);
-                            } else {
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::AddConst64(c);
-                            }
-                        }
-                        Instruction::I64Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::AddConst64(c);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Instruction::I64Rotl => {
-                if read > 1
-                    && let (Instruction::I64Xor, Instruction::I64Const(c)) =
-                        (instructions[read - 2], instructions[read - 1])
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::XorRotlConst64(c);
-                }
-            }
-            Instruction::I32Store(memarg) => {
-                if read > 1
-                    && let (Instruction::LocalGet32(addr_local), Instruction::LocalGet32(value_local)) =
-                        (instructions[read - 2], instructions[read - 1])
-                    && let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::StoreLocalLocal32(memarg, addr_local, value_local);
-                }
-            }
-            Instruction::I64Store(memarg) => {
-                if read > 1
-                    && let (Instruction::LocalGet32(addr_local), Instruction::LocalGet64(value_local)) =
-                        (instructions[read - 2], instructions[read - 1])
-                    && let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::StoreLocalLocal64(memarg, addr_local, value_local);
-                }
-            }
-            Instruction::I32Load(memarg) => {
-                if read > 0
-                    && let Instruction::LocalGet32(addr_local) = instructions[read - 1]
-                    && let Ok(addr_local) = u8::try_from(addr_local)
-                {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::LoadLocal32(memarg, addr_local);
-                }
-            }
-            Instruction::MemoryFill(mem) => {
-                if read > 1
-                    && let (Instruction::I32Const(val), Instruction::I32Const(size)) =
-                        (instructions[read - 2], instructions[read - 1])
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::MemoryFillImm(mem, val as u8, size);
-                }
-            }
-
-            Instruction::LocalGet32(dst) => {
-                if read > 0
-                    && let Instruction::LocalSet32(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read - 1] = Instruction::LocalTee32(src);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::LocalGet64(dst) => {
-                if read > 0
-                    && let Instruction::LocalSet64(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read - 1] = Instruction::LocalTee64(src);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::LocalGet128(dst) => {
-                if read > 0
-                    && let Instruction::LocalSet128(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read - 1] = Instruction::LocalTee128(src);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::LocalSet32(dst) => {
-                if read > 0 {
-                    match instructions[read - 1] {
-                        Instruction::LocalGet32(src) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] =
-                                if src == dst { Instruction::Nop } else { Instruction::LocalCopy32(src, dst) };
-                        }
-                        Instruction::I32Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::SetLocalConst32(dst, c);
-                        }
-                        Instruction::F32Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] =
-                                Instruction::SetLocalConst32(dst, i32::from_ne_bytes(c.to_bits().to_ne_bytes()));
-                        }
-                        _ => {}
-                    }
-                }
-
-                if read > 1 {
-                    match (instructions[read - 2], instructions[read - 1]) {
-                        (Instruction::LocalGet32(src), Instruction::AddConst32(c)) if src == dst => {
-                            instructions[read - 2] = Instruction::Nop;
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::AddLocalConst32(dst, c);
-                        }
-                        (Instruction::LocalGet32(addr), Instruction::I32Load(memarg)) => {
-                            if let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst)) {
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::LoadLocalSet32(memarg, addr, dst);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                if read > 0
-                    && let Instruction::LoadLocal32(memarg, addr) = instructions[read - 1]
-                    && let Ok(dst) = u8::try_from(dst)
-                {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::LoadLocalSet32(memarg, addr, dst);
-                }
-            }
-            Instruction::LocalSet64(dst) => {
-                if read > 0 {
-                    match instructions[read - 1] {
-                        Instruction::LocalGet64(src) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] =
-                                if src == dst { Instruction::Nop } else { Instruction::LocalCopy64(src, dst) };
-                        }
-                        Instruction::I64Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] = Instruction::SetLocalConst64(dst, c);
-                        }
-                        Instruction::F64Const(c) => {
-                            instructions[read - 1] = Instruction::Nop;
-                            instructions[read] =
-                                Instruction::SetLocalConst64(dst, i64::from_ne_bytes(c.to_bits().to_ne_bytes()));
-                        }
-                        _ => {}
-                    }
-                }
-
-                if read > 1
-                    && let (Instruction::LocalGet64(src), Instruction::AddConst64(c)) =
-                        (instructions[read - 2], instructions[read - 1])
-                    && src == dst
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::AddLocalConst64(dst, c);
-                }
-            }
-            Instruction::LocalSet128(dst) => {
-                if read > 0
-                    && let Instruction::LocalGet128(src) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] =
-                        if src == dst { Instruction::Nop } else { Instruction::LocalCopy128(src, dst) };
-                }
-            }
-            Instruction::LocalTee32(dst) => {
-                if read > 0
-                    && let Instruction::LocalGet32(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read] = Instruction::Nop;
-                }
-
-                if read > 1
-                    && let (Instruction::LocalGet32(addr), Instruction::I32Load(memarg)) =
-                        (instructions[read - 2], instructions[read - 1])
-                    && let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))
-                {
-                    instructions[read - 2] = Instruction::Nop;
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::LoadLocalTee32(memarg, addr, dst);
-                }
-
-                if read > 0
-                    && let Instruction::LoadLocal32(memarg, addr) = instructions[read - 1]
-                    && let Ok(dst) = u8::try_from(dst)
-                {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::LoadLocalTee32(memarg, addr, dst);
-                }
-            }
-            Instruction::LocalTee64(dst) if read > 0 => match instructions[read - 1] {
-                Instruction::LocalGet64(src) if src == dst => {
-                    instructions[read] = Instruction::Nop;
-                }
-                Instruction::XorRotlConst64(c) => {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::XorRotlConstTee64(c, dst);
-                }
-                _ => {}
-            },
-            Instruction::LocalTee128(dst) => {
-                if read > 0
-                    && let Instruction::LocalGet128(src) = instructions[read - 1]
-                    && src == dst
-                {
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::Drop32 => {
-                if read > 0
-                    && let Instruction::LocalTee32(local) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::LocalSet32(local);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::Drop64 => {
-                if read > 0
-                    && let Instruction::LocalTee64(local) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::LocalSet64(local);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::Drop128 => {
-                if read > 0
-                    && let Instruction::LocalTee128(local) = instructions[read - 1]
-                {
-                    instructions[read - 1] = Instruction::LocalSet128(local);
-                    instructions[read] = Instruction::Nop;
-                }
-            }
-            Instruction::JumpIfZero(ip) => {
-                if read > 0 && instructions[read - 1] == Instruction::I32Eqz {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::JumpIfNonZero(ip);
-                    continue;
-                }
-
-                if read > 2 {
-                    match (instructions[read - 2], instructions[read - 1]) {
-                        (Instruction::I32Const(imm), cmp) => {
-                            if read > 3
-                                && let Instruction::LocalGet32(local) = instructions[read - 3]
-                                && let Some(op) = cmp_op(cmp)
-                            {
-                                instructions[read - 3] = Instruction::Nop;
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::JumpCmpLocalConst32 {
-                                    target_ip: ip,
-                                    local,
-                                    imm,
-                                    op: inverse_cmp_op(op),
-                                };
-                            }
-                        }
-                        (Instruction::LocalGet32(right), cmp) => {
-                            if read > 3
-                                && let Instruction::LocalGet32(left) = instructions[read - 3]
-                                && let Some(op) = cmp_op(cmp)
-                            {
-                                instructions[read - 3] = Instruction::Nop;
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::JumpCmpLocalLocal32 {
-                                    target_ip: ip,
-                                    left,
-                                    right,
-                                    op: inverse_cmp_op(op),
-                                };
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Instruction::JumpIfNonZero(ip) => {
-                if read > 0 && instructions[read - 1] == Instruction::I32Eqz {
-                    instructions[read - 1] = Instruction::Nop;
-                    instructions[read] = Instruction::JumpIfZero(ip);
-                    continue;
-                }
-
-                if read > 2 {
-                    match (instructions[read - 2], instructions[read - 1]) {
-                        (Instruction::I32Const(imm), cmp) => {
-                            if read > 3
-                                && let Instruction::LocalGet32(local) = instructions[read - 3]
-                                && let Some(op) = cmp_op(cmp)
-                            {
-                                instructions[read - 3] = Instruction::Nop;
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] = Instruction::JumpCmpLocalConst32 { target_ip: ip, local, imm, op };
-                            }
-                        }
-                        (Instruction::LocalGet32(right), cmp) => {
-                            if read > 3
-                                && let Instruction::LocalGet32(left) = instructions[read - 3]
-                                && let Some(op) = cmp_op(cmp)
-                            {
-                                instructions[read - 3] = Instruction::Nop;
-                                instructions[read - 2] = Instruction::Nop;
-                                instructions[read - 1] = Instruction::Nop;
-                                instructions[read] =
-                                    Instruction::JumpCmpLocalLocal32 { target_ip: ip, left, right, op };
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn dce(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData) {
+fn remove_nop(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData) {
     let old_len = instructions.len();
     if old_len == 0 {
         return;
@@ -467,8 +268,12 @@ fn dce(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData
             Instruction::Jump(ip)
             | Instruction::JumpIfZero(ip)
             | Instruction::JumpIfNonZero(ip)
+            | Instruction::JumpCmpStackConst32 { target_ip: ip, .. }
+            | Instruction::JumpCmpStackConst64 { target_ip: ip, .. }
             | Instruction::JumpCmpLocalConst32 { target_ip: ip, .. }
+            | Instruction::JumpCmpLocalConst64 { target_ip: ip, .. }
             | Instruction::JumpCmpLocalLocal32 { target_ip: ip, .. }
+            | Instruction::JumpCmpLocalLocal64 { target_ip: ip, .. }
             | Instruction::BranchTable(ip, _, _) => ip,
             _ => return !matches!(instr, Instruction::Nop),
         };

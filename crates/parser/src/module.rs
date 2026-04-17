@@ -1,7 +1,6 @@
 use crate::log::debug;
 use crate::{ParseError, ParserOptions, Result, conversion, optimize};
-use alloc::string::ToString;
-use alloc::{format, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
 
@@ -168,7 +167,7 @@ impl ModuleReader {
         Ok(())
     }
 
-    pub(crate) fn into_module(self, options: &ParserOptions) -> Result<TinyWasmModule> {
+    pub(crate) fn into_module(self, _options: &ParserOptions) -> Result<TinyWasmModule> {
         if !self.end_reached {
             return Err(ParseError::EndNotReached);
         }
@@ -183,7 +182,7 @@ impl ModuleReader {
                 let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
                 let params = ValueCounts::from_iter(ty.params());
                 let self_func = (imported_func_count + func_idx) as u32;
-                let instructions = optimize::optimize_instructions(instructions, &mut data, self_func, options);
+                let instructions = optimize::optimize_instructions(instructions, &mut data, self_func);
                 WasmFunction { instructions: ArcSlice::from(instructions), data, locals, params, ty }
             },
         );
