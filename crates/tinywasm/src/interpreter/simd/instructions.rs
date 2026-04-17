@@ -28,7 +28,7 @@ impl Value128 {
     pub fn v128_any_true(self) -> bool {
         simd_impl! {
             wasm => { wasm::v128_any_true(self.to_wasm_v128()) }
-            generic => { self.0 != 0 }
+            generic => { self.0.iter().any(|&b| b != 0) }
         }
     }
 
@@ -36,7 +36,7 @@ impl Value128 {
     pub fn v128_not(self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_not(self.to_wasm_v128())) }
-            generic => { Self(!self.0) }
+            generic => { Self(self.0.map(|b| !b)) }
         }
     }
 
@@ -44,7 +44,7 @@ impl Value128 {
     pub fn v128_and(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_and(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { Self(self.0 & rhs.0) }
+            generic => { (i128::from_le_bytes(self.0) & i128::from_le_bytes(rhs.0)).into() }
         }
     }
 
@@ -52,7 +52,7 @@ impl Value128 {
     pub fn v128_andnot(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_andnot(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { Self(self.0 & !rhs.0) }
+            generic => { (i128::from_le_bytes(self.0) & !i128::from_le_bytes(rhs.0)).into() }
         }
     }
 
@@ -60,7 +60,7 @@ impl Value128 {
     pub fn v128_or(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_or(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { Self(self.0 | rhs.0) }
+            generic => { (i128::from_le_bytes(self.0) | i128::from_le_bytes(rhs.0)).into() }
         }
     }
 
@@ -68,7 +68,7 @@ impl Value128 {
     pub fn v128_xor(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_xor(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { Self(self.0 ^ rhs.0) }
+            generic => { (i128::from_le_bytes(self.0) ^ i128::from_le_bytes(rhs.0)).into() }
         }
     }
 
@@ -76,7 +76,7 @@ impl Value128 {
     pub fn v128_bitselect(v1: Self, v2: Self, c: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_bitselect(v1.to_wasm_v128(), v2.to_wasm_v128(), c.to_wasm_v128())) }
-            generic => { Self((v1.0 & c.0) | (v2.0 & !c.0)) }
+            generic => { ((i128::from_le_bytes(v1.0) & i128::from_le_bytes(c.0)) | (i128::from_le_bytes(v2.0) & !i128::from_le_bytes(c.0))).into() }
         }
     }
 
@@ -149,8 +149,8 @@ impl Value128 {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::i8x16_swizzle(self.to_wasm_v128(), s.to_wasm_v128())) }
             x86 => {
-                let a = self.to_le_bytes();
-                let idx = s.to_le_bytes();
+                let a = self.0;
+                let idx = s.0;
                 let mut mask = [0u8; 16];
                 for i in 0..16 {
                     let j = idx[i];
@@ -167,18 +167,18 @@ impl Value128 {
                     x86::_mm_storeu_si128(out.as_mut_ptr().cast::<x86::__m128i>(), result);
                     out
                 };
-                Self::from_le_bytes(out)
+                Self(out)
             }
             generic => {
-                let a = self.to_le_bytes();
-                let idx = s.to_le_bytes();
+                let a = self.0;
+                let idx = s.0;
                 let mut out = [0u8; 16];
                 for i in 0..16 {
                     let j = idx[i];
                     let lane = a[(j & 0x0f) as usize];
                     out[i] = if j < 16 { lane } else { 0 };
                 }
-                Self::from_le_bytes(out)
+                Self(out)
             }
         }
     }
@@ -189,12 +189,12 @@ impl Value128 {
     }
 
     #[doc(alias = "i8x16.shuffle")]
-    pub fn i8x16_shuffle(a: Self, b: Self, idx: i128) -> Self {
+    pub fn i8x16_shuffle(a: Self, b: Self, idx: Self) -> Self {
         simd_impl! {
             x86 => {
-                let a_bytes = a.to_le_bytes();
-                let b_bytes = b.to_le_bytes();
-                let idx = idx.to_le_bytes();
+                let a_bytes = a.0;
+                let b_bytes = b.0;
+                let idx = idx.0;
                 let mut mask_a = [0u8; 16];
                 let mut mask_b = [0u8; 16];
                 for i in 0..16 {
@@ -217,25 +217,25 @@ impl Value128 {
                     x86::_mm_storeu_si128(out.as_mut_ptr().cast::<x86::__m128i>(), result);
                     out
                 };
-                Self::from_le_bytes(out)
+                Self(out)
             }
             generic => {
-                let a_bytes = a.to_le_bytes();
-                let b_bytes = b.to_le_bytes();
-                let idx = idx.to_le_bytes();
+                let a_bytes = a.0;
+                let b_bytes = b.0;
+                let idx = idx.0;
                 let mut out = [0u8; 16];
                 for i in 0..16 {
                     let j = idx[i] & 31;
                     out[i] = if j < 16 { a_bytes[j as usize] } else { b_bytes[(j & 0x0f) as usize] };
                 }
-                Self::from_le_bytes(out)
+                Self(out)
             }
         }
     }
 
     #[doc(alias = "i8x16.splat")]
     pub fn splat_i8(src: i8) -> Self {
-        Self::from_le_bytes([src as u8; 16])
+        Self([src as u8; 16])
     }
 
     #[doc(alias = "i8x16.replace_lane")]
@@ -270,50 +270,32 @@ impl Value128 {
 
     #[doc(alias = "i8x16.all_true")]
     pub fn i8x16_all_true(self) -> bool {
-        for byte in self.to_le_bytes() {
-            if byte == 0 {
-                return false;
-            }
-        }
-        true
+        self.0.iter().all(|&b| b != 0)
     }
 
     #[doc(alias = "i16x8.all_true")]
     pub fn i16x8_all_true(self) -> bool {
-        let bytes = self.to_le_bytes();
-        for lane in bytes.chunks_exact(2) {
-            if u16::from_le_bytes([lane[0], lane[1]]) == 0 {
-                return false;
-            }
-        }
-        true
+        self.0.chunks_exact(2).map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]])).all(|x| x != 0)
     }
 
     #[doc(alias = "i32x4.all_true")]
     pub fn i32x4_all_true(self) -> bool {
-        let bytes = self.to_le_bytes();
-        for lane in bytes.chunks_exact(4) {
-            if u32::from_le_bytes([lane[0], lane[1], lane[2], lane[3]]) == 0 {
-                return false;
-            }
-        }
-        true
+        self.0.chunks_exact(4).map(|chunk| u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])).all(|x| x != 0)
     }
 
     #[doc(alias = "i64x2.all_true")]
     pub fn i64x2_all_true(self) -> bool {
-        let bytes = self.to_le_bytes();
-        for lane in bytes.chunks_exact(8) {
-            if u64::from_le_bytes([lane[0], lane[1], lane[2], lane[3], lane[4], lane[5], lane[6], lane[7]]) == 0 {
-                return false;
-            }
-        }
-        true
+        self.0
+            .chunks_exact(8)
+            .map(|chunk| {
+                u64::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7]])
+            })
+            .all(|x| x != 0)
     }
 
     #[doc(alias = "i8x16.bitmask")]
     pub fn i8x16_bitmask(self) -> u32 {
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let mut mask = 0u32;
         for (i, byte) in bytes.into_iter().enumerate() {
             if (byte & 0x80) != 0 {
@@ -325,7 +307,7 @@ impl Value128 {
 
     #[doc(alias = "i16x8.bitmask")]
     pub fn i16x8_bitmask(self) -> u32 {
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let mut mask = 0u32;
         for (i, lane) in bytes.chunks_exact(2).enumerate() {
             if (lane[1] & 0x80) != 0 {
@@ -337,7 +319,7 @@ impl Value128 {
 
     #[doc(alias = "i32x4.bitmask")]
     pub fn i32x4_bitmask(self) -> u32 {
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let mut mask = 0u32;
         for (i, lane) in bytes.chunks_exact(4).enumerate() {
             if (lane[3] & 0x80) != 0 {
@@ -349,18 +331,18 @@ impl Value128 {
 
     #[doc(alias = "i64x2.bitmask")]
     pub fn i64x2_bitmask(self) -> u32 {
-        let x = u128::from_le_bytes(self.to_le_bytes());
+        let x = u128::from_le_bytes(self.0);
         (((x >> 63) & 1) as u32) | ((((x >> 127) & 1) as u32) << 1)
     }
 
     #[doc(alias = "i8x16.popcnt")]
     pub fn i8x16_popcnt(self) -> Self {
-        let lanes = self.to_le_bytes();
+        let lanes = self.0;
         let mut out = [0u8; 16];
         for (dst, lane) in out.iter_mut().zip(lanes) {
             *dst = lane.count_ones() as u8;
         }
-        Self::from_le_bytes(out)
+        Self(out)
     }
 
     #[doc(alias = "i8x16.shl")]
@@ -1348,7 +1330,7 @@ impl Value128 {
     pub fn extract_lane_i8(self, lane: u8) -> i8 {
         debug_assert!(lane < 16);
         let lane = lane as usize;
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         bytes[lane] as i8
     }
 
@@ -1356,7 +1338,7 @@ impl Value128 {
     pub fn extract_lane_u8(self, lane: u8) -> u8 {
         debug_assert!(lane < 16);
         let lane = lane as usize;
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         bytes[lane]
     }
 

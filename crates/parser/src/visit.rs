@@ -30,7 +30,7 @@ struct LoweringCtx {
 
 #[derive(Default)]
 struct FunctionDataBuilder {
-    v128_constants: Vec<i128>,
+    v128_constants: Vec<[u8; 16]>,
     branch_table_targets: Vec<u32>,
 }
 
@@ -481,12 +481,12 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
         self.instructions.push(Instruction::I8x16Shuffle(self.data.v128_constants.len() as u32));
-        self.data.v128_constants.push(i128::from_le_bytes(lanes));
+        self.data.v128_constants.push(lanes);
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
         self.instructions.push(Instruction::V128Const(self.data.v128_constants.len() as u32));
-        self.data.v128_constants.push(value.i128());
+        self.data.v128_constants.push(*value.bytes());
     }
 }
 

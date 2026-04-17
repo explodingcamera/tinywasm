@@ -6,7 +6,7 @@ use crate::interpreter::no_std_floats::NoStdFloatExt;
 impl Value128 {
     pub(super) fn extract_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, lane_count: u8) -> [u8; LANE_BYTES] {
         debug_assert!(lane < lane_count);
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let start = lane as usize * LANE_BYTES;
         let mut out = [0u8; LANE_BYTES];
         out.copy_from_slice(&bytes[start..start + LANE_BYTES]);
@@ -20,10 +20,10 @@ impl Value128 {
         lane_count: u8,
     ) -> Self {
         debug_assert!(lane < lane_count);
-        let mut bytes = self.to_le_bytes();
+        let mut bytes = self.0;
         let start = lane as usize * LANE_BYTES;
         bytes[start..start + LANE_BYTES].copy_from_slice(&value);
-        Self::from_le_bytes(bytes)
+        Self(bytes)
     }
 }
 

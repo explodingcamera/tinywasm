@@ -302,7 +302,7 @@ macro_rules! impl_lane_accessors {
         $(
             #[inline]
             $as_vis const fn $as_name(self) -> [$lane_ty; $lane_count] {
-                let bytes = self.to_le_bytes();
+                let bytes = self.0;
                 let mut out = [0 as $lane_ty; $lane_count];
                 let mut i = 0;
                 while i < $lane_count {
@@ -325,7 +325,7 @@ macro_rules! impl_lane_accessors {
                     }
                     i += 1;
                 }
-                Self::from_le_bytes(bytes)
+                Self(bytes)
             }
         )*
     };

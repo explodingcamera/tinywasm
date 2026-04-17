@@ -32,8 +32,8 @@ fn swizzle_matches_reference() {
             *byte = (x & 0xff) as u8;
         }
 
-        let got = Value128::from_le_bytes(a).i8x16_swizzle(Value128::from_le_bytes(s)).to_le_bytes();
-        let expected = ref_swizzle(a, s);
+        let got = Value128::from(a).i8x16_swizzle(Value128::from(s));
+        let expected = ref_swizzle(a, s).into();
         assert_eq!(got, expected, "seed={seed}");
     }
 }
@@ -53,10 +53,8 @@ fn shuffle_matches_reference() {
             *byte = (x & 0xff) as u8;
         }
 
-        let got =
-            Value128::i8x16_shuffle(Value128::from_le_bytes(a), Value128::from_le_bytes(b), i128::from_le_bytes(idx))
-                .to_le_bytes();
-        let expected = ref_shuffle(a, b, idx);
+        let got = Value128::i8x16_shuffle(Value128::from(a), Value128::from(b), Value128::from(idx));
+        let expected = ref_shuffle(a, b, idx).into();
         assert_eq!(got, expected, "seed={seed}");
     }
 }

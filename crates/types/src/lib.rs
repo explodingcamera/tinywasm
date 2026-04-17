@@ -321,7 +321,7 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ArcSlice<T> {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunctionData {
-    pub v128_constants: Box<[i128]>,
+    pub v128_constants: Box<[[u8; 16]]>,
     pub branch_table_targets: Box<[u32]>,
 }
 

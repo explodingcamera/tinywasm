@@ -1,10 +1,9 @@
 use core::hint::cold_path;
 
+use crate::{Error, Result, log};
 use alloc::vec;
 use alloc::vec::Vec;
 use tinywasm_types::{MemoryArch, MemoryType};
-
-use crate::{Error, Result, interpreter::Value128, log};
 
 /// A WebAssembly Memory Instance
 ///
@@ -36,8 +35,8 @@ impl MemoryInstance {
         Error::Trap(crate::Trap::MemoryOutOfBounds { offset: addr, len, max: self.data.len() })
     }
 
-    pub(crate) fn store(&mut self, addr: usize, len: usize, data: &[u8]) -> Result<()> {
-        let Some(end) = addr.checked_add(len) else {
+    pub(crate) fn store(&mut self, addr: usize, data: &[u8]) -> Result<()> {
+        let Some(end) = addr.checked_add(data.len()) else {
             return Err(self.trap_oob(addr, data.len()));
         };
 
@@ -114,6 +113,7 @@ impl MemoryInstance {
 
     pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
         if pages_delta < 0 {
+            cold_path();
             log::debug!("memory.grow failed: negative delta {}", pages_delta);
             return None;
         }
@@ -124,12 +124,14 @@ impl MemoryInstance {
         let max_pages = self.kind.page_count_max().try_into().unwrap_or(usize::MAX);
 
         if new_pages > max_pages {
+            cold_path();
             log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
             return None;
         }
 
         let new_size = (new_pages as u64).checked_mul(self.kind.page_size())?;
         if new_size > self.kind.max_size() {
+            cold_path();
             log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
             return None;
         }
@@ -139,8 +141,8 @@ impl MemoryInstance {
             return i64::try_from(current_pages).ok();
         }
 
-        self.data.resize(new_size, 0);
         self.page_count = new_pages;
+        self.data.resize(new_size, 0);
         i64::try_from(current_pages).ok()
     }
 }
@@ -172,7 +174,7 @@ macro_rules! impl_mem_traits {
     }
 }
 
-impl_mem_traits!(u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8, Value128, 16);
+impl_mem_traits!(u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8);
 
 #[cfg(test)]
 mod memory_instance_tests {
@@ -188,7 +190,7 @@ mod memory_instance_tests {
     fn test_memory_store_and_load() {
         let mut memory = create_test_memory();
         let data_to_store = [1, 2, 3, 4];
-        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_ok());
+        assert!(memory.store(0, &data_to_store).is_ok());
         let loaded_data = memory.load(0, data_to_store.len()).unwrap();
         assert_eq!(loaded_data, &data_to_store);
     }
@@ -197,7 +199,7 @@ mod memory_instance_tests {
     fn test_memory_store_out_of_bounds() {
         let mut memory = create_test_memory();
         let data_to_store = [1, 2, 3, 4];
-        assert!(memory.store(memory.data.len(), data_to_store.len(), &data_to_store).is_err());
+        assert!(memory.store(memory.data.len(), &data_to_store).is_err());
     }
 
     #[test]
@@ -263,7 +265,7 @@ mod memory_instance_tests {
         let mut memory = MemoryInstance::new(kind);
 
         let data_to_store = [1, 2];
-        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_err());
+        assert!(memory.store(0, &data_to_store).is_err());
     }
 
     #[test]
@@ -274,7 +276,7 @@ mod memory_instance_tests {
         assert_eq!(memory.grow(1), Some(1));
 
         let data_to_store = [1, 2];
-        assert!(memory.store(0, data_to_store.len(), &data_to_store).is_ok());
+        assert!(memory.store(0, &data_to_store).is_ok());
 
         let loaded_data = memory.load(0, data_to_store.len()).unwrap();
         assert_eq!(loaded_data, &data_to_store);

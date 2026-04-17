@@ -148,7 +148,7 @@ mod sealed {
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()>;
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
-    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(&mut Self));
+    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(Self) -> Self);
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
@@ -177,11 +177,9 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
-                fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(&mut Self)) {
+                fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(Self) -> Self) {
                     let slot = stack.$stack.get_mut(frame.locals_base.$stack_base as usize + index as usize);
-                    let mut value = $from_stack(*slot);
-                    func(&mut value);
-                    *slot = $to_stack(value);
+                    *slot = $to_stack(func($from_stack(*slot)));
                 }
 
                 #[inline(always)]
@@ -206,8 +204,8 @@ macro_rules! impl_internalvalue {
 impl_internalvalue! {
     Value32, stack_32, s32, u32, |v| v, |v| v, |v| v
     Value64, stack_64, s64, u64, |v| v, |v| v, |v| v
-    Value32, stack_32, s32, i32, |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: i32| u32::from_ne_bytes(v.to_ne_bytes()), |v: u32| i32::from_ne_bytes(v.to_ne_bytes())
-    Value64, stack_64, s64, i64, |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: i64| u64::from_ne_bytes(v.to_ne_bytes()), |v: u64| i64::from_ne_bytes(v.to_ne_bytes())
+    Value32, stack_32, s32, i32, |v: i32| v as u32, |v: i32| v as u32, |v: u32| v as i32
+    Value64, stack_64, s64, i64, |v: i64| v as u64, |v: i64| v as u64, |v: u64| v as i64
     Value32, stack_32, s32, f32, f32::to_bits, f32::to_bits, f32::from_bits
     Value64, stack_64, s64, f64, f64::to_bits, f64::to_bits, f64::from_bits
     ValueRef, stack_32, s32, ValueRef, |v| v, |v: ValueRef| v.raw(), |v: u32| ValueRef(v)

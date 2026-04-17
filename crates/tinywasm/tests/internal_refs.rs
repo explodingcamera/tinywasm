@@ -25,7 +25,7 @@ fn private_items_are_accessible_by_index() -> Result<()> {
     let func = instance.func_by_index(&store, 0)?;
     assert_eq!(func.call(&mut store, &[])?, vec![WasmValue::I32(7)]);
 
-    instance.memory_by_index(0)?.store(&mut store, 0, 4, &[1, 2, 3, 4])?;
+    instance.memory_by_index(0)?.store(&mut store, 0, &[1, 2, 3, 4])?;
     assert_eq!(instance.memory_by_index(0)?.load(&store, 0, 4)?, &[1, 2, 3, 4]);
 
     assert_eq!(instance.table_by_index(0)?.size(&store)?, 2);

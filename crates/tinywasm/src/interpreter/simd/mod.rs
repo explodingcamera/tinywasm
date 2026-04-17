@@ -12,19 +12,39 @@ use core::arch::wasm32 as wasm;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64 as wasm;
 
+use crate::MemValue;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// A 128-bit SIMD value
-pub struct Value128(pub(crate) i128);
+pub struct Value128([u8; 16]);
+
+impl From<[u8; 16]> for Value128 {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl MemValue<16> for Value128 {
+    #[inline(always)]
+    fn from_mem_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
+    #[inline(always)]
+    fn to_mem_bytes(self) -> [u8; 16] {
+        self.0
+    }
+}
 
 impl From<Value128> for i128 {
     fn from(val: Value128) -> Self {
-        val.0
+        i128::from_le_bytes(val.0)
     }
 }
 
 impl From<i128> for Value128 {
     fn from(value: i128) -> Self {
-        Self(value)
+        Self(value.to_le_bytes())
     }
 }
 
@@ -33,7 +53,7 @@ impl Value128 {
     #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
     #[inline(always)]
     fn to_wasm_v128(self) -> wasm::v128 {
-        let b = self.to_le_bytes();
+        let b = self.0;
         wasm::u8x16(
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15],
         )
@@ -43,17 +63,7 @@ impl Value128 {
     #[inline(always)]
     #[rustfmt::skip]
     fn from_wasm_v128(value: wasm::v128) -> Self {
-        Self::from_le_bytes([ wasm::u8x16_extract_lane::<0>(value), wasm::u8x16_extract_lane::<1>(value), wasm::u8x16_extract_lane::<2>(value), wasm::u8x16_extract_lane::<3>(value), wasm::u8x16_extract_lane::<4>(value), wasm::u8x16_extract_lane::<5>(value), wasm::u8x16_extract_lane::<6>(value), wasm::u8x16_extract_lane::<7>(value), wasm::u8x16_extract_lane::<8>(value), wasm::u8x16_extract_lane::<9>(value), wasm::u8x16_extract_lane::<10>(value), wasm::u8x16_extract_lane::<11>(value), wasm::u8x16_extract_lane::<12>(value), wasm::u8x16_extract_lane::<13>(value), wasm::u8x16_extract_lane::<14>(value), wasm::u8x16_extract_lane::<15>(value)])
-    }
-
-    #[inline(always)]
-    pub const fn from_le_bytes(bytes: [u8; 16]) -> Self {
-        Self(i128::from_le_bytes(bytes))
-    }
-
-    #[inline(always)]
-    pub const fn to_le_bytes(self) -> [u8; 16] {
-        self.0.to_le_bytes()
+        Self([ wasm::u8x16_extract_lane::<0>(value), wasm::u8x16_extract_lane::<1>(value), wasm::u8x16_extract_lane::<2>(value), wasm::u8x16_extract_lane::<3>(value), wasm::u8x16_extract_lane::<4>(value), wasm::u8x16_extract_lane::<5>(value), wasm::u8x16_extract_lane::<6>(value), wasm::u8x16_extract_lane::<7>(value), wasm::u8x16_extract_lane::<8>(value), wasm::u8x16_extract_lane::<9>(value), wasm::u8x16_extract_lane::<10>(value), wasm::u8x16_extract_lane::<11>(value), wasm::u8x16_extract_lane::<12>(value), wasm::u8x16_extract_lane::<13>(value), wasm::u8x16_extract_lane::<14>(value), wasm::u8x16_extract_lane::<15>(value)])
     }
 
     impl_lane_accessors! {
@@ -71,19 +81,19 @@ impl Value128 {
 
     #[inline]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let mut out_bytes = [0u8; 16];
         for (src, dst) in bytes.chunks_exact(4).zip(out_bytes.chunks_exact_mut(4)) {
             let lane = f32::from_bits(u32::from_le_bytes([src[0], src[1], src[2], src[3]]));
             dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
         }
-        Self::from_le_bytes(out_bytes)
+        Self(out_bytes)
     }
 
     #[inline]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
-        let a_bytes = self.to_le_bytes();
-        let b_bytes = rhs.to_le_bytes();
+        let a_bytes = self.0;
+        let b_bytes = rhs.0;
         let mut out_bytes = [0u8; 16];
 
         for ((a, b), dst) in a_bytes.chunks_exact(4).zip(b_bytes.chunks_exact(4)).zip(out_bytes.chunks_exact_mut(4)) {
@@ -92,25 +102,25 @@ impl Value128 {
             dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
         }
 
-        Self::from_le_bytes(out_bytes)
+        Self(out_bytes)
     }
 
     #[inline]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
-        let bytes = self.to_le_bytes();
+        let bytes = self.0;
         let mut out_bytes = [0u8; 16];
         for (src, dst) in bytes.chunks_exact(8).zip(out_bytes.chunks_exact_mut(8)) {
             let lane =
                 f64::from_bits(u64::from_le_bytes([src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7]]));
             dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
         }
-        Self::from_le_bytes(out_bytes)
+        Self(out_bytes)
     }
 
     #[inline]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
-        let a_bytes = self.to_le_bytes();
-        let b_bytes = rhs.to_le_bytes();
+        let a_bytes = self.0;
+        let b_bytes = rhs.0;
         let mut out_bytes = [0u8; 16];
 
         for ((a, b), dst) in a_bytes.chunks_exact(8).zip(b_bytes.chunks_exact(8)).zip(out_bytes.chunks_exact_mut(8)) {
@@ -119,6 +129,6 @@ impl Value128 {
             dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
         }
 
-        Self::from_le_bytes(out_bytes)
+        Self(out_bytes)
     }
 }

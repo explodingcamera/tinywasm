@@ -1,7 +1,5 @@
-use core::hint::cold_path;
-
-use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::hint::cold_path;
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValueCounts, WasmType, WasmValue};
 
 use super::{CallFrame, StackBase};
@@ -16,37 +14,37 @@ pub(crate) struct ValueStack {
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct Stack<T: Copy + Default> {
-    data: Box<[T]>,
-    len: usize,
+    data: Vec<T>,
 }
 
 impl<T: Copy + Default> Stack<T> {
     pub(crate) fn new(size: usize) -> Self {
-        let mut data = Vec::with_capacity(size);
-        data.resize_with(size, T::default);
-        Self { data: data.into_boxed_slice(), len: 0 }
+        Self { data: Vec::with_capacity(size) }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.len = 0;
+        self.data.clear();
+    }
+
+    #[inline(always)]
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
     }
 
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<()> {
-        if let Some(slot) = self.data.get_mut(self.len) {
-            *slot = value;
-            self.len += 1;
-        } else {
+        if self.data.len() == self.data.capacity() {
             cold_path();
             return Err(Trap::ValueStackOverflow.into());
         }
+
+        self.data.push(value);
         Ok(())
     }
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        self.len -= 1;
-        *self.data.get(self.len).unwrap_or_else(|| {
+        self.data.pop().unwrap_or_else(|| {
             cold_path();
             unreachable!("ValueStack underflow, this is a bug");
         })
@@ -54,7 +52,7 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        self.data.get(self.len - 1).unwrap_or_else(|| {
+        self.data.last().unwrap_or_else(|| {
             cold_path();
             unreachable!("ValueStack underflow, this is a bug");
         })
@@ -86,42 +84,31 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
-        let len = self.len;
+        let len = self.data.len();
         debug_assert!(n <= len);
-
         if n >= len {
             return;
         }
 
-        let dropped = len - n;
-        let keep = dropped.min(end_keep);
-
+        let keep = (len - n).min(end_keep);
         if keep > 0 {
             self.data.copy_within(len - keep..len, n);
         }
-
-        self.len = n + keep;
+        self.data.truncate(n + keep);
     }
 
     #[inline(always)]
     pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32> {
-        let len = self.len;
-        debug_assert!(param_count <= local_count);
-        debug_assert!(param_count <= len);
+        debug_assert!(param_count <= local_count && param_count <= self.data.len());
 
-        let start = len - param_count;
+        let start = self.data.len() - param_count;
         let end = start + local_count;
-
-        if end > self.data.len() {
+        if end > self.data.capacity() {
             cold_path();
             return Err(Trap::ValueStackOverflow.into());
         }
 
-        if len != end {
-            self.data[len..end].fill(T::default());
-        }
-
-        self.len = end;
+        self.data.resize(end, T::default());
         Ok(start as u32)
     }
 
@@ -131,7 +118,7 @@ impl<T: Copy + Default> Stack<T> {
             return;
         }
 
-        let len = self.len;
+        let len = self.data.len();
         let needed = count.checked_mul(2).unwrap_or_else(|| {
             cold_path();
             unreachable!("Stack underflow, this is a bug");
@@ -148,10 +135,9 @@ impl<T: Copy + Default> Stack<T> {
             self.data.copy_within(src..len, dst);
         }
 
-        self.len = len - count;
+        self.data.truncate(len - count);
     }
 }
-
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
@@ -169,7 +155,7 @@ impl ValueStack {
 
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
-        self.stack_32.len + self.stack_64.len + self.stack_128.len
+        self.stack_32.len() + self.stack_64.len() + self.stack_128.len()
     }
 
     #[inline(always)]
@@ -219,32 +205,13 @@ impl ValueStack {
     }
 
     pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase> {
-        let locals_base32 = if params.c32 == 0 && locals.c32 == 0 {
-            self.stack_32.len as u32
-        } else {
-            self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?
-        };
-        let locals_base64 = if params.c64 == 0 && locals.c64 == 0 {
-            self.stack_64.len as u32
-        } else {
-            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?
-        };
-        let locals_base128 = if params.c128 == 0 && locals.c128 == 0 {
-            self.stack_128.len as u32
-        } else {
-            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?
-        };
+        let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
+        let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
+        let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 
     pub(crate) fn truncate_keep_counts(&mut self, base: StackBase, keep: ValueCounts) {
-        if keep.is_empty() {
-            self.stack_32.len = base.s32 as usize;
-            self.stack_64.len = base.s64 as usize;
-            self.stack_128.len = base.s128 as usize;
-            return;
-        }
-
         self.stack_32.truncate_keep(base.s32 as usize, keep.c32 as usize);
         self.stack_64.truncate_keep(base.s64 as usize, keep.c64 as usize);
         self.stack_128.truncate_keep(base.s128 as usize, keep.c128 as usize);
@@ -260,7 +227,7 @@ impl ValueStack {
         &mut self,
         frame: &CallFrame,
         index: LocalAddr,
-        func: impl FnOnce(&mut T),
+        func: impl FnOnce(T) -> T,
     ) {
         T::local_update(self, frame, index, func)
     }

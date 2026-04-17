@@ -1,4 +1,4 @@
-use crate::interpreter::stack::CallFrame;
+use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
 use alloc::rc::Rc;
@@ -22,16 +22,16 @@ impl Function {
         };
 
         // Reset stack, push args, allocate locals, create entry frame.
-        store.stack.clear();
-        store.stack.values.extend_from_wasmvalues(params)?;
-        let locals_base = store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+        store.call_stack.clear();
+        store.value_stack.clear();
+        store.value_stack.extend_from_wasmvalues(params)?;
+        let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
         let stack_offset = wasm_func.func.locals;
         let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
 
         // Execute until completion and then collect result values from the stack.
         InterpreterRuntime::exec(store, callframe)?;
-
-        collect_call_results(store, &self.ty)
+        collect_call_results(&mut store.value_stack, &self.ty)
     }
 
     /// Call a function and return a resumable execution handle.
@@ -53,9 +53,10 @@ impl Function {
                 Ok(FuncExecution { store, state: FuncExecutionState::Completed { result: Some(result) } })
             }
             FunctionInstance::Wasm(wasm_func) => {
-                store.stack.clear();
-                store.stack.values.extend_from_wasmvalues(params)?;
-                let locals_base = store.stack.values.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+                store.call_stack.clear();
+                store.value_stack.clear();
+                store.value_stack.extend_from_wasmvalues(params)?;
+                let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
                 let stack_offset = wasm_func.func.locals;
                 let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
 
@@ -312,7 +313,7 @@ impl<'store> FuncExecution<'store> {
         match InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel)? {
             crate::interpreter::ExecState::Completed => {
                 let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                let result = collect_call_results(self.store, &result_ty)?;
+                let result = collect_call_results(&mut self.store.value_stack, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
                 Ok(ExecProgress::Completed(result))
             }
@@ -349,7 +350,7 @@ impl<'store> FuncExecution<'store> {
         match InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget)? {
             crate::interpreter::ExecState::Completed => {
                 let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                let result = collect_call_results(self.store, &result_ty)?;
+                let result = collect_call_results(&mut self.store.value_stack, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
                 Ok(ExecProgress::Completed(result))
             }
@@ -377,9 +378,9 @@ fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> 
     Ok(())
 }
 
-fn collect_call_results(store: &mut Store, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
-    debug_assert!(store.stack.values.len() >= func_ty.results().len()); // m values are on the top of the stack (Ensured by validation)
-    let mut res: Vec<_> = store.stack.values.pop_types(func_ty.results().iter().rev()).collect(); // pop in reverse order since the stack is LIFO
+fn collect_call_results(value_stack: &mut ValueStack, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
+    debug_assert!(value_stack.len() >= func_ty.results().len()); // m values are on the top of the stack (Ensured by validation)
+    let mut res: Vec<_> = value_stack.pop_types(func_ty.results().iter().rev()).collect(); // pop in reverse order since the stack is LIFO
     res.reverse(); // reverse to get the original order
     Ok(res)
 }

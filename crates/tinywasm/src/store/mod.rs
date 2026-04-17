@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::instance::ModuleInstanceInner;
-use crate::interpreter::stack::Stack;
+use crate::interpreter::stack::{CallStack, ValueStack};
 use crate::interpreter::{TinyWasmValue, ValueRef};
 use crate::{Engine, Error, ModuleInstance, Result, Trap};
 
@@ -36,7 +36,8 @@ pub struct Store {
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
     pub(crate) state: State,
-    pub(crate) stack: Stack,
+    pub(crate) call_stack: CallStack,
+    pub(crate) value_stack: ValueStack,
 }
 
 #[cfg(feature = "debug")]
@@ -45,7 +46,6 @@ impl core::fmt::Debug for Store {
         f.debug_struct("Store")
             .field("id", &self.id)
             .field("module_instances", &self.module_instances)
-            .field("data", &"...")
             .field("engine", &self.engine)
             .finish()
     }
@@ -59,7 +59,8 @@ impl Store {
             id,
             module_instances: Vec::new(),
             state: State::default(),
-            stack: Stack::new(engine.config()),
+            call_stack: CallStack::new(engine.config()),
+            value_stack: ValueStack::new(engine.config()),
             engine,
             execution_fuel: 0,
         }
@@ -406,7 +407,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    match mem.store(offset as usize, data.data.len(), &data.data) {
+                    match mem.store(offset as usize, &data.data) {
                         Ok(()) => None,
                         Err(Error::Trap(trap)) => return Ok((data_addrs.into_boxed_slice(), Some(trap))),
                         Err(e) => return Err(e),

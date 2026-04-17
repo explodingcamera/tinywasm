@@ -117,8 +117,8 @@ impl Memory {
     }
 
     /// Store a slice of memory.
-    pub fn store(&self, store: &mut Store, offset: usize, len: usize, data: &[u8]) -> Result<()> {
-        self.instance_mut(store)?.store(offset, len, data)
+    pub fn store(&self, store: &mut Store, offset: usize, data: &[u8]) -> Result<()> {
+        self.instance_mut(store)?.store(offset, data)
     }
 
     /// Load a C-style string from memory.

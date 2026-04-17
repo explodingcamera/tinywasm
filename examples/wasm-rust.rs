@@ -119,7 +119,7 @@ fn hello() -> Result<()> {
     let arg_ptr = instance.func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
-    instance.memory("memory")?.store(&mut store, arg_ptr as usize, arg.len(), arg)?;
+    instance.memory("memory")?.store(&mut store, arg_ptr as usize, arg)?;
     let hello = instance.func::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 
