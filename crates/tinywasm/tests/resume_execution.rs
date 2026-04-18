@@ -65,7 +65,7 @@ fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
     let func_per_instr = instance_per_instr.func::<i32, i32>(&per_instr_store, "fibonacci_recursive")?;
 
     let mut weighted_store =
-        tinywasm::Store::new(tinywasm::Engine::new(Config::new().fuel_policy(FuelPolicy::Weighted)));
+        tinywasm::Store::new(tinywasm::Engine::new(Config::new().with_fuel_policy(FuelPolicy::Weighted)));
     let instance_weighted = module.instantiate(&mut weighted_store, None)?;
     let func_weighted = instance_weighted.func::<i32, i32>(&weighted_store, "fibonacci_recursive")?;
 

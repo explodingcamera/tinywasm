@@ -107,7 +107,7 @@ fn hello() -> Result<()> {
 
     let print_utf8 = HostFunction::from(&mut store, |ctx: FuncContext<'_>, (ptr, len): (i64, i32)| {
         let mem = ctx.memory("memory")?;
-        let string = mem.load_string(ctx.store(), ptr as usize, len as usize)?;
+        let string = mem.read_string(ctx.store(), ptr as usize, len as usize)?;
         println!("{string}");
         Ok(())
     });
@@ -119,7 +119,7 @@ fn hello() -> Result<()> {
     let arg_ptr = instance.func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
-    instance.memory("memory")?.store(&mut store, arg_ptr as usize, arg)?;
+    instance.memory("memory")?.copy_from_slice(&mut store, arg_ptr as usize, arg)?;
     let hello = instance.func::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;
 

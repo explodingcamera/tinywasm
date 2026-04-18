@@ -276,8 +276,7 @@ impl Imports {
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let mem = store.state.get_mem(memory.0.addr);
-                        let (size, kind) = { (mem.page_count, mem.kind) };
-                        Self::compare_memory_types(import, &kind, import_ty, size)?;
+                        Self::compare_memory_types(import, &mem.kind, import_ty, mem.page_count)?;
                         imports.memories.push(memory.0.addr);
                     }
                     Extern::Function(func_handle) => {
@@ -327,8 +326,7 @@ impl Imports {
                     }
                     (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
                         let mem = store.state.get_mem(memory_addr);
-                        let (size, kind) = { (mem.page_count, mem.kind) };
-                        Self::compare_memory_types(import, &kind, ty, size)?;
+                        Self::compare_memory_types(import, &mem.kind, ty, mem.page_count)?;
                         imports.memories.push(memory_addr);
                     }
                     (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {

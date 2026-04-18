@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Debug;
@@ -18,7 +19,7 @@ pub enum Error {
     Linker(LinkingError),
 
     /// A WebAssembly feature is not supported
-    UnsupportedFeature(String),
+    UnsupportedFeature(&'static str),
 
     /// An unknown error occurred
     Other(String),
@@ -89,6 +90,9 @@ pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,
 
+    /// A host function returned an error
+    HostFunction(Box<dyn core::error::Error + Send + Sync>),
+
     /// An out-of-bounds memory access occurred
     MemoryOutOfBounds {
         /// The offset of the access
@@ -143,6 +147,9 @@ pub enum Trap {
         /// The actual type
         actual: FuncType,
     },
+
+    /// Catch-all for other messages
+    Other(&'static str),
 }
 
 impl Trap {
@@ -160,6 +167,8 @@ impl Trap {
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
+            Self::HostFunction(_) => "host function trap",
+            Self::Other(message) => message,
         }
     }
 }
@@ -231,6 +240,8 @@ impl Display for LinkingError {
 impl Display for Trap {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Other(message) => write!(f, "{message}"),
+            Self::HostFunction(message) => write!(f, "host function trap: {message}"),
             Self::Unreachable => write!(f, "unreachable"),
             Self::MemoryOutOfBounds { offset, len, max } => {
                 write!(f, "out of bounds memory access: offset={offset}, len={len}, max={max}")
@@ -264,6 +275,16 @@ impl Debug for Error {
 }
 
 impl core::error::Error for Error {}
+
+#[cfg(feature = "std")]
+impl From<Error> for crate::std::io::Error {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::Io(err) => err,
+            other => Self::other(other.to_string()),
+        }
+    }
+}
 
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {

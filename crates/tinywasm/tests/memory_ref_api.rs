@@ -16,10 +16,10 @@ fn memory_ref_mut_copy_within_uses_src_then_dst_order() -> Result<()> {
     let instance = module.instantiate(&mut store, None)?;
 
     let memory = instance.memory("memory")?;
-    memory.store(&mut store, 0, &[1, 2, 3, 4])?;
+    memory.copy_from_slice(&mut store, 0, &[1, 2, 3, 4])?;
     memory.copy_within(&mut store, 0, 4, 4)?;
 
-    assert_eq!(memory.load(&store, 0, 8)?, &[1, 2, 3, 4, 1, 2, 3, 4]);
+    assert_eq!(memory.read_vec(&store, 0, 8)?, &[1, 2, 3, 4, 1, 2, 3, 4]);
 
     Ok(())
 }

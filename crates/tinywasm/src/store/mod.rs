@@ -15,7 +15,9 @@ mod global;
 mod memory;
 mod table;
 
-pub(crate) use {data::*, element::*, function::*, global::*, memory::*, table::*};
+pub use memory::{LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+pub(crate) use memory::{MemValue, MemoryInstance};
+pub(crate) use {data::*, element::*, function::*, global::*, table::*};
 
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
@@ -282,14 +284,14 @@ impl Store {
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], _idx: ModuleInstanceAddr) -> Vec<MemAddr> {
+    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], _idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.state.memories.len();
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.iter().enumerate() {
-            self.state.memories.push(MemoryInstance::new(*mem));
+            self.state.memories.push(MemoryInstance::new(*mem, &self.engine.config().memory_backend)?);
             mem_addrs.push((i + mem_count) as MemAddr);
         }
-        mem_addrs
+        Ok(mem_addrs)
     }
 
     /// Add globals to the store, returning their addresses in the store
@@ -367,7 +369,7 @@ impl Store {
                     // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
                     // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
                     // I have NO IDEA why this is allowed, but it is.
-                    if let Err(Error::Trap(trap)) = table.init(offset, &init) {
+                    if let Err(trap) = table.init(offset, &init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 
@@ -407,10 +409,18 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    match mem.store(offset as usize, &data.data) {
-                        Ok(()) => None,
-                        Err(Error::Trap(trap)) => return Ok((data_addrs.into_boxed_slice(), Some(trap))),
-                        Err(e) => return Err(e),
+                    match mem.inner.write_all(offset as usize, &data.data) {
+                        Some(()) => None,
+                        None => {
+                            return Ok((
+                                data_addrs.into_boxed_slice(),
+                                Some(crate::Trap::MemoryOutOfBounds {
+                                    offset: offset as usize,
+                                    len: data.data.len(),
+                                    max: mem.inner.len(),
+                                }),
+                            ));
+                        }
                     }
                 }
                 tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),

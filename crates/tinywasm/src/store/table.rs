@@ -1,4 +1,4 @@
-use crate::{Error, Result, Trap};
+use crate::{Result, Trap};
 use alloc::{vec, vec::Vec};
 use tinywasm_types::*;
 
@@ -24,21 +24,21 @@ impl TableInstance {
 
     #[inline(never)]
     #[cold]
-    fn trap_oob(&self, addr: usize, len: usize) -> Error {
-        Error::Trap(crate::Trap::TableOutOfBounds { offset: addr, len, max: self.elements.len() })
+    fn trap_oob(&self, addr: usize, len: usize) -> Trap {
+        crate::Trap::TableOutOfBounds { offset: addr, len, max: self.elements.len() }
     }
 
-    pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue> {
+    pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue, Trap> {
         let val = self.get(addr)?.addr();
 
         Ok(match self.kind.element_type {
             WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(val)),
             WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(val)),
-            _ => Err(Error::UnsupportedFeature("non-ref table".into()))?,
+            _ => Err(Trap::Other("non-ref table"))?,
         })
     }
 
-    pub(crate) fn fill(&mut self, func_addrs: &[u32], addr: usize, len: usize, val: TableElement) -> Result<()> {
+    pub(crate) fn fill(&mut self, func_addrs: &[u32], addr: usize, len: usize, val: TableElement) -> Result<(), Trap> {
         let val = val.map(|addr| self.resolve_func_ref(func_addrs, addr));
         let end = addr.checked_add(len).ok_or_else(|| self.trap_oob(addr, len))?;
         if end > self.elements.len() {
@@ -49,15 +49,15 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement> {
-        self.elements.get(addr as usize).ok_or(Error::Trap(Trap::TableOutOfBounds {
+    pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement, Trap> {
+        self.elements.get(addr as usize).ok_or(Trap::TableOutOfBounds {
             offset: addr as usize,
             len: 1,
             max: self.elements.len(),
-        }))
+        })
     }
 
-    pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<()> {
+    pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<(), Trap> {
         let end = dst.checked_add(src.len()).ok_or_else(|| self.trap_oob(dst, src.len()))?;
 
         if end > self.elements.len() {
@@ -68,7 +68,7 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[TableElement]> {
+    pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[TableElement], Trap> {
         let Some(end) = addr.checked_add(len) else {
             return Err(self.trap_oob(addr, len));
         };
@@ -80,7 +80,7 @@ impl TableInstance {
         Ok(&self.elements[addr..end])
     }
 
-    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<()> {
+    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
         // Calculate the end of the source slice
         let src_end = src.checked_add(len).ok_or_else(|| self.trap_oob(src, len))?;
         if src_end > self.elements.len() {
@@ -98,7 +98,7 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn set(&mut self, table_idx: TableAddr, value: TableElement) -> Result<()> {
+    pub(crate) fn set(&mut self, table_idx: TableAddr, value: TableElement) -> Result<(), Trap> {
         if table_idx as usize >= self.elements.len() {
             return Err(self.trap_oob(table_idx as usize, 1));
         }
@@ -107,15 +107,15 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn grow(&mut self, n: i32, init: TableElement) -> Result<()> {
+    pub(crate) fn grow(&mut self, n: i32, init: TableElement) -> Result<(), Trap> {
         if n < 0 {
-            return Err(Error::Trap(crate::Trap::TableOutOfBounds { offset: 0, len: 1, max: self.elements.len() }));
+            return Err(crate::Trap::TableOutOfBounds { offset: 0, len: 1, max: self.elements.len() });
         }
 
         let len = n as usize + self.elements.len();
         let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize;
         if len > max {
-            return Err(Error::Trap(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() }));
+            return Err(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() });
         }
 
         self.elements.resize(len, init);
@@ -136,14 +136,16 @@ impl TableInstance {
             .expect("error initializing table: function not found. This should have been caught by the validator")
     }
 
-    pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<()> {
+    pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<(), Trap> {
         let offset = offset as usize;
-        let end = offset.checked_add(init.len()).ok_or({
-            Error::Trap(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() })
+        let end = offset.checked_add(init.len()).ok_or(crate::Trap::TableOutOfBounds {
+            offset,
+            len: init.len(),
+            max: self.elements.len(),
         })?;
 
         if end > self.elements.len() || end < offset {
-            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() }.into());
+            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() });
         }
         self.elements[offset..end].copy_from_slice(init);
         Ok(())
@@ -217,7 +219,7 @@ mod tests {
         }
 
         match table_instance.get_wasm_val(999) {
-            Err(Error::Trap(Trap::TableOutOfBounds { .. })) => {}
+            Err(Trap::TableOutOfBounds { .. }) => {}
             _ => panic!("get_wasm_val failed to handle undefined element correctly"),
         }
     }

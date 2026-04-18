@@ -32,10 +32,10 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, value: T) -> Result<()> {
+    pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
         if self.data.len() == self.data.capacity() {
             cold_path();
-            return Err(Trap::ValueStackOverflow.into());
+            return Err(Trap::ValueStackOverflow);
         }
 
         self.data.push(value);
@@ -98,14 +98,14 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32> {
+    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32, Trap> {
         debug_assert!(param_count <= local_count && param_count <= self.data.len());
 
         let start = self.data.len() - param_count;
         let end = start + local_count;
         if end > self.data.capacity() {
             cold_path();
-            return Err(Trap::ValueStackOverflow.into());
+            return Err(Trap::ValueStackOverflow);
         }
 
         self.data.resize(end, T::default());
@@ -169,7 +169,7 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push<T: InternalValue>(&mut self, value: T) -> Result<()> {
+    pub(crate) fn push<T: InternalValue>(&mut self, value: T) -> Result<(), Trap> {
         T::stack_push(self, value)
     }
 
@@ -179,7 +179,7 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn select<T: InternalValue>(&mut self) -> Result<()> {
+    pub(crate) fn select<T: InternalValue>(&mut self) -> Result<(), Trap> {
         let cond: i32 = self.pop();
         let val2: T = self.pop();
         if cond == 0 {
@@ -204,7 +204,7 @@ impl ValueStack {
         val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
     }
 
-    pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase> {
+    pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
         let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
         let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
         let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
@@ -237,7 +237,7 @@ impl ValueStack {
         T::local_set(self, frame, index, value);
     }
 
-    pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<()> {
+    pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<(), Trap> {
         match value {
             TinyWasmValue::Value32(v) => self.stack_32.push(v)?,
             TinyWasmValue::Value64(v) => self.stack_64.push(v)?,
@@ -259,7 +259,7 @@ impl ValueStack {
         }
     }
 
-    pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) -> Result<()> {
+    pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) -> Result<(), Trap> {
         for value in values {
             match value {
                 WasmValue::I32(v) => self.stack_32.push(*v as u32)?,

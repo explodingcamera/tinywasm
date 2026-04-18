@@ -24,10 +24,10 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<()> {
+    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<(), Trap> {
         if self.stack.len() == self.stack.capacity() {
             cold_path();
-            return Err(Trap::CallStackOverflow.into());
+            return Err(Trap::CallStackOverflow);
         }
 
         self.stack.push(call_frame);

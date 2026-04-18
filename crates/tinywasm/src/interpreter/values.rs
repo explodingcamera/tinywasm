@@ -146,7 +146,7 @@ mod sealed {
 }
 
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
-    fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()>;
+    fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
     fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(Self) -> Self);
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
@@ -167,7 +167,7 @@ macro_rules! impl_internalvalue {
 
             impl InternalValue for $outer {
                 #[inline(always)]
-                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<()> {
+                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
                     stack.$stack.push($to_stack(value))
                 }
 

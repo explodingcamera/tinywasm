@@ -37,7 +37,7 @@ fn memory_access_rejects_wrong_store() -> Result<()> {
 
     let memory = instance.memory("memory")?;
     let other_store = Store::default();
-    let err = memory.data(&other_store).unwrap_err();
+    let err = memory.len(&other_store).unwrap_err();
     assert!(matches!(err, Error::InvalidStore));
 
     Ok(())

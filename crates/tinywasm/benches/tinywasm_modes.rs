@@ -58,7 +58,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("tinywasm_modes");
     group.measurement_time(BENCH_MEASUREMENT_TIME);
 
-    let per_instruction_engine = Engine::new(Config::new().fuel_policy(FuelPolicy::PerInstruction));
+    let per_instruction_engine = Engine::new(Config::new().with_fuel_policy(FuelPolicy::PerInstruction));
     group.bench_function("resume_fuel_per_instruction", |b| {
         b.iter_batched_ref(
             || {
@@ -70,7 +70,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         )
     });
 
-    let weighted_engine = Engine::new(Config::new().fuel_policy(FuelPolicy::Weighted));
+    let weighted_engine = Engine::new(Config::new().with_fuel_policy(FuelPolicy::Weighted));
     group.bench_function("resume_fuel_weighted", |b| {
         b.iter_batched_ref(
             || setup_typed_func(module.clone(), Some(weighted_engine.clone())).expect("setup fuel weighted"),

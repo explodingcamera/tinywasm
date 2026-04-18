@@ -1,5 +1,8 @@
 use alloc::sync::Arc;
 
+/// Memory backend types and traits.
+pub use crate::store::{LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+
 /// Global configuration for the WebAssembly interpreter
 ///
 /// Can be cheaply cloned and shared across multiple executions and threads.
@@ -66,6 +69,8 @@ pub struct Config {
     pub max_call_stack_size: usize,
     /// Fuel accounting policy used by budgeted execution.
     pub fuel_policy: FuelPolicy,
+    /// Backend used for runtime memories.
+    pub memory_backend: MemoryBackend,
 }
 
 impl Config {
@@ -75,9 +80,25 @@ impl Config {
     }
 
     /// Set the fuel accounting policy for budgeted execution.
-    pub fn fuel_policy(mut self, fuel_policy: FuelPolicy) -> Self {
+    pub fn with_fuel_policy(mut self, fuel_policy: FuelPolicy) -> Self {
         self.fuel_policy = fuel_policy;
         self
+    }
+
+    /// Set the backend used for runtime memories.
+    pub fn with_memory_backend(mut self, memory_backend: MemoryBackend) -> Self {
+        self.memory_backend = memory_backend;
+        self
+    }
+
+    /// Get the current fuel policy
+    pub fn fuel_policy(&self) -> FuelPolicy {
+        self.fuel_policy
+    }
+
+    /// Get the current memory backend
+    pub fn memory_backend(&self) -> &MemoryBackend {
+        &self.memory_backend
     }
 }
 
@@ -89,6 +110,7 @@ impl Default for Config {
             stack_128_size: DEFAULT_VALUE_STACK_128_SIZE,
             max_call_stack_size: DEFAULT_MAX_CALL_STACK_SIZE,
             fuel_policy: FuelPolicy::default(),
+            memory_backend: MemoryBackend::default(),
         }
     }
 }

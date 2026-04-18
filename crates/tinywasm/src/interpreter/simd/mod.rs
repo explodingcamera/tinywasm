@@ -16,7 +16,7 @@ use crate::MemValue;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// A 128-bit SIMD value
-pub struct Value128([u8; 16]);
+pub struct Value128(pub(super) [u8; 16]);
 
 impl From<[u8; 16]> for Value128 {
     fn from(bytes: [u8; 16]) -> Self {

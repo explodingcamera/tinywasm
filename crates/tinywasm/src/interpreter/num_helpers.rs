@@ -2,8 +2,8 @@ pub(crate) trait TinywasmIntExt
 where
     Self: Sized,
 {
-    fn checked_wrapping_rem(self, rhs: Self) -> Result<Self>;
-    fn wasm_checked_div(self, rhs: Self) -> Result<Self>;
+    fn checked_wrapping_rem(self, rhs: Self) -> Result<Self, Trap>;
+    fn wasm_checked_div(self, rhs: Self) -> Result<Self, Trap>;
 }
 
 /// Doing the actual conversion from float to int is a bit tricky, because
@@ -34,10 +34,10 @@ macro_rules! checked_conv_float {
         let v = $self.store.value_stack.pop::<$from>();
         let (min, max) = float_min_max!($from, $intermediate);
         if unlikely(v.is_nan()) {
-            return Err(Error::Trap(crate::Trap::InvalidConversionToInt));
+            return Err(crate::Trap::InvalidConversionToInt);
         }
         if unlikely(v <= min || v >= max) {
-            return Err(Error::Trap(crate::Trap::IntegerOverflow));
+            return Err(crate::Trap::IntegerOverflow);
         }
         $self.store.value_stack.push::<$to>((v as $intermediate as $to).into())?;
     }};
@@ -46,8 +46,8 @@ macro_rules! checked_conv_float {
 pub(crate) use checked_conv_float;
 pub(crate) use float_min_max;
 
-pub(super) fn trap_0() -> Error {
-    Error::Trap(crate::Trap::DivisionByZero)
+pub(super) fn trap_0() -> Trap {
+    crate::Trap::DivisionByZero
 }
 pub(crate) trait TinywasmFloatExt {
     fn tw_minimum(self, other: Self) -> Self;
@@ -55,7 +55,7 @@ pub(crate) trait TinywasmFloatExt {
     fn tw_nearest(self) -> Self;
 }
 
-use crate::{Error, Result};
+use crate::{Result, Trap};
 
 #[cfg(not(feature = "std"))]
 use super::no_std_floats::NoStdFloatExt;
@@ -160,19 +160,19 @@ impl_wrapping_self_sh! { i32 i64 u32 u64 }
 macro_rules! impl_checked_wrapping_rem {
     ($($t:ty)*) => ($(
         impl TinywasmIntExt for $t {
-            fn checked_wrapping_rem(self, rhs: Self) -> Result<Self> {
+            fn checked_wrapping_rem(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
-                    Err(Error::Trap(crate::Trap::DivisionByZero))
+                    Err(crate::Trap::DivisionByZero)
                 } else {
                     Ok(self.wrapping_rem(rhs))
                 }
             }
 
-            fn wasm_checked_div(self, rhs: Self) -> Result<Self> {
+            fn wasm_checked_div(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
-                    Err(Error::Trap(crate::Trap::DivisionByZero))
+                    Err(crate::Trap::DivisionByZero)
                 } else {
-                    self.checked_div(rhs).ok_or_else(|| Error::Trap(crate::Trap::IntegerOverflow))
+                    self.checked_div(rhs).ok_or_else(|| crate::Trap::IntegerOverflow)
                 }
             }
         }

@@ -55,7 +55,7 @@ canonicalize_nans=[]
 # derive Debug for runtime/types structs
 debug=["tinywasm-types/debug"]
 
-# expose module-internal by-index inspection APIs
+# expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
 guest_debug=[]
 
 # enable x86-specific SIMD intrinsics in Value128 (uses unsafe code)
@@ -137,6 +137,10 @@ harness=false
 
 [[bench]]
 name="tinywasm_modes"
+harness=false
+
+[[bench]]
+name="memory_backends"
 harness=false
 
 [[test]]
