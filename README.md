@@ -1,3 +1,6 @@
+> [!Important]
+> The `next` branch contains a major rework of the runtime and API, which is still in development. The latest released version of tinywasm (0.8.0) is not recommended for use anymore, and the API will change significantly before the next release.
+
 # <b>`tinywasm`</b>
 
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust&style=flat-square)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
