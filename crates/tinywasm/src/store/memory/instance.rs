@@ -30,7 +30,11 @@ impl MemoryInstance {
         let initial_len = usize::try_from(kind.initial_size())
             .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
 
-        log::debug!("initializing memory with {} pages of {} bytes", kind.page_count_initial(), kind.page_size());
+        crate::log::debug!(
+            "initializing memory with {} pages of {} bytes",
+            kind.page_count_initial(),
+            kind.page_size()
+        );
 
         let storage = backend.create(kind, initial_len)?;
         if storage.len() != initial_len {
@@ -228,7 +232,7 @@ impl MemoryInstance {
     pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
         if pages_delta < 0 {
             cold_path();
-            log::debug!("memory.grow failed: negative delta {}", pages_delta);
+            crate::log::debug!("memory.grow failed: negative delta {}", pages_delta);
             return None;
         }
 
@@ -239,14 +243,14 @@ impl MemoryInstance {
 
         if new_pages > max_pages {
             cold_path();
-            log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
+            crate::log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
             return None;
         }
 
         let new_size = (new_pages as u64).checked_mul(self.kind.page_size())?;
         if new_size > self.kind.max_size() {
             cold_path();
-            log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
+            crate::log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
             return None;
         }
 
