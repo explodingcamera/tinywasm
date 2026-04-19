@@ -1,4 +1,5 @@
 use alloc::rc::Rc;
+use alloc::sync::Arc;
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
@@ -118,7 +119,7 @@ impl State {
     }
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
-    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Rc<WasmFunction> {
+    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Arc<WasmFunction> {
         match self.funcs.get(addr as usize) {
             Some(func) => match func {
                 FunctionInstance::Wasm(wasm_func) => &wasm_func.func,
@@ -262,7 +263,7 @@ impl Store {
 // Linking related functions
 impl Store {
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(&mut self, funcs: &[WasmFunction], idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
+    pub(crate) fn init_funcs(&mut self, funcs: &[Arc<WasmFunction>], idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
         let func_count = self.state.funcs.len();
         let mut func_addrs = Vec::with_capacity(func_count);
         for (i, func) in funcs.iter().enumerate() {

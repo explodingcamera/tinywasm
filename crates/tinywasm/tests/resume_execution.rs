@@ -1,6 +1,7 @@
 use eyre::Result;
+use tinywasm::ModuleInstance;
 use tinywasm::engine::{Config, FuelPolicy};
-use tinywasm::{ExecProgress, Module, types::WasmValue};
+use tinywasm::{ExecProgress, types::WasmValue};
 
 #[cfg(feature = "std")]
 use std::time::Duration;
@@ -10,15 +11,15 @@ const ADD_WASM: &[u8] = include_bytes!("../../../examples/wasm/add.wasm");
 
 #[test]
 fn typed_resume_matches_non_budgeted_call() -> Result<()> {
-    let module = Module::parse_bytes(FIBONACCI_WASM)?;
+    let module = tinywasm::parse_bytes(FIBONACCI_WASM)?;
 
     let mut store_full = tinywasm::Store::default();
-    let instance_full = module.clone().instantiate(&mut store_full, None)?;
+    let instance_full = ModuleInstance::instantiate(&mut store_full, &module, None)?;
     let func_full = instance_full.func::<i32, i32>(&store_full, "fibonacci_recursive")?;
     let expected = func_full.call(&mut store_full, 20)?;
 
     let mut store_budgeted = tinywasm::Store::default();
-    let instance_budgeted = module.instantiate(&mut store_budgeted, None)?;
+    let instance_budgeted = ModuleInstance::instantiate(&mut store_budgeted, &module, None)?;
     let func_budgeted = instance_budgeted.func::<i32, i32>(&store_budgeted, "fibonacci_recursive")?;
 
     let mut exec = func_budgeted.call_resumable(&mut store_budgeted, 20)?;
@@ -38,9 +39,9 @@ fn typed_resume_matches_non_budgeted_call() -> Result<()> {
 
 #[test]
 fn untyped_resume_supports_zero_fuel() -> Result<()> {
-    let module = Module::parse_bytes(ADD_WASM)?;
+    let module = tinywasm::parse_bytes(ADD_WASM)?;
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let func = instance.func_untyped(&store, "add")?;
 
     let mut exec = func.call_resumable(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)])?;
@@ -58,15 +59,15 @@ fn untyped_resume_supports_zero_fuel() -> Result<()> {
 
 #[test]
 fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
-    let module = Module::parse_bytes(FIBONACCI_WASM)?;
+    let module = tinywasm::parse_bytes(FIBONACCI_WASM)?;
 
     let mut per_instr_store = tinywasm::Store::default();
-    let instance_per_instr = module.clone().instantiate(&mut per_instr_store, None)?;
+    let instance_per_instr = ModuleInstance::instantiate(&mut per_instr_store, &module, None)?;
     let func_per_instr = instance_per_instr.func::<i32, i32>(&per_instr_store, "fibonacci_recursive")?;
 
     let mut weighted_store =
         tinywasm::Store::new(tinywasm::Engine::new(Config::new().with_fuel_policy(FuelPolicy::Weighted)));
-    let instance_weighted = module.instantiate(&mut weighted_store, None)?;
+    let instance_weighted = ModuleInstance::instantiate(&mut weighted_store, &module, None)?;
     let func_weighted = instance_weighted.func::<i32, i32>(&weighted_store, "fibonacci_recursive")?;
 
     let fuel = 64;
@@ -101,9 +102,9 @@ fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
 #[cfg(feature = "std")]
 #[test]
 fn time_budget_zero_suspends_then_completes() -> Result<()> {
-    let module = Module::parse_bytes(ADD_WASM)?;
+    let module = tinywasm::parse_bytes(ADD_WASM)?;
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let func = instance.func::<(i32, i32), i32>(&store, "add")?;
 
     let mut exec = func.call_resumable(&mut store, (20, 22))?;

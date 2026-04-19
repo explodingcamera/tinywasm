@@ -7,6 +7,7 @@ use super::no_std_floats::NoStdFloatExt;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 
+use alloc::sync::Arc;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
@@ -23,7 +24,7 @@ const FUEL_COST_CALL_TOTAL: u32 = 5;
 
 pub(crate) struct Executor<'store, const BUDGETED: bool> {
     cf: CallFrame,
-    func: Rc<WasmFunction>,
+    func: Arc<WasmFunction>,
     module: Rc<ModuleInstanceInner>,
     store: &'store mut Store,
 }
@@ -113,14 +114,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             }};
         }
 
-        let next = match self.func.instructions.0.get(self.cf.instr_ptr as usize) {
+        let next = match self.func.instructions.get(self.cf.instr_ptr as usize) {
             Some(instr) => instr,
             None => {
                 cold_path();
                 unreachable!(
                     "Instruction pointer out of bounds: {} ({} instructions)",
                     self.cf.instr_ptr,
-                    self.func.instructions.0.len()
+                    self.func.instructions.len()
                 )
             }
         };
@@ -785,7 +786,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         wasm_func: WasmFunctionInstance,
         func_addr: FuncAddr,
     ) -> Result<(), Trap> {
-        if !Rc::ptr_eq(&self.func, &wasm_func.func) {
+        if !Arc::ptr_eq(&self.func, &wasm_func.func) {
             self.func = wasm_func.func.clone();
         }
 

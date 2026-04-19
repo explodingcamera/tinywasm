@@ -4,7 +4,7 @@ TinyWasm follows the general Runtime Structure described in the [WebAssembly Spe
 
 Key runtime layout:
 
-- Values are stored in four fixed-capacity typed stacks: `stack_32` (`i32`/`f32`), `stack_64` (`i64`/`f64`), `stack_128` (`v128`), and `stack_ref` (`funcref`/`externref`).
+- Values are stored in four fixed-capacity typed stacks: `stack_32` (`i32`/`f32`/`funcref`/`externref`), `stack_64` (`i64`/`f64`), `stack_128` (`v128`)
 - Locals are allocated in those value stacks. Each `CallFrame` stores `locals_base`, and local ops index from that base.
 - Calls use a separate fixed-capacity `CallStack` of `CallFrame`s.
 - Structured control (`block`/`loop`/`if`/`br*`) is lowered during parsing to jump-oriented instructions: `Jump`, `JumpIfZero`, `BranchTable*`, `DropKeep*`, and `Return`.
@@ -12,7 +12,7 @@ Key runtime layout:
 
 ## Precompiled Modules
 
-`TinyWasmModule` can be serialized to `.twasm` (`serialize_twasm`) and loaded later (`from_twasm`).
+Modules can be serialized to `.twasm` (`serialize_twasm`) and loaded later (`from_twasm`).
 This allows deployments that execute precompiled modules without enabling the parser in the runtime binary.
 
 See:

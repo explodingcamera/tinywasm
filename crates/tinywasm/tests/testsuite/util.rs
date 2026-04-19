@@ -1,7 +1,8 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use eyre::{Result, bail, eyre};
-use tinywasm_types::{ExternRef, FuncRef, ModuleInstanceAddr, TinyWasmModule, WasmType, WasmValue};
+use tinywasm::ModuleInstance;
+use tinywasm_types::{ExternRef, FuncRef, Module, ModuleInstanceAddr, WasmType, WasmValue};
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
 
@@ -31,7 +32,7 @@ pub fn exec_fn_instance(
 }
 
 pub fn exec_fn(
-    module: Option<&TinyWasmModule>,
+    module: Option<&Module>,
     name: &str,
     args: &[tinywasm_types::WasmValue],
     imports: Option<tinywasm::Imports>,
@@ -41,8 +42,7 @@ pub fn exec_fn(
     };
 
     let mut store = tinywasm::Store::default();
-    let module = tinywasm::Module::from(module);
-    let instance = module.instantiate(&mut store, imports)?;
+    let instance = ModuleInstance::instantiate(&mut store, module, imports)?;
     instance.func_untyped(&store, name)?.call(&mut store, args)
 }
 
@@ -78,7 +78,7 @@ pub fn encode_quote_wat(module: QuoteWat) -> (Option<String>, Vec<u8>) {
     }
 }
 
-pub fn parse_module_bytes(bytes: &[u8]) -> Result<TinyWasmModule> {
+pub fn parse_module_bytes(bytes: &[u8]) -> Result<Module> {
     let parser = tinywasm_parser::Parser::new();
     Ok(parser.parse_module_bytes(bytes)?)
 }

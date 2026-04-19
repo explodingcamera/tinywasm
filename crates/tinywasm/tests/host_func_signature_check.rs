@@ -1,7 +1,7 @@
 use eyre::Result;
 use std::fmt::Write;
 use tinywasm::{
-    FuncContext, HostFunction, Imports, Module, Store,
+    FuncContext, HostFunction, Imports, Module, ModuleInstance, Store,
     types::{FuncType, WasmType, WasmValue},
 };
 use tinywasm_types::ExternRef;
@@ -39,7 +39,7 @@ fn test_return_invalid_type() -> Result<()> {
             let hfn = HostFunction::from_untyped(&mut store, &ty, |_: FuncContext<'_>, _| Ok(returned_values.to_vec()));
             imports.define("host", "hfn", hfn);
 
-            let instance = module.clone().instantiate(&mut store, Some(imports)).unwrap();
+            let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports)).unwrap();
             let caller = instance.func_untyped(&store, "call_hfn").unwrap();
             // Return-type mismatch is only observable at call time.
             let should_succeed = returned_values.iter().map(WasmType::from).eq(ty.results().iter().copied());
@@ -63,7 +63,7 @@ fn test_linking_invalid_untyped_func() -> Result<()> {
             imports.define("host", "hfn", tried_fn);
 
             let should_succeed = ty == expected_func_ty;
-            let link_res = module.clone().instantiate(&mut store, Some(imports));
+            let link_res = ModuleInstance::instantiate(&mut store, module, Some(imports));
             assert_eq!(link_res.is_ok(), should_succeed);
         }
     }
@@ -108,7 +108,7 @@ fn test_linking_invalid_typed_func() -> Result<()> {
         for typed_fn in matching_none {
             let mut imports = Imports::new();
             imports.define("host", "hfn", typed_fn);
-            let link_failure = module.clone().instantiate(&mut store, Some(imports));
+            let link_failure = ModuleInstance::instantiate(&mut store, &module, Some(imports));
             assert!(link_failure.is_err(), "Expected linking to fail for mismatched typed func, but it succeeded");
         }
     }
@@ -165,5 +165,5 @@ fn proxy_module(func_ty: &FuncType) -> Module {
     "#
     );
     let wasm = wat::parse_str(wasm_text).expect("failed to parse wat");
-    Module::parse_bytes(&wasm).expect("failed to make module")
+    tinywasm::parse_bytes(&wasm).expect("failed to make module")
 }

@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::Module;
+use tinywasm::ModuleInstance;
 
 #[test]
 fn func_typed_rejects_wrong_param_or_result_types() -> Result<()> {
@@ -14,9 +14,9 @@ fn func_typed_rejects_wrong_param_or_result_types() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     assert!(instance.func::<(i32, i32), i32>(&store, "add").is_ok());
     assert!(instance.func::<i32, i32>(&store, "add").is_err());
@@ -37,9 +37,9 @@ fn func_typed_rejects_partial_multi_value_results() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     assert!(instance.func::<(), (i32, i32)>(&store, "pair").is_ok());
     assert!(instance.func::<(), i32>(&store, "pair").is_err());

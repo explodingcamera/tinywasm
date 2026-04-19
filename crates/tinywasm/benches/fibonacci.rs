@@ -1,28 +1,28 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
 use tinywasm::{ModuleInstance, Store, types};
-use types::TinyWasmModule;
+use types::Module;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.wasm");
 
-fn fibonacci_parse() -> Result<TinyWasmModule> {
+fn fibonacci_parse() -> Result<Module> {
     let parser = tinywasm_parser::Parser::new();
     let data = parser.parse_module_bytes(WASM)?;
     Ok(data)
 }
 
-fn fibonacci_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
+fn fibonacci_to_twasm(module: &Module) -> Result<Vec<u8>> {
     let twasm = module.serialize_twasm()?;
     Ok(twasm)
 }
 
-fn fibonacci_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
-    Ok(TinyWasmModule::from_twasm(twasm)?)
+fn fibonacci_from_twasm(twasm: &[u8]) -> Result<Module> {
+    Ok(Module::try_from_twasm(twasm)?)
 }
 
-fn fibonacci_run(module: TinyWasmModule, recursive: bool, n: i32) -> Result<()> {
+fn fibonacci_run(module: Module, recursive: bool, n: i32) -> Result<()> {
     let mut store = Store::default();
-    let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let argon2 = instance.func::<i32, i32>(
         &store,
         match recursive {
@@ -43,6 +43,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("fibonacci_parse", |b| b.iter(fibonacci_parse));
     group.bench_function("fibonacci_to_twasm", |b| b.iter(|| fibonacci_to_twasm(&module)));
     group.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
+
     group.measurement_time(std::time::Duration::from_secs(10));
     group.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
     group.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));

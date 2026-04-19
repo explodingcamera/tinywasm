@@ -2,7 +2,7 @@ use core::fmt::{Display, Formatter};
 
 use alloc::vec::Vec;
 
-use crate::TinyWasmModule;
+use crate::Module;
 
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -47,14 +47,14 @@ extern crate std;
 
 impl core::error::Error for TwasmError {}
 
-impl TinyWasmModule {
-    /// Creates a `TinyWasmModule` from a slice of bytes.
-    pub fn from_twasm(wasm: &[u8]) -> Result<Self, TwasmError> {
+impl Module {
+    /// Creates a [`Module`] from a slice of bytes.
+    pub fn try_from_twasm(wasm: &[u8]) -> Result<Self, TwasmError> {
         let len = validate_magic(wasm)?;
         postcard::from_bytes(&wasm[len..]).map_err(TwasmError::InvalidArchive)
     }
 
-    /// Serializes the `TinyWasmModule` into a vector of bytes.
+    /// Serializes the [`Module`] into a vector of bytes.
     pub fn serialize_twasm(&self) -> Result<Vec<u8>, TwasmError> {
         let buf = Vec::from(TWASM_MAGIC);
         postcard::to_extend(self, buf).map_err(TwasmError::InvalidArchive)
@@ -67,17 +67,17 @@ mod tests {
 
     #[test]
     fn test_invalid_magic() {
-        let wasm = TinyWasmModule::default();
+        let wasm = Module::default();
         let mut twasm = wasm.serialize_twasm().expect("should serialize");
         twasm[0] = 0;
-        assert!(matches!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidMagic)));
+        assert!(matches!(Module::try_from_twasm(&twasm), Err(TwasmError::InvalidMagic)));
     }
 
     #[test]
     fn test_invalid_version() {
-        let wasm = TinyWasmModule::default();
+        let wasm = Module::default();
         let mut twasm = wasm.serialize_twasm().expect("should serialize");
         twasm[4] = 0;
-        assert!(matches!(TinyWasmModule::from_twasm(&twasm), Err(TwasmError::InvalidVersion)));
+        assert!(matches!(Module::try_from_twasm(&twasm), Err(TwasmError::InvalidVersion)));
     }
 }

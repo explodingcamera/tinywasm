@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use eyre::Result;
 use tinywasm::engine::Config;
 use tinywasm::types::{MemoryArch, MemoryType};
-use tinywasm::{Engine, Memory, MemoryBackend, Module, PagedMemory, Store};
+use tinywasm::{Engine, Memory, MemoryBackend, Module, ModuleInstance, PagedMemory, Store};
 use tinywasm_parser::{Parser, ParserOptions};
 
 fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
@@ -20,14 +20,14 @@ fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
 
-    let _ = module.instantiate(&mut store, None)?;
+    let _ = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     Ok(created.load(Ordering::Relaxed))
 }
 
 fn instantiate_with_counting_backend(wat: &str) -> Result<usize> {
     let wasm = wat::parse_str(wat)?;
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     instantiate_module_with_counting_backend(module)
 }
 
@@ -35,7 +35,7 @@ fn instantiate_exported_memory_with_counting_backend(
     wat: &str,
 ) -> Result<(Store, tinywasm::ModuleInstance, Arc<AtomicUsize>)> {
     let wasm = wat::parse_str(wat)?;
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let created = Arc::new(AtomicUsize::new(0));
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
@@ -44,7 +44,7 @@ fn instantiate_exported_memory_with_counting_backend(
     });
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     Ok((store, instance, created))
 }
 
@@ -58,10 +58,10 @@ fn paged_backend_works_for_module_memories() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let config = Config::new().with_memory_backend(MemoryBackend::paged(8));
     let mut store = Store::new(Engine::new(config));
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let memory = instance.memory("memory")?;
 
     memory.copy_from_slice(&mut store, 6, &[1, 2, 3, 4, 5, 6, 7, 8])?;
@@ -184,7 +184,7 @@ fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> Result<
         "#,
     )?;
     let parser = Parser::with_options(ParserOptions::default().with_local_memory_allocation_optimization(false));
-    let module = Module::from(parser.parse_module_bytes(&wasm)?);
+    let module = parser.parse_module_bytes(&wasm)?;
 
     let created = instantiate_module_with_counting_backend(module)?;
 

@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Module, Store};
+use tinywasm::{ModuleInstance, Store};
 
 const MODULE_WAT: &str = r#"
     (module
@@ -14,10 +14,10 @@ const MODULE_WAT: &str = r#"
 #[test]
 fn func_handle_rejects_wrong_store() -> Result<()> {
     let wasm = wat::parse_str(MODULE_WAT)?;
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
 
     let mut owner_store = Store::default();
-    let instance = module.instantiate(&mut owner_store, None)?;
+    let instance = ModuleInstance::instantiate(&mut owner_store, &module, None)?;
     let func = instance.func_untyped(&owner_store, "add")?;
 
     let mut other_store = Store::default();
@@ -30,10 +30,10 @@ fn func_handle_rejects_wrong_store() -> Result<()> {
 #[test]
 fn memory_access_rejects_wrong_store() -> Result<()> {
     let wasm = wat::parse_str(MODULE_WAT)?;
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
 
     let mut owner_store = Store::default();
-    let instance = module.instantiate(&mut owner_store, None)?;
+    let instance = ModuleInstance::instantiate(&mut owner_store, &module, None)?;
 
     let memory = instance.memory("memory")?;
     let other_store = Store::default();

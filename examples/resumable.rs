@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{ExecProgress, Module, Store};
+use tinywasm::{ExecProgress, ModuleInstance, Store};
 
 const WASM: &str = r#"
 (module
@@ -24,9 +24,9 @@ const WASM: &str = r#"
 
 fn main() -> Result<()> {
     let wasm = wat::parse_str(WASM)?;
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let count_down = instance.func::<i32, i32>(&store, "count_down")?;
 
     let mut execution = count_down.call_resumable(&mut store, 10_000)?;

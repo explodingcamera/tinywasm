@@ -1,4 +1,4 @@
-use alloc::rc::Rc;
+use alloc::{rc::Rc, sync::Arc};
 use tinywasm_types::*;
 
 use crate::func::HostFunction;
@@ -27,15 +27,15 @@ impl FunctionInstance {
 }
 
 impl FunctionInstance {
-    pub(crate) fn new_wasm(func: WasmFunction, owner: ModuleInstanceAddr) -> Self {
-        Self::Wasm(WasmFunctionInstance { func: Rc::new(func), owner })
+    pub(crate) fn new_wasm(func: Arc<WasmFunction>, owner: ModuleInstanceAddr) -> Self {
+        Self::Wasm(WasmFunctionInstance { func, owner })
     }
 }
 
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct WasmFunctionInstance {
-    pub(crate) func: Rc<WasmFunction>,
+    pub(crate) func: Arc<WasmFunction>,
     pub(crate) owner: ModuleInstanceAddr,
 }
 

@@ -66,12 +66,12 @@ impl From<&Import> for ExternName {
 /// ```rust
 /// # use log;
 /// # fn main() -> tinywasm::Result<()> {
-/// use tinywasm::{Global, HostFunction, Imports, Memory, Module, Store, Table};
+/// use tinywasm::{Global, HostFunction, Imports, Memory, ModuleInstance, Store, Table};
 /// use tinywasm::types::{WasmType, TableType, MemoryType, WasmValue};
 /// # let wasm = wat::parse_str("(module)").expect("valid wat");
-/// # let module = Module::parse_bytes(&wasm)?;
+/// # let module = tinywasm::parse_bytes(&wasm)?;
 /// # let mut store = Store::default();
-/// # let my_other_instance = module.instantiate(&mut store, None)?;
+/// # let my_other_instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 /// let mut imports = Imports::new();
 ///
 /// // function args can be either a single
@@ -245,12 +245,12 @@ impl Imports {
     pub(crate) fn link(
         self,
         store: &mut crate::Store,
-        module: &crate::Module,
+        module: &Module,
         _idx: ModuleInstanceAddr,
     ) -> Result<ResolvedImports> {
         let mut imports = ResolvedImports::new();
 
-        for import in &*module.0.imports {
+        for import in &*module.imports {
             if let Some(defined) = self.take_defined(import) {
                 match defined {
                     Extern::Global(global) => {
@@ -284,7 +284,6 @@ impl Imports {
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let import_func_type = module
-                            .0
                             .func_types
                             .get(*ty as usize)
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
@@ -332,7 +331,6 @@ impl Imports {
                     (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
                         let func = store.state.get_func(func_addr);
                         let import_func_type = module
-                            .0
                             .func_types
                             .get(*ty as usize)
                             .ok_or_else(|| LinkingError::incompatible_import_type(import))?;

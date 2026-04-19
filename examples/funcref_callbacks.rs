@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{FuncContext, HostFunction, Imports, Module, Store, types::FuncRef};
+use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store, types::FuncRef};
 
 const LHS: i32 = 5;
 const RHS: i32 = 3;
@@ -47,7 +47,7 @@ fn run_passed_funcref_example() -> Result<()> {
     "#;
 
     let wasm = wat::parse_str(WASM).expect("failed to parse wat");
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
 
     let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
@@ -62,7 +62,7 @@ fn run_passed_funcref_example() -> Result<()> {
     let mut imports = Imports::new();
     imports.define("host", "call_this", call_this).define("host", "mul", mul);
 
-    let instance = module.instantiate(&mut store, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
     let caller = instance.func::<(), ()>(&store, "tell_host_to_call")?;
 
     caller.call(&mut store, ())?;
@@ -103,14 +103,14 @@ fn run_returned_funcref_example() -> Result<()> {
     "#;
 
     let wasm = wat::parse_str(WASM).expect("failed to parse wat");
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let mut imports = Imports::new();
 
     let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
     imports.define("host", "mul", mul);
 
-    let instance = module.instantiate(&mut store, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
     let (add_ref, sub_ref, mul_ref) = {
         let get_funcrefs = instance.func::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
         get_funcrefs.call(&mut store, ())?

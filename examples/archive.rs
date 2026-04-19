@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Module, Store, parser::Parser, types::TinyWasmModule};
+use tinywasm::{Module, ModuleInstance, Store, parser::Parser};
 
 const WASM: &str = r#"
 (module
@@ -18,9 +18,9 @@ fn main() -> Result<()> {
     // Now, you could e.g. write `twasm` to a file called `add.twasm`
     // and load it later in a different program.
 
-    let module: Module = TinyWasmModule::from_twasm(&twasm)?.into();
+    let module = Module::try_from_twasm(&twasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let add = instance.func::<(i32, i32), i32>(&store, "add")?;
 
     assert_eq!(add.call(&mut store, (1, 2))?, 3);

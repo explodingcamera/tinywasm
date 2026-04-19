@@ -1,5 +1,6 @@
 use crate::log::debug;
 use crate::{ParseError, ParserOptions, Result, conversion, optimize};
+use alloc::sync::Arc;
 use alloc::{format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidatorAllocations, Payload, Validator};
@@ -12,7 +13,7 @@ pub(crate) struct ModuleReader {
 
     pub(crate) version: Option<u16>,
     pub(crate) start_func: Option<u32>,
-    pub(crate) func_types: Vec<FuncType>,
+    pub(crate) func_types: Vec<Arc<FuncType>>,
     pub(crate) code_type_addrs: Vec<u32>,
     pub(crate) exports: Vec<Export>,
     pub(crate) code: Vec<Code>,
@@ -53,8 +54,8 @@ impl ModuleReader {
                 validator.type_section(&reader)?;
                 self.func_types = reader
                     .into_iter()
-                    .map(|t| conversion::convert_module_type(t?))
-                    .collect::<Result<Vec<FuncType>>>()?;
+                    .map(|t| conversion::convert_module_type(t?).map(Arc::new))
+                    .collect::<Result<Vec<Arc<FuncType>>>>()?;
             }
 
             Payload::GlobalSection(reader) => {
@@ -167,7 +168,7 @@ impl ModuleReader {
         Ok(())
     }
 
-    pub(crate) fn into_module(self, options: &ParserOptions) -> Result<TinyWasmModule> {
+    pub(crate) fn into_module(self, options: &ParserOptions) -> Result<Module> {
         if !self.end_reached {
             return Err(ParseError::EndNotReached);
         }
@@ -176,73 +177,57 @@ impl ModuleReader {
             return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
         }
 
-        let Self {
-            start_func,
-            func_types,
-            code_type_addrs,
-            exports,
-            code,
-            globals,
-            table_types,
-            memory_types,
-            imports,
-            data,
-            elements,
-            ..
-        } = self;
-
-        let imported_func_count = imports.iter().filter(|i| matches!(&i.kind, ImportKind::Function(_))).count();
-        let imported_memory_count = imports.iter().filter(|i| matches!(&i.kind, ImportKind::Memory(_))).count() as u32;
-        let has_local_memory_export =
-            exports.iter().any(|export| export.kind == ExternalKind::Memory && export.index >= imported_memory_count);
-        let has_active_data_segment_on_local_memory = data.iter().any(|data| match &data.kind {
-            DataKind::Active { mem, .. } => *mem >= imported_memory_count,
+        let imported_func_count = self.imports.iter().filter(|i| matches!(&i.kind, ImportKind::Function(_))).count();
+        let import_mem_count = self.imports.iter().filter(|i| matches!(&i.kind, ImportKind::Memory(_))).count() as u32;
+        let has_local_mem_export =
+            self.exports.iter().any(|export| export.kind == ExternalKind::Memory && export.index >= import_mem_count);
+        let has_active_data_segment_on_local_memory = self.data.iter().any(|data| match &data.kind {
+            DataKind::Active { mem, .. } => *mem >= import_mem_count,
             DataKind::Passive => false,
         });
         let optimize_local_memory_allocation = options.optimize_local_memory_allocation();
-        let mut local_memory_allocation = if memory_types.is_empty() {
+        let mut local_memory_allocation = if self.memory_types.is_empty() {
             LocalMemoryAllocation::Skip
         } else if !optimize_local_memory_allocation || has_active_data_segment_on_local_memory {
             LocalMemoryAllocation::Eager
-        } else if has_local_memory_export {
+        } else if has_local_mem_export {
             LocalMemoryAllocation::Lazy
         } else {
             LocalMemoryAllocation::Skip
         };
-        let mut funcs = Vec::with_capacity(code.len());
+        let mut funcs = Vec::with_capacity(self.code.len());
 
-        for (func_idx, ((instructions, mut data, locals), ty_idx)) in code.into_iter().zip(code_type_addrs).enumerate()
+        for (func_idx, ((instructions, mut data, locals), ty_idx)) in
+            self.code.into_iter().zip(self.code_type_addrs).enumerate()
         {
-            let ty = func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
+            let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
             let params = ValueCounts::from_iter(ty.params());
             let self_func = (imported_func_count + func_idx) as u32;
-            let optimized = optimize::optimize_instructions(
-                instructions,
-                &mut data,
-                self_func,
-                imported_memory_count,
-                optimize_local_memory_allocation && local_memory_allocation != LocalMemoryAllocation::Eager,
-            );
+            let local_mem_alloc =
+                optimize_local_memory_allocation && local_memory_allocation != LocalMemoryAllocation::Eager;
+            let optimized =
+                optimize::optimize_instructions(instructions, &mut data, self_func, import_mem_count, local_mem_alloc);
 
             if optimized.uses_local_memory {
                 local_memory_allocation = LocalMemoryAllocation::Eager;
             }
 
-            funcs.push(WasmFunction { instructions: ArcSlice::from(optimized.instructions), data, locals, params, ty });
+            funcs.push(WasmFunction { instructions: optimized.instructions.into(), data, locals, params, ty }.into());
         }
 
-        Ok(TinyWasmModule {
+        Ok(ModuleInner {
             funcs: funcs.into(),
-            func_types: func_types.into(),
-            globals: globals.into(),
-            table_types: table_types.into(),
-            imports: imports.into(),
-            start_func,
-            data: data.into(),
-            exports: exports.into(),
-            elements: elements.into(),
-            memory_types: memory_types.into(),
+            func_types: self.func_types.into(),
+            globals: self.globals.into(),
+            table_types: self.table_types.into(),
+            imports: self.imports.into(),
+            start_func: self.start_func,
+            data: self.data.into(),
+            exports: self.exports.into(),
+            elements: self.elements.into(),
+            memory_types: self.memory_types.into(),
             local_memory_allocation,
-        })
+        }
+        .into())
     }
 }

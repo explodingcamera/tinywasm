@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Module, Store};
+use tinywasm::{ModuleInstance, Store};
 
 const WASM: &str = r#"
 (module
@@ -12,9 +12,9 @@ const WASM: &str = r#"
 
 fn main() -> Result<()> {
     let wasm = wat::parse_str(WASM).expect("failed to parse wat");
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let add = instance.func::<(i32, i32), i32>(&store, "add")?;
 
     assert_eq!(add.call(&mut store, (1, 2))?, 3);

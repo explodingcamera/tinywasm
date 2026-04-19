@@ -1,6 +1,6 @@
 use eyre::Result;
 use tinywasm::types::WasmType;
-use tinywasm::{ExportType, ImportType, Module};
+use tinywasm_types::{ExportType, ImportType};
 
 #[test]
 fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
@@ -23,7 +23,7 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
 
     let imports: Vec<_> = module.imports().collect();
     assert_eq!(imports.len(), 2);

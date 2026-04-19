@@ -1,29 +1,29 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
 use tinywasm::{ModuleInstance, Store, types};
-use types::TinyWasmModule;
+use types::Module;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/argon2id.wasm");
 
-fn argon2id_parse() -> Result<TinyWasmModule> {
+fn argon2id_parse() -> Result<Module> {
     let parser = tinywasm_parser::Parser::new();
     let data = parser.parse_module_bytes(WASM)?;
     Ok(data)
 }
 
-fn argon2id_to_twasm(module: &TinyWasmModule) -> Result<Vec<u8>> {
+fn argon2id_to_twasm(module: &Module) -> Result<Vec<u8>> {
     let twasm = module.serialize_twasm()?;
     Ok(twasm)
 }
 
-fn argon2id_from_twasm(twasm: &[u8]) -> Result<TinyWasmModule> {
-    let module = TinyWasmModule::from_twasm(twasm)?;
+fn argon2id_from_twasm(twasm: &[u8]) -> Result<Module> {
+    let module = Module::try_from_twasm(twasm)?;
     Ok(module)
 }
 
-fn argon2id_run(module: TinyWasmModule) -> Result<()> {
+fn argon2id_run(module: Module) -> Result<()> {
     let mut store = Store::default();
-    let instance = ModuleInstance::instantiate(&mut store, module.into(), None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let argon2 = instance.func::<(i32, i32, i32), i32>(&store, "argon2id")?;
     argon2.call(&mut store, (1000, 2, 1))?;
     Ok(())
@@ -38,6 +38,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("argon2id_parse", |b| b.iter(argon2id_parse));
     group.bench_function("argon2id_to_twasm", |b| b.iter(|| argon2id_to_twasm(&module)));
     group.bench_function("argon2id_from_twasm", |b| b.iter(|| argon2id_from_twasm(&twasm)));
+
     group.measurement_time(std::time::Duration::from_secs(10));
     group.bench_function("argon2id", |b| b.iter(|| argon2id_run(module.clone())));
 }

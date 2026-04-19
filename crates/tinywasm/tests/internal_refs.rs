@@ -1,6 +1,6 @@
 use eyre::Result;
 use tinywasm::types::{FuncRef, WasmValue};
-use tinywasm::{ExternItem, Module, Store};
+use tinywasm::{ExternItem, ModuleInstance, Store};
 
 #[test]
 #[cfg(feature = "guest_debug")]
@@ -18,9 +18,9 @@ fn private_items_are_accessible_by_index() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let func = instance.func_by_index(&store, 0)?;
     assert_eq!(func.call(&mut store, &[])?, vec![WasmValue::I32(7)]);
@@ -50,9 +50,9 @@ fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     assert_eq!(instance.global_get(&store, "g")?, WasmValue::I32(3));
     assert_eq!(instance.global("g")?.get(&store)?, WasmValue::I32(3));
@@ -83,9 +83,9 @@ fn extern_item_lookup_returns_expected_kinds() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     assert!(matches!(instance.extern_item("f")?, ExternItem::Func(_)));
     assert!(matches!(instance.extern_item("m")?, ExternItem::Memory(_)));

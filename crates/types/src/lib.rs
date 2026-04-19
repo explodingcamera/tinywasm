@@ -10,10 +10,7 @@
 
 extern crate alloc;
 use alloc::{boxed::Box, sync::Arc};
-use core::{
-    fmt::Debug,
-    ops::{Deref, Range},
-};
+use core::ops::{Deref, Range};
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
@@ -63,12 +60,31 @@ pub mod archive {
 /// A `TinyWasm` WebAssembly Module
 ///
 /// This is the internal representation of a WebAssembly module in `TinyWasm`.
-/// `TinyWasmModules` are validated before being created, so they are guaranteed to be valid (as long as they were created by `TinyWasm`).
-/// This means you should not trust a `TinyWasmModule` created by a third party to be valid.
+/// [`Module`] are validated before being created, so they are guaranteed to be valid (as long as they were created by `TinyWasm`).
+/// This means you should not trust a [`Module`] created by a third party to be valid.
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct TinyWasmModule {
+pub struct Module(Arc<ModuleInner>);
+
+impl From<ModuleInner> for Module {
+    fn from(inner: ModuleInner) -> Self {
+        Self(Arc::new(inner))
+    }
+}
+
+impl Deref for Module {
+    type Target = ModuleInner;
+    fn deref(&self) -> &ModuleInner {
+        &self.0
+    }
+}
+
+#[doc(hidden)]
+#[derive(Clone, Default, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct ModuleInner {
     /// Optional address of the start function
     ///
     /// Corresponds to the `start` section of the original WebAssembly module.
@@ -77,50 +93,172 @@ pub struct TinyWasmModule {
     /// Optimized and validated WebAssembly functions
     ///
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
-    pub funcs: ArcSlice<WasmFunction>,
+    pub funcs: Arc<[Arc<WasmFunction>]>,
 
     /// A vector of type definitions, indexed by `TypeAddr`
     ///
     /// Corresponds to the `type` section of the original WebAssembly module.
-    pub func_types: ArcSlice<FuncType>,
+    pub func_types: Arc<[Arc<FuncType>]>,
 
     /// Exported items of the WebAssembly module.
     ///
     /// Corresponds to the `export` section of the original WebAssembly module.
-    pub exports: ArcSlice<Export>,
+    pub exports: Arc<[Export]>,
 
     /// Global components of the WebAssembly module.
     ///
     /// Corresponds to the `global` section of the original WebAssembly module.
-    pub globals: ArcSlice<Global>,
+    pub globals: Arc<[Global]>,
 
     /// Table components of the WebAssembly module used to initialize tables.
     ///
     /// Corresponds to the `table` section of the original WebAssembly module.
-    pub table_types: ArcSlice<TableType>,
+    pub table_types: Arc<[TableType]>,
 
     /// Memory components of the WebAssembly module used to initialize memories.
     ///
     /// Corresponds to the `memory` section of the original WebAssembly module.
-    pub memory_types: ArcSlice<MemoryType>,
+    pub memory_types: Arc<[MemoryType]>,
 
     /// Imports of the WebAssembly module.
     ///
     /// Corresponds to the `import` section of the original WebAssembly module.
-    pub imports: ArcSlice<Import>,
+    pub imports: Arc<[Import]>,
 
     /// Data segments of the WebAssembly module.
     ///
     /// Corresponds to the `data` section of the original WebAssembly module.
-    pub data: ArcSlice<Data>,
+    pub data: Arc<[Data]>,
 
     /// Element segments of the WebAssembly module.
     ///
     /// Corresponds to the `elem` section of the original WebAssembly module.
-    pub elements: ArcSlice<Element>,
+    pub elements: Arc<[Element]>,
 
     /// How instantiation should prepare the module's local memories.
     pub local_memory_allocation: LocalMemoryAllocation,
+}
+
+impl Module {
+    /// Returns an iterator over the module's import descriptors.
+    ///
+    /// The returned data mirrors the module's import section and preserves order.
+    pub fn imports(&self) -> impl Iterator<Item = ModuleImport<'_>> {
+        self.0.imports.iter().filter_map(|import| {
+            let ty = match &import.kind {
+                ImportKind::Function(type_idx) => Some(ImportType::Func(self.0.func_types.get(*type_idx as usize)?)),
+                ImportKind::Table(table_ty) => Some(ImportType::Table(table_ty)),
+                ImportKind::Memory(memory_ty) => Some(ImportType::Memory(memory_ty)),
+                ImportKind::Global(global_ty) => Some(ImportType::Global(global_ty)),
+            }?;
+
+            Some(ModuleImport { module: import.module.as_ref(), name: import.name.as_ref(), ty })
+        })
+    }
+
+    /// Returns an iterator over the module's export descriptors.
+    ///
+    /// The returned data mirrors the module's export section and preserves order.
+    pub fn exports(&self) -> impl Iterator<Item = ModuleExport<'_>> {
+        fn imported_func_type(module: &ModuleInner, function_index: usize) -> Option<&FuncType> {
+            let mut seen = 0usize;
+            for import in module.imports.iter() {
+                if let ImportKind::Function(type_idx) = import.kind {
+                    if seen == function_index {
+                        return module.func_types.get(type_idx as usize).map(|ty| &**ty);
+                    }
+                    seen += 1;
+                }
+            }
+            None
+        }
+
+        fn imported_global_type(module: &Module, global_index: usize) -> Option<&GlobalType> {
+            let mut seen = 0usize;
+            for import in module.imports.iter() {
+                if let ImportKind::Global(global_ty) = &import.kind {
+                    if seen == global_index {
+                        return Some(global_ty);
+                    }
+                    seen += 1;
+                }
+            }
+            None
+        }
+
+        self.0.exports.iter().filter_map(move |export| {
+            let imports = self.0.imports.iter();
+            let idx = export.index as usize;
+            let ty = match export.kind {
+                ExternalKind::Func => {
+                    let imported_funcs =
+                        imports.filter(|import| matches!(import.kind, ImportKind::Function(_))).count();
+                    if idx < imported_funcs {
+                        ExportType::Func(imported_func_type(&self.0, idx)?)
+                    } else {
+                        let local_idx = idx - imported_funcs;
+                        ExportType::Func(&self.0.funcs.get(local_idx)?.ty)
+                    }
+                }
+                ExternalKind::Table => ExportType::Table(self.0.table_types.get(idx)?),
+                ExternalKind::Memory => ExportType::Memory(self.0.memory_types.get(idx)?),
+                ExternalKind::Global => {
+                    let imported_globals =
+                        imports.filter(|import| matches!(import.kind, ImportKind::Global(_))).count();
+                    if idx < imported_globals {
+                        ExportType::Global(imported_global_type(self, idx)?)
+                    } else {
+                        let local_idx = idx - imported_globals;
+                        ExportType::Global(&self.0.globals.get(local_idx)?.ty)
+                    }
+                }
+            };
+
+            Some(ModuleExport { name: export.name.as_ref(), ty })
+        })
+    }
+}
+
+/// A module export descriptor.
+pub struct ModuleExport<'a> {
+    /// Export name.
+    pub name: &'a str,
+    /// Export type.
+    pub ty: ExportType<'a>,
+}
+
+/// A module import descriptor.
+pub struct ModuleImport<'a> {
+    /// Importing module name.
+    pub module: &'a str,
+    /// Import name.
+    pub name: &'a str,
+    /// Import type.
+    pub ty: ImportType<'a>,
+}
+
+/// Imported entity type.
+pub enum ImportType<'a> {
+    /// Imported function type.
+    Func(&'a FuncType),
+    /// Imported table type.
+    Table(&'a TableType),
+    /// Imported memory type.
+    Memory(&'a MemoryType),
+    /// Imported global type.
+    Global(&'a GlobalType),
+}
+
+/// Exported entity type.
+pub enum ExportType<'a> {
+    /// Exported function type.
+    Func(&'a FuncType),
+    /// Exported table type.
+    Table(&'a TableType),
+    /// Exported memory type.
+    Memory(&'a MemoryType),
+    /// Exported global type.
+    Global(&'a GlobalType),
 }
 
 /// How instantiation should prepare local memories declared by the module.
@@ -275,63 +413,11 @@ impl<'a> FromIterator<&'a WasmType> for ValueCounts {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunction {
-    pub instructions: ArcSlice<Instruction>,
+    pub instructions: Box<[Instruction]>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub params: ValueCounts,
-    pub ty: FuncType,
-}
-
-#[doc(hidden)]
-#[derive(Clone, PartialEq)]
-// wrapper around Arc<[T]> to support serde serialization and deserialization
-pub struct ArcSlice<T>(pub Arc<[T]>);
-
-impl<T: Debug> Debug for ArcSlice<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.as_ref().fmt(f)
-    }
-}
-
-impl<T> From<alloc::vec::Vec<T>> for ArcSlice<T> {
-    fn from(vec: alloc::vec::Vec<T>) -> Self {
-        Self(Arc::from(vec))
-    }
-}
-
-impl<T> Default for ArcSlice<T> {
-    fn default() -> Self {
-        Self(Arc::from([]))
-    }
-}
-
-impl<T> Deref for ArcSlice<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-impl<T> FromIterator<T> for ArcSlice<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self(Arc::from_iter(iter))
-    }
-}
-
-#[cfg(feature = "archive")]
-impl<T: serde::Serialize> serde::Serialize for ArcSlice<T> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.as_ref().serialize(serializer)
-    }
-}
-
-#[cfg(feature = "archive")]
-impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for ArcSlice<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let vec: alloc::vec::Vec<T> = alloc::vec::Vec::deserialize(deserializer)?;
-        Ok(Self(Arc::from(vec)))
-    }
+    pub ty: Arc<FuncType>,
 }
 
 #[derive(Clone, PartialEq, Eq, Default)]

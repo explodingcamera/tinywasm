@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Module, Store};
+use tinywasm::{ModuleInstance, Store};
 
 #[test]
 fn memory_ref_mut_copy_within_uses_src_then_dst_order() -> Result<()> {
@@ -11,9 +11,9 @@ fn memory_ref_mut_copy_within_uses_src_then_dst_order() -> Result<()> {
         "#,
     )?;
 
-    let module = Module::parse_bytes(&wasm)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let memory = instance.memory("memory")?;
     memory.copy_from_slice(&mut store, 0, &[1, 2, 3, 4])?;

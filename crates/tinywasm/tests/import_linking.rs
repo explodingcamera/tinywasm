@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Error, Imports, Module, Store};
+use tinywasm::{Error, Imports, Module, ModuleInstance, Store};
 
 const WASM_ADD: &str = r#"
     (module
@@ -20,8 +20,8 @@ const WASM_IMPORT: &str = r#"
 "#;
 
 fn parse_modules() -> Result<(Module, Module)> {
-    let add = Module::parse_bytes(&wat::parse_str(WASM_ADD)?)?;
-    let import = Module::parse_bytes(&wat::parse_str(WASM_IMPORT)?)?;
+    let add = tinywasm::parse_bytes(&wat::parse_str(WASM_ADD)?)?;
+    let import = tinywasm::parse_bytes(&wat::parse_str(WASM_IMPORT)?)?;
     Ok((add, import))
 }
 
@@ -30,11 +30,11 @@ fn link_module_links_same_store_instance() -> Result<()> {
     let (add_module, import_module) = parse_modules()?;
     let mut store = Store::default();
 
-    let add_instance = add_module.instantiate(&mut store, None)?;
+    let add_instance = ModuleInstance::instantiate(&mut store, &add_module, None)?;
     let mut imports = Imports::new();
     imports.link_module("adder", add_instance)?;
 
-    let instance = import_module.instantiate(&mut store, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &import_module, Some(imports))?;
     let main = instance.func::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
     Ok(())
@@ -45,13 +45,13 @@ fn link_module_rejects_cross_store_instance() -> Result<()> {
     let (add_module, import_module) = parse_modules()?;
 
     let mut source_store = Store::default();
-    let add_instance = add_module.instantiate(&mut source_store, None)?;
+    let add_instance = ModuleInstance::instantiate(&mut source_store, &add_module, None)?;
 
     let mut target_store = Store::default();
     let mut imports = Imports::new();
     imports.link_module("adder", add_instance)?;
 
-    let err = import_module.instantiate(&mut target_store, Some(imports)).unwrap_err();
+    let err = ModuleInstance::instantiate(&mut target_store, &import_module, Some(imports)).unwrap_err();
     assert!(matches!(err, Error::InvalidStore));
     Ok(())
 }

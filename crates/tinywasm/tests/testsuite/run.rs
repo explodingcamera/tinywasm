@@ -215,11 +215,9 @@ impl TestSuite {
                     debug!("got wat module");
                     let result = catch_unwind_silent(|| {
                         let (name, bytes) = encode_quote_wat(module);
-                        let m = parse_module_bytes(&bytes).expect("failed to parse module bytes");
-
+                        let module = parse_module_bytes(&bytes).expect("failed to parse module bytes");
                         let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                        let module_instance = tinywasm::Module::from(m)
-                            .instantiate(&mut store, Some(imports))
+                        let module_instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))
                             .expect("failed to instantiate module");
 
                         (name, module_instance)
@@ -319,9 +317,8 @@ impl TestSuite {
                             wast::WastExecute::Wat(mut wat) => {
                                 let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
                                     .expect("failed to parse module");
-                                let module = tinywasm::Module::from(module);
                                 let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                                module.instantiate(&mut store, Some(imports))?;
+                                ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
                                 return Ok(());
                             }
                             wast::WastExecute::Get { module: _, global: _, .. } => {
@@ -370,9 +367,8 @@ impl TestSuite {
                     let res = catch_unwind_silent(|| {
                         let module = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
-                        let module = tinywasm::Module::from(module);
                         let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                        module.instantiate(&mut store, Some(imports))
+                        ModuleInstance::instantiate(&mut store, &module, Some(imports))
                     });
 
                     match res {

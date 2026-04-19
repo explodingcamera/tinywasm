@@ -1,9 +1,10 @@
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, WasmTypesFromTuple};
-use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Module, Result, Store, Table};
+use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, Table};
 
 /// A typed view over an exported extern value.
 pub enum ExternItem {
@@ -30,7 +31,7 @@ pub struct ModuleInstance(pub(crate) Rc<ModuleInstanceInner>);
 pub(crate) struct ModuleInstanceInner {
     pub(crate) store_id: usize,
     pub(crate) idx: ModuleInstanceAddr,
-    pub(crate) types: ArcSlice<FuncType>,
+    pub(crate) types: Arc<[Arc<FuncType>]>,
     pub(crate) func_addrs: Box<[FuncAddr]>,
     pub(crate) table_addrs: Box<[TableAddr]>,
     pub(crate) mem_addrs: Box<[MemAddr]>,
@@ -38,8 +39,44 @@ pub(crate) struct ModuleInstanceInner {
     pub(crate) elem_addrs: Box<[ElemAddr]>,
     pub(crate) data_addrs: Box<[DataAddr]>,
     pub(crate) func_start: Option<FuncAddr>,
-    pub(crate) exports: ArcSlice<Export>,
+    pub(crate) exports: Arc<[Export]>,
 }
+
+// impl ModuleInstance {
+//     #[cfg(feature = "parser")]
+//     /// Parse a module from bytes. Requires `parser` feature.
+//     pub fn from_wasm_bytes(wasm: &[u8]) -> Result<Self> {
+//         let data = tinywasm_parser::Parser::new().parse_module_bytes(wasm)?;
+//         Ok(data.into())
+//     }
+
+//     #[cfg(all(feature = "parser", feature = "std"))]
+//     /// Parse a module from a file. Requires `parser` and `std` features.
+//     pub fn from_wasm_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Self> {
+//         let data = tinywasm_parser::Parser::new().parse_module_file(path)?;
+//         Ok(data.into())
+//     }
+
+//     #[cfg(all(feature = "parser", feature = "std"))]
+//     /// Parse a module from a stream. Requires `parser` and `std` features.
+//     pub fn from_wasm_stream(stream: impl crate::std::io::Read) -> Result<Self> {
+//         let data = tinywasm_parser::Parser::new().parse_module_stream(stream)?;
+//         Ok(data.into())
+//     }
+
+//     /// Instantiate the module in the given store
+//     ///
+//     /// Runs the start function if it exists
+//     ///
+//     /// If you want to run the start function yourself, use `ModuleInstance::instantiate`
+//     ///
+//     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
+//     pub fn instantiate(self, store: &mut Store, imports: Option<Imports>) -> Result<ModuleInstance> {
+//         let instance = ModuleInstance::instantiate(store, self, imports)?;
+//         let _ = instance.start(store)?;
+//         Ok(instance)
+//     }
+// }
 
 impl ModuleInstanceInner {
     #[inline]
@@ -127,37 +164,44 @@ impl ModuleInstance {
     /// Instantiate the module in the given store
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
-    pub fn instantiate(store: &mut Store, module: Module, imports: Option<Imports>) -> Result<Self> {
-        let idx = store.next_module_instance_idx();
-        let mut addrs = imports.unwrap_or_default().link(store, &module, idx)?;
+    pub fn instantiate(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
+        let instance = ModuleInstance::instantiate_no_start(store, module, imports)?;
+        let _ = instance.start(store)?;
+        Ok(instance)
+    }
 
-        addrs.funcs.extend(store.init_funcs(&module.0.funcs, idx));
-        addrs.tables.extend(store.init_tables(&module.0.table_types, idx));
-        match module.0.local_memory_allocation {
+    /// Instantiate the module in the given store (without running the start function)
+    ///
+    /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
+    pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
+        let idx = store.next_module_instance_idx();
+        let mut addrs = imports.unwrap_or_default().link(store, module, idx)?;
+
+        addrs.funcs.extend(store.init_funcs(&module.funcs, idx));
+        addrs.tables.extend(store.init_tables(&module.table_types, idx));
+        match module.local_memory_allocation {
             LocalMemoryAllocation::Skip => {}
-            LocalMemoryAllocation::Lazy => {
-                addrs.memories.extend(store.init_lazy_memories(&module.0.memory_types, idx)?)
-            }
-            LocalMemoryAllocation::Eager => addrs.memories.extend(store.init_memories(&module.0.memory_types, idx)?),
+            LocalMemoryAllocation::Lazy => addrs.memories.extend(store.init_lazy_memories(&module.memory_types, idx)?),
+            LocalMemoryAllocation::Eager => addrs.memories.extend(store.init_memories(&module.memory_types, idx)?),
         }
-        let global_addrs = store.init_globals(addrs.globals, &module.0.globals, &addrs.funcs, idx)?;
+        let global_addrs = store.init_globals(addrs.globals, &module.globals, &addrs.funcs, idx)?;
         let (elem_addrs, elem_trapped) =
-            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.0.elements, idx)?;
+            store.init_elements(&addrs.tables, &addrs.funcs, &global_addrs, &module.elements, idx)?;
         let (data_addrs, data_trapped) =
-            store.init_data(&addrs.memories, &global_addrs, &addrs.funcs, &module.0.data, idx)?;
+            store.init_data(&addrs.memories, &global_addrs, &addrs.funcs, &module.data, idx)?;
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
             idx,
-            types: module.0.func_types.clone(),
+            types: module.func_types.clone(),
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
             global_addrs: global_addrs.into_boxed_slice(),
             elem_addrs,
             data_addrs,
-            func_start: module.0.start_func,
-            exports: module.0.exports.clone(),
+            func_start: module.start_func,
+            exports: module.exports.clone(),
         };
 
         let instance = Rc::new(instance);

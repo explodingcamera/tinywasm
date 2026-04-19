@@ -32,17 +32,17 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //!
 //! ## Getting Started
-//! The easiest way to get started is to use the [`Module::parse_bytes`] function to load a
+//! The easiest way to get started is to use the [`crate::parse_bytes`] function to load a
 //! WebAssembly module from bytes. This will parse the module and validate it, returning
 //! a [`Module`] that can be used to instantiate the module.
 //!
 //!
 //! ```rust
-//! use tinywasm::{Store, Module};
+//! use tinywasm::{ModuleInstance, Store};
 //!
 //! // Load a module from bytes
 //! let wasm = include_bytes!("../../../examples/wasm/add.wasm");
-//! let module = Module::parse_bytes(wasm)?;
+//! let module = tinywasm::parse_bytes(wasm)?;
 //!
 //! // Create a new store
 //! // Stores are used to allocate objects like functions and globals
@@ -52,7 +52,7 @@
 //! // This will allocate the module and its globals into the store
 //! // and execute the module's start function.
 //! // Every ModuleInstance has its own ID space for functions, globals, etc.
-//! let instance = module.instantiate(&mut store, None)?;
+//! let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 //!
 //! // Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.func` to get an untyped handle
@@ -99,14 +99,12 @@ pub use error::*;
 pub use func::{ExecProgress, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped, HostFunction};
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};
-pub use module::{ExportType, ImportType, Module, ModuleExport, ModuleImport};
 pub use reference::*;
 pub use store::*;
 
 mod func;
 mod imports;
 mod instance;
-mod module;
 mod reference;
 mod store;
 
@@ -123,10 +121,17 @@ pub mod parser {
     pub use tinywasm_parser::*;
 }
 
+#[cfg(feature = "parser")]
+pub use parser::parse_bytes;
+#[cfg(all(feature = "parser", feature = "std"))]
+pub use parser::{parse_file, parse_stream};
+
 /// Re-export of [`tinywasm_types`].
 pub mod types {
     pub use tinywasm_types::*;
 }
+
+pub use tinywasm_types::Module;
 
 pub(crate) fn unlikely(b: bool) -> bool {
     if b {

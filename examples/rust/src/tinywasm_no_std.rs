@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 use dlmalloc::GlobalDlmalloc;
-use tinywasm::{FuncContext, HostFunction};
+use tinywasm::{FuncContext, HostFunction, ModuleInstance};
 
 extern crate alloc;
 
@@ -30,7 +30,7 @@ fn run() -> tinywasm::Result<()> {
 
     let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("./print.wasm"))?;
     let twasm = res.serialize_twasm()?;
-    let module = tinywasm::Module::parse_bytes(&twasm)?;
+    let module = tinywasm::parse_bytes(&twasm)?;
 
     let printi32 = HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
         unsafe { printi32(v) }
@@ -38,7 +38,7 @@ fn run() -> tinywasm::Result<()> {
     });
 
     imports.define("env", "printi32", printi32);
-    let instance = module.instantiate(&mut store, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
     let add_and_print = instance.func::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
     Ok(())

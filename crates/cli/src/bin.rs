@@ -4,7 +4,7 @@ use argh::FromArgs;
 use args::WasmArg;
 use eyre::Result;
 use log::{debug, info};
-use tinywasm::{Module, types::WasmValue};
+use tinywasm::{Module, ModuleInstance, types::WasmValue};
 
 use crate::args::to_wasm_args;
 mod args;
@@ -90,11 +90,11 @@ fn main() -> Result<()> {
                 true => {
                     let wat = std::fs::read_to_string(path)?;
                     let wasm = wat::wat2wasm(&wat);
-                    tinywasm::Module::parse_bytes(&wasm)?
+                    tinywasm::parse_bytes(&wasm)?
                 }
                 #[cfg(not(feature = "wat"))]
                 true => return Err(eyre::eyre!("wat support is not enabled in this build")),
-                false => tinywasm::Module::parse_file(path)?,
+                false => tinywasm::parse_file(path)?,
             };
 
             match engine {
@@ -106,7 +106,7 @@ fn main() -> Result<()> {
 
 fn run(module: Module, func: Option<String>, args: &[WasmValue]) -> Result<()> {
     let mut store = tinywasm::Store::default();
-    let instance = module.instantiate(&mut store, None)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     if let Some(func) = func {
         let func = instance.func_untyped(&store, &func)?;

@@ -39,7 +39,7 @@ pub use error::*;
 use module::ModuleReader;
 use wasmparser::{Validator, WasmFeatures};
 
-pub use tinywasm_types::TinyWasmModule;
+pub use tinywasm_types::Module;
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
@@ -113,8 +113,8 @@ impl Parser {
         Validator::new_with_features(features)
     }
 
-    /// Parse a [`TinyWasmModule`] from bytes
-    pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<TinyWasmModule> {
+    /// Parse a [`Module`] from bytes
+    pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<Module> {
         let wasm = wasm.as_ref();
         let mut validator = Self::create_validator(self.options.clone());
         let mut reader = ModuleReader::default();
@@ -131,16 +131,16 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
-    /// Parse a [`TinyWasmModule`] from a file. Requires `std` feature.
-    pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<TinyWasmModule> {
+    /// Parse a [`Module`] from a file. Requires `std` feature.
+    pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Module> {
         let file = crate::std::fs::File::open(&path)
             .map_err(|e| ParseError::Other(alloc::format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
         self.parse_module_stream(&mut crate::std::io::BufReader::new(file))
     }
 
     #[cfg(feature = "std")]
-    /// Parse a [`TinyWasmModule`] from a stream. Requires `std` feature.
-    pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<TinyWasmModule> {
+    /// Parse a [`Module`] from a stream. Requires `std` feature.
+    pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<Module> {
         let mut validator = Self::create_validator(self.options.clone());
         let mut reader = ModuleReader::default();
         let mut buffer = alloc::vec::Vec::new();
@@ -170,10 +170,30 @@ impl Parser {
     }
 }
 
-impl TryFrom<ModuleReader> for TinyWasmModule {
+impl TryFrom<ModuleReader> for Module {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader) -> Result<Self> {
         reader.into_module(&ParserOptions::default())
     }
+}
+
+/// Parse a module from bytes
+pub fn parse_bytes(wasm: &[u8]) -> Result<Module> {
+    let data = Parser::new().parse_module_bytes(wasm)?;
+    Ok(data)
+}
+
+#[cfg(feature = "std")]
+/// Parse a module from a file. Requires the `std` feature.
+pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Module> {
+    let data = Parser::new().parse_module_file(path)?;
+    Ok(data)
+}
+
+#[cfg(feature = "std")]
+/// Parse a module from a stream. Requires `parser` and `std` features.
+pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Module> {
+    let data = Parser::new().parse_module_stream(stream)?;
+    Ok(data)
 }
