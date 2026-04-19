@@ -12,13 +12,14 @@ use tinywasm_types::MemoryType;
 use crate::{Error, Result};
 
 mod instance;
+mod lazy;
 
 mod paged;
 #[path = "vec.rs"]
 mod vec_memory;
 
 pub(crate) use instance::MemoryInstance;
-pub use {paged::PagedMemory, vec_memory::VecMemory};
+pub use {lazy::LazyLinearMemory, paged::PagedMemory, vec_memory::VecMemory};
 
 /// Backend storage for a linear memory.
 pub trait LinearMemory {
@@ -321,6 +322,10 @@ impl MemoryBackend {
         }
 
         Ok(MemoryStorage(storage))
+    }
+
+    pub(crate) fn create_lazy(&self, ty: MemoryType, initial_len: usize) -> Result<MemoryStorage> {
+        Ok(MemoryStorage(Box::new(LazyLinearMemory::new_with_initial_len(ty, initial_len, self.clone()))))
     }
 }
 

@@ -47,6 +47,22 @@ impl MemoryInstance {
         Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
     }
 
+    pub(crate) fn new_lazy(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
+        assert!(kind.page_count_initial() <= kind.page_count_max());
+
+        let initial_len = usize::try_from(kind.initial_size())
+            .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
+
+        crate::log::debug!(
+            "initializing lazy memory with {} pages of {} bytes",
+            kind.page_count_initial(),
+            kind.page_size()
+        );
+
+        let storage = backend.create_lazy(kind, initial_len)?;
+        Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
+    }
+
     pub(crate) const fn is_64bit(&self) -> bool {
         matches!(self.kind.arch(), MemoryArch::I64)
     }

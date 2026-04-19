@@ -118,6 +118,23 @@ pub struct TinyWasmModule {
     ///
     /// Corresponds to the `elem` section of the original WebAssembly module.
     pub elements: ArcSlice<Element>,
+
+    /// How instantiation should prepare the module's local memories.
+    pub local_memory_allocation: LocalMemoryAllocation,
+}
+
+/// How instantiation should prepare local memories declared by the module.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum LocalMemoryAllocation {
+    /// The module's local memories are unobservable and can be skipped entirely.
+    #[default]
+    Skip,
+    /// The module's local memories may be observed through exports, but can be delayed until first use.
+    Lazy,
+    /// The module's local memories must be allocated during instantiation.
+    Eager,
 }
 
 /// A WebAssembly External Kind.

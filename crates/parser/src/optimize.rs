@@ -2,18 +2,32 @@ use crate::macros::optimize::*;
 use alloc::vec::Vec;
 use tinywasm_types::{CmpOp, Instruction, WasmFunctionData};
 
+pub(crate) struct OptimizeResult {
+    pub(crate) instructions: Vec<Instruction>,
+    pub(crate) uses_local_memory: bool,
+}
+
 pub(crate) fn optimize_instructions(
     mut instructions: Vec<Instruction>,
     function_data: &mut WasmFunctionData,
     self_func_addr: u32,
-) -> Vec<Instruction> {
-    rewrite(&mut instructions, self_func_addr);
+    imported_memory_count: u32,
+    track_local_memory_usage: bool,
+) -> OptimizeResult {
+    let uses_local_memory = rewrite(&mut instructions, self_func_addr, imported_memory_count, track_local_memory_usage);
     remove_nop(&mut instructions, function_data);
-    instructions
+    OptimizeResult { instructions, uses_local_memory }
 }
 
-fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
+fn rewrite(
+    instrs: &mut [Instruction],
+    self_func_addr: u32,
+    imported_memory_count: u32,
+    track_local_memory_usage: bool,
+) -> bool {
     use Instruction::*;
+    let mut uses_local_memory = false;
+
     for i in 0..instrs.len() {
         match instrs[i] {
             LocalCopy32(a, b) if a == b => instrs[i] = Nop,
@@ -22,14 +36,14 @@ fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
             Call(addr) if addr == self_func_addr => instrs[i] = CallSelf,
             ReturnCall(addr) if addr == self_func_addr => instrs[i] = ReturnCallSelf,
             I32Add => {
-                rewrite!(instrs, i, [I32Const(c)] => AddConst32(c));
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => AddLocalLocal32(a, b));
                 rewrite!(instrs, i, [LocalGet32(local), I32Const(c)] => [ Nop, LocalGet32(local), AddConst32(c)]);
+                rewrite!(instrs, i, [I32Const(c)] => AddConst32(c));
             }
             I64Add => {
-                rewrite!(instrs, i, [I64Const(c)] => AddConst64(c));
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => AddLocalLocal64(a, b));
                 rewrite!(instrs, i, [LocalGet64(local), I64Const(c)] => [ Nop, LocalGet64(local), AddConst64(c)]);
+                rewrite!(instrs, i, [I64Const(c)] => AddConst64(c));
             }
             I64Rotl => rewrite!(instrs, i, [I64Xor, I64Const(c)] => XorRotlConst64(c)),
             I32Store(memarg) => {
@@ -69,6 +83,7 @@ fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
                 rewrite!(instrs, i, [LocalGet32(src)] => if src == dst { Nop } else { LocalCopy32(src, dst) });
                 rewrite!(instrs, i, [I32Const(c)] => SetLocalConst32(dst, c));
                 rewrite!(instrs, i, [F32Const(c)] => SetLocalConst32(dst, i32::from_ne_bytes(c.to_bits().to_ne_bytes())));
+                rewrite!(instrs, i, [AddLocalLocal32(a, b)] => AddLocalLocalSet32(a, b, dst));
                 rewrite!(instrs, i, [LocalGet32(src), AddConst32(c)] if (src == dst) => AddLocalConst32(dst, c));
                 rewrite!(instrs, i, [LoadLocal32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet32(memarg, addr, dst));
                 rewrite!(instrs, i,
@@ -81,6 +96,7 @@ fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
                 rewrite!(instrs, i, [LocalGet64(src)] => if src == dst { Nop } else { LocalCopy64(src, dst) });
                 rewrite!(instrs, i, [I64Const(c)] => SetLocalConst64(dst, c));
                 rewrite!(instrs, i, [F64Const(c)] => SetLocalConst64(dst, i64::from_ne_bytes(c.to_bits().to_ne_bytes())));
+                rewrite!(instrs, i, [AddLocalLocal64(a, b)] => AddLocalLocalSet64(a, b, dst));
                 rewrite!(instrs, i,
                     [LocalGet64(src), AddConst64(c)] if (src == dst) =>
                     AddLocalConst64(dst, c)
@@ -130,28 +146,28 @@ fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
                     replace!(instrs, i, 1 => [Nop, JumpIfNonZero(ip)]);
                     continue;
                 });
-                rewrite!(instrs, i, [cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
-                    JumpCmpStackConst32 { target_ip: ip, imm, op: inverse_cmp_op(op) }
-                );
-                rewrite!(instrs, i, [cmp, I64Const(imm)] if (let Some(op) = cmp_op_64(cmp)) =>
-                    JumpCmpStackConst64 { target_ip: ip, imm, op: inverse_cmp_op(op) }
-                );
                 rewrite!(instrs, i,
-                    [LocalGet32(local), cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    [LocalGet32(local), I32Const(imm), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalConst32 { target_ip: ip, local, imm, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(local), cmp, I64Const(imm)] if
+                    [LocalGet64(local), I64Const(imm), cmp] if
                     (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
                     JumpCmpLocalConst64 { target_ip: ip, local, imm, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet32(left), cmp, LocalGet32(right)] if (let Some(op) = cmp_op(cmp)) =>
+                    [LocalGet32(left), LocalGet32(right), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalLocal32 { target_ip: ip, left, right, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(left), cmp, LocalGet64(right)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
                     JumpCmpLocalLocal64 { target_ip: ip, left, right, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i, [I32Const(imm), cmp] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpStackConst32 { target_ip: ip, imm, op: inverse_cmp_op(op) }
+                );
+                rewrite!(instrs, i, [I64Const(imm), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpStackConst64 { target_ip: ip, imm, op: inverse_cmp_op(op) }
                 );
             }
             JumpIfNonZero(ip) => {
@@ -159,33 +175,39 @@ fn rewrite(instrs: &mut [Instruction], self_func_addr: u32) {
                     replace!(instrs, i, 1 => [Nop, JumpIfZero(ip)]);
                     continue;
                 });
-                rewrite!(instrs, i, [cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
-                    JumpCmpStackConst32 { target_ip: ip, imm, op }
-                );
-                rewrite!(instrs, i, [cmp, I64Const(imm)] if (let Some(op) = cmp_op_64(cmp)) =>
-                    JumpCmpStackConst64 { target_ip: ip, imm, op }
-                );
                 rewrite!(instrs, i,
-                    [LocalGet32(local), cmp, I32Const(imm)] if (let Some(op) = cmp_op(cmp)) =>
+                    [LocalGet32(local), I32Const(imm), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalConst32 { target_ip: ip, local, imm, op }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(local), cmp, I64Const(imm)] if
+                    [LocalGet64(local), I64Const(imm), cmp] if
                     (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
                     JumpCmpLocalConst64 { target_ip: ip, local, imm, op }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet32(left), cmp, LocalGet32(right)] if (let Some(op) = cmp_op(cmp)) =>
+                    [LocalGet32(left), LocalGet32(right), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalLocal32 { target_ip: ip, left, right, op }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(left), cmp, LocalGet64(right)] if (let Some(op) = cmp_op_64(cmp)) =>
+                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
                     JumpCmpLocalLocal64 { target_ip: ip, left, right, op }
+                );
+                rewrite!(instrs, i, [I32Const(imm), cmp] if (let Some(op) = cmp_op(cmp)) =>
+                    JumpCmpStackConst32 { target_ip: ip, imm, op }
+                );
+                rewrite!(instrs, i, [I64Const(imm), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
+                    JumpCmpStackConst64 { target_ip: ip, imm, op }
                 );
             }
             _ => {}
         }
+
+        if track_local_memory_usage {
+            uses_local_memory |= instrs[i].memory_addr().is_some_and(|mem| mem >= imported_memory_count);
+        }
     }
+
+    uses_local_memory
 }
 
 fn cmp_op(instr: Instruction) -> Option<CmpOp> {

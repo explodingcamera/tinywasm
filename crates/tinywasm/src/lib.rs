@@ -115,7 +115,7 @@ use interpreter::InterpreterRuntime;
 
 /// Global configuration for the WebAssembly interpreter
 pub mod engine;
-pub use engine::{Engine, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+pub use engine::{Engine, LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 
 #[cfg(feature = "parser")]
 /// Re-export of [`tinywasm_parser`]. Requires `parser` feature.

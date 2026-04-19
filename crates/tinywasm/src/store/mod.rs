@@ -15,7 +15,7 @@ mod global;
 mod memory;
 mod table;
 
-pub use memory::{LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use {data::*, element::*, function::*, global::*, table::*};
 
@@ -289,6 +289,20 @@ impl Store {
         let mut mem_addrs = Vec::with_capacity(mem_count);
         for (i, mem) in memories.iter().enumerate() {
             self.state.memories.push(MemoryInstance::new(*mem, &self.engine.config().memory_backend)?);
+            mem_addrs.push((i + mem_count) as MemAddr);
+        }
+        Ok(mem_addrs)
+    }
+
+    pub(crate) fn init_lazy_memories(
+        &mut self,
+        memories: &[MemoryType],
+        _idx: ModuleInstanceAddr,
+    ) -> Result<Vec<MemAddr>> {
+        let mem_count = self.state.memories.len();
+        let mut mem_addrs = Vec::with_capacity(mem_count);
+        for (i, mem) in memories.iter().enumerate() {
+            self.state.memories.push(MemoryInstance::new_lazy(*mem, &self.engine.config().memory_backend)?);
             mem_addrs.push((i + mem_count) as MemAddr);
         }
         Ok(mem_addrs)

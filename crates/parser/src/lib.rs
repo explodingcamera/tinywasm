@@ -43,8 +43,30 @@ pub use tinywasm_types::TinyWasmModule;
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default)]
-pub struct ParserOptions {}
+#[derive(Debug, Clone)]
+pub struct ParserOptions {
+    /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
+    pub optimize_local_memory_allocation: bool,
+}
+
+impl Default for ParserOptions {
+    fn default() -> Self {
+        Self { optimize_local_memory_allocation: true }
+    }
+}
+
+impl ParserOptions {
+    /// Enable or disable the optimization that skips allocating unused local memories.
+    pub const fn with_local_memory_allocation_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_local_memory_allocation = enabled;
+        self
+    }
+
+    /// Returns whether unused local memory allocation optimization is enabled.
+    pub const fn optimize_local_memory_allocation(&self) -> bool {
+        self.optimize_local_memory_allocation
+    }
+}
 
 /// A WebAssembly parser
 #[derive(Debug, Default)]

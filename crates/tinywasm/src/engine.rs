@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
 /// Memory backend types and traits.
-pub use crate::store::{LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+pub use crate::store::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 
 /// Global configuration for the WebAssembly interpreter
 ///

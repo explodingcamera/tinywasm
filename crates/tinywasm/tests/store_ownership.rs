@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Error, Module, Store};
+use tinywasm::{Module, Store};
 
 const MODULE_WAT: &str = r#"
     (module
@@ -22,7 +22,7 @@ fn func_handle_rejects_wrong_store() -> Result<()> {
 
     let mut other_store = Store::default();
     let err = func.call(&mut other_store, &[1.into(), 2.into()]).unwrap_err();
-    assert!(matches!(err, Error::InvalidStore));
+    assert!(err.to_string().contains("invalid store"));
 
     Ok(())
 }
@@ -38,7 +38,7 @@ fn memory_access_rejects_wrong_store() -> Result<()> {
     let memory = instance.memory("memory")?;
     let other_store = Store::default();
     let err = memory.len(&other_store).unwrap_err();
-    assert!(matches!(err, Error::InvalidStore));
+    assert!(err.to_string().contains("invalid store"));
 
     Ok(())
 }

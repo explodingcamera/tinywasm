@@ -172,6 +172,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             LocalCopy128(from, to) => self.store.value_stack.local_set(&self.cf, *to, self.store.value_stack.local_get::<Value128>(&self.cf, *from)),
             AddLocalLocal32(a, b) => self.store.value_stack.push(self.store.value_stack.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.value_stack.local_get::<i32>(&self.cf, *b)))?,
             AddLocalLocal64(a, b) => self.store.value_stack.push(self.store.value_stack.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.value_stack.local_get::<i64>(&self.cf, *b)))?,
+            AddLocalLocalSet32(a, b, dst) => self.store.value_stack.local_set::<i32>(&self.cf, *dst, self.store.value_stack.local_get::<i32>(&self.cf, *a).wrapping_add(self.store.value_stack.local_get::<i32>(&self.cf, *b))),
+            AddLocalLocalSet64(a, b, dst) => self.store.value_stack.local_set::<i64>(&self.cf, *dst, self.store.value_stack.local_get::<i64>(&self.cf, *a).wrapping_add(self.store.value_stack.local_get::<i64>(&self.cf, *b))),
             AddConst32(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
             AddConst64(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
             AddLocalConst32(local_index, c) => self.store.value_stack.local_update::<Value32>(&self.cf, *local_index, |local| local.wrapping_add(*c as u32)),

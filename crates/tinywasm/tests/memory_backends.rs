@@ -8,6 +8,45 @@ use eyre::Result;
 use tinywasm::engine::Config;
 use tinywasm::types::{MemoryArch, MemoryType};
 use tinywasm::{Engine, Memory, MemoryBackend, Module, PagedMemory, Store};
+use tinywasm_parser::{Parser, ParserOptions};
+
+fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
+    let created = Arc::new(AtomicUsize::new(0));
+    let factory_calls = created.clone();
+    let backend = MemoryBackend::custom(move |ty| {
+        factory_calls.fetch_add(1, Ordering::Relaxed);
+        Ok(PagedMemory::new(ty.initial_size() as usize, 16))
+    });
+    let engine = Engine::new(Config::new().with_memory_backend(backend));
+    let mut store = Store::new(engine);
+
+    let _ = module.instantiate(&mut store, None)?;
+
+    Ok(created.load(Ordering::Relaxed))
+}
+
+fn instantiate_with_counting_backend(wat: &str) -> Result<usize> {
+    let wasm = wat::parse_str(wat)?;
+    let module = Module::parse_bytes(&wasm)?;
+    instantiate_module_with_counting_backend(module)
+}
+
+fn instantiate_exported_memory_with_counting_backend(
+    wat: &str,
+) -> Result<(Store, tinywasm::ModuleInstance, Arc<AtomicUsize>)> {
+    let wasm = wat::parse_str(wat)?;
+    let module = Module::parse_bytes(&wasm)?;
+    let created = Arc::new(AtomicUsize::new(0));
+    let factory_calls = created.clone();
+    let backend = MemoryBackend::custom(move |ty| {
+        factory_calls.fetch_add(1, Ordering::Relaxed);
+        Ok(PagedMemory::new(ty.initial_size() as usize, 16))
+    });
+    let engine = Engine::new(Config::new().with_memory_backend(backend));
+    let mut store = Store::new(engine);
+    let instance = module.instantiate(&mut store, None)?;
+    Ok((store, instance, created))
+}
 
 #[test]
 fn paged_backend_works_for_module_memories() -> Result<()> {
@@ -55,6 +94,101 @@ fn custom_backend_factory_is_used_for_host_memories() -> Result<()> {
     assert_eq!(created.load(Ordering::Relaxed), 1);
     assert_eq!(seen_page_size.load(Ordering::Relaxed), 32);
 
+    Ok(())
+}
+
+#[test]
+fn local_memory_without_observable_use_is_not_allocated() -> Result<()> {
+    let created = instantiate_with_counting_backend(
+        r#"
+        (module
+          (memory 1)
+          (func (export "run"))
+        )
+        "#,
+    )?;
+
+    assert_eq!(created, 0);
+    Ok(())
+}
+
+#[test]
+fn exported_local_memory_is_not_eagerly_allocated() -> Result<()> {
+    let created = instantiate_with_counting_backend(
+        r#"
+        (module
+          (memory (export "memory") 1)
+        )
+        "#,
+    )?;
+
+    assert_eq!(created, 0);
+    Ok(())
+}
+
+#[test]
+fn exported_local_memory_materializes_on_first_method_call() -> Result<()> {
+    let (store, instance, created) = instantiate_exported_memory_with_counting_backend(
+        r#"
+        (module
+          (memory (export "memory") 1)
+        )
+        "#,
+    )?;
+
+    let memory = instance.memory("memory")?;
+    assert_eq!(created.load(Ordering::Relaxed), 0);
+    assert_eq!(memory.len(&store)?, 65536);
+    assert_eq!(created.load(Ordering::Relaxed), 1);
+    Ok(())
+}
+
+#[test]
+fn active_data_segment_on_local_memory_is_allocated() -> Result<()> {
+    let created = instantiate_with_counting_backend(
+        r#"
+        (module
+          (memory 1)
+          (data (i32.const 0) "hi")
+        )
+        "#,
+    )?;
+
+    assert_eq!(created, 1);
+    Ok(())
+}
+
+#[test]
+fn local_memory_instruction_is_allocated() -> Result<()> {
+    let created = instantiate_with_counting_backend(
+        r#"
+        (module
+          (memory 1)
+          (func (export "run") (drop (memory.size)))
+        )
+        "#,
+    )?;
+
+    assert_eq!(created, 1);
+    Ok(())
+}
+
+#[test]
+fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (memory 1)
+          (func (export "run"))
+        )
+        "#,
+    )?;
+    let parser = Parser::with_options(ParserOptions::default().with_local_memory_allocation_optimization(false));
+    let module = Module::from(parser.parse_module_bytes(&wasm)?);
+
+    let created = instantiate_module_with_counting_backend(module)?;
+
+    assert_eq!(created, 1);
     Ok(())
 }
 

@@ -78,6 +78,7 @@ pub enum CmpOp {
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
     AddLocalLocal32(LocalAddr, LocalAddr), AddLocalLocal64(LocalAddr, LocalAddr),
+    AddLocalLocalSet32(LocalAddr, LocalAddr, LocalAddr), AddLocalLocalSet64(LocalAddr, LocalAddr, LocalAddr),
     AddConst32(i32), AddConst64(i64),
     AddLocalConst32(LocalAddr, i32), AddLocalConst64(LocalAddr, i64),
     SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64),
@@ -296,6 +297,74 @@ pub enum Instruction {
     I16x8RelaxedQ15mulrS,
     I16x8RelaxedDotI8x16I7x16S,
     I32x4RelaxedDotI8x16I7x16AddS
+}
+
+impl Instruction {
+    #[inline]
+    pub const fn memory_addr(&self) -> Option<MemAddr> {
+        match self {
+            Self::StoreLocalLocal32(arg, ..)
+            | Self::StoreLocalLocal64(arg, ..)
+            | Self::StoreLocalLocal128(arg, ..)
+            | Self::LoadLocal32(arg, ..)
+            | Self::LoadLocalTee32(arg, ..)
+            | Self::LoadLocalSet32(arg, ..)
+            | Self::LoadLocalTee128(arg, ..)
+            | Self::LoadLocalSet128(arg, ..)
+            | Self::I32Load(arg)
+            | Self::I64Load(arg)
+            | Self::F32Load(arg)
+            | Self::F64Load(arg)
+            | Self::I32Load8S(arg)
+            | Self::I32Load8U(arg)
+            | Self::I32Load16S(arg)
+            | Self::I32Load16U(arg)
+            | Self::I64Load8S(arg)
+            | Self::I64Load8U(arg)
+            | Self::I64Load16S(arg)
+            | Self::I64Load16U(arg)
+            | Self::I64Load32S(arg)
+            | Self::I64Load32U(arg)
+            | Self::I32Store(arg)
+            | Self::I64Store(arg)
+            | Self::F32Store(arg)
+            | Self::F64Store(arg)
+            | Self::I32Store8(arg)
+            | Self::I32Store16(arg)
+            | Self::I64Store8(arg)
+            | Self::I64Store16(arg)
+            | Self::I64Store32(arg)
+            | Self::V128Load(arg)
+            | Self::V128Load8x8S(arg)
+            | Self::V128Load8x8U(arg)
+            | Self::V128Load16x4S(arg)
+            | Self::V128Load16x4U(arg)
+            | Self::V128Load32x2S(arg)
+            | Self::V128Load32x2U(arg)
+            | Self::V128Load8Splat(arg)
+            | Self::V128Load16Splat(arg)
+            | Self::V128Load32Splat(arg)
+            | Self::V128Load64Splat(arg)
+            | Self::V128Load8Lane(arg, ..)
+            | Self::V128Load16Lane(arg, ..)
+            | Self::V128Load32Lane(arg, ..)
+            | Self::V128Load64Lane(arg, ..)
+            | Self::V128Load32Zero(arg)
+            | Self::V128Load64Zero(arg)
+            | Self::V128Store(arg)
+            | Self::V128Store8Lane(arg, ..)
+            | Self::V128Store16Lane(arg, ..)
+            | Self::V128Store32Lane(arg, ..)
+            | Self::V128Store64Lane(arg, ..) => Some(arg.mem_addr()),
+            Self::MemorySize(mem)
+            | Self::MemoryGrow(mem)
+            | Self::MemoryInit(mem, ..)
+            | Self::MemoryFill(mem)
+            | Self::MemoryFillImm(mem, ..) => Some(*mem),
+            Self::MemoryCopy { dst_mem, src_mem } => Some(if *dst_mem >= *src_mem { *dst_mem } else { *src_mem }),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
