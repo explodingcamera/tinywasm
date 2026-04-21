@@ -74,43 +74,73 @@ fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("memory_backends");
     group.measurement_time(BENCH_MEASUREMENT_TIME);
 
-    bench_grow(&mut group, "vec", || VecMemory::new(PAGE_SIZE));
-    bench_grow(&mut group, "paged", || PagedMemory::new(PAGE_SIZE, CHUNK_SIZE));
+    bench_grow(&mut group, "vec", || VecMemory::try_new(PAGE_SIZE).expect("bench memory should be constructible"));
+    bench_grow(&mut group, "paged", || {
+        PagedMemory::try_new(PAGE_SIZE, CHUNK_SIZE).expect("bench memory should be constructible")
+    });
 
-    bench_write_all(&mut group, "vec", "contiguous", VecMemory::new(MEMORY_LEN), CONTIGUOUS_OFFSET, CONTIGUOUS_LEN);
+    bench_write_all(
+        &mut group,
+        "vec",
+        "contiguous",
+        VecMemory::try_new(MEMORY_LEN).expect("bench memory should be constructible"),
+        CONTIGUOUS_OFFSET,
+        CONTIGUOUS_LEN,
+    );
     bench_write_all(
         &mut group,
         "paged",
         "contiguous",
-        PagedMemory::new(MEMORY_LEN, CHUNK_SIZE),
+        PagedMemory::try_new(MEMORY_LEN, CHUNK_SIZE).expect("bench memory should be constructible"),
         CONTIGUOUS_OFFSET,
         CONTIGUOUS_LEN,
     );
-    bench_read_exact(&mut group, "vec", "contiguous", VecMemory::new(MEMORY_LEN), CONTIGUOUS_OFFSET, CONTIGUOUS_LEN);
+    bench_read_exact(
+        &mut group,
+        "vec",
+        "contiguous",
+        VecMemory::try_new(MEMORY_LEN).expect("bench memory should be constructible"),
+        CONTIGUOUS_OFFSET,
+        CONTIGUOUS_LEN,
+    );
     bench_read_exact(
         &mut group,
         "paged",
         "contiguous",
-        PagedMemory::new(MEMORY_LEN, CHUNK_SIZE),
+        PagedMemory::try_new(MEMORY_LEN, CHUNK_SIZE).expect("bench memory should be constructible"),
         CONTIGUOUS_OFFSET,
         CONTIGUOUS_LEN,
     );
 
-    bench_write_all(&mut group, "vec", "cross_chunk", VecMemory::new(MEMORY_LEN), CROSS_CHUNK_OFFSET, CROSS_CHUNK_LEN);
     bench_write_all(
         &mut group,
-        "paged",
+        "vec",
         "cross_chunk",
-        PagedMemory::new(MEMORY_LEN, CHUNK_SIZE),
+        VecMemory::try_new(MEMORY_LEN).expect("bench memory should be constructible"),
         CROSS_CHUNK_OFFSET,
         CROSS_CHUNK_LEN,
     );
-    bench_read_exact(&mut group, "vec", "cross_chunk", VecMemory::new(MEMORY_LEN), CROSS_CHUNK_OFFSET, CROSS_CHUNK_LEN);
+    bench_write_all(
+        &mut group,
+        "paged",
+        "cross_chunk",
+        PagedMemory::try_new(MEMORY_LEN, CHUNK_SIZE).expect("bench memory should be constructible"),
+        CROSS_CHUNK_OFFSET,
+        CROSS_CHUNK_LEN,
+    );
+    bench_read_exact(
+        &mut group,
+        "vec",
+        "cross_chunk",
+        VecMemory::try_new(MEMORY_LEN).expect("bench memory should be constructible"),
+        CROSS_CHUNK_OFFSET,
+        CROSS_CHUNK_LEN,
+    );
     bench_read_exact(
         &mut group,
         "paged",
         "cross_chunk",
-        PagedMemory::new(MEMORY_LEN, CHUNK_SIZE),
+        PagedMemory::try_new(MEMORY_LEN, CHUNK_SIZE).expect("bench memory should be constructible"),
         CROSS_CHUNK_OFFSET,
         CROSS_CHUNK_LEN,
     );

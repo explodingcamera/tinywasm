@@ -229,7 +229,7 @@ impl Memory {
 
     /// Grow the memory by the given number of pages.
     pub fn grow(&self, store: &mut Store, delta_pages: i64) -> Result<Option<i64>> {
-        Ok(self.instance_mut(store)?.grow(delta_pages))
+        self.instance_mut(store)?.grow(delta_pages, true).map_err(Into::into)
     }
 
     /// Get the current size of the memory in pages.

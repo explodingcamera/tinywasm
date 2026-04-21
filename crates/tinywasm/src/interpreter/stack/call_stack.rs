@@ -7,11 +7,14 @@ use tinywasm_types::{FuncAddr, ModuleInstanceAddr, ValueCounts};
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallStack {
     stack: Vec<CallFrame>,
+    max_size: usize,
+    dynamic: bool,
 }
 
 impl CallStack {
     pub(crate) fn new(config: &crate::engine::Config) -> Self {
-        Self { stack: Vec::with_capacity(config.max_call_stack_size) }
+        let stack = config.call_stack;
+        Self { stack: Vec::with_capacity(stack.initial_size), max_size: stack.max_size, dynamic: stack.dynamic }
     }
 
     pub(crate) fn clear(&mut self) {
@@ -24,13 +27,36 @@ impl CallStack {
     }
 
     #[inline(always)]
+    pub(crate) fn is_at_limit(&self) -> bool {
+        self.stack.len() == self.max_size
+    }
+
+    #[inline(always)]
     pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<(), Trap> {
-        if self.stack.len() == self.stack.capacity() {
+        self.ensure_capacity_for(self.stack.len() + 1)?;
+        self.stack.push(call_frame);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn ensure_capacity_for(&mut self, required_len: usize) -> Result<(), Trap> {
+        if required_len <= self.stack.capacity() {
+            return Ok(());
+        }
+
+        if required_len > self.max_size || !self.dynamic {
             cold_path();
             return Err(Trap::CallStackOverflow);
         }
 
-        self.stack.push(call_frame);
+        let target_capacity = required_len.max(self.stack.capacity().max(1).saturating_mul(2)).min(self.max_size);
+        match self.stack.try_reserve(target_capacity.saturating_sub(self.stack.len())) {
+            Ok(()) => {}
+            Err(_) => {
+                cold_path();
+                return Err(Trap::CallStackOverflow);
+            }
+        }
         Ok(())
     }
 }

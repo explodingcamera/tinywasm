@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::fmt::Display;
@@ -27,7 +28,7 @@ pub enum Error {
     /// A host function returned an invalid value
     InvalidHostFnReturn {
         /// The expected type
-        expected: FuncType,
+        expected: Arc<FuncType>,
         /// The actual value
         actual: Vec<tinywasm_types::WasmValue>,
     },
@@ -128,6 +129,9 @@ pub enum Trap {
     /// Value stack overflow
     ValueStackOverflow,
 
+    /// The runtime could not allocate memory for a stack or linear memory operation.
+    OutOfMemory,
+
     /// An undefined element was encountered
     UndefinedElement {
         /// The element index
@@ -143,9 +147,9 @@ pub enum Trap {
     /// Indirect call type mismatch
     IndirectCallTypeMismatch {
         /// The expected type
-        expected: FuncType,
+        expected: Arc<FuncType>,
         /// The actual type
-        actual: FuncType,
+        actual: Arc<FuncType>,
     },
 
     /// Catch-all for other messages
@@ -164,6 +168,7 @@ impl Trap {
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
             Self::ValueStackOverflow => "value stack exhausted",
+            Self::OutOfMemory => "out of memory",
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
@@ -254,6 +259,7 @@ impl Display for Trap {
             Self::IntegerOverflow => write!(f, "integer overflow"),
             Self::CallStackOverflow => write!(f, "call stack exhausted"),
             Self::ValueStackOverflow => write!(f, "value stack exhausted"),
+            Self::OutOfMemory => write!(f, "out of memory"),
             Self::UndefinedElement { index } => write!(f, "undefined element: index={index}"),
             Self::UninitializedElement { index } => {
                 write!(f, "uninitialized element: index={index}")

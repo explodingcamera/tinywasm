@@ -245,38 +245,51 @@ impl MemoryInstance {
         })
     }
 
-    pub(crate) fn grow(&mut self, pages_delta: i64) -> Option<i64> {
+    pub(crate) fn grow(&mut self, pages_delta: i64, trap_on_oom: bool) -> Result<Option<i64>, Trap> {
         if pages_delta < 0 {
             cold_path();
             crate::log::debug!("memory.grow failed: negative delta {}", pages_delta);
-            return None;
+            return Ok(None);
         }
 
         let current_pages = self.page_count;
-        let pages_delta = usize::try_from(pages_delta).ok()?;
-        let new_pages = current_pages.checked_add(pages_delta)?;
+        let Some(pages_delta) = usize::try_from(pages_delta).ok() else {
+            return Ok(None);
+        };
+        let Some(new_pages) = current_pages.checked_add(pages_delta) else {
+            return Ok(None);
+        };
         let max_pages = self.kind.page_count_max().try_into().unwrap_or(usize::MAX);
 
         if new_pages > max_pages {
             cold_path();
             crate::log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
-            return None;
+            return Ok(None);
         }
 
-        let new_size = (new_pages as u64).checked_mul(self.kind.page_size())?;
+        let Some(new_size) = (new_pages as u64).checked_mul(self.kind.page_size()) else {
+            return Ok(None);
+        };
         if new_size > self.kind.max_size() {
             cold_path();
             crate::log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
-            return None;
+            return Ok(None);
         }
 
-        let new_size = usize::try_from(new_size).ok()?;
+        let Some(new_size) = usize::try_from(new_size).ok() else {
+            return Ok(None);
+        };
         if new_size == self.inner.len() {
-            return i64::try_from(current_pages).ok();
+            return Ok(i64::try_from(current_pages).ok());
         }
 
-        self.inner.grow_to(new_size)?;
+        if let Err(err) = self.inner.grow_to(new_size) {
+            if trap_on_oom {
+                return Err(err);
+            }
+            return Ok(None);
+        }
         self.page_count = new_pages;
-        i64::try_from(current_pages).ok()
+        Ok(i64::try_from(current_pages).ok())
     }
 }

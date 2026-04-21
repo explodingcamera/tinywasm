@@ -321,7 +321,7 @@ impl TestSuite {
                                 ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
                                 return Ok(());
                             }
-                            wast::WastExecute::Get { module: _, global: _, .. } => {
+                            wast::WastExecute::Get { .. } => {
                                 panic!("get not supported");
                             }
                             wast::WastExecute::Invoke(invoke) => invoke,

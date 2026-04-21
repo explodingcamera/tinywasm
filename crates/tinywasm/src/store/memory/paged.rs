@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::cmp::min;
+use core::hint::cold_path;
 
 use super::{LinearMemory, checked_effective_addr};
 
@@ -25,10 +25,10 @@ pub struct PagedMemory {
 }
 
 impl PagedMemory {
-    /// Creates a new sparse memory with `len` addressable bytes and the given `chunk_size`.
+    /// Tries to create a new sparse memory with `len` addressable bytes and the given `chunk_size`.
     ///
     /// Prefer this backend when grow behavior matters more than absolute read and write speed.
-    pub fn new(len: usize, chunk_size: usize) -> Self {
+    pub fn try_new(len: usize, chunk_size: usize) -> Result<Self, crate::Trap> {
         assert!(chunk_size.is_power_of_two(), "chunk_size must be a power of two");
 
         let mut memory = Self {
@@ -38,13 +38,31 @@ impl PagedMemory {
             chunk_mask: chunk_size - 1,
             chunks: Vec::new(),
         };
-        memory.grow_to(len).expect("initial length must be growable");
-        memory
+        memory.grow_to(len)?;
+        Ok(memory)
     }
 
     #[inline(always)]
-    fn chunk_mut(&mut self, chunk_idx: usize) -> &mut [u8] {
-        self.chunks[chunk_idx].get_or_insert_with(|| vec![0; self.chunk_size].into_boxed_slice()).as_mut()
+    fn allocate_chunk(&self) -> Result<Box<[u8]>, crate::Trap> {
+        let mut chunk = Vec::new();
+        match chunk.try_reserve_exact(self.chunk_size) {
+            Ok(()) => {}
+            Err(_) => {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
+        }
+        chunk.resize(self.chunk_size, 0);
+        Ok(chunk.into_boxed_slice())
+    }
+
+    #[inline(always)]
+    fn chunk_mut(&mut self, chunk_idx: usize) -> Result<&mut [u8], crate::Trap> {
+        if self.chunks[chunk_idx].is_none() {
+            self.chunks[chunk_idx] = Some(self.allocate_chunk()?);
+        }
+
+        Ok(self.chunks[chunk_idx].as_deref_mut().unwrap_or_else(|| unreachable!()))
     }
 
     #[inline(always)]
@@ -110,13 +128,27 @@ impl LinearMemory for PagedMemory {
     }
 
     #[inline(always)]
-    fn grow_to(&mut self, new_len: usize) -> Option<()> {
+    fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
         if new_len < self.len {
-            return None;
+            return Err(crate::Trap::MemoryOutOfBounds { offset: new_len, len: 0, max: self.len });
         }
-        self.chunks.resize_with(if new_len == 0 { 0 } else { new_len.div_ceil(self.chunk_size) }, || None);
+
+        let new_chunk_count = if new_len == 0 { 0 } else { new_len.div_ceil(self.chunk_size) };
+        if new_chunk_count > self.chunks.len() {
+            match self.chunks.try_reserve_exact(new_chunk_count - self.chunks.len()) {
+                Ok(()) => {}
+                Err(_) => {
+                    cold_path();
+                    return Err(crate::Trap::OutOfMemory);
+                }
+            }
+            self.chunks.resize_with(new_chunk_count, || None);
+        } else {
+            self.chunks.truncate(new_chunk_count);
+        }
+
         self.len = new_len;
-        Some(())
+        Ok(())
     }
 
     #[inline(always)]
@@ -148,7 +180,9 @@ impl LinearMemory for PagedMemory {
         let chunk_offset = addr & self.chunk_mask;
         let write_len = min(min(self.chunk_size - chunk_offset, self.len - addr), src.len());
 
-        let chunk = self.chunk_mut(chunk_idx);
+        let Ok(chunk) = self.chunk_mut(chunk_idx) else {
+            return 0;
+        };
         chunk[chunk_offset..chunk_offset + write_len].copy_from_slice(&src[..write_len]);
         write_len
     }
@@ -164,7 +198,7 @@ impl LinearMemory for PagedMemory {
             let chunk_offset = pos & self.chunk_mask;
             let copy_len = min(self.chunk_size - chunk_offset, end - pos);
 
-            let chunk = self.chunk_mut(chunk_idx);
+            let chunk = self.chunk_mut(chunk_idx).ok()?;
             chunk[chunk_offset..chunk_offset + copy_len].copy_from_slice(&src[src_offset..src_offset + copy_len]);
 
             pos += copy_len;
@@ -194,7 +228,7 @@ impl LinearMemory for PagedMemory {
                     chunk[chunk_offset..chunk_offset + fill_len].fill(0);
                 }
             } else {
-                self.chunk_mut(chunk_idx)[chunk_offset..chunk_offset + fill_len].fill(val);
+                self.chunk_mut(chunk_idx).ok()?[chunk_offset..chunk_offset + fill_len].fill(val);
             }
 
             pos = chunk_end;
@@ -321,7 +355,7 @@ impl LinearMemory for PagedMemory {
         let addr = checked_effective_addr::<1>(self.len, base, offset)?;
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
-        self.chunk_mut(chunk_idx)[chunk_offset] = byte;
+        self.chunk_mut(chunk_idx)?[chunk_offset] = byte;
         Ok(())
     }
 
@@ -331,9 +365,12 @@ impl LinearMemory for PagedMemory {
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
         if chunk_offset + 2 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)[chunk_offset..chunk_offset + 2].copy_from_slice(&bytes);
+            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 2].copy_from_slice(&bytes);
         } else {
-            self.write_all(addr, &bytes).unwrap();
+            if self.write_all(addr, &bytes).is_none() {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
         }
         Ok(())
     }
@@ -344,9 +381,12 @@ impl LinearMemory for PagedMemory {
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
         if chunk_offset + 4 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)[chunk_offset..chunk_offset + 4].copy_from_slice(&bytes);
+            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 4].copy_from_slice(&bytes);
         } else {
-            self.write_all(addr, &bytes).unwrap();
+            if self.write_all(addr, &bytes).is_none() {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
         }
         Ok(())
     }
@@ -357,9 +397,12 @@ impl LinearMemory for PagedMemory {
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
         if chunk_offset + 8 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)[chunk_offset..chunk_offset + 8].copy_from_slice(&bytes);
+            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 8].copy_from_slice(&bytes);
         } else {
-            self.write_all(addr, &bytes).unwrap();
+            if self.write_all(addr, &bytes).is_none() {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
         }
         Ok(())
     }
@@ -370,9 +413,12 @@ impl LinearMemory for PagedMemory {
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
         if chunk_offset + 16 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)[chunk_offset..chunk_offset + 16].copy_from_slice(&bytes);
+            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 16].copy_from_slice(&bytes);
         } else {
-            self.write_all(addr, &bytes).unwrap();
+            if self.write_all(addr, &bytes).is_none() {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
         }
         Ok(())
     }
@@ -384,7 +430,7 @@ mod tests {
 
     #[test]
     fn paged_memory_reads_zeroes_from_sparse_chunks() {
-        let memory = PagedMemory::new(16, 4);
+        let memory = PagedMemory::try_new(16, 4).expect("test memory should be constructible");
         let mut dst = [1; 6];
         assert_eq!(memory.read(5, &mut dst), 3);
         assert_eq!(&dst[..3], &[0; 3]);
@@ -393,7 +439,7 @@ mod tests {
 
     #[test]
     fn paged_memory_store_and_load_crosses_chunk_boundaries() {
-        let mut memory = PagedMemory::new(16, 4);
+        let mut memory = PagedMemory::try_new(16, 4).expect("test memory should be constructible");
         memory.write_all(3, &[1, 2, 3, 4, 5, 6]).unwrap();
 
         let mut dst = [0; 6];
@@ -403,7 +449,7 @@ mod tests {
 
     #[test]
     fn paged_memory_copy_within_handles_overlap() {
-        let mut memory = PagedMemory::new(16, 4);
+        let mut memory = PagedMemory::try_new(16, 4).expect("test memory should be constructible");
         memory.write_all(0, &[1, 2, 3, 4, 5, 6]).unwrap();
         memory.copy_within(2, 0, 6).unwrap();
 
@@ -414,7 +460,7 @@ mod tests {
 
     #[test]
     fn paged_memory_write_stops_at_chunk_boundary() {
-        let mut memory = PagedMemory::new(16, 4);
+        let mut memory = PagedMemory::try_new(16, 4).expect("test memory should be constructible");
         assert_eq!(memory.write(3, &[1, 2, 3, 4]), 1);
 
         let mut dst = [0; 4];

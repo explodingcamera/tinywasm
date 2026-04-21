@@ -35,7 +35,7 @@ pub trait LinearMemory {
     ///
     /// The runtime only calls this with lengths that are exact multiples of the Wasm page size for
     /// the owning memory.
-    fn grow_to(&mut self, new_len: usize) -> Option<()>;
+    fn grow_to(&mut self, new_len: usize) -> core::result::Result<(), crate::Trap>;
 
     /// Reads up to `dst.len()` bytes starting at `addr` and returns the number of bytes read.
     ///
@@ -307,9 +307,11 @@ impl MemoryBackend {
 
     pub(crate) fn create(&self, ty: MemoryType, initial_len: usize) -> Result<MemoryStorage> {
         let storage = match &self.kind {
-            MemoryBackendKind::Vec => Box::new(VecMemory::new(initial_len)) as Box<dyn LinearMemory>,
+            MemoryBackendKind::Vec => {
+                Box::new(VecMemory::try_new(initial_len).map_err(Error::Trap)?) as Box<dyn LinearMemory>
+            }
             MemoryBackendKind::Paged { chunk_size } => {
-                Box::new(PagedMemory::new(initial_len, *chunk_size)) as Box<dyn LinearMemory>
+                Box::new(PagedMemory::try_new(initial_len, *chunk_size).map_err(Error::Trap)?) as Box<dyn LinearMemory>
             }
             MemoryBackendKind::Custom(factory) => factory(ty)?,
         };
@@ -512,7 +514,7 @@ mod tests {
             let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
             let mut memory = create_test_memory(kind, backend);
             let original_pages = memory.page_count;
-            assert_eq!(memory.grow(1), Some(original_pages as i64));
+            assert_eq!(memory.grow(1, false).unwrap(), Some(original_pages as i64));
             assert_eq!(memory.page_count, original_pages + 1);
         }
     }
@@ -522,7 +524,7 @@ mod tests {
         for backend in test_backends() {
             let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
             let mut memory = create_test_memory(kind, backend);
-            assert!(memory.grow(memory.kind.max_size() as i64 + 1).is_none());
+            assert_eq!(memory.grow(memory.kind.max_size() as i64 + 1, false).unwrap(), None);
         }
     }
 
@@ -531,8 +533,8 @@ mod tests {
         for backend in test_backends() {
             let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
             let mut memory = create_test_memory(kind, backend);
-            assert_eq!(memory.grow(1), Some(1));
-            assert_eq!(memory.grow(1), None);
+            assert_eq!(memory.grow(1, false).unwrap(), Some(1));
+            assert_eq!(memory.grow(1, false).unwrap(), None);
         }
     }
 
@@ -542,7 +544,7 @@ mod tests {
             let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
             let mut memory = create_test_memory(kind, backend);
             let original_pages = memory.page_count;
-            assert_eq!(memory.grow(-1), None);
+            assert_eq!(memory.grow(-1, false).unwrap(), None);
             assert_eq!(memory.page_count, original_pages);
         }
     }
@@ -562,7 +564,7 @@ mod tests {
         for backend in test_backends() {
             let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), Some(1));
             let mut memory = create_test_memory(kind, backend);
-            assert_eq!(memory.grow(1), Some(1));
+            assert_eq!(memory.grow(1, false).unwrap(), Some(1));
             let data = [1, 2];
             assert!(memory.inner.write_all(0, &data).is_some());
             assert_eq!(memory.inner.read_vec(0, data.len()).unwrap(), data);

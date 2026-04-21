@@ -52,10 +52,8 @@ impl ModuleReader {
 
                 debug!("Found type section");
                 validator.type_section(&reader)?;
-                self.func_types = reader
-                    .into_iter()
-                    .map(|t| conversion::convert_module_type(t?).map(Arc::new))
-                    .collect::<Result<Vec<Arc<FuncType>>>>()?;
+                self.func_types =
+                    reader.into_iter().map(|t| conversion::convert_module_type(t?)).collect::<Result<Vec<_>>>()?;
             }
 
             Payload::GlobalSection(reader) => {

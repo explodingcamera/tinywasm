@@ -80,7 +80,7 @@ pub(crate) struct ModuleInstanceInner {
 
 impl ModuleInstanceInner {
     #[inline]
-    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &FuncType {
+    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &Arc<FuncType> {
         match self.types.get(addr as usize) {
             Some(ty) => ty,
             None => unreachable!("invalid function address: {addr}"),
@@ -385,7 +385,7 @@ impl ModuleInstance {
         func_name: &str,
     ) -> Result<()> {
         let expected = FuncType::new(&P::wasm_types(), &R::wasm_types());
-        if func.ty != expected {
+        if *func.ty != expected {
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
                 "function type mismatch for {func_name}: expected {expected:?}, actual {:?}",

@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use core::hint::cold_path;
 
 use tinywasm_types::MemoryType;
 
@@ -21,7 +22,7 @@ pub struct LazyLinearMemory {
 
 impl LazyLinearMemory {
     /// Creates a lazy memory for `ty` using `backend` for the eventual materialized storage.
-    pub fn new(ty: MemoryType, backend: MemoryBackend) -> Result<Self> {
+    pub fn try_new(ty: MemoryType, backend: MemoryBackend) -> Result<Self> {
         let initial_len = usize::try_from(ty.initial_size())
             .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
         Ok(Self::new_with_initial_len(ty, initial_len, backend))
@@ -37,10 +38,25 @@ impl LazyLinearMemory {
         f(inner.as_deref().expect("lazy memory should be materialized"))
     }
 
+    fn try_with_inner<R>(&self, f: impl FnOnce(&dyn LinearMemory) -> R) -> core::result::Result<R, crate::Trap> {
+        self.try_ensure_materialized()?;
+        let inner = self.inner.borrow();
+        Ok(f(inner.as_deref().expect("lazy memory should be materialized")))
+    }
+
     fn with_inner_mut<R>(&self, f: impl FnOnce(&mut dyn LinearMemory) -> R) -> R {
         self.ensure_materialized();
         let mut inner = self.inner.borrow_mut();
         f(inner.as_deref_mut().expect("lazy memory should be materialized"))
+    }
+
+    fn try_with_inner_mut<R>(
+        &self,
+        f: impl FnOnce(&mut dyn LinearMemory) -> R,
+    ) -> core::result::Result<R, crate::Trap> {
+        self.try_ensure_materialized()?;
+        let mut inner = self.inner.borrow_mut();
+        Ok(f(inner.as_deref_mut().expect("lazy memory should be materialized")))
     }
 
     fn ensure_materialized(&self) {
@@ -48,9 +64,25 @@ impl LazyLinearMemory {
             return;
         }
 
-        // Lazy materialization happens from trait methods that cannot surface backend creation errors.
         let storage = self.backend.create(self.ty, self.initial_len).expect("lazy memory materialization failed");
         *self.inner.borrow_mut() = Some(storage.0);
+    }
+
+    fn try_ensure_materialized(&self) -> core::result::Result<(), crate::Trap> {
+        if self.inner.borrow().is_some() {
+            return Ok(());
+        }
+
+        let storage = match self.backend.create(self.ty, self.initial_len) {
+            Ok(storage) => storage,
+            Err(Error::Trap(trap)) => {
+                cold_path();
+                return Err(trap);
+            }
+            Err(err) => panic!("lazy memory materialization failed: {err}"),
+        };
+        *self.inner.borrow_mut() = Some(storage.0);
+        Ok(())
     }
 }
 
@@ -59,8 +91,8 @@ impl LinearMemory for LazyLinearMemory {
         self.with_inner(|inner| inner.len())
     }
 
-    fn grow_to(&mut self, new_len: usize) -> Option<()> {
-        self.with_inner_mut(|inner| inner.grow_to(new_len))
+    fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
+        self.try_with_inner_mut(|inner| inner.grow_to(new_len))?
     }
 
     fn read(&self, addr: usize, dst: &mut [u8]) -> usize {
@@ -92,43 +124,43 @@ impl LinearMemory for LazyLinearMemory {
     }
 
     fn read_8(&self, base: u64, offset: u64) -> core::result::Result<u8, crate::Trap> {
-        self.with_inner(|inner| inner.read_8(base, offset))
+        self.try_with_inner(|inner| inner.read_8(base, offset))?
     }
 
     fn read_16(&self, base: u64, offset: u64) -> core::result::Result<[u8; 2], crate::Trap> {
-        self.with_inner(|inner| inner.read_16(base, offset))
+        self.try_with_inner(|inner| inner.read_16(base, offset))?
     }
 
     fn read_32(&self, base: u64, offset: u64) -> core::result::Result<[u8; 4], crate::Trap> {
-        self.with_inner(|inner| inner.read_32(base, offset))
+        self.try_with_inner(|inner| inner.read_32(base, offset))?
     }
 
     fn read_64(&self, base: u64, offset: u64) -> core::result::Result<[u8; 8], crate::Trap> {
-        self.with_inner(|inner| inner.read_64(base, offset))
+        self.try_with_inner(|inner| inner.read_64(base, offset))?
     }
 
     fn read_128(&self, base: u64, offset: u64) -> core::result::Result<[u8; 16], crate::Trap> {
-        self.with_inner(|inner| inner.read_128(base, offset))
+        self.try_with_inner(|inner| inner.read_128(base, offset))?
     }
 
     fn write_8(&mut self, base: u64, offset: u64, byte: u8) -> core::result::Result<(), crate::Trap> {
-        self.with_inner_mut(|inner| inner.write_8(base, offset, byte))
+        self.try_with_inner_mut(|inner| inner.write_8(base, offset, byte))?
     }
 
     fn write_16(&mut self, base: u64, offset: u64, bytes: [u8; 2]) -> core::result::Result<(), crate::Trap> {
-        self.with_inner_mut(|inner| inner.write_16(base, offset, bytes))
+        self.try_with_inner_mut(|inner| inner.write_16(base, offset, bytes))?
     }
 
     fn write_32(&mut self, base: u64, offset: u64, bytes: [u8; 4]) -> core::result::Result<(), crate::Trap> {
-        self.with_inner_mut(|inner| inner.write_32(base, offset, bytes))
+        self.try_with_inner_mut(|inner| inner.write_32(base, offset, bytes))?
     }
 
     fn write_64(&mut self, base: u64, offset: u64, bytes: [u8; 8]) -> core::result::Result<(), crate::Trap> {
-        self.with_inner_mut(|inner| inner.write_64(base, offset, bytes))
+        self.try_with_inner_mut(|inner| inner.write_64(base, offset, bytes))?
     }
 
     fn write_128(&mut self, base: u64, offset: u64, bytes: [u8; 16]) -> core::result::Result<(), crate::Trap> {
-        self.with_inner_mut(|inner| inner.write_128(base, offset, bytes))
+        self.try_with_inner_mut(|inner| inner.write_128(base, offset, bytes))?
     }
 }
 

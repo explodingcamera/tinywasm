@@ -792,6 +792,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         if IS_RETURN_CALL {
             self.store.value_stack.truncate_keep_counts(self.cf.locals_base, wasm_func.func.params);
+        } else if self.store.call_stack.is_at_limit() {
+            cold_path();
+            return Err(Trap::CallStackOverflow);
         }
 
         let locals_base = match self.store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals) {
@@ -800,9 +803,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 cold_path();
                 if IS_RETURN_CALL {
                     return Err(err);
-                } else {
-                    return Err(Trap::CallStackOverflow);
                 }
+                return Err(Trap::CallStackOverflow);
             }
         };
 
@@ -849,6 +851,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         if IS_RETURN_CALL {
             self.store.value_stack.truncate_keep_counts(self.cf.locals_base, params);
+        } else if self.store.call_stack.is_at_limit() {
+            cold_path();
+            return Err(Trap::CallStackOverflow);
         }
 
         let locals_base = match self.store.value_stack.enter_locals(&params, &locals) {
@@ -857,9 +862,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 cold_path();
                 if IS_RETURN_CALL {
                     return Err(err);
-                } else {
-                    return Err(Trap::CallStackOverflow);
                 }
+                return Err(Trap::CallStackOverflow);
             }
         };
 
@@ -1028,7 +1032,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => i64::from(self.store.value_stack.pop::<i32>()),
         };
 
-        let size = mem.grow(pages_delta).unwrap_or(-1);
+        let size = mem.grow(pages_delta, self.store.engine.config().trap_on_oom())?.unwrap_or(-1);
         match is_64bit {
             true => self.store.value_stack.push::<i64>(size)?,
             false => self.store.value_stack.push::<i32>(size as i32)?,

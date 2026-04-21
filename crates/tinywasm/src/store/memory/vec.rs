@@ -1,5 +1,5 @@
-use alloc::vec;
 use alloc::vec::Vec;
+use core::hint::cold_path;
 
 use super::{LinearMemory, checked_effective_addr};
 
@@ -16,11 +16,20 @@ pub struct VecMemory {
 }
 
 impl VecMemory {
-    /// Creates a new memory with `len` zero-initialized bytes.
+    /// Tries to create a new memory with `len` zero-initialized bytes.
     ///
     /// Prefer this backend when contiguous access is more important than grow performance.
-    pub fn new(len: usize) -> Self {
-        Self { data: vec![0; len] }
+    pub fn try_new(len: usize) -> Result<Self, crate::Trap> {
+        let mut data = Vec::new();
+        match data.try_reserve_exact(len) {
+            Ok(()) => {}
+            Err(_) => {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
+        }
+        data.resize(len, 0);
+        Ok(Self { data })
     }
 }
 
@@ -31,12 +40,19 @@ impl LinearMemory for VecMemory {
     }
 
     #[inline(always)]
-    fn grow_to(&mut self, new_len: usize) -> Option<()> {
+    fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
         if new_len < self.data.len() {
-            return None;
+            return Err(crate::Trap::MemoryOutOfBounds { offset: new_len, len: 0, max: self.data.len() });
+        }
+        match self.data.try_reserve_exact(new_len.saturating_sub(self.data.len())) {
+            Ok(()) => {}
+            Err(_) => {
+                cold_path();
+                return Err(crate::Trap::OutOfMemory);
+            }
         }
         self.data.resize(new_len, 0);
-        Some(())
+        Ok(())
     }
 
     #[inline(always)]

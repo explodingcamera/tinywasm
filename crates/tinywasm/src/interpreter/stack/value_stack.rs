@@ -3,7 +3,11 @@ use core::hint::cold_path;
 use tinywasm_types::{ExternRef, FuncRef, LocalAddr, ValueCounts, WasmType, WasmValue};
 
 use super::{CallFrame, StackBase};
-use crate::{Result, Trap, engine::Config, interpreter::*};
+use crate::{
+    Result, Trap,
+    engine::{Config, StackConfig},
+    interpreter::*,
+};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ValueStack {
@@ -15,11 +19,13 @@ pub(crate) struct ValueStack {
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct Stack<T: Copy + Default> {
     data: Vec<T>,
+    max_size: usize,
+    dynamic: bool,
 }
 
 impl<T: Copy + Default> Stack<T> {
-    pub(crate) fn new(size: usize) -> Self {
-        Self { data: Vec::with_capacity(size) }
+    pub(crate) fn new(config: StackConfig) -> Self {
+        Self { data: Vec::with_capacity(config.initial_size), max_size: config.max_size, dynamic: config.dynamic }
     }
 
     pub(crate) fn clear(&mut self) {
@@ -32,12 +38,13 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
-        if self.data.len() == self.data.capacity() {
-            cold_path();
-            return Err(Trap::ValueStackOverflow);
-        }
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.data.truncate(len);
+    }
 
+    #[inline(always)]
+    pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+        self.ensure_capacity_for(self.data.len() + 1)?;
         self.data.push(value);
         Ok(())
     }
@@ -103,13 +110,32 @@ impl<T: Copy + Default> Stack<T> {
 
         let start = self.data.len() - param_count;
         let end = start + local_count;
-        if end > self.data.capacity() {
+        self.ensure_capacity_for(end)?;
+
+        self.data.resize(end, T::default());
+        Ok(start as u32)
+    }
+
+    #[inline(always)]
+    fn ensure_capacity_for(&mut self, required_len: usize) -> Result<(), Trap> {
+        if required_len <= self.data.capacity() {
+            return Ok(());
+        }
+
+        if required_len > self.max_size || !self.dynamic {
             cold_path();
             return Err(Trap::ValueStackOverflow);
         }
 
-        self.data.resize(end, T::default());
-        Ok(start as u32)
+        let target_capacity = required_len.max(self.data.capacity().max(1).saturating_mul(2)).min(self.max_size);
+        match self.data.try_reserve(target_capacity.saturating_sub(self.data.len())) {
+            Ok(()) => {}
+            Err(_) => {
+                cold_path();
+                return Err(Trap::ValueStackOverflow);
+            }
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -141,9 +167,9 @@ impl<T: Copy + Default> Stack<T> {
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
-            stack_32: Stack::new(config.stack_32_size),
-            stack_64: Stack::new(config.stack_64_size),
-            stack_128: Stack::new(config.stack_128_size),
+            stack_32: Stack::new(config.value_stack_32),
+            stack_64: Stack::new(config.value_stack_64),
+            stack_128: Stack::new(config.value_stack_128),
         }
     }
 
@@ -205,9 +231,25 @@ impl ValueStack {
     }
 
     pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
+        let len32 = self.stack_32.len();
+        let len64 = self.stack_64.len();
+
         let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
-        let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
-        let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
+        let locals_base64 = match self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize) {
+            Ok(base) => base,
+            Err(err) => {
+                self.stack_32.truncate(len32);
+                return Err(err);
+            }
+        };
+        let locals_base128 = match self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize) {
+            Ok(base) => base,
+            Err(err) => {
+                self.stack_32.truncate(len32);
+                self.stack_64.truncate(len64);
+                return Err(err);
+            }
+        };
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 

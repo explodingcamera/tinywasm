@@ -1,8 +1,7 @@
 use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
-use alloc::rc::Rc;
-use alloc::{boxed::Box, format, string::ToString, vec, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::ToString, sync::Arc, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
 
 impl Function {
@@ -94,7 +93,7 @@ pub struct Function {
     pub(crate) item: StoreItem,
     pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) addr: u32,
-    pub(crate) ty: FuncType,
+    pub(crate) ty: Arc<FuncType>,
 }
 
 /// A typed function handle
@@ -107,13 +106,13 @@ pub struct FunctionTyped<P, R> {
 
 /// A host function
 pub struct HostFunction {
-    pub(crate) ty: tinywasm_types::FuncType,
+    pub(crate) ty: Arc<tinywasm_types::FuncType>,
     pub(crate) func: HostFuncInner,
 }
 
 impl HostFunction {
     /// Get the function's type
-    pub fn ty(&self) -> &tinywasm_types::FuncType {
+    pub fn ty(&self) -> &Arc<tinywasm_types::FuncType> {
         &self.ty
     }
 
@@ -125,9 +124,10 @@ impl HostFunction {
     /// Create a new untyped host function import.
     pub fn from_untyped(
         store: &mut Store,
-        ty: &tinywasm_types::FuncType,
+        ty: &FuncType,
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Function {
+        let ty = Arc::new(ty.clone());
         let ty_inner = ty.clone();
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
             let ty = ty_inner.clone();
@@ -163,7 +163,7 @@ impl HostFunction {
             Ok(result.into_wasm_value_tuple())
         };
 
-        let ty = tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types());
+        let ty = Arc::new(tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types()));
         let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
         Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
     }

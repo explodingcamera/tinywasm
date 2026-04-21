@@ -1,5 +1,7 @@
+extern crate alloc;
+
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 #[cfg(feature = "std")]
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -15,7 +17,7 @@ fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
-        Ok(PagedMemory::new(ty.initial_size() as usize, 16))
+        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
     });
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
@@ -40,7 +42,7 @@ fn instantiate_exported_memory_with_counting_backend(
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
-        Ok(PagedMemory::new(ty.initial_size() as usize, 16))
+        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
     });
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
@@ -80,7 +82,7 @@ fn custom_backend_factory_is_used_for_host_memories() -> Result<()> {
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
         page_size_seen.store(ty.page_size() as usize, Ordering::Relaxed);
-        Ok(PagedMemory::new(ty.initial_size() as usize, 16))
+        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
     });
 
     let engine = Engine::new(Config::new().with_memory_backend(backend));

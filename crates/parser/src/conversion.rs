@@ -1,3 +1,5 @@
+use alloc::sync::Arc;
+
 use crate::{Result, module::Code, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
@@ -201,7 +203,7 @@ pub(crate) fn convert_module_code(
     Ok(((body, data, local_counts), allocations))
 }
 
-pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {
+pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncType>> {
     let mut types = ty.types();
     if types.len() != 1 {
         return Err(crate::ParseError::UnsupportedOperator(
@@ -212,7 +214,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> 
     let ty = types.next().unwrap().unwrap_func();
     let params: Vec<_> = ty.params().iter().map(convert_valtype).collect();
     let results: Vec<_> = ty.results().iter().map(convert_valtype).collect();
-    Ok(FuncType::new(&params, &results))
+    Ok(FuncType::new(&params, &results).into())
 }
 
 pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> WasmType {

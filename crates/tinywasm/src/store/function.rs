@@ -18,7 +18,7 @@ pub(crate) enum FunctionInstance {
 
 impl FunctionInstance {
     #[inline]
-    pub(crate) fn ty(&self) -> &FuncType {
+    pub(crate) fn ty(&self) -> &Arc<FuncType> {
         match self {
             Self::Host(f) => &f.ty,
             Self::Wasm(f) => f.ty(),
@@ -41,7 +41,7 @@ pub(crate) struct WasmFunctionInstance {
 
 impl WasmFunctionInstance {
     #[inline]
-    pub(crate) fn ty(&self) -> &FuncType {
+    pub(crate) fn ty(&self) -> &Arc<FuncType> {
         &self.func.ty
     }
 }
