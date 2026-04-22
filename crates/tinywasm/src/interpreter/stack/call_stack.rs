@@ -2,7 +2,7 @@ use crate::{Result, Trap};
 use core::hint::cold_path;
 
 use alloc::vec::Vec;
-use tinywasm_types::{FuncAddr, ModuleInstanceAddr, ValueCounts};
+use tinywasm_types::{FuncAddr, ValueCounts};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallStack {
@@ -27,13 +27,9 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn is_at_limit(&self) -> bool {
-        self.stack.len() == self.max_size
-    }
-
-    #[inline(always)]
-    pub(crate) fn push(&mut self, call_frame: CallFrame) -> Result<(), Trap> {
+    pub(crate) fn push(&mut self, mut call_frame: CallFrame) -> Result<(), Trap> {
         self.ensure_capacity_for(self.stack.len() + 1)?;
+        call_frame.incr_instr_ptr();
         self.stack.push(call_frame);
         Ok(())
     }
@@ -50,13 +46,10 @@ impl CallStack {
         }
 
         let target_capacity = required_len.max(self.stack.capacity().max(1).saturating_mul(2)).min(self.max_size);
-        match self.stack.try_reserve(target_capacity.saturating_sub(self.stack.len())) {
-            Ok(()) => {}
-            Err(_) => {
-                cold_path();
-                return Err(Trap::CallStackOverflow);
-            }
-        }
+        let Ok(()) = self.stack.try_reserve(target_capacity.saturating_sub(self.stack.len())) else {
+            cold_path();
+            return Err(Trap::CallStackOverflow);
+        };
         Ok(())
     }
 }
@@ -65,7 +58,6 @@ impl CallStack {
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: u32,
-    pub(crate) module_addr: ModuleInstanceAddr,
     pub(crate) func_addr: FuncAddr,
     pub(crate) locals_base: StackBase,
     pub(crate) stack_offset: ValueCounts,
@@ -80,13 +72,8 @@ pub(crate) struct StackBase {
 }
 
 impl CallFrame {
-    pub(crate) fn new(
-        func_addr: FuncAddr,
-        module_addr: ModuleInstanceAddr,
-        locals_base: StackBase,
-        stack_offset: ValueCounts,
-    ) -> Self {
-        Self { instr_ptr: 0, func_addr, module_addr, locals_base, stack_offset }
+    pub(crate) fn new(func_addr: FuncAddr, locals_base: StackBase, stack_offset: ValueCounts) -> Self {
+        Self { instr_ptr: 0, func_addr, locals_base, stack_offset }
     }
 
     #[inline]

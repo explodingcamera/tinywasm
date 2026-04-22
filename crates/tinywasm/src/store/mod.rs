@@ -1,10 +1,9 @@
-use alloc::rc::Rc;
 use alloc::sync::Arc;
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use core::hint::cold_path;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
-use crate::instance::ModuleInstanceInner;
 use crate::interpreter::stack::{CallStack, ValueStack};
 use crate::interpreter::{TinyWasmValue, ValueRef};
 use crate::{Engine, Error, ModuleInstance, Result, Trap};
@@ -34,7 +33,7 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
     id: usize,
-    module_instances: Vec<Rc<ModuleInstanceInner>>,
+    module_instances: Vec<ModuleInstance>,
 
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
@@ -71,14 +70,17 @@ impl Store {
 
     /// Get a module instance by the internal id
     pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<ModuleInstance> {
-        Some(ModuleInstance(self.module_instances.get(addr as usize)?.clone()))
+        self.module_instances.get(addr as usize).cloned()
     }
 
     #[inline]
-    pub(crate) fn get_module_instance_raw(&self, addr: ModuleInstanceAddr) -> &Rc<ModuleInstanceInner> {
+    pub(crate) fn get_module_instance_internal(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
         match self.module_instances.get(addr as usize) {
-            Some(instance) => instance,
-            None => unreachable!("module instance {addr} not found. This should be unreachable"),
+            Some(instance) => instance.clone(),
+            None => {
+                cold_path();
+                unreachable!("module instance {addr} not found. This should be unreachable")
+            }
         }
     }
 }
@@ -114,20 +116,21 @@ impl State {
     pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
         match self.funcs.get(addr as usize) {
             Some(func) => func,
-            None => unreachable!("function {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("function {addr} not found. This should be unreachable")
+            }
         }
     }
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
-    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &Arc<WasmFunction> {
+    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
         match self.funcs.get(addr as usize) {
-            Some(func) => match func {
-                FunctionInstance::Wasm(wasm_func) => &wasm_func.func,
-                FunctionInstance::Host(_) => unreachable!(
-                    "expected a wasm function at address {addr}, but found a host function. This should be unreachable"
-                ),
-            },
-            None => unreachable!("function {addr} not found. This should be unreachable"),
+            Some(FunctionInstance::Wasm(wasm_func)) => wasm_func,
+            _ => {
+                cold_path();
+                unreachable!("function {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -135,7 +138,10 @@ impl State {
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
         match self.memories.get(addr as usize) {
             Some(mem) => mem,
-            None => unreachable!("memory {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("memory {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -143,7 +149,10 @@ impl State {
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
         match self.memories.get_mut(addr as usize) {
             Some(mem) => mem,
-            None => unreachable!("memory {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("memory {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -151,7 +160,10 @@ impl State {
     pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
         match self.memories.get_disjoint_mut([addr as usize, addr2 as usize]) {
             Ok([mem_a, mem_b]) => (mem_a, mem_b),
-            Err(_) => unreachable!("memory {addr} or {addr2} not found. This should be unreachable"),
+            Err(_) => {
+                cold_path();
+                unreachable!("memory {addr} or {addr2} not found. This should be unreachable")
+            }
         }
     }
 
@@ -159,7 +171,10 @@ impl State {
     pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
         match self.tables.get(addr as usize) {
             Some(table) => table,
-            None => unreachable!("table {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("table {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -167,7 +182,10 @@ impl State {
     pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
         match self.tables.get_mut(addr as usize) {
             Some(table) => table,
-            None => unreachable!("table {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("table {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -179,7 +197,10 @@ impl State {
     ) -> (&mut TableInstance, &mut TableInstance) {
         match self.tables.get_disjoint_mut([addr as usize, addr2 as usize]) {
             Ok([table_a, table_b]) => (table_a, table_b),
-            Err(_) => unreachable!("table {addr} or {addr2} not found. This should be unreachable"),
+            Err(_) => {
+                cold_path();
+                unreachable!("table {addr} or {addr2} not found. This should be unreachable")
+            }
         }
     }
 
@@ -187,7 +208,10 @@ impl State {
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
         match self.data.get_mut(addr as usize) {
             Some(data) => data,
-            None => unreachable!("data {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("data {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -195,7 +219,10 @@ impl State {
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
         match self.elements.get_mut(addr as usize) {
             Some(elem) => elem,
-            None => unreachable!("element {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("element {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -203,7 +230,10 @@ impl State {
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
         match self.globals.get(addr as usize) {
             Some(global) => global,
-            None => unreachable!("global {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("global {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -211,7 +241,10 @@ impl State {
     pub(crate) fn get_global_mut(&mut self, addr: GlobalAddr) -> &mut GlobalInstance {
         match self.globals.get_mut(addr as usize) {
             Some(global) => global,
-            None => unreachable!("global {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("global {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -219,7 +252,10 @@ impl State {
     pub(crate) fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
         match self.globals.get(addr as usize) {
             Some(global) => global.value.get(),
-            None => unreachable!("global {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("global {addr} not found. This should be unreachable")
+            }
         }
     }
 
@@ -227,7 +263,10 @@ impl State {
     pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) {
         match self.globals.get_mut(addr as usize) {
             Some(global) => global.value.set(value),
-            None => unreachable!("global {addr} not found. This should be unreachable"),
+            None => {
+                cold_path();
+                unreachable!("global {addr} not found. This should be unreachable")
+            }
         }
     }
 }
@@ -242,8 +281,8 @@ impl Store {
         self.module_instances.len() as ModuleInstanceAddr
     }
 
-    pub(crate) fn add_instance(&mut self, instance: Rc<ModuleInstanceInner>) {
-        assert!(instance.idx == self.module_instances.len() as ModuleInstanceAddr);
+    pub(crate) fn add_instance(&mut self, instance: ModuleInstance) {
+        debug_assert!(instance.idx() == self.module_instances.len() as ModuleInstanceAddr);
         self.module_instances.push(instance);
     }
 
@@ -263,78 +302,83 @@ impl Store {
 // Linking related functions
 impl Store {
     /// Add functions to the store, returning their addresses in the store
-    pub(crate) fn init_funcs(&mut self, funcs: &[Arc<WasmFunction>], idx: ModuleInstanceAddr) -> Vec<FuncAddr> {
-        let func_count = self.state.funcs.len();
-        let mut func_addrs = Vec::with_capacity(func_count);
-        for (i, func) in funcs.iter().enumerate() {
-            self.state.funcs.push(FunctionInstance::new_wasm(func.clone(), idx));
-            func_addrs.push((i + func_count) as FuncAddr);
-        }
-        func_addrs
+    pub(crate) fn init_funcs(
+        &mut self,
+        funcs: &[Arc<WasmFunction>],
+        idx: ModuleInstanceAddr,
+    ) -> impl ExactSizeIterator<Item = FuncAddr> {
+        let start = self.state.funcs.len() as FuncAddr;
+        self.state.funcs.extend(funcs.iter().map(|func| FunctionInstance::new_wasm(func.clone(), idx)));
+        start..start + funcs.len() as FuncAddr
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn init_tables(&mut self, tables: &[TableType], _idx: ModuleInstanceAddr) -> Vec<TableAddr> {
-        let table_count = self.state.tables.len();
-        let mut table_addrs = Vec::with_capacity(table_count);
-        for (i, table) in tables.iter().enumerate() {
-            self.state.tables.push(TableInstance::new(table.clone()));
-            table_addrs.push((i + table_count) as TableAddr);
-        }
-        table_addrs
+    pub(crate) fn init_tables(&mut self, tables: &[TableType]) -> impl ExactSizeIterator<Item = TableAddr> {
+        let start = self.state.tables.len() as TableAddr;
+        self.state.tables.extend(tables.iter().map(|table| TableInstance::new(table.clone())));
+        start..start + tables.len() as TableAddr
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_memories(&mut self, memories: &[MemoryType], _idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
-        let mem_count = self.state.memories.len();
-        let mut mem_addrs = Vec::with_capacity(mem_count);
-        for (i, mem) in memories.iter().enumerate() {
-            self.state.memories.push(MemoryInstance::new(*mem, &self.engine.config().memory_backend)?);
-            mem_addrs.push((i + mem_count) as MemAddr);
+    pub(crate) fn init_memories(&mut self, memories: &[MemoryType]) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
+        let start = self.state.memories.len() as MemAddr;
+        self.state.memories.reserve_exact(memories.len());
+        for &mem in memories {
+            self.state.memories.push(MemoryInstance::new(mem, &self.engine.config().memory_backend)?);
         }
-        Ok(mem_addrs)
+        Ok(start..start + memories.len() as MemAddr)
     }
 
     pub(crate) fn init_lazy_memories(
         &mut self,
         memories: &[MemoryType],
-        _idx: ModuleInstanceAddr,
-    ) -> Result<Vec<MemAddr>> {
-        let mem_count = self.state.memories.len();
-        let mut mem_addrs = Vec::with_capacity(mem_count);
-        for (i, mem) in memories.iter().enumerate() {
-            self.state.memories.push(MemoryInstance::new_lazy(*mem, &self.engine.config().memory_backend)?);
-            mem_addrs.push((i + mem_count) as MemAddr);
+    ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
+        let start = self.state.memories.len() as MemAddr;
+        self.state.memories.reserve_exact(memories.len());
+        for &mem in memories {
+            self.state.memories.push(MemoryInstance::new_lazy(mem, &self.engine.config().memory_backend)?);
         }
-        Ok(mem_addrs)
+        Ok(start..start + memories.len() as MemAddr)
     }
 
     /// Add globals to the store, returning their addresses in the store
     pub(crate) fn init_globals(
         &mut self,
-        mut imported_globals: Vec<GlobalAddr>,
+        out: &mut Vec<Addr>,
         new_globals: &[Global],
         func_addrs: &[FuncAddr],
-        _idx: ModuleInstanceAddr,
-    ) -> Result<Vec<Addr>> {
-        let global_count = self.state.globals.len();
-        imported_globals.reserve_exact(new_globals.len());
-        let mut global_addrs = imported_globals;
+    ) -> Result<()> {
+        let start = self.state.globals.len() as Addr;
+        out.reserve_exact(new_globals.len());
+        self.state.globals.reserve_exact(new_globals.len());
 
         for (i, global) in new_globals.iter().enumerate() {
-            let value = self.eval_const(&global.init, &global_addrs, func_addrs)?;
+            let value = match self.eval_const(&global.init, out, func_addrs) {
+                Ok(val) => val,
+                Err(e) => {
+                    cold_path();
+                    return Err(e);
+                }
+            };
+
             self.state.globals.push(GlobalInstance::new(global.ty, value));
-            global_addrs.push((i + global_count) as Addr);
+            out.push(start + i as Addr);
         }
 
-        Ok(global_addrs)
+        Ok(())
     }
 
     fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
         let res = match item {
-            ElementItem::Func(addr) => Some(funcs.get(*addr as usize).copied().ok_or_else(|| {
-                Error::Other(format!("function {addr} not found. This should have been caught by the validator"))
-            })?),
+            ElementItem::Func(addr) => match funcs.get(*addr as usize) {
+                Some(func_addr) => Some(*func_addr),
+                None => {
+                    cold_path();
+                    return Err(Error::Other(format!(
+                        "function {addr} not found. This should have been caught by the validator"
+                    )));
+                }
+            },
             ElementItem::Expr(expr) => self.eval_ref_const(expr, globals, funcs)?,
         };
 
@@ -349,7 +393,6 @@ impl Store {
         func_addrs: &[FuncAddr],
         global_addrs: &[Addr],
         elements: &[Element],
-        _idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.state.elements.len();
         let mut elem_addrs = Vec::with_capacity(elem_count);
@@ -408,7 +451,6 @@ impl Store {
         global_addrs: &[Addr],
         func_addrs: &[FuncAddr],
         data: &[Data],
-        _idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.state.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
@@ -479,21 +521,31 @@ impl Store {
         use tinywasm_types::ConstInstruction::*;
 
         let resolve_global = |idx: u32| -> Result<TinyWasmValue> {
-            let addr = module_global_addrs.get(idx as usize).ok_or_else(|| {
-                Error::Other(format!("global {idx} not found. This should have been caught by the validator"))
-            })?;
-            let global = self
-                .state
-                .globals
-                .get(*addr as usize)
-                .ok_or_else(|| Error::Other(format!("global {addr} not found")))?;
+            let Some(addr) = module_global_addrs.get(idx as usize) else {
+                cold_path();
+                return Err(Error::Other(format!(
+                    "global {idx} not found. This should have been caught by the validator"
+                )));
+            };
+
+            let Some(global) = self.state.globals.get(*addr as usize) else {
+                cold_path();
+                return Err(Error::Other(format!("global {addr} not found")));
+            };
+
             Ok(global.value.get())
         };
 
         let resolve_func = |idx: u32| -> Result<u32> {
-            module_func_addrs.get(idx as usize).copied().ok_or_else(|| {
-                Error::Other(format!("function {idx} not found. This should have been caught by the validator"))
-            })
+            match module_func_addrs.get(idx as usize).copied() {
+                Some(func_addr) => Ok(func_addr),
+                None => {
+                    cold_path();
+                    Err(Error::Other(format!(
+                        "function {idx} not found. This should have been caught by the validator"
+                    )))
+                }
+            }
         };
 
         if const_instrs.len() == 1 {
@@ -507,8 +559,12 @@ impl Store {
                 RefFunc(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
                 RefExtern(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
                 RefFunc(Some(idx)) => TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))),
-                _ => return Err(Error::Other("unsupported const instruction".to_string())),
+                _ => {
+                    cold_path();
+                    return Err(Error::Other("unsupported const instruction".to_string()));
+                }
             };
+
             return Ok(val);
         }
 
@@ -526,12 +582,14 @@ impl Store {
                     stack.push(TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))))
                 }
                 RefExtern(Some(_)) => {
+                    cold_path();
                     return Err(Error::Other("ref.extern constants are not supported in init expressions".to_string()));
                 }
                 I32Add | I32Sub | I32Mul => {
                     let rhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
                     let lhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
                     let (TinyWasmValue::Value32(lhs), TinyWasmValue::Value32(rhs)) = (lhs, rhs) else {
+                        cold_path();
                         return Err(Error::Other("type mismatch in const i32 op".to_string()));
                     };
                     let lhs = lhs as i32;
@@ -545,26 +603,36 @@ impl Store {
                     stack.push(TinyWasmValue::Value32(out as u32));
                 }
                 I64Add | I64Sub | I64Mul => {
-                    let rhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
-                    let lhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
-                    let (TinyWasmValue::Value64(lhs), TinyWasmValue::Value64(rhs)) = (lhs, rhs) else {
+                    let rhs = stack.pop();
+                    let lhs = stack.pop();
+                    let (Some(TinyWasmValue::Value64(lhs)), Some(TinyWasmValue::Value64(rhs))) = (lhs, rhs) else {
+                        cold_path();
                         return Err(Error::Other("type mismatch in const i64 op".to_string()));
                     };
+
                     let lhs = lhs as i64;
                     let rhs = rhs as i64;
                     let out = match instr {
                         I64Add => lhs.wrapping_add(rhs),
                         I64Sub => lhs.wrapping_sub(rhs),
                         I64Mul => lhs.wrapping_mul(rhs),
-                        _ => unreachable!(),
+                        _ => {
+                            cold_path();
+                            unreachable!("invalid const instruction in i64 op")
+                        }
                     };
                     stack.push(TinyWasmValue::Value64(out as u64));
                 }
             }
         }
 
-        let value = stack.pop().ok_or_else(|| Error::Other("empty const expression".to_string()))?;
+        let Some(value) = stack.pop() else {
+            cold_path();
+            return Err(Error::Other("empty const expression".to_string()));
+        };
+
         if !stack.is_empty() {
+            cold_path();
             return Err(Error::Other("const expression did not reduce to single value".to_string()));
         }
         Ok(value)

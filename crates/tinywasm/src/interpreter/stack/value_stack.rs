@@ -38,11 +38,6 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn truncate(&mut self, len: usize) {
-        self.data.truncate(len);
-    }
-
-    #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
         self.ensure_capacity_for(self.data.len() + 1)?;
         self.data.push(value);
@@ -97,10 +92,13 @@ impl<T: Copy + Default> Stack<T> {
             return;
         }
 
-        let keep = (len - n).min(end_keep);
-        if keep > 0 {
-            self.data.copy_within(len - keep..len, n);
+        if end_keep == 0 {
+            self.data.truncate(n);
+            return;
         }
+
+        let keep = (len - n).min(end_keep);
+        self.data.copy_within(len - keep..len, n);
         self.data.truncate(n + keep);
     }
 
@@ -111,8 +109,8 @@ impl<T: Copy + Default> Stack<T> {
         let start = self.data.len() - param_count;
         let end = start + local_count;
         self.ensure_capacity_for(end)?;
-
         self.data.resize(end, T::default());
+
         Ok(start as u32)
     }
 
@@ -231,25 +229,9 @@ impl ValueStack {
     }
 
     pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
-        let len32 = self.stack_32.len();
-        let len64 = self.stack_64.len();
-
         let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
-        let locals_base64 = match self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize) {
-            Ok(base) => base,
-            Err(err) => {
-                self.stack_32.truncate(len32);
-                return Err(err);
-            }
-        };
-        let locals_base128 = match self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize) {
-            Ok(base) => base,
-            Err(err) => {
-                self.stack_32.truncate(len32);
-                self.stack_64.truncate(len64);
-                return Err(err);
-            }
-        };
+        let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
+        let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 

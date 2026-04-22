@@ -241,8 +241,8 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     // In practice, the len can never be something other than 2,
     // but we'll keep this here since it's part of the spec
     // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
-    assert!(ops.len() >= 2);
-    assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
+    debug_assert!(ops.len() >= 2);
+    debug_assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
 
     let mut out = Vec::with_capacity(ops.len().saturating_sub(1));
     for op in ops.iter().take(ops.len() - 1) {

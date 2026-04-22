@@ -16,7 +16,6 @@ use super::num_helpers::*;
 use super::values::*;
 use crate::engine::FuelPolicy;
 use crate::func::{FuncContext, HostFunction};
-use crate::instance::ModuleInstanceInner;
 use crate::interpreter::Value128;
 use crate::*;
 
@@ -25,15 +24,15 @@ const FUEL_COST_CALL_TOTAL: u32 = 5;
 pub(crate) struct Executor<'store, const BUDGETED: bool> {
     cf: CallFrame,
     func: Arc<WasmFunction>,
-    module: Rc<ModuleInstanceInner>,
+    module: ModuleInstance,
     store: &'store mut Store,
 }
 
 impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     pub(crate) fn new(store: &'store mut Store, cf: CallFrame) -> Self {
-        let module = store.get_module_instance_raw(cf.module_addr).clone();
-        let func = store.state.get_wasm_func(cf.func_addr).clone();
-        Self { module, store, cf, func }
+        let wasm_func = store.state.get_wasm_func(cf.func_addr);
+        let module = store.get_module_instance_internal(wasm_func.owner);
+        Self { module, cf, func: wasm_func.func.clone(), store }
     }
 
     #[inline(always)]
@@ -138,11 +137,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             Select64 => self.store.value_stack.select::<Value64>()?,
             Select128 => self.store.value_stack.select::<Value128>()?,
             SelectMulti(counts) => self.store.value_stack.select_multi(*counts),
-            Call(v) => { self.exec_call_direct::<false>(*v)?; return Ok(None); }
-            CallSelf => { self.exec_call_self::<false>()?; return Ok(None); }
+            Call(v) => { self.exec_call_direct(*v)?; return Ok(None); }
+            CallSelf => { self.exec_call_self()?; return Ok(None); }
             CallIndirect(ty, table) => { self.exec_call_indirect::<false>(*ty, *table)?; return Ok(None); }
-            ReturnCall(v) => { self.exec_call_direct::<true>(*v)?; return Ok(None); }
-            ReturnCallSelf => { self.exec_call_self::<true>()?; return Ok(None); }
+            ReturnCall(v) => { self.exec_return_call_direct(*v)?; return Ok(None); }
+            ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
             ReturnCallIndirect(ty, table) => { self.exec_call_indirect::<true>(*ty, *table)?; return Ok(None); }
             Jump(ip) => { self.exec_jump(*ip); return Ok(None); }
             JumpIfZero(ip) => if self.exec_jump_if_zero(*ip) { return Ok(None) },
@@ -769,7 +768,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.jump_if(cmp_i64(lhs, rhs, op), target_ip)
     }
 
-    #[inline(always)]
     fn exec_branch_table(&mut self, default_ip: u32, start: u32, len: u32) {
         let idx = self.store.value_stack.pop::<i32>();
         let target_ip = if idx >= 0 && (idx as u32) < len {
@@ -781,121 +779,119 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.cf.instr_ptr = target_ip;
     }
 
-    fn exec_call<const IS_RETURN_CALL: bool>(
-        &mut self,
-        wasm_func: WasmFunctionInstance,
-        func_addr: FuncAddr,
-    ) -> Result<(), Trap> {
+    fn exec_call(&mut self, wasm_func: WasmFunctionInstance, func_addr: FuncAddr) -> Result<(), Trap> {
         if !Arc::ptr_eq(&self.func, &wasm_func.func) {
             self.func = wasm_func.func.clone();
         }
 
-        if IS_RETURN_CALL {
-            self.store.value_stack.truncate_keep_counts(self.cf.locals_base, wasm_func.func.params);
-        } else if self.store.call_stack.is_at_limit() {
+        let Ok(locals_base) = self.store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)
+        else {
             cold_path();
             return Err(Trap::CallStackOverflow);
-        }
-
-        let locals_base = match self.store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals) {
-            Ok(base) => base,
-            Err(err) => {
-                cold_path();
-                if IS_RETURN_CALL {
-                    return Err(err);
-                }
-                return Err(Trap::CallStackOverflow);
-            }
         };
 
-        let new_call_frame = CallFrame::new(func_addr, wasm_func.owner, locals_base, wasm_func.func.locals);
-
-        if !IS_RETURN_CALL {
-            self.cf.incr_instr_ptr(); // skip the call instruction
-            self.store.call_stack.push(self.cf)?;
-        }
-        self.cf = new_call_frame;
-
-        if self.cf.module_addr != self.module.idx {
-            self.module = self.store.get_module_instance_raw(self.cf.module_addr).clone();
+        self.store.call_stack.push(self.cf)?;
+        self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
+        if wasm_func.owner != self.module.idx() {
+            self.module = self.store.get_module_instance_internal(wasm_func.owner);
         }
 
         Ok(())
     }
+
+    fn exec_return_call(&mut self, wasm_func: WasmFunctionInstance, func_addr: FuncAddr) -> Result<(), Trap> {
+        if !Arc::ptr_eq(&self.func, &wasm_func.func) {
+            self.func = wasm_func.func.clone();
+        }
+
+        self.store.value_stack.truncate_keep_counts(self.cf.locals_base, wasm_func.func.params);
+        let locals_base = self.store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+        self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
+        if wasm_func.owner != self.module.idx() {
+            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+        }
+
+        Ok(())
+    }
+
     fn exec_call_host(&mut self, host_func: Rc<HostFunction>) -> Result<(), Trap> {
         let params = self.store.value_stack.pop_types(host_func.ty.params()).collect::<Box<_>>();
-        let res = match host_func.call(FuncContext { store: self.store, module_addr: self.module.idx }, &params) {
+        let res = match host_func.call(FuncContext { store: self.store, module_addr: self.module.idx() }, &params) {
             Ok(res) => res,
             Err(err) => {
                 cold_path();
                 return Err(Trap::HostFunction(Box::new(err)));
             }
         };
+
         self.store.value_stack.extend_from_wasmvalues(&res)?;
         self.cf.incr_instr_ptr();
         Ok(())
     }
-    fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> Result<(), Trap> {
+
+    fn exec_call_direct(&mut self, v: u32) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         match self.store.state.get_func(addr) {
-            crate::FunctionInstance::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), addr),
+            crate::FunctionInstance::Wasm(wasm_func) => self.exec_call(wasm_func.clone(), addr),
             crate::FunctionInstance::Host(host_func) => self.exec_call_host(host_func.clone()),
         }
     }
 
-    fn exec_call_self<const IS_RETURN_CALL: bool>(&mut self) -> Result<(), Trap> {
+    fn exec_return_call_direct(&mut self, v: u32) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
-        let params = self.func.params;
-        let locals = self.func.locals;
+        let addr = self.module.resolve_func_addr(v);
+        match self.store.state.get_func(addr) {
+            crate::FunctionInstance::Wasm(wasm_func) => self.exec_return_call(wasm_func.clone(), addr),
+            crate::FunctionInstance::Host(host_func) => self.exec_call_host(host_func.clone()),
+        }
+    }
 
-        if IS_RETURN_CALL {
-            self.store.value_stack.truncate_keep_counts(self.cf.locals_base, params);
-        } else if self.store.call_stack.is_at_limit() {
+    fn exec_call_self(&mut self) -> Result<(), Trap> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+
+        self.store.call_stack.push(self.cf)?;
+        let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
             cold_path();
             return Err(Trap::CallStackOverflow);
-        }
+        };
+        self.cf = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
 
-        let locals_base = match self.store.value_stack.enter_locals(&params, &locals) {
+        Ok(())
+    }
+
+    fn exec_return_call_self(&mut self) -> Result<(), Trap> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+
+        self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.params);
+        let locals_base = match self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) {
             Ok(base) => base,
             Err(err) => {
                 cold_path();
-                if IS_RETURN_CALL {
-                    return Err(err);
-                }
-                return Err(Trap::CallStackOverflow);
+                return Err(err);
             }
         };
 
-        let new_call_frame = CallFrame::new(self.cf.func_addr, self.cf.module_addr, locals_base, locals);
-        if !IS_RETURN_CALL {
-            self.cf.incr_instr_ptr();
-            self.store.call_stack.push(self.cf)?;
-        }
-        self.cf = new_call_frame;
+        self.cf = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
         Ok(())
     }
 
     fn exec_call_indirect<const IS_RETURN_CALL: bool>(&mut self, type_addr: u32, table_addr: u32) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+
         // verify that the table is of the right type, this should be validated by the parser already
-        let func_ref = {
-            let table_idx: u32 = self.store.value_stack.pop::<i32>() as u32;
-            let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
-            assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
+        let table_idx: u32 = self.store.value_stack.pop::<i32>() as u32;
+        let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
+        debug_assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
 
-            let Ok(table) = table.get(table_idx) else {
-                cold_path();
-                return Err(Trap::UndefinedElement { index: table_idx as usize });
-            };
+        let Ok(table) = table.get(table_idx) else {
+            cold_path();
+            return Err(Trap::UndefinedElement { index: table_idx as usize });
+        };
 
-            match table.addr() {
-                Some(addr) => addr,
-                None => {
-                    cold_path();
-                    return Err(Trap::UninitializedElement { index: table_idx as usize });
-                }
-            }
+        let Some(func_ref) = table.addr() else {
+            cold_path();
+            return Err(Trap::UninitializedElement { index: table_idx as usize });
         };
 
         let call_ty = self.module.func_ty(type_addr);
@@ -909,7 +905,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                     });
                 }
 
-                self.exec_call::<IS_RETURN_CALL>(wasm_func.clone(), func_ref)
+                match IS_RETURN_CALL {
+                    true => self.exec_return_call(wasm_func.clone(), func_ref),
+                    false => self.exec_call(wasm_func.clone(), func_ref),
+                }
             }
             crate::FunctionInstance::Host(host_func) => {
                 if host_func.ty != *call_ty {
@@ -931,12 +930,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let Some(cf) = self.store.call_stack.pop() else { return true };
 
         if cf.func_addr != self.cf.func_addr {
-            self.func = self.store.state.get_wasm_func(cf.func_addr).clone();
-
-            if cf.module_addr != self.module.idx {
-                self.module = self.store.get_module_instance_raw(cf.module_addr).clone();
+            let wasm_func = self.store.state.get_wasm_func(cf.func_addr);
+            self.func = wasm_func.func.clone();
+            if wasm_func.owner != self.module.idx() {
+                self.module = self.store.get_module_instance_internal(wasm_func.owner);
             }
         }
+
         self.cf = cf;
         false
     }

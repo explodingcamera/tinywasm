@@ -93,7 +93,7 @@ pub struct ModuleInner {
     /// Optimized and validated WebAssembly functions
     ///
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
-    pub funcs: Arc<[Arc<WasmFunction>]>,
+    pub funcs: Box<[Arc<WasmFunction>]>,
 
     /// A vector of type definitions, indexed by `TypeAddr`
     ///
@@ -108,32 +108,32 @@ pub struct ModuleInner {
     /// Global components of the WebAssembly module.
     ///
     /// Corresponds to the `global` section of the original WebAssembly module.
-    pub globals: Arc<[Global]>,
+    pub globals: Box<[Global]>,
 
     /// Table components of the WebAssembly module used to initialize tables.
     ///
     /// Corresponds to the `table` section of the original WebAssembly module.
-    pub table_types: Arc<[TableType]>,
+    pub table_types: Box<[TableType]>,
 
     /// Memory components of the WebAssembly module used to initialize memories.
     ///
     /// Corresponds to the `memory` section of the original WebAssembly module.
-    pub memory_types: Arc<[MemoryType]>,
+    pub memory_types: Box<[MemoryType]>,
 
     /// Imports of the WebAssembly module.
     ///
     /// Corresponds to the `import` section of the original WebAssembly module.
-    pub imports: Arc<[Import]>,
+    pub imports: Box<[Import]>,
 
     /// Data segments of the WebAssembly module.
     ///
     /// Corresponds to the `data` section of the original WebAssembly module.
-    pub data: Arc<[Data]>,
+    pub data: Box<[Data]>,
 
     /// Element segments of the WebAssembly module.
     ///
     /// Corresponds to the `elem` section of the original WebAssembly module.
-    pub elements: Arc<[Element]>,
+    pub elements: Box<[Element]>,
 
     /// How instantiation should prepare the module's local memories.
     pub local_memory_allocation: LocalMemoryAllocation,
@@ -397,15 +397,16 @@ impl ValueCounts {
 impl<'a> FromIterator<&'a WasmType> for ValueCounts {
     #[inline]
     fn from_iter<I: IntoIterator<Item = &'a WasmType>>(iter: I) -> Self {
-        iter.into_iter().fold(Self::default(), |mut counts, ty| {
+        let mut counts = Self::default();
+
+        for ty in iter {
             match ty {
-                WasmType::I32 | WasmType::F32 => counts.c32 += 1,
+                WasmType::I32 | WasmType::F32 | WasmType::RefExtern | WasmType::RefFunc => counts.c32 += 1,
                 WasmType::I64 | WasmType::F64 => counts.c64 += 1,
                 WasmType::V128 => counts.c128 += 1,
-                WasmType::RefExtern | WasmType::RefFunc => counts.c32 += 1,
             }
-            counts
-        })
+        }
+        counts
     }
 }
 

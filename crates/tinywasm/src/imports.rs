@@ -98,10 +98,7 @@ impl From<&Import> for ExternName {
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Imports {
-    globals: BTreeMap<ExternName, Global>,
-    tables: BTreeMap<ExternName, Table>,
-    memories: BTreeMap<ExternName, Memory>,
-    function_handles: BTreeMap<ExternName, Function>,
+    externs: BTreeMap<ExternName, Extern>,
     modules: BTreeMap<String, crate::ModuleInstance>,
 }
 
@@ -112,30 +109,15 @@ pub(crate) struct ResolvedImports {
     pub(crate) funcs: Vec<FuncAddr>,
 }
 
-impl ResolvedImports {
-    pub(crate) const fn new() -> Self {
-        Self { globals: Vec::new(), tables: Vec::new(), memories: Vec::new(), funcs: Vec::new() }
-    }
-}
-
 impl Imports {
     /// Create a new empty import set
     pub const fn new() -> Self {
-        Self {
-            globals: BTreeMap::new(),
-            tables: BTreeMap::new(),
-            memories: BTreeMap::new(),
-            function_handles: BTreeMap::new(),
-            modules: BTreeMap::new(),
-        }
+        Self { externs: BTreeMap::new(), modules: BTreeMap::new() }
     }
 
     /// Merge two import sets
     pub fn merge(mut self, other: Self) -> Self {
-        self.globals.extend(other.globals);
-        self.tables.extend(other.tables);
-        self.memories.extend(other.memories);
-        self.function_handles.extend(other.function_handles);
+        self.externs.extend(other.externs);
         self.modules.extend(other.modules);
         self
     }
@@ -151,38 +133,13 @@ impl Imports {
     /// Define an import value.
     pub fn define(&mut self, module: &str, name: &str, value: impl Into<Extern>) -> &mut Self {
         let name = ExternName { module: module.to_string(), name: name.to_string() };
-        match value.into() {
-            Extern::Global(v) => {
-                self.globals.insert(name, v);
-            }
-            Extern::Table(v) => {
-                self.tables.insert(name, v);
-            }
-            Extern::Memory(v) => {
-                self.memories.insert(name, v);
-            }
-            Extern::Function(v) => {
-                self.function_handles.insert(name, v);
-            }
-        }
+        self.externs.insert(name, value.into());
         self
     }
 
     pub(crate) fn take_defined(&self, import: &Import) -> Option<Extern> {
         let name = ExternName::from(import);
-        if let Some(v) = self.globals.get(&name) {
-            return Some(Extern::Global(*v));
-        }
-        if let Some(v) = self.tables.get(&name) {
-            return Some(Extern::Table(*v));
-        }
-        if let Some(v) = self.memories.get(&name) {
-            return Some(Extern::Memory(*v));
-        }
-        if let Some(v) = self.function_handles.get(&name) {
-            return Some(Extern::Function(v.clone()));
-        }
-        None
+        self.externs.get(&name).cloned()
     }
 
     #[cfg(not(feature = "debug"))]
@@ -242,13 +199,21 @@ impl Imports {
         Ok(())
     }
 
-    pub(crate) fn link(
-        self,
-        store: &mut crate::Store,
-        module: &Module,
-        _idx: ModuleInstanceAddr,
-    ) -> Result<ResolvedImports> {
-        let mut imports = ResolvedImports::new();
+    pub(crate) fn link(&self, store: &mut crate::Store, module: &Module) -> Result<ResolvedImports> {
+        let (global_count, table_count, mem_count, func_count) =
+            module.imports.iter().fold((0, 0, 0, 0), |(g, t, m, f), import| match import.kind {
+                ImportKind::Global(_) => (g + 1, t, m, f),
+                ImportKind::Table(_) => (g, t + 1, m, f),
+                ImportKind::Memory(_) => (g, t, m + 1, f),
+                ImportKind::Function(_) => (g, t, m, f + 1),
+            });
+
+        let mut imports = ResolvedImports {
+            globals: Vec::with_capacity(global_count),
+            tables: Vec::with_capacity(table_count),
+            memories: Vec::with_capacity(mem_count),
+            funcs: Vec::with_capacity(func_count),
+        };
 
         for import in &*module.imports {
             if let Some(defined) = self.take_defined(import) {
@@ -299,9 +264,8 @@ impl Imports {
             let Some(instance) = self.modules.get(&name.module) else {
                 return Err(LinkingError::unknown_import(import).into());
             };
-            if instance.0.store_id != store.id() {
-                return Err(crate::Error::InvalidStore);
-            }
+            instance.validate_store(store)?;
+
             let val = instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?;
 
             {

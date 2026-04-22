@@ -25,8 +25,7 @@ impl Function {
         store.value_stack.clear();
         store.value_stack.extend_from_wasmvalues(params)?;
         let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-        let stack_offset = wasm_func.func.locals;
-        let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
+        let callframe = CallFrame::new(self.addr, locals_base, wasm_func.func.locals);
 
         // Execute until completion and then collect result values from the stack.
         InterpreterRuntime::exec(store, callframe)?;
@@ -56,8 +55,7 @@ impl Function {
                 store.value_stack.clear();
                 store.value_stack.extend_from_wasmvalues(params)?;
                 let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-                let stack_offset = wasm_func.func.locals;
-                let callframe = CallFrame::new(self.addr, wasm_func.owner, locals_base, stack_offset);
+                let callframe = CallFrame::new(self.addr, locals_base, wasm_func.func.locals);
 
                 Ok(FuncExecution {
                     store,
