@@ -65,6 +65,42 @@ pub enum CmpOp {
     GeU,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum BinOp {
+    IAdd,
+    ISub,
+    IMul,
+    IAnd,
+    IOr,
+    IXor,
+    IShl,
+    IShrS,
+    IShrU,
+    IRotl,
+    IRotr,
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
+    FMin,
+    FMax,
+    FCopysign,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum BinOp128 {
+    And,
+    AndNot,
+    Or,
+    Xor,
+    I64x2Add,
+    I64x2Mul,
+}
+
 /// A WebAssembly Instruction
 ///
 /// These are our own internal bytecode instructions so they may not match the spec exactly.
@@ -77,10 +113,25 @@ pub enum CmpOp {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
-    AddLocalLocal32(LocalAddr, LocalAddr), AddLocalLocal64(LocalAddr, LocalAddr),
-    AddLocalLocalSet32(LocalAddr, LocalAddr, LocalAddr), AddLocalLocalSet64(LocalAddr, LocalAddr, LocalAddr),
     AddConst32(i32), AddConst64(i64),
-    AddLocalConst32(LocalAddr, i32), AddLocalConst64(LocalAddr, i64),
+    IncLocal32(LocalAddr, i32), IncLocal64(LocalAddr, i64),
+    // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
+    BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
+    BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
+    BinOpLocalLocalSet32(BinOp, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalLocalSet64(BinOp, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalLocalSet128(BinOp128, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalLocalTee32(BinOp, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalLocalTee64(BinOp, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalLocalTee128(BinOp128, LocalAddr, LocalAddr, LocalAddr),
+    BinOpLocalConst32(BinOp, LocalAddr, i32), BinOpLocalConst64(BinOp, LocalAddr, i64),
+    BinOpLocalConst128(BinOp128, LocalAddr, ConstIdx),
+    BinOpLocalConstSet32(BinOp, LocalAddr, i32, LocalAddr),
+    BinOpLocalConstSet64(BinOp, LocalAddr, i64, LocalAddr),
+    BinOpLocalConstSet128(BinOp128, LocalAddr, ConstIdx, LocalAddr),
+    BinOpLocalConstTee32(BinOp, LocalAddr, i32, LocalAddr),
+    BinOpLocalConstTee64(BinOp, LocalAddr, i64, LocalAddr),
+    BinOpLocalConstTee128(BinOp128, LocalAddr, ConstIdx, LocalAddr),
     SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64),
     StoreLocalLocal32(MemoryArg, u8, u8),
     StoreLocalLocal64(MemoryArg, u8, u8),
@@ -94,16 +145,19 @@ pub enum Instruction {
     SubConstTee32(i32, LocalAddr),
     AndConstTee64(i64, LocalAddr),
     SubConstTee64(i64, LocalAddr),
-    XorRotlConst64(i64),
-    XorRotlConstTee64(i64, LocalAddr),
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
     Nop,
+    MergeBarrier,
     Jump(u32),
     JumpIfZero(u32),
     JumpIfNonZero(u32),
+    JumpIfZero32(u32),
+    JumpIfNonZero32(u32),
+    JumpIfZero64(u32),
+    JumpIfNonZero64(u32),
     JumpCmpStackConst32 { target_ip: u32, imm: i32, op: CmpOp },
     JumpCmpStackConst64 { target_ip: u32, imm: i64, op: CmpOp },
     JumpCmpLocalConst32 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },

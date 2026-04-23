@@ -148,7 +148,6 @@ mod sealed {
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
-    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(Self) -> Self);
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
@@ -174,12 +173,6 @@ macro_rules! impl_internalvalue {
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
                     $from_stack(*stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize))
-                }
-
-                #[inline(always)]
-                fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, func: impl FnOnce(Self) -> Self) {
-                    let slot = stack.$stack.get_mut(frame.locals_base.$stack_base as usize + index as usize);
-                    *slot = $to_stack(func($from_stack(*slot)));
                 }
 
                 #[inline(always)]
