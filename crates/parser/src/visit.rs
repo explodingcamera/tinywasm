@@ -1,6 +1,8 @@
+use core::hint::cold_path;
+
 use crate::{Result, conversion::convert_heaptype, macros::visit::*};
 use alloc::string::ToString;
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use tinywasm_types::{Instruction, MemoryArg, WasmFunctionData};
 use wasmparser::{
     FrameKind, FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, VisitSimdOperator,
@@ -12,6 +14,13 @@ enum BlockKind {
     Block,
     Loop,
     If,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum OperandSize {
+    S32,
+    S64,
+    S128,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -43,10 +52,18 @@ impl FunctionDataBuilder {
     }
 }
 
-struct ValidateThenVisit<'a, R: WasmModuleResources>(usize, &'a mut FunctionBuilder<R>);
+struct ValidateThenVisit<'a, R: WasmModuleResources>(&'a mut FunctionBuilder<R>);
+
+fn operand_size(ty: wasmparser::ValType) -> OperandSize {
+    match ty {
+        wasmparser::ValType::I32 | wasmparser::ValType::F32 | wasmparser::ValType::Ref(_) => OperandSize::S32,
+        wasmparser::ValType::I64 | wasmparser::ValType::F64 => OperandSize::S64,
+        wasmparser::ValType::V128 => OperandSize::S128,
+    }
+}
 
 impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> {
-    type Output = Result<()>;
+    type Output = ();
     wasmparser::for_each_visit_operator!(validate_then_visit);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
@@ -55,7 +72,7 @@ impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> 
 }
 
 impl<R: WasmModuleResources> VisitSimdOperator<'_> for ValidateThenVisit<'_, R> {
-    wasmparser::for_each_visit_simd_operator!(validate_then_visit);
+    wasmparser::for_each_visit_simd_operator!(validate_then_visit_simd);
 }
 
 pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
@@ -64,28 +81,32 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     local_addr_map: Vec<u16>,
 ) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations)> {
     let mut reader = body.get_operators_reader()?;
-    let remaining = reader.get_binary_reader().bytes_remaining();
-    let mut builder = FunctionBuilder::new(remaining, validator, local_addr_map);
+    let mut builder = FunctionBuilder::new(validator, local_addr_map);
 
     while !reader.eof() {
-        reader.visit_operator(&mut ValidateThenVisit(reader.original_position(), &mut builder))??;
+        builder.position = reader.original_position();
+        if let Err(e) = reader.visit_operator(&mut ValidateThenVisit(&mut builder)) {
+            cold_path();
+            return Err(crate::ParseError::ParseError { message: e.to_string(), offset: builder.position });
+        }
     }
 
     reader.finish()?;
-    if !builder.errors.is_empty() {
-        return Err(builder.errors.remove(0));
+    if let Some(error) = builder.error {
+        return Err(error);
     }
 
     Ok((builder.instructions, builder.data.finish(), builder.validator.into_allocations()))
 }
 
-pub(crate) struct FunctionBuilder<R: WasmModuleResources> {
+pub(crate) struct FunctionBuilder<R> {
     validator: FuncValidator<R>,
+    position: usize,
     instructions: Vec<Instruction>,
     data: FunctionDataBuilder,
     ctx_stack: Vec<LoweringCtx>,
     local_addr_map: Vec<u16>,
-    errors: Vec<crate::ParseError>,
+    error: Option<crate::ParseError>,
 }
 
 impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
@@ -157,26 +178,20 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
-            self.instructions.push(match t {
-                wasmparser::ValType::I32 => Instruction::GlobalSet32(global_index),
-                wasmparser::ValType::F32 => Instruction::GlobalSet32(global_index),
-                wasmparser::ValType::I64 => Instruction::GlobalSet64(global_index),
-                wasmparser::ValType::F64 => Instruction::GlobalSet64(global_index),
-                wasmparser::ValType::V128 => Instruction::GlobalSet128(global_index),
-                wasmparser::ValType::Ref(_) => Instruction::GlobalSet32(global_index),
+            self.instructions.push(match operand_size(t) {
+                OperandSize::S32 => Instruction::GlobalSet32(global_index),
+                OperandSize::S64 => Instruction::GlobalSet64(global_index),
+                OperandSize::S128 => Instruction::GlobalSet128(global_index),
             })
         }
     }
 
     fn visit_drop(&mut self) -> Self::Output {
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
-            self.instructions.push(match t {
-                wasmparser::ValType::I32 => Instruction::Drop32,
-                wasmparser::ValType::F32 => Instruction::Drop32,
-                wasmparser::ValType::I64 => Instruction::Drop64,
-                wasmparser::ValType::F64 => Instruction::Drop64,
-                wasmparser::ValType::V128 => Instruction::Drop128,
-                wasmparser::ValType::Ref(_) => Instruction::Drop32,
+            self.instructions.push(match operand_size(t) {
+                OperandSize::S32 => Instruction::Drop32,
+                OperandSize::S64 => Instruction::Drop64,
+                OperandSize::S128 => Instruction::Drop128,
             })
         }
     }
@@ -190,27 +205,22 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
-        use wasmparser::ValType::*;
         if let Some(t) = self.validator.get_local_type(idx) {
-            match t {
-                I32 | F32 => self.instructions.push(Instruction::LocalGet32(resolved_idx)),
-                I64 | F64 => self.instructions.push(Instruction::LocalGet64(resolved_idx)),
-                V128 => self.instructions.push(Instruction::LocalGet128(resolved_idx)),
-                Ref(_) => self.instructions.push(Instruction::LocalGet32(resolved_idx)),
-            }
+            self.instructions.push(match operand_size(t) {
+                OperandSize::S32 => Instruction::LocalGet32(resolved_idx),
+                OperandSize::S64 => Instruction::LocalGet64(resolved_idx),
+                OperandSize::S128 => Instruction::LocalGet128(resolved_idx),
+            });
         }
     }
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
-            self.instructions.push(match t {
-                wasmparser::ValType::I32 => Instruction::LocalSet32(resolved_idx),
-                wasmparser::ValType::F32 => Instruction::LocalSet32(resolved_idx),
-                wasmparser::ValType::I64 => Instruction::LocalSet64(resolved_idx),
-                wasmparser::ValType::F64 => Instruction::LocalSet64(resolved_idx),
-                wasmparser::ValType::V128 => Instruction::LocalSet128(resolved_idx),
-                wasmparser::ValType::Ref(_) => Instruction::LocalSet32(resolved_idx),
+            self.instructions.push(match operand_size(t) {
+                OperandSize::S32 => Instruction::LocalSet32(resolved_idx),
+                OperandSize::S64 => Instruction::LocalSet64(resolved_idx),
+                OperandSize::S128 => Instruction::LocalSet128(resolved_idx),
             })
         }
     }
@@ -218,58 +228,36 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
+            let size = operand_size(t);
             let last = self.instructions.last();
-            let src = match t {
-                wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
-                    if let Some(Instruction::LocalGet32(src)) = last { Some(*src) } else { None }
-                }
-                wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
-                    if let Some(Instruction::LocalGet64(src)) = last { Some(*src) } else { None }
-                }
-                wasmparser::ValType::V128 => {
-                    if let Some(Instruction::LocalGet128(src)) = last {
-                        Some(*src)
-                    } else {
-                        None
-                    }
-                }
-                wasmparser::ValType::Ref(_) => {
-                    if let Some(Instruction::LocalGet32(src)) = last {
-                        Some(*src)
-                    } else {
-                        None
-                    }
-                }
+            let src = match (size, last) {
+                (OperandSize::S32, Some(Instruction::LocalGet32(src))) => Some(*src),
+                (OperandSize::S64, Some(Instruction::LocalGet64(src))) => Some(*src),
+                (OperandSize::S128, Some(Instruction::LocalGet128(src))) => Some(*src),
+                _ => None,
             };
 
             if let Some(src) = src {
                 self.instructions.pop();
-                match t {
-                    wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
+                match size {
+                    OperandSize::S32 => {
                         self.instructions.push(Instruction::LocalCopy32(src, resolved_idx));
                         self.instructions.push(Instruction::LocalGet32(resolved_idx));
                     }
-                    wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
+                    OperandSize::S64 => {
                         self.instructions.push(Instruction::LocalCopy64(src, resolved_idx));
                         self.instructions.push(Instruction::LocalGet64(resolved_idx));
                     }
-                    wasmparser::ValType::V128 => {
+                    OperandSize::S128 => {
                         self.instructions.push(Instruction::LocalCopy128(src, resolved_idx));
                         self.instructions.push(Instruction::LocalGet128(resolved_idx));
                     }
-                    wasmparser::ValType::Ref(_) => {
-                        self.instructions.push(Instruction::LocalCopy32(src, resolved_idx));
-                        self.instructions.push(Instruction::LocalGet32(resolved_idx));
-                    }
                 }
             } else {
-                self.instructions.push(match t {
-                    wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
-                    wasmparser::ValType::F32 => Instruction::LocalTee32(resolved_idx),
-                    wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
-                    wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
-                    wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
-                    wasmparser::ValType::Ref(_) => Instruction::LocalTee32(resolved_idx),
+                self.instructions.push(match size {
+                    OperandSize::S32 => Instruction::LocalTee32(resolved_idx),
+                    OperandSize::S64 => Instruction::LocalTee64(resolved_idx),
+                    OperandSize::S128 => Instruction::LocalTee128(resolved_idx),
                 })
             }
         }
@@ -368,31 +356,37 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         let branch_table_start = self.data.branch_table_targets.len() as u32;
         self.instructions.push(Instruction::BranchTable(0, branch_table_start, len));
 
-        let mut seen = alloc::collections::BTreeMap::<u32, usize>::new();
         struct PadInfo {
             depth: u32,
             pad_start: usize,
             jump_or_ret_ip: usize,
             is_return: bool,
         }
+        let mut seen = Vec::<(u32, usize)>::new();
         let mut pads: Vec<PadInfo> = Vec::new();
 
         for &depth in target_depths.iter().chain(core::iter::once(&default_depth)) {
-            if seen.contains_key(&depth) {
+            if seen.iter().any(|&(seen_depth, _)| seen_depth == depth) {
                 continue;
             }
-            seen.insert(depth, pads.len());
+            seen.push((depth, pads.len()));
 
             let (pad_start, jump_or_ret_ip, is_return) = self.emit_br_table_pad(depth);
             pads.push(PadInfo { depth, pad_start, jump_or_ret_ip, is_return });
         }
 
         for &depth in &target_depths {
-            let pad_idx = seen[&depth];
+            let pad_idx = seen
+                .iter()
+                .find_map(|&(seen_depth, idx)| (seen_depth == depth).then_some(idx))
+                .expect("visit_br_table: missing branch table target");
             self.data.branch_table_targets.push(pads[pad_idx].pad_start as u32);
         }
 
-        let default_pad_idx = seen[&default_depth];
+        let default_pad_idx = seen
+            .iter()
+            .find_map(|&(seen_depth, idx)| (seen_depth == default_depth).then_some(idx))
+            .expect("visit_br_table: missing default branch table target");
         if let Instruction::BranchTable(default_ip, _, _) = &mut self.instructions[header_ip] {
             *default_ip = pads[default_pad_idx].pad_start as u32;
         }
@@ -432,13 +426,10 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
-        self.instructions.push(match ty {
-            wasmparser::ValType::I32 => Instruction::Select32,
-            wasmparser::ValType::F32 => Instruction::Select32,
-            wasmparser::ValType::I64 => Instruction::Select64,
-            wasmparser::ValType::F64 => Instruction::Select64,
-            wasmparser::ValType::V128 => Instruction::Select128,
-            wasmparser::ValType::Ref(_) => Instruction::Select32,
+        self.instructions.push(match operand_size(ty) {
+            OperandSize::S32 => Instruction::Select32,
+            OperandSize::S64 => Instruction::Select64,
+            OperandSize::S128 => Instruction::Select128,
         });
     }
 
@@ -537,35 +528,35 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
 }
 
 impl<R: WasmModuleResources> FunctionBuilder<R> {
-    pub(crate) fn validator_visitor(
-        &mut self,
-        offset: usize,
-    ) -> impl VisitOperator<'_, Output = Result<(), wasmparser::BinaryReaderError>> + VisitSimdOperator<'_> {
-        self.validator.simd_visitor(offset)
-    }
-
-    pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u16>) -> Self {
+    pub(crate) fn new(validator: FuncValidator<R>, local_addr_map: Vec<u16>) -> Self {
         Self {
+            position: 0,
             validator,
             local_addr_map,
-            instructions: Vec::with_capacity(instr_capacity),
+            instructions: Vec::with_capacity(1024),
             data: FunctionDataBuilder::default(),
             ctx_stack: Vec::with_capacity(256),
-            errors: Vec::new(),
+            error: None,
+        }
+    }
+
+    fn record_error(&mut self, error: crate::ParseError) {
+        if self.error.is_none() {
+            self.error = Some(error);
         }
     }
 
     fn stack_base_at_frame(&self, depth: usize) -> StackBase {
         let Some(frame) = self.validator.get_control_frame(depth) else { return StackBase::default() };
         let mut base = StackBase::default();
+        let stack_height = self.validator.operand_stack_height() as usize;
         for i in 0..frame.height {
-            let depth_from_top = self.validator.operand_stack_height() as usize - 1 - i;
+            let depth_from_top = stack_height - 1 - i;
             if let Some(Some(ty)) = self.validator.get_operand_type(depth_from_top) {
-                match ty {
-                    wasmparser::ValType::I32 | wasmparser::ValType::F32 => base.s32 += 1,
-                    wasmparser::ValType::I64 | wasmparser::ValType::F64 => base.s64 += 1,
-                    wasmparser::ValType::V128 => base.s128 += 1,
-                    wasmparser::ValType::Ref(_) => base.s32 += 1,
+                match operand_size(ty) {
+                    OperandSize::S32 => base.s32 += 1,
+                    OperandSize::S64 => base.s64 += 1,
+                    OperandSize::S128 => base.s128 += 1,
                 }
             }
         }
@@ -574,7 +565,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
     }
 
     fn unsupported(&mut self, name: &str) {
-        self.errors.push(crate::ParseError::UnsupportedOperator(name.to_string()));
+        self.record_error(crate::ParseError::UnsupportedOperator(name.to_string()));
     }
 
     fn is_unreachable(&self) -> bool {
@@ -632,16 +623,36 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
     fn label_keep_counts(label_types: &[wasmparser::ValType]) -> (u16, u16, u16) {
         let (mut c32, mut c64, mut c128) = (0, 0, 0);
-        for ty in label_types {
-            match ty {
-                wasmparser::ValType::I32 | wasmparser::ValType::F32 => c32 += 1,
-                wasmparser::ValType::I64 | wasmparser::ValType::F64 => c64 += 1,
-                wasmparser::ValType::V128 => c128 += 1,
-                wasmparser::ValType::Ref(_) => c32 += 1,
+        for &ty in label_types {
+            match operand_size(ty) {
+                OperandSize::S32 => c32 += 1,
+                OperandSize::S64 => c64 += 1,
+                OperandSize::S128 => c128 += 1,
             }
         }
 
         (c32, c64, c128)
+    }
+
+    fn label_keep_counts_for_frame(&self, frame: &wasmparser::Frame) -> (u16, u16, u16) {
+        match &frame.block_type {
+            wasmparser::BlockType::Empty => (0, 0, 0),
+            wasmparser::BlockType::Type(ty) => match frame.kind {
+                FrameKind::Loop => (0, 0, 0),
+                _ => Self::label_keep_counts(core::slice::from_ref(ty)),
+            },
+            wasmparser::BlockType::FuncType(idx) => {
+                let sub_type = self.validator.resources().sub_type_at(*idx);
+                let func_ty = match sub_type {
+                    Some(st) => st.composite_type.unwrap_func(),
+                    None => return (0, 0, 0),
+                };
+                match frame.kind {
+                    FrameKind::Loop => Self::label_keep_counts(func_ty.params()),
+                    _ => Self::label_keep_counts(func_ty.results()),
+                }
+            }
+        }
     }
 
     fn emit_dropkeep_to_label(&mut self, label_depth: u32) {
@@ -654,32 +665,9 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         };
 
         let base = self.stack_base_at_frame(label_depth as usize);
-        let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128) = Self::label_keep_counts(&label_types);
+        let (c32, c64, c128) = self.label_keep_counts_for_frame(frame);
 
         self.emit_dropkeep(base, c32, c64, c128);
-    }
-
-    fn label_types_for_frame(&self, frame: &wasmparser::Frame) -> Vec<wasmparser::ValType> {
-        let ty = &frame.block_type;
-        match ty {
-            wasmparser::BlockType::Empty => Vec::new(),
-            wasmparser::BlockType::Type(ty) => match frame.kind {
-                FrameKind::Loop => Vec::new(),
-                _ => vec![*ty],
-            },
-            wasmparser::BlockType::FuncType(idx) => {
-                let sub_type = self.validator.resources().sub_type_at(*idx);
-                let func_ty = match sub_type {
-                    Some(st) => st.composite_type.unwrap_func(),
-                    None => return Vec::new(),
-                };
-                match frame.kind {
-                    FrameKind::Loop => func_ty.params().to_vec(),
-                    _ => func_ty.results().to_vec(),
-                }
-            }
-        }
     }
 
     fn emit_branch_jump_or_return(&mut self, depth: u32) {
@@ -702,8 +690,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
         };
 
         let base = self.stack_base_at_frame(depth as usize);
-        let label_types: Vec<_> = self.label_types_for_frame(frame);
-        let (c32, c64, c128) = Self::label_keep_counts(&label_types);
+        let (c32, c64, c128) = self.label_keep_counts_for_frame(frame);
         self.emit_dropkeep(base, c32, c64, c128);
 
         let jump_ip = self.instructions.len();

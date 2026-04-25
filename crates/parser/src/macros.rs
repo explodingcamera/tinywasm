@@ -1,12 +1,103 @@
 pub(crate) mod visit {
     macro_rules! validate_then_visit {
-        ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
-            fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-                self.1.$visit($($($arg.clone()),*)?);
-                self.1.validator_visitor(self.0).$visit($($($arg),*)?)?;
-                Ok(())
+        ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
+            $(validate_then_visit!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann)*));)*
+        };
+
+        // These special-case arms exist so we only clone wasmparser's non-Copy payloads
+        (@@mvp BrTable { $arg:ident: $argty:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, $arg: $argty) -> Self::Output {
+                self.0.$visit($arg.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit($arg);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
             }
-        )*};
+        };
+
+        (@@reference_types TypedSelectMulti { $arg:ident: $argty:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, $arg: $argty) -> Self::Output {
+                self.0.$visit($arg.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit($arg);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+
+        (@@exceptions TryTable { $arg:ident: $argty:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, $arg: $argty) -> Self::Output {
+                self.0.$visit($arg.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit($arg);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+
+        (@@stack_switching Resume { cont_type_index: $cont:ty, resume_table: $table:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, cont_type_index: $cont, resume_table: $table) -> Self::Output {
+                self.0.$visit(cont_type_index, resume_table.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit(cont_type_index, resume_table);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+
+        (@@stack_switching ResumeThrow { cont_type_index: $cont:ty, tag_index: $tag:ty, resume_table: $table:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, cont_type_index: $cont, tag_index: $tag, resume_table: $table) -> Self::Output {
+                self.0.$visit(cont_type_index, tag_index, resume_table.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit(cont_type_index, tag_index, resume_table);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+
+        (@@stack_switching ResumeThrowRef { cont_type_index: $cont:ty, resume_table: $table:ty } => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self, cont_type_index: $cont, resume_table: $table) -> Self::Output {
+                self.0.$visit(cont_type_index, resume_table.clone());
+                let validation = self.0.validator.visitor(self.0.position).$visit(cont_type_index, resume_table);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+
+        (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
+                self.0.$visit($($($arg),*)?);
+                let validation = self.0.validator.visitor(self.0.position).$visit($($($arg),*)?);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
+    }
+
+    macro_rules! validate_then_visit_simd {
+        ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
+            $(validate_then_visit_simd!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann)*));)*
+        };
+
+        (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
+            fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
+                self.0.$visit($($($arg),*)?);
+                let validation = self.0.validator.simd_visitor(self.0.position).$visit($($($arg),*)?);
+                if let Err(e) = validation {
+                    cold_path();
+                    self.0.record_error(crate::ParseError::ParseError { message: e.to_string(), offset: self.0.position });
+                }
+            }
+        };
     }
 
     macro_rules! define_operand {
@@ -83,7 +174,7 @@ pub(crate) mod visit {
 
     pub(crate) use {
         define_mem_operands, define_mem_operands_simd, define_mem_operands_simd_lane, define_operand, define_operands,
-        impl_visit_operator, validate_then_visit,
+        impl_visit_operator, validate_then_visit, validate_then_visit_simd,
     };
 }
 

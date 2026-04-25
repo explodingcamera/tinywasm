@@ -208,6 +208,7 @@ impl ModuleReader {
                 instructions,
                 &mut data,
                 options,
+                results,
                 self_func,
                 import_mem_count,
                 local_mem_alloc,

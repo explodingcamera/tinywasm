@@ -598,7 +598,7 @@ impl Store {
                         I32Add => lhs.wrapping_add(rhs),
                         I32Sub => lhs.wrapping_sub(rhs),
                         I32Mul => lhs.wrapping_mul(rhs),
-                        _ => unreachable!(),
+                        _ => unreachable!("invalid const instruction in i32 op"),
                     };
                     stack.push(TinyWasmValue::Value32(out as u32));
                 }

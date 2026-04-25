@@ -1,7 +1,7 @@
 use crate::ParserOptions;
 use crate::macros::optimize::*;
 use alloc::vec::Vec;
-use tinywasm_types::{BinOp, BinOp128, CmpOp, ConstIdx, Instruction, WasmFunctionData};
+use tinywasm_types::{BinOp, BinOp128, CmpOp, ConstIdx, Instruction, ValueCounts, WasmFunctionData};
 
 pub(crate) struct OptimizeResult {
     pub(crate) instructions: Vec<Instruction>,
@@ -12,12 +12,13 @@ pub(crate) fn optimize_instructions(
     mut instructions: Vec<Instruction>,
     function_data: &mut WasmFunctionData,
     options: &ParserOptions,
+    function_results: ValueCounts,
     self_func_addr: u32,
     imported_memory_count: u32,
     track_local_memory_usage: bool,
 ) -> OptimizeResult {
     let uses_local_memory = if options.optimize_rewrite() {
-        rewrite(&mut instructions, self_func_addr, imported_memory_count, track_local_memory_usage)
+        rewrite(&mut instructions, function_results, self_func_addr, imported_memory_count, track_local_memory_usage)
     } else {
         track_local_memory_usage
             && instructions.iter().any(|instr| instr.memory_addr().is_some_and(|mem| mem >= imported_memory_count))
@@ -31,12 +32,20 @@ pub(crate) fn optimize_instructions(
 
 fn rewrite(
     instrs: &mut [Instruction],
+    function_results: ValueCounts,
     self_func_addr: u32,
     imported_memory_count: u32,
     track_local_memory_usage: bool,
 ) -> bool {
     use Instruction::*;
     let mut uses_local_memory = false;
+    let return_instr = match function_results {
+        ValueCounts { c32: 0, c64: 0, c128: 0 } => Some(ReturnVoid),
+        ValueCounts { c32: 1, c64: 0, c128: 0 } => Some(Return32),
+        ValueCounts { c32: 0, c64: 1, c128: 0 } => Some(Return64),
+        ValueCounts { c32: 0, c64: 0, c128: 1 } => Some(Return128),
+        _ => None,
+    };
 
     for i in 0..instrs.len() {
         match instrs[i] {
@@ -45,6 +54,7 @@ fn rewrite(
             LocalCopy128(a, b) if a == b => instrs[i] = Nop,
             Call(addr) if addr == self_func_addr => instrs[i] = CallSelf,
             ReturnCall(addr) if addr == self_func_addr => instrs[i] = ReturnCallSelf,
+            Return if let Some(return_instr) = return_instr => instrs[i] = return_instr,
             instr @ (I32Add | I32Mul | I32And | I32Or | I32Xor) => {
                 let Some(op) = int_bin_op_32(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
@@ -370,11 +380,7 @@ fn rewrite(
             ),
             Jump(ip) => {
                 let target = resolve_jump_target(instrs, ip);
-                if target == next_non_nop(instrs, i + 1) as u32 {
-                    instrs[i] = Nop;
-                } else if target != ip {
-                    instrs[i] = Jump(target);
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfZero(ip) => {
                 let target = resolve_jump_target(instrs, ip);
@@ -430,10 +436,7 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfZero(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfNonZero(ip) => {
                 let target = resolve_jump_target(instrs, ip);
@@ -489,42 +492,27 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfNonZero(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfZero32(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalZero32 { target_ip: target, local });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfZero32(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfNonZero32(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalNonZero32 { target_ip: target, local });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfNonZero32(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfZero64(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalZero64 { target_ip: target, local });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfZero64(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpIfNonZero64(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalNonZero64 { target_ip: target, local });
-                canonicalize_jump_like(instrs, i);
-                if let JumpIfNonZero64(current) = &mut instrs[i] {
-                    *current = target;
-                }
+                canonicalize_jump_like_with_target(instrs, i, target);
             }
             JumpCmpStackConst32 { target_ip, imm: 0, op } => {
                 match op {
@@ -573,8 +561,8 @@ fn rewrite(
             _ => {}
         }
 
-        if track_local_memory_usage {
-            uses_local_memory |= instrs[i].memory_addr().is_some_and(|mem| mem >= imported_memory_count);
+        if track_local_memory_usage && !uses_local_memory {
+            uses_local_memory = instrs[i].memory_addr().is_some_and(|mem| mem >= imported_memory_count);
         }
     }
 
@@ -766,11 +754,14 @@ fn inverse_cmp_op(op: CmpOp) -> CmpOp {
     }
 }
 
+const PREVIOUS_NON_NOP_BACKTRACK_LIMIT: usize = 32;
+
 fn previous_non_nop<const N: usize>(instrs: &[Instruction], read: usize) -> Option<[(usize, Instruction); N]> {
     let mut out = [(0usize, Instruction::Nop); N];
     let mut filled = 0usize;
+    let start = read.saturating_sub(PREVIOUS_NON_NOP_BACKTRACK_LIMIT);
 
-    for idx in (0..read).rev() {
+    for idx in (start..read).rev() {
         let instr = instrs[idx];
         if matches!(instr, Instruction::MergeBarrier) {
             return None;
@@ -864,7 +855,10 @@ fn canonicalize_jump_like(instrs: &mut [Instruction], idx: usize) {
         return;
     };
 
-    let target = resolve_jump_target(instrs, target);
+    canonicalize_jump_like_with_target(instrs, idx, resolve_jump_target(instrs, target));
+}
+
+fn canonicalize_jump_like_with_target(instrs: &mut [Instruction], idx: usize, target: u32) {
     if matches!(instrs[idx], Instruction::Jump(_)) && target == next_non_nop(instrs, idx + 1) as u32 {
         instrs[idx] = Instruction::Nop;
     } else {

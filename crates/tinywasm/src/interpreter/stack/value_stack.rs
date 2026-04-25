@@ -88,14 +88,26 @@ impl<T: Copy + Default> Stack<T> {
             return;
         }
 
-        if end_keep == 0 {
-            self.data.truncate(n);
-            return;
-        }
-
         let keep = (len - n).min(end_keep);
         self.data.copy_within(len - keep..len, n);
         self.data.truncate(n + keep);
+    }
+
+    #[inline(always)]
+    pub(crate) fn truncate_to(&mut self, n: usize) {
+        debug_assert!(n <= self.data.len());
+        self.data.truncate(n);
+    }
+
+    #[inline(always)]
+    pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
+        debug_assert!(n < self.data.len());
+        let Some(last) = self.data.pop() else {
+            cold_path();
+            unreachable!("ValueStack underflow, this is a bug");
+        };
+        self.data.truncate(n);
+        self.data.push(last);
     }
 
     #[inline(always)]
@@ -222,6 +234,13 @@ impl ValueStack {
         self.stack_32.truncate_keep(base.s32 as usize, keep.c32 as usize);
         self.stack_64.truncate_keep(base.s64 as usize, keep.c64 as usize);
         self.stack_128.truncate_keep(base.s128 as usize, keep.c128 as usize);
+    }
+
+    #[inline(always)]
+    pub(crate) fn truncate_to_base(&mut self, base: StackBase) {
+        self.stack_32.truncate_to(base.s32 as usize);
+        self.stack_64.truncate_to(base.s64 as usize);
+        self.stack_128.truncate_to(base.s128 as usize);
     }
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<(), Trap> {

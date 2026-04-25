@@ -278,6 +278,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             DropKeep128(base, keep) => self.store.value_stack.stack_128.truncate_keep((self.cf.stack_base().s128 + *base as u32) as usize, *keep as usize),
             BranchTable(default_ip, start, len) => { self.exec_branch_table(*default_ip, *start, *len); return Ok(None); }
             Return => { if self.exec_return() { return Ok(Some(())); } return Ok(None); }
+            ReturnVoid => { if self.exec_return_void() { return Ok(Some(())); } return Ok(None); }
+            Return32 => { if self.exec_return_32() { return Ok(Some(())); } return Ok(None); }
+            Return64 => { if self.exec_return_64() { return Ok(Some(())); } return Ok(None); }
+            Return128 => { if self.exec_return_128() { return Ok(Some(())); } return Ok(None); }
             LocalGet32(local_index) => self.store.value_stack.push(Value32::local_get(&self.store.value_stack, &self.cf, *local_index))?,
             LocalGet64(local_index) => self.store.value_stack.push(Value64::local_get(&self.store.value_stack, &self.cf, *local_index))?,
             LocalGet128(local_index) => self.store.value_stack.push(Value128::local_get(&self.store.value_stack, &self.cf, *local_index))?,
@@ -1048,21 +1052,68 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_return(&mut self) -> bool {
         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.results);
-        let Some(cf) = self.store.call_stack.pop() else {
-            cold_path();
+        let Some(caller) = self.store.call_stack.pop() else {
             return true;
         };
-
-        if cf.func_addr != self.cf.func_addr {
-            let wasm_func = self.store.state.get_wasm_func(cf.func_addr);
-            self.func = wasm_func.func.clone();
-            if wasm_func.owner != self.module.idx() {
-                self.module = self.store.get_module_instance_internal(wasm_func.owner);
-            }
+        if caller.func_addr == self.cf.func_addr {
+            self.cf = caller;
+            return false;
         }
-
-        self.cf = cf;
+        let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
+        self.func = wasm_func.func.clone();
+        if wasm_func.owner != self.module.idx() {
+            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+        }
+        self.cf = caller;
         false
+    }
+
+    #[inline(always)]
+    fn finish_return(&mut self) -> bool {
+        let Some(caller) = self.store.call_stack.pop() else {
+            return true;
+        };
+        if caller.func_addr == self.cf.func_addr {
+            self.cf = caller;
+            return false;
+        }
+        let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
+        self.func = wasm_func.func.clone();
+        if wasm_func.owner != self.module.idx() {
+            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+        }
+        self.cf = caller;
+        false
+    }
+
+    #[inline(always)]
+    fn exec_return_void(&mut self) -> bool {
+        self.store.value_stack.truncate_to_base(self.cf.locals_base);
+        self.finish_return()
+    }
+
+    #[inline(always)]
+    fn exec_return_32(&mut self) -> bool {
+        self.store.value_stack.stack_32.truncate_to_one_tail(self.cf.locals_base.s32 as usize);
+        self.store.value_stack.stack_64.truncate_to(self.cf.locals_base.s64 as usize);
+        self.store.value_stack.stack_128.truncate_to(self.cf.locals_base.s128 as usize);
+        self.finish_return()
+    }
+
+    #[inline(always)]
+    fn exec_return_64(&mut self) -> bool {
+        self.store.value_stack.stack_32.truncate_to(self.cf.locals_base.s32 as usize);
+        self.store.value_stack.stack_64.truncate_to_one_tail(self.cf.locals_base.s64 as usize);
+        self.store.value_stack.stack_128.truncate_to(self.cf.locals_base.s128 as usize);
+        self.finish_return()
+    }
+
+    #[inline(always)]
+    fn exec_return_128(&mut self) -> bool {
+        self.store.value_stack.stack_32.truncate_to(self.cf.locals_base.s32 as usize);
+        self.store.value_stack.stack_64.truncate_to(self.cf.locals_base.s64 as usize);
+        self.store.value_stack.stack_128.truncate_to_one_tail(self.cf.locals_base.s128 as usize);
+        self.finish_return()
     }
 
     fn exec_store_local_local<T: InternalValue + MemValue<N>, const N: usize>(

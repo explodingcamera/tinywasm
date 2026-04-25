@@ -184,6 +184,10 @@ pub enum Instruction {
     DropKeep128(u16, u16),
     BranchTable(u32, u32, u32),  // (default_landing_pad_ip, branch_table_start, target_count)
     Return,
+    ReturnVoid,
+    Return32,
+    Return64,
+    Return128,
     Call(FuncAddr),
     CallSelf,
     CallIndirect(TypeAddr, TableAddr),
