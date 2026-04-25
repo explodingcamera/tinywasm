@@ -152,6 +152,7 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + De
     fn stack_select(stack: &mut ValueStack) -> Result<(), crate::Trap>;
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
+    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self);
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
 }
 
@@ -192,6 +193,14 @@ macro_rules! impl_internalvalue {
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
                     let $to_stack_v = value;
                     let abs_index = frame.locals_base.$stack_base as usize + index as usize;
+                    stack.$stack.set(abs_index, $to_stack);
+                }
+
+                #[inline(always)]
+                fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) {
+                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
+                    let $from_stack_v = *stack.$stack.get(abs_index);
+                    let $to_stack_v = f($from_stack);
                     stack.$stack.set(abs_index, $to_stack);
                 }
 

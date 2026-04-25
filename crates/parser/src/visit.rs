@@ -227,10 +227,18 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
                     if let Some(Instruction::LocalGet64(src)) = last { Some(*src) } else { None }
                 }
                 wasmparser::ValType::V128 => {
-                    if let Some(Instruction::LocalGet128(src)) = last { Some(*src) } else { None }
+                    if let Some(Instruction::LocalGet128(src)) = last {
+                        Some(*src)
+                    } else {
+                        None
+                    }
                 }
                 wasmparser::ValType::Ref(_) => {
-                    if let Some(Instruction::LocalGet32(src)) = last { Some(*src) } else { None }
+                    if let Some(Instruction::LocalGet32(src)) = last {
+                        Some(*src)
+                    } else {
+                        None
+                    }
                 }
             };
 

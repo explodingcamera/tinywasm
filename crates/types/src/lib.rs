@@ -10,6 +10,7 @@
 
 extern crate alloc;
 use alloc::{boxed::Box, sync::Arc};
+use core::hint::cold_path;
 use core::ops::{Deref, Range};
 
 // Memory defaults
@@ -428,6 +429,18 @@ pub struct WasmFunction {
 pub struct WasmFunctionData {
     pub v128_constants: Box<[[u8; 16]]>,
     pub branch_table_targets: Box<[u32]>,
+}
+
+impl WasmFunctionData {
+    /// Panics if `idx` is out of bounds.
+    #[inline(always)]
+    pub fn v128_const(&self, idx: ConstIdx) -> [u8; 16] {
+        let Some(val) = self.v128_constants.get(idx as usize) else {
+            cold_path();
+            unreachable!("invalid v128 constant index");
+        };
+        *val
+    }
 }
 
 /// A WebAssembly Module Export

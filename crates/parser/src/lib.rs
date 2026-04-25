@@ -55,11 +55,7 @@ pub struct ParserOptions {
 
 impl Default for ParserOptions {
     fn default() -> Self {
-        Self {
-            optimize_local_memory_allocation: true,
-            optimize_rewrite: true,
-            optimize_remove_nop: true,
-        }
+        Self { optimize_local_memory_allocation: true, optimize_rewrite: true, optimize_remove_nop: true }
     }
 }
 
@@ -96,7 +92,6 @@ impl ParserOptions {
     pub const fn optimize_remove_nop(&self) -> bool {
         self.optimize_remove_nop
     }
-
 }
 
 /// A WebAssembly parser

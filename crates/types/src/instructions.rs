@@ -132,6 +132,8 @@ pub enum Instruction {
     BinOpLocalConstTee32(BinOp, LocalAddr, i32, LocalAddr),
     BinOpLocalConstTee64(BinOp, LocalAddr, i64, LocalAddr),
     BinOpLocalConstTee128(BinOp128, LocalAddr, ConstIdx, LocalAddr),
+    BinOpStackGlobal32(BinOp, u32),
+    BinOpStackGlobal64(BinOp, u32),
     SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64), SetLocalConst128(LocalAddr, ConstIdx),
     StoreLocalLocal32(MemoryArg, u8, u8),
     StoreLocalLocal64(MemoryArg, u8, u8),
@@ -145,6 +147,14 @@ pub enum Instruction {
     SubConstTee32(i32, LocalAddr),
     AndConstTee64(i64, LocalAddr),
     SubConstTee64(i64, LocalAddr),
+    MulAccLocal32(LocalAddr),
+    MulAccLocal64(LocalAddr),
+    FMulAccLocal32(LocalAddr),
+    FMulAccLocal64(LocalAddr),
+    I32Add3,
+    I64Add3,
+    FMaStoreF32(MemoryArg),
+    FMaStoreF64(MemoryArg),
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
@@ -385,6 +395,8 @@ impl Instruction {
             | Self::I64Store(arg)
             | Self::F32Store(arg)
             | Self::F64Store(arg)
+            | Self::FMaStoreF32(arg)
+            | Self::FMaStoreF64(arg)
             | Self::I32Store8(arg)
             | Self::I32Store16(arg)
             | Self::I64Store8(arg)

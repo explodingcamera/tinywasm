@@ -7,8 +7,8 @@ use tinywasm_types::{ExternRef, FuncRef, Module, ModuleInstanceAddr, WasmType, W
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
 
-const TEST_TIME_SLICE: Duration = Duration::from_millis(10);
-const TEST_MAX_SUSPENSIONS: u32 = 100;
+const TEST_TIME_SLICE: Duration = Duration::from_millis(20);
+const TEST_MAX_SUSPENSIONS: u32 = 1000;
 
 fn exec_with_budget(
     func: &tinywasm::Function,

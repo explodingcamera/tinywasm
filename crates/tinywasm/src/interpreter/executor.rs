@@ -108,15 +108,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn get_v128_const(&self, idx: ConstIdx) -> Value128 {
-        let Some(val) = self.func.data.v128_constants.get(idx as usize) else {
-            cold_path();
-            unreachable!("invalid v128 constant index");
-        };
-        Value128(*val)
-    }
-
-    #[inline(always)]
     fn exec(&mut self) -> Result<Option<()>, Trap> {
         macro_rules! stack_op {
             (unary $ty:ty, |$v:ident| $expr:expr) => {{
@@ -179,6 +170,55 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             (local_tee $ty:ty, $local_index:expr) => {{
                 let val = <$ty>::stack_peek(&self.store.value_stack);
                 <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
+            }};
+        }
+
+        macro_rules! binop {
+            (local_local $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident) => {{
+                self.store.value_stack.push(self.$exec(
+                    *$op,
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
+                ))?
+            }};
+            (local_local_set $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
+                let value = self.$exec(
+                    *$op,
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
+                );
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+            }};
+            (local_local_tee $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
+                let value = self.$exec(
+                    *$op,
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
+                );
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                self.store.value_stack.push(value)?;
+            }};
+            (local_const $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr) => {{
+                self.store.value_stack.push(self.$exec(
+                    *$op,
+                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$local),
+                    $rhs,
+                ))?
+            }};
+            (local_const_set $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
+                let value = self.$exec(*$op, <$vt>::local_get(&self.store.value_stack, &self.cf, *$local), $rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+            }};
+            (local_const_tee $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
+                let value = self.$exec(*$op, <$vt>::local_get(&self.store.value_stack, &self.cf, *$local), $rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                self.store.value_stack.push(value)?;
+            }};
+            (stack_global $vt:ty, $as_fn:ident, $exec:ident, $op:ident, $global:ident) => {{
+                let global_val =
+                    self.store.state.get_global_val(self.module.resolve_global_addr(*$global)).$as_fn().unwrap();
+                let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
+                self.store.value_stack.push(self.$exec(*$op, stack_val, global_val))?;
             }};
         }
 
@@ -249,80 +289,37 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             LocalCopy128(from, to) => Value128::local_copy(&mut self.store.value_stack, &self.cf, *from, *to),
             AddConst32(c) => stack_op!(unary i32, |v| v.wrapping_add(*c)),
             AddConst64(c) => stack_op!(unary i64, |v| v.wrapping_add(*c)),
-            IncLocal32(local_index, delta) => {
-                let value = Value32::local_get(&self.store.value_stack, &self.cf, *local_index).wrapping_add(*delta as u32);
-                Value32::local_set(&mut self.store.value_stack, &self.cf, *local_index, value);
-            }
-            IncLocal64(local_index, delta) => {
-                let value = Value64::local_get(&self.store.value_stack, &self.cf, *local_index).wrapping_add(*delta as u64);
-                Value64::local_set(&mut self.store.value_stack, &self.cf, *local_index, value);
-            }
-            BinOpLocalLocal32(op, a, b) => self.store.value_stack.push(self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *a), Value32::local_get(&self.store.value_stack, &self.cf, *b)))?,
-            BinOpLocalLocal64(op, a, b) => self.store.value_stack.push(self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *a), Value64::local_get(&self.store.value_stack, &self.cf, *b)))?,
-            BinOpLocalLocal128(op, a, b) => self.store.value_stack.push(self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *a), Value128::local_get(&self.store.value_stack, &self.cf, *b)))?,
-            BinOpLocalLocalSet32(op, a, b, dst) => {
-                let value = self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *a), Value32::local_get(&self.store.value_stack, &self.cf, *b));
-                Value32::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            }
-            BinOpLocalLocalSet64(op, a, b, dst) => {
-                let value = self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *a), Value64::local_get(&self.store.value_stack, &self.cf, *b));
-                Value64::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            }
-            BinOpLocalLocalSet128(op, a, b, dst) => {
-                let value = self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *a), Value128::local_get(&self.store.value_stack, &self.cf, *b));
-                Value128::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            }
-            BinOpLocalLocalTee32(op, a, b, dst) => {
-                let value = self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *a), Value32::local_get(&self.store.value_stack, &self.cf, *b));
-                Value32::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
-            BinOpLocalLocalTee64(op, a, b, dst) => {
-                let value = self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *a), Value64::local_get(&self.store.value_stack, &self.cf, *b));
-                Value64::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
-            BinOpLocalLocalTee128(op, a, b, dst) => {
-                let value = self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *a), Value128::local_get(&self.store.value_stack, &self.cf, *b));
-                Value128::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
-            BinOpLocalConst32(op, local_index, c) => self.store.value_stack.push(self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u32))?,
-            BinOpLocalConst64(op, local_index, c) => self.store.value_stack.push(self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u64))?,
-            BinOpLocalConst128(op, local_index, c) => self.store.value_stack.push(self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *local_index), self.get_v128_const(*c)))?,
-            BinOpLocalConstSet32(op, local_index, c, dst) => {
-                let value = self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u32);
-                Value32::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            },
-            BinOpLocalConstSet64(op, local_index, c, dst) => {
-                let value = self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u64);
-                Value64::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            },
-            BinOpLocalConstSet128(op, local_index, c, dst) => {
-                let value = self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *local_index), self.get_v128_const(*c));
-                Value128::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-            },
-            BinOpLocalConstTee32(op, local_index, c, dst) => {
-                let value = self.exec_binop_32(*op, Value32::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u32);
-                Value32::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
-            BinOpLocalConstTee64(op, local_index, c, dst) => {
-                let value = self.exec_binop_64(*op, Value64::local_get(&self.store.value_stack, &self.cf, *local_index), *c as u64);
-                Value64::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
-            BinOpLocalConstTee128(op, local_index, c, dst) => {
-                let value = self.exec_binop_128(*op, Value128::local_get(&self.store.value_stack, &self.cf, *local_index), self.get_v128_const(*c));
-                Value128::local_set(&mut self.store.value_stack, &self.cf, *dst, value);
-                self.store.value_stack.push(value)?;
-            }
+            IncLocal32(local_index, delta) => i32::local_update(&mut self.store.value_stack, &self.cf, *local_index, |v| v.wrapping_add(*delta)),
+            IncLocal64(local_index, delta) => i64::local_update(&mut self.store.value_stack, &self.cf, *local_index, |v| v.wrapping_add(*delta )),
+            I32Add3 => stack_op!(ternary i32, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
+            I64Add3 => stack_op!(ternary i64, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
+            MulAccLocal32(acc) => self.exec_binop_acc_local::<i32, _, _>(*acc, |a, b| a.wrapping_mul(b), |a, b| a.wrapping_add(b)),
+            MulAccLocal64(acc) => self.exec_binop_acc_local::<i64, _, _>(*acc, |a, b| a.wrapping_mul(b), |a, b| a.wrapping_add(b)),
+            FMulAccLocal32(acc) => self.exec_binop_acc_local::<f32, _, _>(*acc, |a, b| a * b, |a, b| a + b),
+            FMulAccLocal64(acc) => self.exec_binop_acc_local::<f64, _, _>(*acc, |a, b| a * b, |a, b| a + b),
+            BinOpLocalLocal32(op, a, b) => binop!(local_local Value32, exec_binop_32, op, a, b),
+            BinOpLocalLocal64(op, a, b) => binop!(local_local Value64, exec_binop_64, op, a, b),
+            BinOpLocalLocal128(op, a, b) => binop!(local_local Value128, exec_binop_128, op, a, b),
+            BinOpLocalLocalSet32(op, a, b, dst) => binop!(local_local_set Value32, exec_binop_32, op, a, b, dst),
+            BinOpLocalLocalSet64(op, a, b, dst) => binop!(local_local_set Value64, exec_binop_64, op, a, b, dst),
+            BinOpLocalLocalSet128(op, a, b, dst) => binop!(local_local_set Value128, exec_binop_128, op, a, b, dst),
+            BinOpLocalLocalTee32(op, a, b, dst) => binop!(local_local_tee Value32, exec_binop_32, op, a, b, dst),
+            BinOpLocalLocalTee64(op, a, b, dst) => binop!(local_local_tee Value64, exec_binop_64, op, a, b, dst),
+            BinOpLocalLocalTee128(op, a, b, dst) => binop!(local_local_tee Value128, exec_binop_128, op, a, b, dst),
+            BinOpLocalConst32(op, local_index, c) => binop!(local_const Value32, exec_binop_32, op, local_index, *c as u32),
+            BinOpLocalConst64(op, local_index, c) => binop!(local_const Value64, exec_binop_64, op, local_index, *c as u64),
+            BinOpLocalConst128(op, local_index, c) => binop!(local_const Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c))),
+            BinOpLocalConstSet32(op, local_index, c, dst) => binop!(local_const_set Value32, exec_binop_32, op, local_index, *c as u32, dst),
+            BinOpLocalConstSet64(op, local_index, c, dst) => binop!(local_const_set Value64, exec_binop_64, op, local_index, *c as u64, dst),
+            BinOpLocalConstSet128(op, local_index, c, dst) => binop!(local_const_set Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
+            BinOpLocalConstTee32(op, local_index, c, dst) => binop!(local_const_tee Value32, exec_binop_32, op, local_index, *c as u32, dst),
+            BinOpLocalConstTee64(op, local_index, c, dst) => binop!(local_const_tee Value64, exec_binop_64, op, local_index, *c as u64, dst),
+            BinOpLocalConstTee128(op, local_index, c, dst) => binop!(local_const_tee Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
+            BinOpStackGlobal32(op, global_index) => binop!(stack_global Value32, as_32, exec_binop_32, op, global_index),
+            BinOpStackGlobal64(op, global_index) => binop!(stack_global Value64, as_64, exec_binop_64, op, global_index),
             SetLocalConst32(local_index, c) => i32::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst64(local_index, c) => i64::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
-            SetLocalConst128(local_index, c) => {
-                let value = self.get_v128_const(*c);
-                Value128::local_set(&mut self.store.value_stack, &self.cf, *local_index, value);
-            }
+            SetLocalConst128(local_index, c) => Value128::local_set(&mut self.store.value_stack, &self.cf, *local_index, Value128(self.func.data.v128_const(*c))),
             StoreLocalLocal32(m, addr_local, value_local) => self.exec_store_local_local::<u32, 4>(*m, *addr_local, *value_local)?,
             StoreLocalLocal64(m, addr_local, value_local) => self.exec_store_local_local::<i64, 8>(*m, *addr_local, *value_local)?,
             StoreLocalLocal128(m, addr_local, value_local) => self.exec_store_local_local::<Value128, 16>(*m, *addr_local, *value_local)?,
@@ -472,6 +469,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I64Store(m) => self.exec_mem_store::<i64, i64, 8>(m.mem_addr(), m.offset(), |v| v)?,
             F32Store(m) => self.exec_mem_store::<f32, f32, 4>(m.mem_addr(), m.offset(), |v| v)?,
             F64Store(m) => self.exec_mem_store::<f64, f64, 8>(m.mem_addr(), m.offset(), |v| v)?,
+            FMaStoreF32(m) => self.exec_fma_store::<f32, 4>(*m)?,
+            FMaStoreF64(m) => self.exec_fma_store::<f64, 8>(*m)?,
             I32Store8(m) => self.exec_mem_store::<i32, i8, 1>(m.mem_addr(), m.offset(), |v| v as i8)?,
             I32Store16(m) => self.exec_mem_store::<i32, i16, 2>(m.mem_addr(), m.offset(), |v| v as i16)?,
             I64Store8(m) => self.exec_mem_store::<i64, i8, 1>(m.mem_addr(), m.offset(), |v| v as i8)?,
@@ -580,7 +579,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             V128Store64Lane(arg, lane) => self.exec_mem_store_lane::<i64, 8>(arg.mem_addr(), arg.offset(), *lane)?,
             V128Load32Zero(arg) => self.exec_mem_load::<i32, 4, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::from_i32x4([v, 0, 0, 0]))?,
             V128Load64Zero(arg) => self.exec_mem_load::<i64, 8, Value128>(arg.mem_addr(), arg.offset(), |v| Value128::from_i64x2([v, 0]))?,
-            Const128(arg) => self.exec_const(self.get_v128_const(*arg))?,
+            Const128(arg) => self.exec_const(Value128(self.func.data.v128_const(*arg)))?,
             I8x16ExtractLaneS(lane) => stack_op!(unary Value128 => i32, |v| v.extract_lane_i8(*lane) as i32),
             I8x16ExtractLaneU(lane) => stack_op!(unary Value128 => i32, |v| v.extract_lane_u8(*lane) as i32),
             I16x8ExtractLaneS(lane) => stack_op!(unary Value128 => i32, |v| v.extract_lane_i16(*lane) as i32),
@@ -1077,6 +1076,36 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(memarg.mem_addr()));
         mem.store(addr, memarg.offset(), value)?;
         Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_fma_store<
+        T: InternalValue + MemValue<N> + core::ops::Add<Output = T> + core::ops::Mul<Output = T>,
+        const N: usize,
+    >(
+        &mut self,
+        m: MemoryArg,
+    ) -> Result<(), Trap> {
+        let rhs = T::stack_pop(&mut self.store.value_stack);
+        let lhs = T::stack_pop(&mut self.store.value_stack);
+        let acc = T::stack_pop(&mut self.store.value_stack);
+        let addr = i32::stack_pop(&mut self.store.value_stack);
+        let fma = acc + lhs * rhs;
+        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
+        mem.store(addr as u32 as u64, m.offset(), fma.to_mem_bytes())?;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_binop_acc_local<T, M, A>(&mut self, acc: LocalAddr, mul: M, add: A)
+    where
+        T: InternalValue,
+        M: Fn(T, T) -> T,
+        A: Fn(T, T) -> T,
+    {
+        let rhs = T::stack_pop(&mut self.store.value_stack);
+        let lhs = T::stack_pop(&mut self.store.value_stack);
+        T::local_update(&mut self.store.value_stack, &self.cf, acc, |v| add(mul(lhs, rhs), v));
     }
 
     fn exec_load_local_value<T: MemValue<N>, const N: usize>(

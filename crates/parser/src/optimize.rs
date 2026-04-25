@@ -17,12 +17,7 @@ pub(crate) fn optimize_instructions(
     track_local_memory_usage: bool,
 ) -> OptimizeResult {
     let uses_local_memory = if options.optimize_rewrite() {
-        rewrite(
-            &mut instructions,
-            self_func_addr,
-            imported_memory_count,
-            track_local_memory_usage,
-        )
+        rewrite(&mut instructions, self_func_addr, imported_memory_count, track_local_memory_usage)
     } else {
         track_local_memory_usage
             && instructions.iter().any(|instr| instr.memory_addr().is_some_and(|mem| mem >= imported_memory_count))
@@ -55,28 +50,43 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal32(op, global)]);
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const32(c)] => AddConst32(c));
+                    rewrite!(instrs, i, [I32Add] => [Nop, I32Add3]);
                 }
             }
             instr @ (I32Sub | I32Shl | I32ShrS | I32ShrU | I32Rotl | I32Rotr) => {
                 let Some(op) = int_bin_op_32(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal32(op, global)]);
+                if matches!(op, BinOp::IShrS) {
+                    rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 8), Const32(8)] => [Nop, LocalGet32(local), I32Extend8S]);
+                    rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 16), Const32(16)] => [Nop, LocalGet32(local), I32Extend16S]);
+                }
             }
             instr @ (I64Add | I64Mul | I64And | I64Or | I64Xor) => {
                 let Some(op) = int_bin_op_64(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal64(op, global)]);
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const64(c)] => AddConst64(c));
+                    rewrite!(instrs, i, [I64Add] => [Nop, I64Add3]);
                 }
             }
             instr @ (I64Sub | I64Shl | I64ShrS | I64ShrU | I64Rotl | I64Rotr) => {
                 let Some(op) = int_bin_op_64(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal64(op, global)]);
+                if matches!(op, BinOp::IShrS) {
+                    rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 8), Const64(8)] => [Nop, LocalGet64(local), I64Extend8S]);
+                    rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 16), Const64(16)] => [Nop, LocalGet64(local), I64Extend16S]);
+                    rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 32), Const64(32)] => [Nop, LocalGet64(local), I64Extend32S]);
+                }
             }
             instr @ (F32Add | F32Mul | F32Min | F32Max) => {
                 let Some(op) = float_bin_op_32(instr) else { unreachable!() };
@@ -111,6 +121,7 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet128(local), Const128(c)] => BinOpLocalConst128(BinOp128::AndNot, local, c));
             }
             I32Store(memarg) | F32Store(memarg) => {
+                rewrite!(instrs, i, [F32Mul, F32Add] => [Nop, Nop, FMaStoreF32(memarg)]);
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local), LocalGet32(value_local)] if
                     (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
@@ -118,6 +129,7 @@ fn rewrite(
                 );
             }
             I64Store(memarg) | F64Store(memarg) => {
+                rewrite!(instrs, i, [F64Mul, F64Add] => [Nop, Nop, FMaStoreF64(memarg)]);
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local), LocalGet64(value_local)] if
                     (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
@@ -156,6 +168,8 @@ fn rewrite(
                         _ => Instruction::BinOpLocalConstSet32(op, lhs, imm, dst),
                     }
                 );
+                rewrite!(instrs, i, [I32Mul, LocalGet32(acc), I32Add] if (acc == dst) => [Nop, Nop, Nop, MulAccLocal32(dst)]);
+                rewrite!(instrs, i, [F32Mul, LocalGet32(acc), F32Add] if (acc == dst) => [Nop, Nop, Nop, FMulAccLocal32(dst)]);
                 rewrite_local_set_direct!(
                     instrs,
                     i,
@@ -193,6 +207,8 @@ fn rewrite(
                         _ => Instruction::BinOpLocalConstSet64(op, lhs, imm, dst),
                     }
                 );
+                rewrite!(instrs, i, [I64Mul, LocalGet64(acc), I64Add] if (acc == dst) => [Nop, Nop, Nop, MulAccLocal64(dst)]);
+                rewrite!(instrs, i, [F64Mul, LocalGet64(acc), F64Add] if (acc == dst) => [Nop, Nop, Nop, FMulAccLocal64(dst)]);
                 rewrite_local_set_direct!(
                     instrs,
                     i,
