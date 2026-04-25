@@ -200,7 +200,10 @@ impl ModuleInstance {
         store.add_instance(instance.clone());
 
         match (elem_trapped, data_trapped) {
-            (Some(trap), _) | (_, Some(trap)) => Err(trap.into()),
+            (Some(trap), _) | (_, Some(trap)) => {
+                cold_path();
+                Err(trap.into())
+            }
             _ => Ok(instance),
         }
     }
@@ -247,13 +250,25 @@ impl ModuleInstance {
 
     #[inline]
     fn require_export(&self, name: &str) -> Result<ExternVal> {
-        self.export_addr(name).ok_or_else(|| Error::Other(format!("Export not found: {name}")))
+        match self.export_addr(name) {
+            Some(addr) => Ok(addr),
+            None => {
+                cold_path();
+                Err(Error::Other(format!("Export not found: {name}")))
+            }
+        }
     }
 
     #[inline]
     #[cfg(feature = "guest_debug")]
     fn index_addr<T: Copy>(slice: &[T], idx: u32, kind: &str) -> Result<T> {
-        slice.get(idx as usize).copied().ok_or_else(|| Error::Other(format!("{kind} index out of bounds: {idx}")))
+        match slice.get(idx as usize) {
+            Some(addr) => Ok(*addr),
+            None => {
+                cold_path();
+                Err(Error::Other(format!("{kind} index out of bounds: {idx}")))
+            }
+        }
     }
 
     /// Get any exported extern value by name.
@@ -368,7 +383,10 @@ impl ModuleInstance {
     pub fn memory(&self, name: &str) -> Result<Memory> {
         match self.require_export(name)? {
             ExternVal::Memory(mem_addr) => Ok(Memory::from_store_addr(self.0.store_id, mem_addr)),
-            _ => Err(Error::Other(format!("Export is not a memory: {name}"))),
+            _ => {
+                cold_path();
+                Err(Error::Other(format!("Export is not a memory: {name}")))
+            }
         }
     }
 

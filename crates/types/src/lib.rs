@@ -418,6 +418,7 @@ pub struct WasmFunction {
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub params: ValueCounts,
+    pub results: ValueCounts,
     pub ty: Arc<FuncType>,
 }
 

@@ -108,7 +108,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     define_operands! {
         // basic instructions
-        visit_global_get(GlobalGet, u32), visit_i32_const(I32Const, i32), visit_i64_const(I64Const, i64), visit_return(Return),
+        visit_global_get(GlobalGet, u32), visit_i32_const(Const32, i32), visit_i64_const(Const64, i64), visit_return(Return),
         visit_call(Call, u32), visit_call_indirect(CallIndirect, u32, u32), visit_return_call_indirect(ReturnCallIndirect, u32, u32),
         visit_return_call(ReturnCall, u32), visit_memory_size(MemorySize, u32), visit_memory_grow(MemoryGrow, u32), visit_unreachable(Unreachable),
         visit_nop(Nop), visit_i32_eqz(I32Eqz), visit_i32_eq(I32Eq), visit_i32_ne(I32Ne), visit_i32_lt_s(I32LtS), visit_i32_lt_u(I32LtU),
@@ -360,11 +360,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
-        self.instructions.push(Instruction::F32Const(f32::from_bits(val.bits())));
+        self.instructions.push(Instruction::Const32(i32::from_ne_bytes(val.bits().to_ne_bytes())));
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        self.instructions.push(Instruction::F64Const(f64::from_bits(val.bits())));
+        self.instructions.push(Instruction::Const64(i64::from_ne_bytes(val.bits().to_ne_bytes())));
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
@@ -485,7 +485,7 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        self.instructions.push(Instruction::V128Const(self.data.v128_constants.len() as u32));
+        self.instructions.push(Instruction::Const128(self.data.v128_constants.len() as u32));
         self.data.v128_constants.push(*value.bytes());
     }
 }

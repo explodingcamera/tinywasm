@@ -54,7 +54,7 @@ impl CallStack {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallFrame {
     pub(crate) instr_ptr: u32,

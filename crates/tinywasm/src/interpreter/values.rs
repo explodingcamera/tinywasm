@@ -147,47 +147,85 @@ mod sealed {
 
 pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
-    fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
-    fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
+    fn stack_select(stack: &mut ValueStack) -> Result<(), crate::Trap>;
+    fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
+    fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
+    fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
 }
 
 macro_rules! impl_internalvalue {
-    ($( $variant:ident, $stack:ident, $stack_base:ident, $outer:ty, $to_value:expr, $to_stack:expr, $from_stack:expr )*) => {
+    (
+        $(
+            $variant:ident, $stack:ident, $stack_base:ident, $outer:ty,
+            |$to_value_v:ident| $to_value:expr,
+            |$to_stack_v:ident| $to_stack:expr,
+            |$from_stack_v:ident| $from_stack:expr
+        )*
+    ) => {
         $(
             impl sealed::Sealed for $outer {}
 
             impl From<$outer> for TinyWasmValue {
+                #[inline(always)]
                 fn from(value: $outer) -> Self {
-                    TinyWasmValue::$variant($to_value(value))
+                    let $to_value_v = value;
+                    TinyWasmValue::$variant($to_value)
                 }
             }
 
             impl InternalValue for $outer {
                 #[inline(always)]
                 fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
-                    stack.$stack.push($to_stack(value))
+                    let $to_stack_v = value;
+                    stack.$stack.push($to_stack)
                 }
 
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
-                    $from_stack(*stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize))
+                    let $from_stack_v = *stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize);
+                    $from_stack
                 }
 
                 #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
-                    stack.$stack.set(frame.locals_base.$stack_base as usize + index as usize, $to_stack(value));
+                    let $to_stack_v = value;
+                    stack.$stack.set(
+                        frame.locals_base.$stack_base as usize + index as usize,
+                        $to_stack,
+                    );
+                }
+
+                #[inline(always)]
+                fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr) {
+                    let val = stack.$stack.get(frame.locals_base.$stack_base as usize + from as usize);
+                    stack.$stack.set(frame.locals_base.$stack_base as usize + to as usize, *val);
                 }
 
                 #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
-                    $from_stack(stack.$stack.pop())
+                    let $from_stack_v = stack.$stack.pop();
+                    $from_stack
                 }
 
                 #[inline(always)]
                 fn stack_peek(stack: &ValueStack) -> Self {
-                    $from_stack(*stack.$stack.last())
+                    let $from_stack_v = *stack.$stack.last();
+                    $from_stack
+                }
+
+                #[inline(always)]
+                fn stack_select(stack: &mut ValueStack) -> Result<(), crate::Trap> {
+                    let cond = stack.stack_32.pop() as i32;
+                    let val2 = stack.$stack.pop();
+
+                    if cond == 0 {
+                        Self::stack_pop(stack);
+                        stack.$stack.push(val2)?;
+                    }
+
+                    Ok(())
                 }
             }
         )*
@@ -195,12 +233,12 @@ macro_rules! impl_internalvalue {
 }
 
 impl_internalvalue! {
-    Value32, stack_32, s32, u32, |v| v, |v| v, |v| v
-    Value64, stack_64, s64, u64, |v| v, |v| v, |v| v
-    Value32, stack_32, s32, i32, |v: i32| v as u32, |v: i32| v as u32, |v: u32| v as i32
-    Value64, stack_64, s64, i64, |v: i64| v as u64, |v: i64| v as u64, |v: u64| v as i64
-    Value32, stack_32, s32, f32, f32::to_bits, f32::to_bits, f32::from_bits
-    Value64, stack_64, s64, f64, f64::to_bits, f64::to_bits, f64::from_bits
-    ValueRef, stack_32, s32, ValueRef, |v| v, |v: ValueRef| v.raw(), |v: u32| ValueRef(v)
-    Value128, stack_128, s128, Value128, |v| v, |v| v, |v| v
+    Value32,  stack_32,  s32,  u32,      |v| v,               |v| v,               |v| v
+    Value64,  stack_64,  s64,  u64,      |v| v,               |v| v,               |v| v
+    Value32,  stack_32,  s32,  i32,      |v| v as u32,        |v| v as u32,        |v| v as i32
+    Value64,  stack_64,  s64,  i64,      |v| v as u64,        |v| v as u64,        |v| v as i64
+    Value32,  stack_32,  s32,  f32,      |v| f32::to_bits(v), |v| f32::to_bits(v), |v| f32::from_bits(v)
+    Value64,  stack_64,  s64,  f64,      |v| f64::to_bits(v), |v| f64::to_bits(v), |v| f64::from_bits(v)
+    ValueRef, stack_32,  s32,  ValueRef, |v| v,               |v| v.raw(),         |v| ValueRef(v)
+    Value128, stack_128, s128, Value128, |v| v,               |v| v,               |v| v
 }

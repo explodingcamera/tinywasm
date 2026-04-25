@@ -34,6 +34,11 @@ impl MemValue<16> for Value128 {
     fn to_mem_bytes(self) -> [u8; 16] {
         self.0
     }
+
+    #[inline(always)]
+    fn load(mem: &dyn crate::LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
+        Ok(Self(mem.read_128(base, offset)?))
+    }
 }
 
 impl From<Value128> for i128 {

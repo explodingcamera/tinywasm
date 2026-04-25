@@ -1,10 +1,34 @@
 use std::panic::{self, AssertUnwindSafe};
+use std::time::Duration;
 
 use eyre::{Result, bail, eyre};
-use tinywasm::ModuleInstance;
+use tinywasm::{ExecProgress, ModuleInstance};
 use tinywasm_types::{ExternRef, FuncRef, Module, ModuleInstanceAddr, WasmType, WasmValue};
 use wasm_testsuite::wast;
 use wasm_testsuite::wast::{QuoteWat, core::AbstractHeapType};
+
+const TEST_TIME_SLICE: Duration = Duration::from_millis(10);
+const TEST_MAX_SUSPENSIONS: u32 = 100;
+
+fn exec_with_budget(
+    func: &tinywasm::Function,
+    store: &mut tinywasm::Store,
+    args: &[tinywasm_types::WasmValue],
+) -> Result<Vec<tinywasm_types::WasmValue>, tinywasm::Error> {
+    let mut exec = func.call_resumable(store, args)?;
+
+    for _ in 0..TEST_MAX_SUSPENSIONS {
+        match exec.resume_with_time_budget(TEST_TIME_SLICE)? {
+            ExecProgress::Completed(values) => return Ok(values),
+            ExecProgress::Suspended => {}
+        }
+    }
+
+    Err(tinywasm::Error::Other(format!(
+        "testsuite execution timed out after {} time slices of {:?}",
+        TEST_MAX_SUSPENSIONS, TEST_TIME_SLICE
+    )))
+}
 
 pub fn try_downcast_panic(panic: Box<dyn std::any::Any + Send>) -> String {
     let info = panic.downcast_ref::<panic::PanicHookInfo>().or(None).map(ToString::to_string).clone();
@@ -28,7 +52,7 @@ pub fn exec_fn_instance(
     };
 
     let func = instance.func_untyped(store, name)?;
-    func.call(store, args)
+    exec_with_budget(&func, store, args)
 }
 
 pub fn exec_fn(
@@ -43,7 +67,8 @@ pub fn exec_fn(
 
     let mut store = tinywasm::Store::default();
     let instance = ModuleInstance::instantiate(&mut store, module, imports)?;
-    instance.func_untyped(&store, name)?.call(&mut store, args)
+    let func = instance.func_untyped(&store, name)?;
+    exec_with_budget(&func, &mut store, args)
 }
 
 pub fn catch_unwind_silent<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {

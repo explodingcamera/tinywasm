@@ -1,5 +1,3 @@
-use alloc::sync::Arc;
-
 /// Memory backend types and traits.
 pub use crate::store::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 
@@ -9,25 +7,19 @@ pub use crate::store::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemor
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Engine {
-    pub(crate) inner: Arc<EngineInner>,
+    pub(crate) config: Config,
 }
 
 impl Engine {
     /// Create a new engine with the given configuration
     pub fn new(config: Config) -> Self {
-        Self { inner: Arc::new(EngineInner { config }) }
+        Self { config }
     }
 
     /// Get a reference to the engine's configuration
     pub fn config(&self) -> &Config {
-        &self.inner.config
+        &self.config
     }
-}
-
-#[derive(Default)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) struct EngineInner {
-    pub(crate) config: Config,
 }
 
 /// Fuel accounting policy for budgeted execution.

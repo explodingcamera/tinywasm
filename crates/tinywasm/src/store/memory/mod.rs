@@ -376,10 +376,12 @@ pub(crate) trait MemValue<const N: usize>: Copy + Default {
 
     /// Load a value from memory
     fn from_mem_bytes(bytes: [u8; N]) -> Self;
+
+    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap>;
 }
 
 macro_rules! impl_mem_traits {
-    ($($ty:ty, $size:expr),*) => {
+    ($($ty:ty, $size:expr, $read:ident),* $(,)?) => {
         $(
             impl MemValue<$size> for $ty {
                 #[inline(always)]
@@ -391,12 +393,58 @@ macro_rules! impl_mem_traits {
                 fn to_mem_bytes(self) -> [u8; $size] {
                     self.to_le_bytes()
                 }
+
+                #[inline(always)]
+                fn load(
+                    mem: &dyn LinearMemory,
+                    base: u64,
+                    offset: u64,
+                ) -> core::result::Result<Self, crate::Trap> {
+                    Ok(Self::from_mem_bytes(mem.$read(base, offset)?))
+                }
             }
         )*
+    };
+}
+
+impl MemValue<1> for u8 {
+    #[inline(always)]
+    fn from_mem_bytes(bytes: [u8; 1]) -> Self {
+        bytes[0]
+    }
+
+    #[inline(always)]
+    fn to_mem_bytes(self) -> [u8; 1] {
+        [self]
+    }
+
+    #[inline(always)]
+    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
+        mem.read_8(base, offset)
     }
 }
 
-impl_mem_traits!(u8, 1, i8, 1, u16, 2, i16, 2, u32, 4, i32, 4, f32, 4, u64, 8, i64, 8, f64, 8);
+impl MemValue<1> for i8 {
+    #[inline(always)]
+    fn from_mem_bytes(bytes: [u8; 1]) -> Self {
+        i8::from_le_bytes(bytes)
+    }
+
+    #[inline(always)]
+    fn to_mem_bytes(self) -> [u8; 1] {
+        self.to_le_bytes()
+    }
+
+    #[inline(always)]
+    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
+        Ok(mem.read_8(base, offset)? as i8)
+    }
+}
+
+impl_mem_traits!(
+    u16, 2, read_16, i16, 2, read_16, u32, 4, read_32, i32, 4, read_32, f32, 4, read_32, u64, 8, read_64, i64, 8,
+    read_64, f64, 8, read_64,
+);
 
 fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
     crate::Trap::MemoryOutOfBounds { offset, len, max }

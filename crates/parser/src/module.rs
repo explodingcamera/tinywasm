@@ -200,17 +200,26 @@ impl ModuleReader {
         {
             let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
             let params = ValueCounts::from_iter(ty.params());
+            let results = ValueCounts::from_iter(ty.results());
             let self_func = (imported_func_count + func_idx) as u32;
             let local_mem_alloc =
                 optimize_local_memory_allocation && local_memory_allocation != LocalMemoryAllocation::Eager;
-            let optimized =
-                optimize::optimize_instructions(instructions, &mut data, self_func, import_mem_count, local_mem_alloc);
+            let optimized = optimize::optimize_instructions(
+                instructions,
+                &mut data,
+                options,
+                self_func,
+                import_mem_count,
+                local_mem_alloc,
+            );
 
             if optimized.uses_local_memory {
                 local_memory_allocation = LocalMemoryAllocation::Eager;
             }
 
-            funcs.push(WasmFunction { instructions: optimized.instructions.into(), data, locals, params, ty }.into());
+            funcs.push(
+                WasmFunction { instructions: optimized.instructions.into(), data, locals, params, results, ty }.into(),
+            );
         }
 
         Ok(ModuleInner {

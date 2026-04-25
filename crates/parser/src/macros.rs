@@ -216,5 +216,120 @@ pub(crate) mod optimize {
         };
     }
 
-    pub(crate) use {replace, rewrite};
+    macro_rules! define_local_source_resolver {
+        (
+            $name:ident,
+            get = $get:ident,
+            tee = $tee:ident,
+            set = $set:ident,
+            copy = $copy:ident,
+            binop_local_local_tee = $lltee:ident,
+            binop_local_local_set = $llset:ident,
+            binop_local_const_tee = $lctee:ident,
+            binop_local_const_set = $lcset:ident
+            $(, load_local_tee = $loadtee:ident, load_local_set = $loadset:ident)?
+        ) => {
+            fn $name(instrs: &mut [Instruction], read: usize, instr: Instruction) -> Option<(Instruction, u16)> {
+                Some(match instr {
+                    Instruction::$get(local) => (Instruction::Nop, local),
+                    Instruction::$tee(local) => {
+                        let replacement = if let Some([(prev_idx, Instruction::$get(src))]) = previous_non_nop::<1>(instrs, read) {
+                            instrs[prev_idx] = Instruction::Nop;
+                            if src == local { Instruction::Nop } else { Instruction::$copy(src, local) }
+                        } else {
+                            Instruction::$set(local)
+                        };
+                        (replacement, local)
+                    }
+                    Instruction::$lltee(op, a, b, local) => (Instruction::$llset(op, a, b, local), local),
+                    Instruction::$lctee(op, src, c, local) => (Instruction::$lcset(op, src, c, local), local),
+                    $(Instruction::$loadtee(memarg, addr, local) => (Instruction::$loadset(memarg, addr, local), local.into()),)?
+                    _ => return None,
+                })
+            }
+        };
+    }
+
+    macro_rules! fold_local_binop {
+        (
+            $instrs:ident, $read:expr, $dst:expr,
+            source = $source:ident,
+            op = $op:ident,
+            const = $const:ident,
+            local_local = $local_local:ident,
+            local_const = $local_const:expr
+        ) => {{
+            if let Some([(lhs_idx, lhs_src), (rhs_idx, rhs_src), (op_idx, raw_op)]) =
+                previous_non_nop::<3>($instrs, $read)
+                && let Some((lhs_instr, lhs)) = $source($instrs, lhs_idx, lhs_src)
+                && let Some(op) = $op(raw_op)
+            {
+                if let Some((rhs_instr, rhs)) = $source($instrs, rhs_idx, rhs_src) {
+                    $instrs[lhs_idx] = lhs_instr;
+                    $instrs[rhs_idx] = rhs_instr;
+                    $instrs[op_idx] = Instruction::Nop;
+                    $instrs[$read] = Instruction::$local_local(op, lhs, rhs, $dst);
+                } else if let Some(imm) = $const(rhs_src, raw_op) {
+                    $instrs[lhs_idx] = lhs_instr;
+                    $instrs[rhs_idx] = Instruction::Nop;
+                    $instrs[op_idx] = Instruction::Nop;
+                    $instrs[$read] = $local_const($dst, lhs, op, imm);
+                }
+            }
+        }};
+    }
+
+    macro_rules! rewrite_local_set_direct {
+        (
+            $instrs:ident, $read:ident, $dst:expr,
+            get = $get:ident,
+            copy = $copy:ident,
+            binop_local_local = $ll:ident,
+            binop_local_local_set = $llset:ident,
+            binop_local_const = $lc:ident,
+            binop_local_const_set = $lcset:expr
+            $(, const_instr = $const_instr:ident, set_local_const = $set_local_const:ident)?
+        ) => {{
+            rewrite!($instrs, $read, [$get(src)] => if src == $dst { Instruction::Nop } else { Instruction::$copy(src, $dst) });
+            $(rewrite!($instrs, $read, [$const_instr(c)] => Instruction::$set_local_const($dst, c));)?
+            rewrite!($instrs, $read, [$ll(op, a, b)] => Instruction::$llset(op, a, b, $dst));
+            rewrite!($instrs, $read, [$lc(op, src, c)] => { replace!($instrs, $read, 1 => $lcset($dst, src, op, c)); });
+        }};
+    }
+
+    macro_rules! rewrite_local_tee_direct {
+        (
+            $instrs:ident, $read:ident, $dst:expr,
+            get = $get:ident,
+            binop_local_local = $ll:ident,
+            binop_local_local_tee = $lltee:ident,
+            binop_local_const = $lc:ident,
+            binop_local_const_tee = $lctee:ident
+        ) => {{
+            rewrite!($instrs, $read, [$get(src)] if (src == $dst) => [Instruction::$get(src), Instruction::Nop]);
+            rewrite!($instrs, $read, [$ll(op, a, b)] => Instruction::$lltee(op, a, b, $dst));
+            rewrite!($instrs, $read, [$lc(op, src, c)] => Instruction::$lctee(op, src, c, $dst));
+        }};
+    }
+
+    macro_rules! rewrite_drop_tee_direct {
+        (
+            $instrs:ident, $read:ident,
+            tee = $tee:ident,
+            set = $set:ident,
+            binop_local_local_tee = $lltee:ident,
+            binop_local_local_set = $llset:ident,
+            binop_local_const_tee = $lctee:ident,
+            binop_local_const_set = $lcset:ident
+        ) => {{
+            rewrite!($instrs, $read, [$tee(local)] => [Instruction::$set(local), Instruction::Nop]);
+            rewrite!($instrs, $read, [$lltee(op, a, b, dst)] => Instruction::$llset(op, a, b, dst));
+            rewrite!($instrs, $read, [$lctee(op, src, c, dst)] => Instruction::$lcset(op, src, c, dst));
+        }};
+    }
+
+    pub(crate) use {
+        define_local_source_resolver, fold_local_binop, replace, rewrite, rewrite_drop_tee_direct,
+        rewrite_local_set_direct, rewrite_local_tee_direct,
+    };
 }

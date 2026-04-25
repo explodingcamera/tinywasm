@@ -132,7 +132,7 @@ pub enum Instruction {
     BinOpLocalConstTee32(BinOp, LocalAddr, i32, LocalAddr),
     BinOpLocalConstTee64(BinOp, LocalAddr, i64, LocalAddr),
     BinOpLocalConstTee128(BinOp128, LocalAddr, ConstIdx, LocalAddr),
-    SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64),
+    SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64), SetLocalConst128(LocalAddr, ConstIdx),
     StoreLocalLocal32(MemoryArg, u8, u8),
     StoreLocalLocal64(MemoryArg, u8, u8),
     StoreLocalLocal128(MemoryArg, u8, u8),
@@ -158,6 +158,10 @@ pub enum Instruction {
     JumpIfNonZero32(u32),
     JumpIfZero64(u32),
     JumpIfNonZero64(u32),
+    JumpIfLocalZero32 { target_ip: u32, local: LocalAddr },
+    JumpIfLocalNonZero32 { target_ip: u32, local: LocalAddr },
+    JumpIfLocalZero64 { target_ip: u32, local: LocalAddr },
+    JumpIfLocalNonZero64 { target_ip: u32, local: LocalAddr },
     JumpCmpStackConst32 { target_ip: u32, imm: i32, op: CmpOp },
     JumpCmpStackConst64 { target_ip: u32, imm: i64, op: CmpOp },
     JumpCmpLocalConst32 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
@@ -219,10 +223,8 @@ pub enum Instruction {
     MemoryGrow(MemAddr),
 
     // > Constants
-    I32Const(i32),
-    I64Const(i64),
-    F32Const(f32),
-    F64Const(f64),
+    Const32(i32),
+    Const64(i64),
 
     // > Reference Types
     RefNull(WasmType),
@@ -290,7 +292,7 @@ pub enum Instruction {
     V128Store(MemoryArg), V128Store8Lane(MemoryArg, u8), V128Store16Lane(MemoryArg, u8), V128Store32Lane(MemoryArg, u8), V128Store64Lane(MemoryArg, u8),
 
     I8x16Shuffle(ConstIdx),
-    V128Const(ConstIdx),
+    Const128(ConstIdx),
 
     I8x16ExtractLaneS(u8), I8x16ExtractLaneU(u8), I8x16ReplaceLane(u8),
     I16x8ExtractLaneS(u8), I16x8ExtractLaneU(u8), I16x8ReplaceLane(u8),

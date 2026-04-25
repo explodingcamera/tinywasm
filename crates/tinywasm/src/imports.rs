@@ -2,6 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::Debug;
+use core::hint::cold_path;
 
 use crate::{Function, Global, LinkingError, Memory, Result, Table, log};
 use tinywasm_types::*;
@@ -145,6 +146,7 @@ impl Imports {
     #[cfg(not(feature = "debug"))]
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
+            cold_path();
             log::error!("failed to link import {}", import.name);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
@@ -154,6 +156,7 @@ impl Imports {
     #[cfg(feature = "debug")]
     fn compare_types<T: PartialEq + Debug>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
+            cold_path();
             log::error!("failed to link import {}: expected {:?}, got {:?}", import.name, expected, actual);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
@@ -163,12 +166,17 @@ impl Imports {
     fn compare_table_types(import: &Import, expected: &TableType, actual: &TableType) -> Result<()> {
         Self::compare_types(import, &actual.element_type, &expected.element_type)?;
         if actual.size_initial > expected.size_initial {
+            cold_path();
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
         match (expected.size_max, actual.size_max) {
-            (None, Some(_)) => Err(LinkingError::incompatible_import_type(import).into()),
+            (None, Some(_)) => {
+                cold_path();
+                Err(LinkingError::incompatible_import_type(import).into())
+            }
             (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
+                cold_path();
                 Err(LinkingError::incompatible_import_type(import).into())
             }
             _ => Ok(()),
@@ -209,10 +217,10 @@ impl Imports {
             });
 
         let mut imports = ResolvedImports {
-            globals: Vec::with_capacity(global_count),
-            tables: Vec::with_capacity(table_count),
-            memories: Vec::with_capacity(mem_count),
-            funcs: Vec::with_capacity(func_count),
+            globals: Vec::with_capacity(global_count + module.globals.len()),
+            tables: Vec::with_capacity(table_count + module.table_types.len()),
+            memories: Vec::with_capacity(mem_count + module.memory_types.len()),
+            funcs: Vec::with_capacity(func_count + module.funcs.len()),
         };
 
         for import in &*module.imports {
@@ -220,6 +228,7 @@ impl Imports {
                 match defined {
                     Extern::Global(global) => {
                         let ImportKind::Global(import_ty) = &import.kind else {
+                            cold_path();
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let global_instance = store.state.get_global(global.0.addr);
@@ -228,6 +237,7 @@ impl Imports {
                     }
                     Extern::Table(table) => {
                         let ImportKind::Table(import_ty) = &import.kind else {
+                            cold_path();
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let table_instance = store.state.get_table(table.0.addr);
@@ -238,6 +248,7 @@ impl Imports {
                     }
                     Extern::Memory(memory) => {
                         let ImportKind::Memory(import_ty) = &import.kind else {
+                            cold_path();
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let mem = store.state.get_mem(memory.0.addr);
@@ -246,6 +257,7 @@ impl Imports {
                     }
                     Extern::Function(func_handle) => {
                         let ImportKind::Function(ty) = &import.kind else {
+                            cold_path();
                             return Err(LinkingError::incompatible_import_type(import).into());
                         };
                         let import_func_type = module
@@ -262,6 +274,7 @@ impl Imports {
 
             let name = ExternName::from(import);
             let Some(instance) = self.modules.get(&name.module) else {
+                cold_path();
                 return Err(LinkingError::unknown_import(import).into());
             };
             instance.validate_store(store)?;
@@ -271,6 +284,7 @@ impl Imports {
             {
                 // check if the kind matches
                 if val.kind() != (&import.kind).into() {
+                    cold_path();
                     return Err(LinkingError::incompatible_import_type(import).into());
                 }
 

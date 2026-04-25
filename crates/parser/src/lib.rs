@@ -47,11 +47,22 @@ pub use tinywasm_types::Module;
 pub struct ParserOptions {
     /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
     pub optimize_local_memory_allocation: bool,
+    /// Whether to run the peephole rewrite optimizer.
+    pub optimize_rewrite: bool,
+    /// Whether to remove `Nop` and `MergeBarrier` instructions after rewriting.
+    pub optimize_remove_nop: bool,
+    /// Whether to invert conditional branches over an unconditional jump.
+    pub optimize_branch_inversion: bool,
 }
 
 impl Default for ParserOptions {
     fn default() -> Self {
-        Self { optimize_local_memory_allocation: true }
+        Self {
+            optimize_local_memory_allocation: true,
+            optimize_rewrite: true,
+            optimize_remove_nop: true,
+            optimize_branch_inversion: false,
+        }
     }
 }
 
@@ -65,6 +76,39 @@ impl ParserOptions {
     /// Returns whether unused local memory allocation optimization is enabled.
     pub const fn optimize_local_memory_allocation(&self) -> bool {
         self.optimize_local_memory_allocation
+    }
+
+    /// Enable or disable the peephole rewrite optimizer.
+    pub const fn with_rewrite_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_rewrite = enabled;
+        self
+    }
+
+    /// Returns whether the peephole rewrite optimizer is enabled.
+    pub const fn optimize_rewrite(&self) -> bool {
+        self.optimize_rewrite
+    }
+
+    /// Enable or disable `Nop`/`MergeBarrier` removal after rewriting.
+    pub const fn with_nop_removal_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_remove_nop = enabled;
+        self
+    }
+
+    /// Returns whether `Nop`/`MergeBarrier` removal is enabled.
+    pub const fn optimize_remove_nop(&self) -> bool {
+        self.optimize_remove_nop
+    }
+
+    /// Enable or disable the optimization that inverts conditional branches over an unconditional jump.
+    pub const fn with_branch_inversion_optimization(mut self, enabled: bool) -> Self {
+        self.optimize_branch_inversion = enabled;
+        self
+    }
+
+    /// Returns whether conditional branch inversion optimization is enabled.
+    pub const fn optimize_branch_inversion(&self) -> bool {
+        self.optimize_branch_inversion
     }
 }
 
