@@ -222,25 +222,16 @@ pub(crate) mod optimize {
             get = $get:ident,
             tee = $tee:ident,
             set = $set:ident,
-            copy = $copy:ident,
             binop_local_local_tee = $lltee:ident,
             binop_local_local_set = $llset:ident,
             binop_local_const_tee = $lctee:ident,
             binop_local_const_set = $lcset:ident
             $(, load_local_tee = $loadtee:ident, load_local_set = $loadset:ident)?
         ) => {
-            fn $name(instrs: &mut [Instruction], read: usize, instr: Instruction) -> Option<(Instruction, u16)> {
+            fn $name(instr: Instruction) -> Option<(Instruction, u16)> {
                 Some(match instr {
                     Instruction::$get(local) => (Instruction::Nop, local),
-                    Instruction::$tee(local) => {
-                        let replacement = if let Some([(prev_idx, Instruction::$get(src))]) = previous_non_nop::<1>(instrs, read) {
-                            instrs[prev_idx] = Instruction::Nop;
-                            if src == local { Instruction::Nop } else { Instruction::$copy(src, local) }
-                        } else {
-                            Instruction::$set(local)
-                        };
-                        (replacement, local)
-                    }
+                    Instruction::$tee(local) => (Instruction::$set(local), local),
                     Instruction::$lltee(op, a, b, local) => (Instruction::$llset(op, a, b, local), local),
                     Instruction::$lctee(op, src, c, local) => (Instruction::$lcset(op, src, c, local), local),
                     $(Instruction::$loadtee(memarg, addr, local) => (Instruction::$loadset(memarg, addr, local), local.into()),)?
@@ -261,10 +252,10 @@ pub(crate) mod optimize {
         ) => {{
             if let Some([(lhs_idx, lhs_src), (rhs_idx, rhs_src), (op_idx, raw_op)]) =
                 previous_non_nop::<3>($instrs, $read)
-                && let Some((lhs_instr, lhs)) = $source($instrs, lhs_idx, lhs_src)
+                && let Some((lhs_instr, lhs)) = $source(lhs_src)
                 && let Some(op) = $op(raw_op)
             {
-                if let Some((rhs_instr, rhs)) = $source($instrs, rhs_idx, rhs_src) {
+                if let Some((rhs_instr, rhs)) = $source(rhs_src) {
                     $instrs[lhs_idx] = lhs_instr;
                     $instrs[rhs_idx] = rhs_instr;
                     $instrs[op_idx] = Instruction::Nop;

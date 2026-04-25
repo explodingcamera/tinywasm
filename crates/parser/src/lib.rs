@@ -51,8 +51,6 @@ pub struct ParserOptions {
     pub optimize_rewrite: bool,
     /// Whether to remove `Nop` and `MergeBarrier` instructions after rewriting.
     pub optimize_remove_nop: bool,
-    /// Whether to invert conditional branches over an unconditional jump.
-    pub optimize_branch_inversion: bool,
 }
 
 impl Default for ParserOptions {
@@ -61,7 +59,6 @@ impl Default for ParserOptions {
             optimize_local_memory_allocation: true,
             optimize_rewrite: true,
             optimize_remove_nop: true,
-            optimize_branch_inversion: false,
         }
     }
 }
@@ -100,16 +97,6 @@ impl ParserOptions {
         self.optimize_remove_nop
     }
 
-    /// Enable or disable the optimization that inverts conditional branches over an unconditional jump.
-    pub const fn with_branch_inversion_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_branch_inversion = enabled;
-        self
-    }
-
-    /// Returns whether conditional branch inversion optimization is enabled.
-    pub const fn optimize_branch_inversion(&self) -> bool {
-        self.optimize_branch_inversion
-    }
 }
 
 /// A WebAssembly parser

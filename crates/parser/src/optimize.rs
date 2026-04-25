@@ -22,7 +22,6 @@ pub(crate) fn optimize_instructions(
             self_func_addr,
             imported_memory_count,
             track_local_memory_usage,
-            options.optimize_branch_inversion(),
         )
     } else {
         track_local_memory_usage
@@ -40,7 +39,6 @@ fn rewrite(
     self_func_addr: u32,
     imported_memory_count: u32,
     track_local_memory_usage: bool,
-    optimize_branch_inversion: bool,
 ) -> bool {
     use Instruction::*;
     let mut uses_local_memory = false;
@@ -416,9 +414,6 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfZero(current) = &mut instrs[i] {
                     *current = target;
@@ -478,9 +473,6 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfNonZero(current) = &mut instrs[i] {
                     *current = target;
@@ -489,9 +481,6 @@ fn rewrite(
             JumpIfZero32(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalZero32 { target_ip: target, local });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfZero32(current) = &mut instrs[i] {
                     *current = target;
@@ -500,9 +489,6 @@ fn rewrite(
             JumpIfNonZero32(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalNonZero32 { target_ip: target, local });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfNonZero32(current) = &mut instrs[i] {
                     *current = target;
@@ -511,9 +497,6 @@ fn rewrite(
             JumpIfZero64(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalZero64 { target_ip: target, local });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfZero64(current) = &mut instrs[i] {
                     *current = target;
@@ -522,9 +505,6 @@ fn rewrite(
             JumpIfNonZero64(ip) => {
                 let target = resolve_jump_target(instrs, ip);
                 rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalNonZero64 { target_ip: target, local });
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
                 if let JumpIfNonZero64(current) = &mut instrs[i] {
                     *current = target;
@@ -536,9 +516,6 @@ fn rewrite(
                     CmpOp::Ne => instrs[i] = JumpIfNonZero32(target_ip),
                     _ => {}
                 }
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
             }
             JumpCmpStackConst64 { target_ip, imm: 0, op } => {
@@ -546,9 +523,6 @@ fn rewrite(
                     CmpOp::Eq => instrs[i] = JumpIfZero64(target_ip),
                     CmpOp::Ne => instrs[i] = JumpIfNonZero64(target_ip),
                     _ => {}
-                }
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
                 }
                 canonicalize_jump_like(instrs, i);
             }
@@ -558,9 +532,6 @@ fn rewrite(
                     CmpOp::Ne => instrs[i] = JumpIfLocalNonZero32 { target_ip, local },
                     _ => {}
                 }
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
             }
             JumpCmpLocalConst64 { target_ip, local, imm: 0, op } => {
@@ -568,9 +539,6 @@ fn rewrite(
                     CmpOp::Eq => instrs[i] = JumpIfLocalZero64 { target_ip, local },
                     CmpOp::Ne => instrs[i] = JumpIfLocalNonZero64 { target_ip, local },
                     _ => {}
-                }
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
                 }
                 canonicalize_jump_like(instrs, i);
             }
@@ -584,9 +552,6 @@ fn rewrite(
             | JumpIfLocalNonZero32 { .. }
             | JumpIfLocalZero64 { .. }
             | JumpIfLocalNonZero64 { .. } => {
-                if optimize_branch_inversion {
-                    invert_conditional_over_jump(instrs, i);
-                }
                 canonicalize_jump_like(instrs, i);
             }
             _ => {}
@@ -710,7 +675,6 @@ define_local_source_resolver!(
     get = LocalGet32,
     tee = LocalTee32,
     set = LocalSet32,
-    copy = LocalCopy32,
     binop_local_local_tee = BinOpLocalLocalTee32,
     binop_local_local_set = BinOpLocalLocalSet32,
     binop_local_const_tee = BinOpLocalConstTee32,
@@ -724,7 +688,6 @@ define_local_source_resolver!(
     get = LocalGet64,
     tee = LocalTee64,
     set = LocalSet64,
-    copy = LocalCopy64,
     binop_local_local_tee = BinOpLocalLocalTee64,
     binop_local_local_set = BinOpLocalLocalSet64,
     binop_local_const_tee = BinOpLocalConstTee64,
@@ -736,7 +699,6 @@ define_local_source_resolver!(
     get = LocalGet128,
     tee = LocalTee128,
     set = LocalSet128,
-    copy = LocalCopy128,
     binop_local_local_tee = BinOpLocalLocalTee128,
     binop_local_local_set = BinOpLocalLocalSet128,
     binop_local_const_tee = BinOpLocalConstTee128,
@@ -881,30 +843,6 @@ fn set_jump_target(instr: &mut Instruction, target: u32) {
     }
 }
 
-fn invert_jump(instr: Instruction, target: u32) -> Option<Instruction> {
-    Some(match instr {
-        Instruction::JumpCmpStackConst32 { imm, op, .. } => {
-            Instruction::JumpCmpStackConst32 { target_ip: target, imm, op: inverse_cmp_op(op) }
-        }
-        Instruction::JumpCmpStackConst64 { imm, op, .. } => {
-            Instruction::JumpCmpStackConst64 { target_ip: target, imm, op: inverse_cmp_op(op) }
-        }
-        Instruction::JumpCmpLocalConst32 { local, imm, op, .. } => {
-            Instruction::JumpCmpLocalConst32 { target_ip: target, local, imm, op: inverse_cmp_op(op) }
-        }
-        Instruction::JumpCmpLocalConst64 { local, imm, op, .. } => {
-            Instruction::JumpCmpLocalConst64 { target_ip: target, local, imm, op: inverse_cmp_op(op) }
-        }
-        Instruction::JumpCmpLocalLocal32 { left, right, op, .. } => {
-            Instruction::JumpCmpLocalLocal32 { target_ip: target, left, right, op: inverse_cmp_op(op) }
-        }
-        Instruction::JumpCmpLocalLocal64 { left, right, op, .. } => {
-            Instruction::JumpCmpLocalLocal64 { target_ip: target, left, right, op: inverse_cmp_op(op) }
-        }
-        _ => return None,
-    })
-}
-
 fn canonicalize_jump_like(instrs: &mut [Instruction], idx: usize) {
     let Some(target) = jump_target(instrs[idx]) else {
         return;
@@ -916,42 +854,6 @@ fn canonicalize_jump_like(instrs: &mut [Instruction], idx: usize) {
     } else {
         set_jump_target(&mut instrs[idx], target);
     }
-}
-
-fn invert_conditional_over_jump(instrs: &mut [Instruction], idx: usize) {
-    let Some(target) = jump_target(instrs[idx]) else {
-        return;
-    };
-    if matches!(instrs[idx], Instruction::Jump(_)) {
-        return;
-    }
-
-    let target_idx = next_non_nop(instrs, target as usize);
-    if target_idx >= instrs.len() || target_idx <= idx + 1 {
-        return;
-    }
-
-    let Some(jump_idx) = ((idx + 1)..target_idx)
-        .rev()
-        .find(|&candidate| !matches!(instrs[candidate], Instruction::Nop | Instruction::MergeBarrier))
-    else {
-        return;
-    };
-
-    let Instruction::Jump(exit_target) = instrs[jump_idx] else {
-        return;
-    };
-    if next_non_nop(instrs, jump_idx + 1) != target_idx {
-        return;
-    }
-
-    let exit_target = resolve_jump_target(instrs, exit_target);
-    let Some(inverted) = invert_jump(instrs[idx], exit_target) else {
-        return;
-    };
-
-    instrs[idx] = inverted;
-    instrs[jump_idx] = Instruction::Nop;
 }
 
 fn remove_nop(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunctionData) {

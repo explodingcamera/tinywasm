@@ -191,10 +191,8 @@ macro_rules! impl_internalvalue {
                 #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
                     let $to_stack_v = value;
-                    stack.$stack.set(
-                        frame.locals_base.$stack_base as usize + index as usize,
-                        $to_stack,
-                    );
+                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
+                    stack.$stack.set(abs_index, $to_stack);
                 }
 
                 #[inline(always)]

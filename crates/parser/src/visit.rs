@@ -218,14 +218,52 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
         let resolved_idx = self.local_addr_map[idx as usize];
         if let Some(Some(t)) = self.validator.get_operand_type(0) {
-            self.instructions.push(match t {
-                wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
-                wasmparser::ValType::F32 => Instruction::LocalTee32(resolved_idx),
-                wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
-                wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
-                wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
-                wasmparser::ValType::Ref(_) => Instruction::LocalTee32(resolved_idx),
-            })
+            let last = self.instructions.last();
+            let src = match t {
+                wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
+                    if let Some(Instruction::LocalGet32(src)) = last { Some(*src) } else { None }
+                }
+                wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
+                    if let Some(Instruction::LocalGet64(src)) = last { Some(*src) } else { None }
+                }
+                wasmparser::ValType::V128 => {
+                    if let Some(Instruction::LocalGet128(src)) = last { Some(*src) } else { None }
+                }
+                wasmparser::ValType::Ref(_) => {
+                    if let Some(Instruction::LocalGet32(src)) = last { Some(*src) } else { None }
+                }
+            };
+
+            if let Some(src) = src {
+                self.instructions.pop();
+                match t {
+                    wasmparser::ValType::I32 | wasmparser::ValType::F32 => {
+                        self.instructions.push(Instruction::LocalCopy32(src, resolved_idx));
+                        self.instructions.push(Instruction::LocalGet32(resolved_idx));
+                    }
+                    wasmparser::ValType::I64 | wasmparser::ValType::F64 => {
+                        self.instructions.push(Instruction::LocalCopy64(src, resolved_idx));
+                        self.instructions.push(Instruction::LocalGet64(resolved_idx));
+                    }
+                    wasmparser::ValType::V128 => {
+                        self.instructions.push(Instruction::LocalCopy128(src, resolved_idx));
+                        self.instructions.push(Instruction::LocalGet128(resolved_idx));
+                    }
+                    wasmparser::ValType::Ref(_) => {
+                        self.instructions.push(Instruction::LocalCopy32(src, resolved_idx));
+                        self.instructions.push(Instruction::LocalGet32(resolved_idx));
+                    }
+                }
+            } else {
+                self.instructions.push(match t {
+                    wasmparser::ValType::I32 => Instruction::LocalTee32(resolved_idx),
+                    wasmparser::ValType::F32 => Instruction::LocalTee32(resolved_idx),
+                    wasmparser::ValType::I64 => Instruction::LocalTee64(resolved_idx),
+                    wasmparser::ValType::F64 => Instruction::LocalTee64(resolved_idx),
+                    wasmparser::ValType::V128 => Instruction::LocalTee128(resolved_idx),
+                    wasmparser::ValType::Ref(_) => Instruction::LocalTee32(resolved_idx),
+                })
+            }
         }
     }
 
