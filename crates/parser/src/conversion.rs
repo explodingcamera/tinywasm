@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 
-use crate::{Result, module::Code, visit::process_operators_and_validate};
+use crate::{Result, module::FunctionCode, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
@@ -163,7 +163,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
     mut validator: FuncValidator<ValidatorResources>,
-) -> Result<(Code, FuncValidatorAllocations)> {
+) -> Result<(FunctionCode, FuncValidatorAllocations)> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
@@ -200,7 +200,7 @@ pub(crate) fn convert_module_code(
     }
 
     let (body, data, allocations) = process_operators_and_validate(validator, func, local_addr_map)?;
-    Ok(((body, data, local_counts), allocations))
+    Ok((FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false }, allocations))
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncType>> {

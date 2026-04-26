@@ -681,6 +681,7 @@ dependencies = [
  "log",
  "tinywasm-types",
  "wasmparser",
+ "wat",
 ]
 
 [[package]]

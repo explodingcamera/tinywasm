@@ -38,13 +38,16 @@ serde_json.workspace=true
 serde.workspace=true
 
 [features]
-default=["std", "parser", "log", "archive", "canonicalize_nans", "debug"]
+default=["std", "parser", "log", "archive", "canonicalize_nans", "debug", "parallel-parser"]
 
 log=["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
 
 # support for parsing WebAssembly
 parser=["dep:tinywasm-parser"]
+
+# parallelize function parsing/validation across threads (requires std)
+parallel-parser=["parser", "tinywasm-parser?/parallel"]
 
 # support for "archiving" tinywasm bytecode
 archive=["tinywasm-types/archive"]

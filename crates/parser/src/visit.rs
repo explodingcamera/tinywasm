@@ -282,7 +282,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_if(&mut self, _ty: wasmparser::BlockType) -> Self::Output {
-        self.instructions.push(Instruction::JumpIfZero(0));
+        self.instructions.push(Instruction::JumpIfZero32(0));
         self.ctx_stack.push(LoweringCtx {
             kind: BlockKind::If,
             has_else: false,
@@ -325,7 +325,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     fn visit_br_if(&mut self, depth: u32) -> Self::Output {
         let cond_jump_ip = self.instructions.len();
-        self.instructions.push(Instruction::JumpIfZero(0));
+        self.instructions.push(Instruction::JumpIfZero32(0));
 
         let branch_side_start = self.instructions.len();
         self.emit_dropkeep_to_label(depth);
@@ -333,7 +333,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         if self.instructions.len() == branch_side_start
             && let Some(ctx_idx) = self.get_ctx_idx(depth)
         {
-            self.instructions[cond_jump_ip] = Instruction::JumpIfNonZero(0);
+            self.instructions[cond_jump_ip] = Instruction::JumpIfNonZero32(0);
             self.ctx_stack[ctx_idx].branch_jumps.push(cond_jump_ip);
             return;
         }
@@ -608,7 +608,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
     fn patch_jump(&mut self, jump_ip: usize, target: usize) {
         match &mut self.instructions[jump_ip] {
-            Instruction::Jump(ip) | Instruction::JumpIfNonZero(ip) => {
+            Instruction::Jump(ip) | Instruction::JumpIfNonZero32(ip) => {
                 *ip = target as u32;
             }
             _ => {}
@@ -616,7 +616,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
     }
 
     fn patch_jump_if_zero(&mut self, jump_ip: usize, target: usize) {
-        if let Instruction::JumpIfZero(ip) = &mut self.instructions[jump_ip] {
+        if let Instruction::JumpIfZero32(ip) = &mut self.instructions[jump_ip] {
             *ip = target as u32;
         }
     }

@@ -162,8 +162,6 @@ pub enum Instruction {
     Nop,
     MergeBarrier,
     Jump(u32),
-    JumpIfZero(u32),
-    JumpIfNonZero(u32),
     JumpIfZero32(u32),
     JumpIfNonZero32(u32),
     JumpIfZero64(u32),

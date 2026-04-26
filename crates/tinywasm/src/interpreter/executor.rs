@@ -252,13 +252,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             ReturnCall(v) => { self.exec_return_call_direct(*v)?; return Ok(None); }
             ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
             ReturnCallIndirect(ty, table) => { self.exec_call_indirect::<true>(*ty, *table)?; return Ok(None); }
-            Jump(ip) => { self.exec_jump(*ip); return Ok(None); }
-            JumpIfZero(ip) => { let condition = <i32>::stack_pop(&mut self.store.value_stack) == 0; if self.jump_if(condition, *ip) { return Ok(None) }}
-            JumpIfNonZero(ip) => { let condition = <i32>::stack_pop(&mut self.store.value_stack) != 0; if self.jump_if(condition, *ip) { return Ok(None) }}
-            JumpIfZero32(ip) => { let condition = <Value32>::stack_pop(&mut self.store.value_stack) == 0; if self.jump_if(condition, *ip) { return Ok(None) }}
-            JumpIfNonZero32(ip) => { let condition = <Value32>::stack_pop(&mut self.store.value_stack) != 0; if self.jump_if(condition, *ip) { return Ok(None) }}
-            JumpIfZero64(ip) => { let condition = <Value64>::stack_pop(&mut self.store.value_stack) == 0; if self.jump_if(condition, *ip) { return Ok(None) }}
-            JumpIfNonZero64(ip) => { let condition = <Value64>::stack_pop(&mut self.store.value_stack) != 0; if self.jump_if(condition, *ip) { return Ok(None) }}
+            Jump(ip) => { self.cf.instr_ptr = *ip; return Ok(None); }
+            JumpIfZero32(ip) => if self.exec_jump_zero_32(*ip) { return Ok(None) },
+            JumpIfNonZero32(ip) => if self.exec_jump_non_zero_32(*ip) { return Ok(None) },
+            JumpIfZero64(ip) => if self.exec_jump_zero_64(*ip) { return Ok(None) },
+            JumpIfNonZero64(ip) => if self.exec_jump_non_zero_64(*ip) { return Ok(None) },
             JumpIfLocalZero32 { target_ip, local } => if self.exec_jump_local_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalNonZero32 { target_ip, local } => if self.exec_jump_local_non_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalZero64 { target_ip, local } => if self.exec_jump_local_zero_64(*target_ip, *local) { return Ok(None) },
@@ -269,10 +267,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             JumpCmpLocalConst64 { target_ip, local, imm, op } => if self.exec_jump_cmp_local_const_64(*target_ip, *local, *imm, *op) { return Ok(None) },
             JumpCmpLocalLocal32 { target_ip, left, right, op } => if self.exec_jump_cmp_local_local_32(*target_ip, *left, *right, *op) { return Ok(None) },
             JumpCmpLocalLocal64 { target_ip, left, right, op } => if self.exec_jump_cmp_local_local_64(*target_ip, *left, *right, *op) { return Ok(None) },
-            DropKeep { base32, keep32, base64, keep64, base128, keep128 } => {
-                let mut base = self.cf.stack_base(); base.s32 += *base32 as u32; base.s64 += *base64 as u32; base.s128 += *base128 as u32;
-                self.store.value_stack.truncate_keep_counts(base, ValueCounts { c32: *keep32 as u16, c64: *keep64 as u16, c128: *keep128 as u16 });
-            }
+            DropKeep { base32, keep32, base64, keep64, base128, keep128 } => self.exec_drop_keep(*base32, *keep32, *base64, *keep64, *base128, *keep128),
             DropKeep32(base, keep) => self.store.value_stack.stack_32.truncate_keep((self.cf.stack_base().s32 + *base as u32) as usize, *keep as usize),
             DropKeep64(base, keep) => self.store.value_stack.stack_64.truncate_keep((self.cf.stack_base().s64 + *base as u32) as usize, *keep as usize),
             DropKeep128(base, keep) => self.store.value_stack.stack_128.truncate_keep((self.cf.stack_base().s128 + *base as u32) as usize, *keep as usize),
@@ -826,16 +821,35 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec_jump(&mut self, ip: u32) {
-        self.cf.instr_ptr = ip;
-    }
-
-    #[inline(always)]
     fn jump_if(&mut self, condition: bool, ip: u32) -> bool {
         if condition {
             self.cf.instr_ptr = ip;
         }
         condition
+    }
+
+    #[inline(always)]
+    fn exec_jump_zero_32(&mut self, target_ip: u32) -> bool {
+        let cond = <i32>::stack_pop(&mut self.store.value_stack) == 0;
+        self.jump_if(cond, target_ip)
+    }
+
+    #[inline(always)]
+    fn exec_jump_non_zero_32(&mut self, target_ip: u32) -> bool {
+        let cond = <i32>::stack_pop(&mut self.store.value_stack) != 0;
+        self.jump_if(cond, target_ip)
+    }
+
+    #[inline(always)]
+    fn exec_jump_zero_64(&mut self, target_ip: u32) -> bool {
+        let cond = <i64>::stack_pop(&mut self.store.value_stack) == 0;
+        self.jump_if(cond, target_ip)
+    }
+
+    #[inline(always)]
+    fn exec_jump_non_zero_64(&mut self, target_ip: u32) -> bool {
+        let cond = <i64>::stack_pop(&mut self.store.value_stack) != 0;
+        self.jump_if(cond, target_ip)
     }
 
     #[inline(always)]
@@ -903,6 +917,16 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
 
         self.cf.instr_ptr = target_ip;
+    }
+
+    fn exec_drop_keep(&mut self, base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8) {
+        let mut base = self.cf.stack_base();
+        base.s32 += base32 as u32;
+        base.s64 += base64 as u32;
+        base.s128 += base128 as u32;
+        self.store
+            .value_stack
+            .truncate_keep_counts(base, ValueCounts { c32: keep32 as u16, c64: keep64 as u16, c128: keep128 as u16 });
     }
 
     fn exec_call(&mut self, wasm_func: WasmFunctionInstance, func_addr: FuncAddr) -> Result<(), Trap> {
