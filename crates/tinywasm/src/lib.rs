@@ -7,26 +7,33 @@
 #![cfg_attr(not(feature = "simd-x86"), forbid(unsafe_code))]
 #![cfg_attr(feature = "simd-x86", deny(unsafe_code))]
 
-//! A tiny WebAssembly Runtime written in Rust
-//!
-//! `TinyWasm` provides a minimal WebAssembly runtime for executing WebAssembly modules.
-//! It currently supports all features of the WebAssembly MVP specification and is
-//! designed to be easy to use and integrate in other projects.
+//! `tinywasm` provides a small, portable WebAssembly interpreter with support for
+//! the WebAssembly MVP, WebAssembly 2.0, and a growing set of newer proposals.
+//! It is designed to stay lightweight while still being practical to embed in
+//! applications, tools, and `no_std + alloc` environments.
 //!
 //! ## Features
-//!- **`std`**\
-//!  Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
-//!- **`log`**\
-//!  Enables logging using the `log` crate. This is enabled by default.
-//!- **`parser`**\
-//!  Enables the `tinywasm-parser` crate. This is enabled by default.
-//!- **`archive`**\
-//!  Enables pre-parsing of archives. This is enabled by default.
-//!- **`guest_debug`**\
-//!  Enables module-internal by-index inspection APIs (`*_by_index`).
+//! - **`std`**\
+//!   Enables parsing from files and streams. Enabled by default.
+//! - **`log`**\
+//!   Enables integration with the `log` crate. Enabled by default.
+//! - **`parser`**\
+//!   Enables the bundled `tinywasm-parser` crate and top-level parse helpers. Enabled by default.
+//! - **`archive`**\
+//!   Enables serialization and deserialization of compiled modules in the internal `twasm` format. Enabled by default.
+//! - **`canonicalize-nans`**\
+//!   Canonicalizes NaN values to a single representation. Enabled by default.
+//! - **`debug`**\
+//!   Derives `Debug` for runtime types. Enabled by default.
+//! - **`parallel-parser`**\
+//!   Parallelizes function parsing and validation across threads when `std` is enabled. Enabled by default.
+//! - **`guest-debug`**\
+//!   Exposes module-internal by-index inspection APIs (`*_by_index`).
+//! - **`simd-x86`**\
+//!   Enables x86-specific SIMD intrinsics for selected operations and uses `unsafe` internally.
 //!
-//! With all these features disabled, `TinyWasm` only depends on `core`, `alloc` and `libm`.
-//! By disabling `std`, you can use `TinyWasm` in `no_std` environments. This requires
+//! With default features disabled, `tinywasm` only depends on `core`, `alloc`, and `libm`.
+//! By disabling `std`, you can use `tinywasm` in `no_std` environments. This requires
 //! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -63,6 +70,10 @@
 //! assert_eq!(res, 3);
 //! # Ok::<(), tinywasm::Error>(())
 //! ```
+//!
+//! For non-default runtime behavior, construct a [`Store`] with a custom [`Engine`]
+//! and [`engine::Config`] to control stack sizing, fuel accounting, memory backends,
+//! and trap-on-OOM behavior.
 //!
 //! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
 //!

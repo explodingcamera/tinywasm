@@ -28,24 +28,24 @@ impl Value128 {
 }
 
 pub(super) const fn canonicalize_simd_f32_nan(x: f32) -> f32 {
-    #[cfg(feature = "canonicalize_nans")]
+    #[cfg(feature = "canonicalize-nans")]
     if x.is_nan() {
         f32::NAN
     } else {
         x
     }
-    #[cfg(not(feature = "canonicalize_nans"))]
+    #[cfg(not(feature = "canonicalize-nans"))]
     x
 }
 
 pub(super) const fn canonicalize_simd_f64_nan(x: f64) -> f64 {
-    #[cfg(feature = "canonicalize_nans")]
+    #[cfg(feature = "canonicalize-nans")]
     if x.is_nan() {
         f64::NAN
     } else {
         x
     }
-    #[cfg(not(feature = "canonicalize_nans"))]
+    #[cfg(not(feature = "canonicalize-nans"))]
     x
 }
 

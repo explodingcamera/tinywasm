@@ -16,7 +16,7 @@ name="tinywasm"
 path="src/lib.rs"
 
 [package.metadata.docs.rs]
-features=["std", "parser", "archive", "log", "canonicalize_nans", "debug", "guest_debug"]
+features=["std", "parser", "archive", "log", "canonicalize-nans", "debug", "guest-debug"]
 rustdoc-args=["--cfg", "docsrs"]
 
 [dependencies]
@@ -38,7 +38,7 @@ serde_json.workspace=true
 serde.workspace=true
 
 [features]
-default=["std", "parser", "log", "archive", "canonicalize_nans", "debug", "parallel-parser"]
+default=["std", "parser", "log", "archive", "canonicalize-nans", "debug", "parallel-parser"]
 
 log=["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std=["tinywasm-parser?/std", "tinywasm-types/std"]
@@ -53,13 +53,13 @@ parallel-parser=["parser", "tinywasm-parser?/parallel"]
 archive=["tinywasm-types/archive"]
 
 # canonicalize all NaN values to a single representation
-canonicalize_nans=[]
+canonicalize-nans=[]
 
 # derive Debug for runtime/types structs
 debug=["tinywasm-types/debug"]
 
 # expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
-guest_debug=[]
+guest-debug=[]
 
 # enable x86-specific SIMD intrinsics in Value128 (uses unsafe code)
 # note: for x86 backend selection, compile with x86-64-v3 target features

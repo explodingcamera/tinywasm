@@ -8,4 +8,6 @@ It is recommended to use the library directly instead of the CLI.
 ```bash
 $ cargo install tinywasm-cli
 $ tinywasm-cli --help
+$ tinywasm-cli run ./module.wasm
+$ tinywasm-cli run ./module.wasm -f add -a i32:1 -a i32:2
 ```

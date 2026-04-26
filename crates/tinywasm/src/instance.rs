@@ -260,7 +260,7 @@ impl ModuleInstance {
     }
 
     #[inline]
-    #[cfg(feature = "guest_debug")]
+    #[cfg(feature = "guest-debug")]
     fn index_addr<T: Copy>(slice: &[T], idx: u32, kind: &str) -> Result<T> {
         match slice.get(idx as usize) {
             Some(addr) => Ok(*addr),
@@ -316,8 +316,8 @@ impl ModuleInstance {
     /// normal export boundary. It is mainly intended for tooling and
     /// introspection. Calling private functions can change behavior in ways the
     /// module author did not expose as part of the public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
     pub fn func_by_index(&self, store: &Store, func_index: FuncAddr) -> Result<Function> {
         self.validate_store(store)?;
         let func_addr = Self::index_addr(&self.0.func_addrs, func_index, "function")?;
@@ -343,8 +343,8 @@ impl ModuleInstance {
     }
 
     /// Get a typed function by its module-local index.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
     pub fn func_typed_by_index<
         P: IntoWasmValueTuple + WasmTypesFromTuple,
         R: FromWasmValueTuple + WasmTypesFromTuple,
@@ -396,8 +396,8 @@ impl ModuleInstance {
     /// normal export boundary. It is mainly intended for tooling and
     /// inspection. Mutating a private memory can change module behavior in ways
     /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
     pub fn memory_by_index(&self, memory_index: MemAddr) -> Result<Memory> {
         Ok(Memory::from_store_addr(self.0.store_id, Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?))
     }
@@ -416,8 +416,8 @@ impl ModuleInstance {
     /// normal export boundary. It is mainly intended for tooling and
     /// inspection. Mutating a private table can change module behavior in ways
     /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
     pub fn table_by_index(&self, table_index: TableAddr) -> Result<Table> {
         Ok(Table::from_store_addr(self.0.store_id, Self::index_addr(&self.0.table_addrs, table_index, "table")?))
     }
@@ -446,8 +446,8 @@ impl ModuleInstance {
     /// normal export boundary. It is mainly intended for tooling and
     /// inspection. Mutating a private global can change module behavior in ways
     /// that are not part of the module's public API.
-    #[cfg_attr(docsrs, doc(cfg(feature = "guest_debug")))]
-    #[cfg(feature = "guest_debug")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
     pub fn global_by_index(&self, global_index: GlobalAddr) -> Result<Global> {
         Ok(Global::from_store_addr(self.0.store_id, Self::index_addr(&self.0.global_addrs, global_index, "global")?))
     }

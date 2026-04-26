@@ -3,7 +3,7 @@ use tinywasm::types::{FuncRef, WasmValue};
 use tinywasm::{ExternItem, ModuleInstance, Store};
 
 #[test]
-#[cfg(feature = "guest_debug")]
+#[cfg(feature = "guest-debug")]
 fn private_items_are_accessible_by_index() -> Result<()> {
     let wasm = wat::parse_str(
         r#"

@@ -1,7 +1,7 @@
 [package]
 name="tinywasm-parser"
 version.workspace=true
-description="TinyWasm parser"
+description="Parser and lowering pipeline for TinyWasm"
 edition.workspace=true
 license.workspace=true
 authors.workspace=true
@@ -9,6 +9,7 @@ repository.workspace=true
 rust-version.workspace=true
 keywords.workspace=true
 categories.workspace=true
+readme="README.md"
 
 [dependencies]
 wasmparser={workspace=true, features=["validate", "features", "simd"]}

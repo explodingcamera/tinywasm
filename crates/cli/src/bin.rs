@@ -19,7 +19,7 @@ struct TinyWasmCli {
     #[argh(subcommand)]
     nested: TinyWasmSubcommand,
 
-    /// log level
+    /// log level: trace, debug, info, warn, or error
     #[argh(option, short = 'l', default = "\"info\".to_string()")]
     log_level: String,
 }
@@ -53,15 +53,15 @@ struct Run {
     #[argh(positional)]
     wasm_file: String,
 
-    /// function to run
+    /// exported function to run; omit to only instantiate and run start
     #[argh(option, short = 'f')]
     func: Option<String>,
 
-    /// arguments to pass to the wasm file
+    /// arguments passed to the function in type:value form
     #[argh(option, short = 'a')]
     args: Vec<WasmArg>,
 
-    /// engine to use
+    /// engine to use (currently only `main`)
     #[argh(option, short = 'e', default = "Engine::Main")]
     engine: Engine,
 }
@@ -74,7 +74,7 @@ fn main() -> Result<()> {
         "warn" => log::LevelFilter::Warn,
         "error" => log::LevelFilter::Error,
         "info" => log::LevelFilter::Info,
-        _ => log::LevelFilter::Info,
+        other => return Err(eyre::eyre!("invalid log level `{other}`; expected trace, debug, info, warn, or error")),
     };
 
     pretty_env_logger::formatted_builder().filter_level(level).init();

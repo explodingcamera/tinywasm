@@ -48,7 +48,7 @@ Example usage:
 
 ```bash
 cargo install --locked samply
-samply record -- cargo run --release --example wasm-rust -- selfhosted
+samply record -- cargo run --release --example wasm-rust -- tinywasm
 ```
 
 ## Commits
