@@ -1,9 +1,7 @@
 use std::path::PathBuf;
 
 use eyre::{Result, bail};
-use testsuite::TestSuite;
-
-mod testsuite;
+use tinywasm_cli::wast_runner::WastRunner;
 
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
@@ -27,9 +25,6 @@ fn main() -> Result<()> {
         vec![arg]
     };
 
-    TestSuite::set_log_level(log::LevelFilter::Debug);
-    let mut test_suite = TestSuite::new();
-    test_suite.run_paths(&files)?;
-    test_suite.print_errors();
-    test_suite.report_status()
+    let mut test_suite = WastRunner::new();
+    test_suite.run_paths(&files)
 }

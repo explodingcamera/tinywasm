@@ -5,6 +5,7 @@ test-wasm-2="test --package tinywasm --test test-wasm-2 --release"
 test-wasm-3="test --package tinywasm --test test-wasm-3 --release"
 test-wast="test --package tinywasm --test test-wast"
 test-wasm-custom="test --package tinywasm --test test-wasm-custom --release"
+cli="run -p tinywasm-cli --bin tinywasm --release --"
 
 [target.x86_64-unknown-linux-gnu]
 rustflags=["-C", "target-cpu=x86-64-v3"]

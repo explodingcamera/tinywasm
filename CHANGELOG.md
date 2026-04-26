@@ -20,6 +20,7 @@ This release is a major runtime and API rework. It adds support for several newe
 - `engine::Config` support for fuel policy, stack sizing, memory backend selection, and trap-on-OOM behavior
 - New feature flags: `canonicalize-nans`, `simd-x86`, `guest-debug`, `debug`, and `parallel-parser`
 - Top-level parser re-exports behind the `parser` feature: `parse_bytes`, `parse_file`, and `parse_stream`
+- Completely new `tinywasm` cli
 
 ### Changed
 

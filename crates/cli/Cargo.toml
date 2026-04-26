@@ -1,30 +1,45 @@
 [package]
 name="tinywasm-cli"
 version.workspace=true
-description="Command-line interface for TinyWasm"
+description="Minimal command-line interface for TinyWasm"
 edition.workspace=true
 license.workspace=true
 authors.workspace=true
 repository.workspace=true
+documentation="https://docs.rs/tinywasm-cli"
 rust-version.workspace=true
-keywords.workspace=true
-categories=["wasm"]
+keywords=["tinywasm", "wasm", "webassembly", "cli", "runtime"]
+categories=["command-line-utilities", "wasm"]
 readme="README.md"
 
+[lib]
+name="tinywasm_cli"
+path="src/lib.rs"
+
 [[bin]]
-name="tinywasm-cli"
+name="tinywasm"
 path="src/bin.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap={version="4.5", features=["derive"]}
+clap_complete="4.5"
 eyre.workspace=true
 log.workspace=true
 pretty_env_logger.workspace=true
 tinywasm={version="0.9.0-alpha.0", path="../tinywasm", features=["std", "parser"]}
-argh="0.1"
+wat={workspace=true, optional=true}
 wast={workspace=true, optional=true}
+owo-colors={workspace=true}
+anstream={version="1.0"}
 
 [features]
-default=["wat"]
-wat=["dep:wast"]
+default=["wat", "wast"]
+wat=["dep:wat"]
+wast=["dep:wast"]
+
+[dev-dependencies]
+assert_cmd="2.0"
+predicates="3.1"
+tempfile="3.20"

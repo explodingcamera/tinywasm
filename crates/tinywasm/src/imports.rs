@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::fmt::Debug;
 use core::hint::cold_path;
 
-use crate::{Function, Global, LinkingError, Memory, Result, Table, log};
+use crate::{Function, Global, LinkingError, Memory, Result, Table};
 use tinywasm_types::*;
 
 #[derive(Clone)]
@@ -147,7 +147,6 @@ impl Imports {
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
             cold_path();
-            log::error!("failed to link import {}", import.name);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
         Ok(())
@@ -157,7 +156,6 @@ impl Imports {
     fn compare_types<T: PartialEq + Debug>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
             cold_path();
-            log::error!("failed to link import {}: expected {:?}, got {:?}", import.name, expected, actual);
             return Err(LinkingError::incompatible_import_type(import).into());
         }
         Ok(())
