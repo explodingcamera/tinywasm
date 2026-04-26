@@ -15,7 +15,7 @@
 
 ```toml
 [dependencies]
-tinywasm = { git = "https://github.com/explodingcamera/tinywasm", branch = "next" }
+tinywasm = "0.9.0-alpha.0"
 ```
 
 ## Usage
