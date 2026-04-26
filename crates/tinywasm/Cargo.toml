@@ -21,18 +21,15 @@ rustdoc-args=["--cfg", "docsrs"]
 
 [dependencies]
 log={workspace=true, optional=true}
-tinywasm-parser={version="0.9.0-alpha.0", path="../parser", default-features=false, optional=true}
-tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false}
+tinywasm-parser={workspace=true, optional=true}
+tinywasm-types={workspace=true}
 libm={version="0.2", default-features=false}
 
 [dev-dependencies]
 wasm-testsuite.workspace=true
-tinywasm-cli={version="0.9.0-alpha.0", path="../cli", features=["wast"]}
-indexmap.workspace=true
-wast.workspace=true
+tinywasm-cli={path="../cli", features=["wast", "wat"]}
 wat.workspace=true
 eyre.workspace=true
-pretty_env_logger.workspace=true
 criterion.workspace=true
 owo-colors.workspace=true
 serde_json.workspace=true

@@ -4,18 +4,23 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-wast="247"
-wat="1.247"
-wasmparser={version="0.247", default-features=false}
-eyre="0.6"
-log="0.4"
-pretty_env_logger="0.5"
+tinywasm-parser={version="0.9.0-alpha.0", path="crates/parser", default-features=false}
+tinywasm-types={version="0.9.0-alpha.0", path="crates/types", default-features=false}
+tinywasm-cli={version="0.9.0-alpha.0", path="crates/cli", default-features=false}
+tinywasm={version="0.9.0-alpha.0", path="crates/tinywasm", default-features=false}
+
 criterion={version="0.8", default-features=false, features=["cargo_bench_support", "rayon"]}
-wasm-testsuite={version="0.7"}
+eyre="0.6"
 indexmap="2.14"
+log="0.4"
 owo-colors={version="4.3"}
+pretty_env_logger="0.5"
 serde_json={version="1.0"}
 serde={version="1.0", features=["derive"]}
+wasm-testsuite={version="0.7"}
+wasmparser={version="0.247", default-features=false}
+wast="247"
+wat="1.247"
 
 [workspace.package]
 version="0.9.0-alpha.0"

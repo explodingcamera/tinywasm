@@ -904,18 +904,15 @@ version = "0.9.0-alpha.0"
 dependencies = [
  "criterion",
  "eyre",
- "indexmap",
  "libm",
  "log",
  "owo-colors",
- "pretty_env_logger",
  "serde",
  "serde_json",
  "tinywasm-cli",
  "tinywasm-parser",
  "tinywasm-types",
  "wasm-testsuite",
- "wast",
  "wat",
 ]
 
@@ -945,7 +942,6 @@ dependencies = [
  "log",
  "tinywasm-types",
  "wasmparser 0.247.0",
- "wat",
 ]
 
 [[package]]
