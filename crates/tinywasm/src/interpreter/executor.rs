@@ -6,6 +6,7 @@ use super::no_std_floats::NoStdFloatExt;
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
+use alloc::vec::Vec;
 
 use alloc::sync::Arc;
 use interpreter::stack::CallFrame;
@@ -969,7 +970,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_call_host(&mut self, host_func: Rc<HostFunction>) -> Result<(), Trap> {
-        let params = self.store.value_stack.pop_types(host_func.ty.params()).collect::<Box<_>>();
+        let mut params = self.store.value_stack.pop_types(host_func.ty.params().iter().rev()).collect::<Vec<_>>();
+        params.reverse();
         let res = match host_func.call(FuncContext { store: self.store, module_addr: self.module.idx() }, &params) {
             Ok(res) => res,
             Err(err) => {

@@ -1,0 +1,21 @@
+[package]
+name="tinywasm-doom"
+publish=false
+edition.workspace=true
+rust-version.workspace=true
+
+[dependencies]
+eyre.workspace=true
+pretty_env_logger.workspace=true
+tinywasm={workspace=true, features=[
+    "std",
+    "parser",
+    "log",
+    "archive",
+    "canonicalize-nans",
+    "debug",
+    "parallel-parser",
+]}
+log.workspace=true
+softbuffer="0.4"
+winit="0.30"

@@ -261,6 +261,19 @@ impl Memory {
         })
     }
 
+    /// Copies a nul-terminated C string into memory.
+    pub fn write_cstring(&self, store: &mut Store, offset: usize, string: &CString) -> Result<()> {
+        self.copy_from_slice(store, offset, string.as_bytes_with_nul())
+    }
+
+    /// Copies a UTF-8 string into memory and appends a trailing nul byte.
+    pub fn write_cstring_bytes(&self, store: &mut Store, offset: usize, string: &str) -> Result<()> {
+        let mut bytes = Vec::with_capacity(string.len() + 1);
+        bytes.extend_from_slice(string.as_bytes());
+        bytes.push(0);
+        self.copy_from_slice(store, offset, &bytes)
+    }
+
     /// Reads a C-style string from memory.
     pub fn read_cstring(&self, store: &Store, offset: usize, len: usize) -> Result<CString> {
         CString::from_vec_with_nul(self.read_vec(store, offset, len)?)

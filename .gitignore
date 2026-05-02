@@ -3,6 +3,12 @@ notes.md
 examples/rust/out/*
 examples/rust/target
 examples/rust/Cargo.lock
+examples/doom/out/*
+!examples/doom/out/.gitkeep
+examples/doom/upstream/
+examples/doom/out/runtime/
+*.wad
+*.WAD
 examples/wast/*
 perf.*
 flamegraph.svg
