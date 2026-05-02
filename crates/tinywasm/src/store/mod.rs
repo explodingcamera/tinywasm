@@ -249,7 +249,7 @@ impl State {
     }
 
     /// Get the global at the actual index in the store
-    pub(crate) fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
+    pub(crate) fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
         match self.globals.get(addr as usize) {
             Some(global) => global.value.get(),
             None => {
@@ -260,7 +260,7 @@ impl State {
     }
 
     /// Set the global at the actual index in the store
-    pub(crate) fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) {
+    pub(crate) fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
         match self.globals.get_mut(addr as usize) {
             Some(global) => global.value.set(value),
             None => {
@@ -288,13 +288,13 @@ impl Store {
 
     /// Get the global at the actual index in the store
     #[doc(hidden)]
-    pub fn get_global_val(&self, addr: MemAddr) -> TinyWasmValue {
+    pub fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
         self.state.get_global_val(addr)
     }
 
     /// Set the global at the actual index in the store
     #[doc(hidden)]
-    pub fn set_global_val(&mut self, addr: MemAddr, value: TinyWasmValue) {
+    pub fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
         self.state.set_global_val(addr, value);
     }
 }

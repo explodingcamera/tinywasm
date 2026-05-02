@@ -1,13 +1,15 @@
+# treat this as an independent package
+[workspace]
+
 [package]
 name="tinywasm-doom"
 publish=false
-edition.workspace=true
-rust-version.workspace=true
+edition="2024"
 
 [dependencies]
-eyre.workspace=true
-pretty_env_logger.workspace=true
-tinywasm={workspace=true, features=[
+eyre="0.6"
+pretty_env_logger="0.5"
+tinywasm={features=[
     "std",
     "parser",
     "log",
@@ -15,7 +17,7 @@ tinywasm={workspace=true, features=[
     "canonicalize-nans",
     "debug",
     "parallel-parser",
-]}
-log.workspace=true
+], path="../../crates/tinywasm"}
+log="0.4"
 softbuffer="0.4"
 winit="0.30"

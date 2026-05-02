@@ -23,7 +23,7 @@ fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     Ok(TWASM_MAGIC.len())
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TwasmError {
     InvalidMagic,
     InvalidVersion,

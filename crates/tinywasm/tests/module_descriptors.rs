@@ -89,3 +89,66 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn module_descriptors_resolve_imported_and_local_table_and_memory_exports() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (import "host" "itable" (table 2 4 funcref))
+          (import "host" "imemory" (memory 1 3))
+          (table $ltable 5 7 funcref)
+          (memory $lmemory 2 6)
+          (export "itable_export" (table 0))
+          (export "imemory_export" (memory 0))
+          (export "ltable_export" (table 1))
+          (export "lmemory_export" (memory 1))
+        )
+        "#,
+    )?;
+
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let exports: Vec<_> = module.exports().collect();
+
+    let itable_export = exports.iter().find(|export| export.name == "itable_export").expect("itable export not found");
+    match itable_export.ty {
+        ExportType::Table(ty) => {
+            assert_eq!(ty.element_type, WasmType::RefFunc);
+            assert_eq!(ty.size_initial, 2);
+            assert_eq!(ty.size_max, Some(4));
+        }
+        _ => panic!("itable export should resolve to imported table type"),
+    }
+
+    let imemory_export =
+        exports.iter().find(|export| export.name == "imemory_export").expect("imemory export not found");
+    match imemory_export.ty {
+        ExportType::Memory(ty) => {
+            assert_eq!(ty.page_count_initial(), 1);
+            assert_eq!(ty.page_count_max(), 3);
+        }
+        _ => panic!("imemory export should resolve to imported memory type"),
+    }
+
+    let ltable_export = exports.iter().find(|export| export.name == "ltable_export").expect("ltable export not found");
+    match ltable_export.ty {
+        ExportType::Table(ty) => {
+            assert_eq!(ty.element_type, WasmType::RefFunc);
+            assert_eq!(ty.size_initial, 5);
+            assert_eq!(ty.size_max, Some(7));
+        }
+        _ => panic!("ltable export should resolve to local table type"),
+    }
+
+    let lmemory_export =
+        exports.iter().find(|export| export.name == "lmemory_export").expect("lmemory export not found");
+    match lmemory_export.ty {
+        ExportType::Memory(ty) => {
+            assert_eq!(ty.page_count_initial(), 2);
+            assert_eq!(ty.page_count_max(), 6);
+        }
+        _ => panic!("lmemory export should resolve to local memory type"),
+    }
+
+    Ok(())
+}

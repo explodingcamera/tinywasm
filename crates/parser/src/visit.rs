@@ -417,7 +417,12 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
 
     // Reference Types
     fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        self.instructions.push(Instruction::RefNull(convert_heaptype(ty)));
+        match convert_heaptype(ty) {
+            Ok(ty) => self.instructions.push(Instruction::RefNull(ty)),
+            Err(err) => {
+                self.error.get_or_insert(err);
+            }
+        };
     }
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {

@@ -377,6 +377,15 @@ impl<'a> ModuleReader<'a> {
         };
 
         let mut funcs = Vec::with_capacity(self.code.len());
+        let mut func_type_idxs = self
+            .imports
+            .iter()
+            .filter_map(|import| match import.kind {
+                ImportKind::Function(type_idx) => Some(type_idx),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        func_type_idxs.extend(self.code_type_addrs.iter().copied());
 
         for (code, ty_idx) in self.code.into_iter().zip(self.code_type_addrs) {
             let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
@@ -402,6 +411,7 @@ impl<'a> ModuleReader<'a> {
         Ok(ModuleInner {
             funcs: funcs.into(),
             func_types: self.func_types.into(),
+            func_type_idxs: func_type_idxs.into(),
             globals: self.globals.into(),
             table_types: self.table_types.into(),
             imports: self.imports.into(),

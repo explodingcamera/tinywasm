@@ -2,7 +2,7 @@ use alloc::string::{String, ToString};
 use core::fmt::{Debug, Display};
 use wasmparser::Encoding;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 /// Errors that can occur when parsing a WebAssembly module
 pub enum ParseError {
     /// An invalid type was encountered

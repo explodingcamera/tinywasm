@@ -1,5 +1,5 @@
 use eyre::Result;
-use tinywasm::{Error, Imports, Module, ModuleInstance, Store};
+use tinywasm::{Error, Imports, Module, ModuleInstance, Store, Trap};
 
 const WASM_ADD: &str = r#"
     (module
@@ -52,6 +52,6 @@ fn link_module_rejects_cross_store_instance() -> Result<()> {
     imports.link_module("adder", add_instance)?;
 
     let err = ModuleInstance::instantiate(&mut target_store, &import_module, Some(imports)).unwrap_err();
-    assert!(matches!(err, Error::InvalidStore));
+    assert_eq!(err, Error::from(Trap::InvalidStore));
     Ok(())
 }

@@ -7,8 +7,7 @@ use alloc::{ffi::CString, format};
 use crate::store::{GlobalInstance, TableElement, TableInstance};
 use crate::{Error, MemoryInstance, Result, Store, Trap};
 use tinywasm_types::{
-    Addr, ExternRef, FuncRef, GlobalAddr, GlobalType, MemAddr, MemoryArch, MemoryType, TableAddr, TableType, WasmType,
-    WasmValue,
+    Addr, ExternRef, FuncRef, GlobalAddr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -27,7 +26,7 @@ impl StoreItem {
     #[inline]
     pub(crate) fn validate_store(&self, store: &Store) -> Result<(), Trap> {
         if self.store_id != store.id() {
-            return Err(Trap::Other("invalid store"));
+            return Err(Trap::InvalidStore);
         }
         Ok(())
     }
@@ -146,9 +145,6 @@ impl Memory {
 
     /// Create a new memory in the given store.
     pub fn new(store: &mut Store, ty: MemoryType) -> Result<Self> {
-        if let MemoryArch::I64 = ty.arch() {
-            return Err(Error::UnsupportedFeature("64-bit memories"));
-        }
         let addr = store.state.memories.len() as MemAddr;
         store.state.memories.push(MemoryInstance::new(ty, &store.engine.config().memory_backend)?);
         Ok(Self::from_store_addr(store.id(), addr))
@@ -399,7 +395,8 @@ impl Table {
 
     /// Grow the table and return the previous size.
     pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<usize> {
-        let table = self.instance_mut(store)?;
+        self.0.validate_store(store)?;
+        let table = store.state.get_table_mut(self.0.addr);
         let old_size = table.size() as usize;
         let init = table_value_to_element(table.kind.element_type, init)?;
         table.grow(delta, init)?;
@@ -415,6 +412,10 @@ impl Global {
 
     /// Create a new global in the given store.
     pub fn new(store: &mut Store, ty: GlobalType, value: WasmValue) -> Result<Self> {
+        if WasmType::from(value) != ty.ty {
+            cold_path();
+            return Err(Error::Other("invalid global value type".to_string()));
+        }
         let addr = store.state.globals.len() as GlobalAddr;
         store.state.globals.push(GlobalInstance::new(ty, value.into()));
         Ok(Self::from_store_addr(store.id(), addr))

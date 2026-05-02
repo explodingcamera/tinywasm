@@ -1046,7 +1046,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Err(Trap::UninitializedElement { index: table_idx as usize });
         };
 
-        let call_ty = self.module.func_ty(type_addr);
+        let call_ty = self.module.func_type_by_type_index(type_addr);
         match self.store.state.get_func(func_ref) {
             crate::FunctionInstance::Wasm(wasm_func) => {
                 if wasm_func.ty() != call_ty {

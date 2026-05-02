@@ -103,8 +103,8 @@ pub trait LinearMemory {
             let mut offset = 0;
             while offset < len {
                 let chunk_len = min(len - offset, 1024);
-                let chunk = vec![0; chunk_len];
-                self.read_exact(src + offset, &mut chunk.clone())?;
+                let mut chunk = vec![0; chunk_len];
+                self.read_exact(src + offset, &mut chunk)?;
                 self.write_all(dst + offset, &chunk)?;
                 offset += chunk_len;
             }
@@ -114,8 +114,8 @@ pub trait LinearMemory {
             while offset > 0 {
                 let chunk_len = min(offset, 1024);
                 offset -= chunk_len;
-                let chunk = vec![0; chunk_len];
-                self.read_exact(src + offset, &mut chunk.clone())?;
+                let mut chunk = vec![0; chunk_len];
+                self.read_exact(src + offset, &mut chunk)?;
                 self.write_all(dst + offset, &chunk)?;
             }
         }

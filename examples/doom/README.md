@@ -10,10 +10,12 @@ This example builds a WebAssembly guest from [`PureDOOM`](https://github.com/Dai
 
 ## Running the example
 
+From the root of the repository, run:
+
 ```sh
 # download & build `PureDOOM`
 ./examples/doom/build.sh
 
 # start doom with the WAD you want to use
-cargo run -p tinywasm-doom --release -- /path/to/DOOM1.WAD
+cargo doom /path/to/doom.wad
 ```

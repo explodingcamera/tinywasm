@@ -6,7 +6,7 @@ use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, WasmTypesFromTuple};
-use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, Table};
+use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, Table, Trap};
 
 /// A typed view over an exported extern value.
 pub enum ExternItem {
@@ -34,6 +34,7 @@ struct ModuleInstanceInner {
     store_id: usize,
     idx: ModuleInstanceAddr,
     types: Arc<[Arc<FuncType>]>,
+    func_type_idxs: Arc<[u32]>,
     func_addrs: Box<[FuncAddr]>,
     table_addrs: Box<[TableAddr]>,
     mem_addrs: Box<[MemAddr]>,
@@ -50,10 +51,23 @@ impl ModuleInstance {
         self.0.idx
     }
 
+    /// Type indices come from the module type section and are used by indirect calls.
     #[inline]
-    pub(crate) fn func_ty(&self, addr: FuncAddr) -> &Arc<FuncType> {
-        match self.0.types.get(addr as usize) {
+    pub(crate) fn func_type_by_type_index(&self, type_idx: u32) -> &Arc<FuncType> {
+        match self.0.types.get(type_idx as usize) {
             Some(ty) => ty,
+            None => {
+                cold_path();
+                unreachable!("invalid type index: {type_idx}")
+            }
+        }
+    }
+
+    /// Function indices need their own lookup because they are not type-section indices.
+    #[inline]
+    pub(crate) fn func_type_idx(&self, addr: FuncAddr) -> u32 {
+        match self.0.func_type_idxs.get(addr as usize) {
+            Some(idx) => *idx,
             None => {
                 cold_path();
                 unreachable!("invalid function address: {addr}")
@@ -66,7 +80,7 @@ impl ModuleInstance {
         &self.0.func_addrs
     }
 
-    // resolve a function address to the global store address
+    /// resolve a function address to the global store address
     #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         match self.0.func_addrs.get(addr as usize) {
@@ -78,7 +92,7 @@ impl ModuleInstance {
         }
     }
 
-    // resolve a table address to the global store address
+    /// resolve a table address to the global store address
     #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
         match self.0.table_addrs.get(addr as usize) {
@@ -90,7 +104,7 @@ impl ModuleInstance {
         }
     }
 
-    // resolve a memory address to the global store address
+    /// resolve a memory address to the global store address
     #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
         match self.0.mem_addrs.get(addr as usize) {
@@ -102,7 +116,7 @@ impl ModuleInstance {
         }
     }
 
-    // resolve a data address to the global store address
+    /// resolve a data address to the global store address
     #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
         match self.0.data_addrs.get(addr as usize) {
@@ -114,7 +128,7 @@ impl ModuleInstance {
         }
     }
 
-    // resolve an element address to the global store address
+    /// resolve an element address to the global store address
     #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
         match self.0.elem_addrs.get(addr as usize) {
@@ -126,7 +140,7 @@ impl ModuleInstance {
         }
     }
 
-    // resolve a global address to the global store address
+    /// resolve a global address to the global store address
     #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
         match self.0.global_addrs.get(addr as usize) {
@@ -142,7 +156,7 @@ impl ModuleInstance {
     pub(crate) fn validate_store(&self, store: &Store) -> Result<()> {
         if self.0.store_id != store.id() {
             cold_path();
-            return Err(Error::InvalidStore);
+            return Err(Trap::InvalidStore.into());
         }
         Ok(())
     }
@@ -167,7 +181,6 @@ impl ModuleInstance {
     pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, module)?;
-
         addrs.funcs.extend(store.init_funcs(&module.funcs, idx));
         addrs.tables.extend(store.init_tables(&module.table_types));
         match module.local_memory_allocation {
@@ -186,6 +199,7 @@ impl ModuleInstance {
             store_id: store.id(),
             idx,
             types: module.func_types.clone(),
+            func_type_idxs: module.func_type_idxs.clone(),
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
@@ -230,7 +244,7 @@ impl ModuleInstance {
                         item: crate::StoreItem::new(self.0.store_id, func_addr),
                         module_addr: self.id(),
                         addr: func_addr,
-                        ty: self.func_ty(export.index).clone(),
+                        ty: self.func_type_by_type_index(self.func_type_idx(export.index)).clone(),
                     })
                 }
                 ExternalKind::Table => {
@@ -281,7 +295,7 @@ impl ModuleInstance {
                     item: crate::StoreItem::new(self.0.store_id, addr),
                     module_addr: self.id(),
                     addr,
-                    ty: self.func_ty(export.index).clone(),
+                    ty: self.func_type_by_type_index(self.func_type_idx(export.index)).clone(),
                 }))
             }
             ExternVal::Memory(addr) => Ok(ExternItem::Memory(Memory::from_store_addr(self.0.store_id, addr))),
@@ -461,19 +475,24 @@ impl ModuleInstance {
     pub fn start_func(&self, store: &Store) -> Result<Option<Function>> {
         self.validate_store(store)?;
 
-        let func_index = match self.0.func_start {
+        let func_addr = match self.0.func_start {
             Some(func_index) => func_index,
             None => {
-                // alternatively, check for a _start function in the exports
+                // Alternatively, check for a _start function in the exports.
                 let Some(ExternVal::Func(func_addr)) = self.export_addr("_start") else {
                     return Ok(None);
                 };
 
-                func_addr
+                return Ok(Some(Function {
+                    item: crate::StoreItem::new(self.0.store_id, func_addr),
+                    module_addr: self.id(),
+                    addr: func_addr,
+                    ty: store.state.get_func(func_addr).ty().clone(),
+                }));
             }
         };
 
-        let func_addr = self.resolve_func_addr(func_index);
+        let func_addr = self.resolve_func_addr(func_addr);
         Ok(Some(Function {
             item: crate::StoreItem::new(self.0.store_id, func_addr),
             module_addr: self.id(),

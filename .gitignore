@@ -1,12 +1,9 @@
 /target
 notes.md
-examples/rust/out/*
-examples/rust/target
-examples/rust/Cargo.lock
-examples/doom/out/*
-!examples/doom/out/.gitkeep
+examples/*/out/*
+examples/*/target
+examples/*/Cargo.lock
 examples/doom/upstream/
-examples/doom/out/runtime/
 *.wad
 *.WAD
 examples/wast/*

@@ -36,9 +36,6 @@ pub enum Error {
     /// An invalid label type was encountered
     InvalidLabelType,
 
-    /// The store is not the one that the module instance was instantiated in
-    InvalidStore,
-
     #[cfg(feature = "std")]
     /// An I/O error occurred
     Io(crate::std::io::Error),
@@ -51,9 +48,27 @@ pub enum Error {
     Twasm(TwasmError),
 }
 
+impl PartialEq for Error {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Trap(a), Self::Trap(b)) => a == b,
+            (Self::Linker(a), Self::Linker(b)) => a == b,
+            (Self::UnsupportedFeature(a), Self::UnsupportedFeature(b)) => a == b,
+            (Self::Other(a), Self::Other(b)) => a == b,
+            #[cfg(feature = "std")]
+            (Self::Io(a), Self::Io(b)) => a.kind() == b.kind(),
+            #[cfg(feature = "parser")]
+            (Self::Parser(a), Self::Parser(b)) => a == b,
+            (Self::Twasm(a), Self::Twasm(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Errors that can occur when linking a WebAssembly module
 #[non_exhaustive]
 #[cfg_attr(feature = "debug", derive(Debug))]
+#[derive(PartialEq, Eq)]
 pub enum LinkingError {
     /// An unknown import was encountered
     UnknownImport {
@@ -120,6 +135,9 @@ pub enum Trap {
     /// Invalid Integer Conversion
     InvalidConversionToInt,
 
+    /// The store is not the one that the module instance was instantiated in
+    InvalidStore,
+
     /// Integer Overflow
     IntegerOverflow,
 
@@ -173,8 +191,15 @@ impl Trap {
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
+            Self::InvalidStore => "invalid store",
             Self::Other(message) => message,
         }
+    }
+}
+
+impl PartialEq for Trap {
+    fn eq(&self, other: &Self) -> bool {
+        self.message() == other.message()
     }
 }
 
@@ -199,6 +224,7 @@ impl From<TwasmError> for Error {
         Self::Twasm(value)
     }
 }
+
 impl From<Trap> for Error {
     fn from(value: Trap) -> Self {
         Self::Trap(value)
@@ -226,7 +252,6 @@ impl Display for Error {
             }
             #[cfg(not(feature = "debug"))]
             Self::InvalidHostFnReturn { .. } => write!(f, "invalid host function return"),
-            Self::InvalidStore => write!(f, "invalid store"),
         }
     }
 }
@@ -264,6 +289,7 @@ impl Display for Trap {
             Self::UninitializedElement { index } => {
                 write!(f, "uninitialized element: index={index}")
             }
+            Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {
                 write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")

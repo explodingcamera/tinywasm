@@ -1,5 +1,5 @@
 [workspace]
-members=["crates/*", "examples/doom"]
+members=["crates/*"]
 default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 

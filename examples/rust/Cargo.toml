@@ -1,12 +1,9 @@
-cargo-features=["per-package-target"]
-
 # treat this as an independent package
 [workspace]
 
 [package]
 publish=false
 name="rust-wasm-examples"
-forced-target="wasm32-unknown-unknown"
 edition="2021"
 
 [dependencies]

@@ -94,3 +94,100 @@ fn extern_item_lookup_returns_expected_kinds() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn extern_item_and_exports_use_actual_function_type() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (type $local_ty (func))
+          (type $import_ty (func (param i64)))
+          (import "host" "imported" (func (type $import_ty)))
+          (func (export "f") (type $local_ty)
+            nop)
+        )
+        "#,
+    )?;
+
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let mut store = Store::default();
+    let mut imports = tinywasm::Imports::new();
+    imports.define(
+        "host",
+        "imported",
+        tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
+    );
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+
+    let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
+    assert_eq!(func.call(&mut store, &[])?, vec![]);
+
+    let (_, ExternItem::Func(func)) = instance.exports().find(|(name, _)| *name == "f").expect("export f not found")
+    else {
+        panic!("expected function export")
+    };
+    assert_eq!(func.call(&mut store, &[])?, vec![]);
+
+    Ok(())
+}
+
+#[test]
+fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (type $local_ty (func))
+          (type $import_ty (func (param i64)))
+          (import "spectest" "print_i64" (func (type $import_ty)))
+          (func (export "f") (type $local_ty)
+            nop)
+        )
+        "#,
+    )?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+
+    let export = module.exports.iter().find(|export| export.name.as_ref() == "f").expect("export f not found");
+    let old_lookup_ty = module.func_types.get(export.index as usize).expect("old lookup type missing");
+
+    assert_eq!(old_lookup_ty.params(), &[tinywasm::types::WasmType::I64]);
+    assert_eq!(module.funcs[0].ty.params(), &[]);
+    assert_ne!(old_lookup_ty.params(), module.funcs[0].ty.params());
+
+    let mut store = Store::default();
+    let mut imports = tinywasm::Imports::new();
+    imports.define(
+        "spectest",
+        "print_i64",
+        tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
+    );
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+
+    let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
+    assert_eq!(func.call(&mut store, &[])?, vec![]);
+
+    Ok(())
+}
+
+#[test]
+fn start_prefers_exported_start_without_re_resolving_store_addr() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (global (export "g") (mut i32) (i32.const 0))
+          (func (export "_start")
+            i32.const 1
+            global.set 0)
+        )
+        "#,
+    )?;
+
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let mut store = Store::default();
+    let _unused = tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, (): ()| Ok(()));
+    let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
+
+    instance.start(&mut store)?;
+    assert_eq!(instance.global_get(&store, "g")?, WasmValue::I32(1));
+
+    Ok(())
+}

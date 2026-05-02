@@ -101,6 +101,9 @@ pub struct ModuleInner {
     /// Corresponds to the `type` section of the original WebAssembly module.
     pub func_types: Arc<[Arc<FuncType>]>,
 
+    /// Function index to type index mapping in module index space, including imports.
+    pub func_type_idxs: Arc<[u32]>,
+
     /// Exported items of the WebAssembly module.
     ///
     /// Corresponds to the `export` section of the original WebAssembly module.
@@ -161,12 +164,54 @@ impl Module {
     ///
     /// The returned data mirrors the module's export section and preserves order.
     pub fn exports(&self) -> impl Iterator<Item = ModuleExport<'_>> {
+        fn imported_count(module: &ModuleInner, kind: ExternalKind) -> usize {
+            module
+                .imports
+                .iter()
+                .filter(|import| {
+                    matches!(
+                        (kind, &import.kind),
+                        (ExternalKind::Func, ImportKind::Function(_))
+                            | (ExternalKind::Table, ImportKind::Table(_))
+                            | (ExternalKind::Memory, ImportKind::Memory(_))
+                            | (ExternalKind::Global, ImportKind::Global(_))
+                    )
+                })
+                .count()
+        }
+
         fn imported_func_type(module: &ModuleInner, function_index: usize) -> Option<&FuncType> {
             let mut seen = 0usize;
             for import in module.imports.iter() {
                 if let ImportKind::Function(type_idx) = import.kind {
                     if seen == function_index {
                         return module.func_types.get(type_idx as usize).map(|ty| &**ty);
+                    }
+                    seen += 1;
+                }
+            }
+            None
+        }
+
+        fn imported_table_type(module: &ModuleInner, table_index: usize) -> Option<&TableType> {
+            let mut seen = 0usize;
+            for import in module.imports.iter() {
+                if let ImportKind::Table(table_ty) = &import.kind {
+                    if seen == table_index {
+                        return Some(table_ty);
+                    }
+                    seen += 1;
+                }
+            }
+            None
+        }
+
+        fn imported_memory_type(module: &ModuleInner, memory_index: usize) -> Option<&MemoryType> {
+            let mut seen = 0usize;
+            for import in module.imports.iter() {
+                if let ImportKind::Memory(memory_ty) = &import.kind {
+                    if seen == memory_index {
+                        return Some(memory_ty);
                     }
                     seen += 1;
                 }
@@ -188,12 +233,10 @@ impl Module {
         }
 
         self.0.exports.iter().filter_map(move |export| {
-            let imports = self.0.imports.iter();
             let idx = export.index as usize;
             let ty = match export.kind {
                 ExternalKind::Func => {
-                    let imported_funcs =
-                        imports.filter(|import| matches!(import.kind, ImportKind::Function(_))).count();
+                    let imported_funcs = imported_count(&self.0, ExternalKind::Func);
                     if idx < imported_funcs {
                         ExportType::Func(imported_func_type(&self.0, idx)?)
                     } else {
@@ -201,11 +244,26 @@ impl Module {
                         ExportType::Func(&self.0.funcs.get(local_idx)?.ty)
                     }
                 }
-                ExternalKind::Table => ExportType::Table(self.0.table_types.get(idx)?),
-                ExternalKind::Memory => ExportType::Memory(self.0.memory_types.get(idx)?),
+                ExternalKind::Table => {
+                    let imported_tables = imported_count(&self.0, ExternalKind::Table);
+                    if idx < imported_tables {
+                        ExportType::Table(imported_table_type(&self.0, idx)?)
+                    } else {
+                        let local_idx = idx - imported_tables;
+                        ExportType::Table(self.0.table_types.get(local_idx)?)
+                    }
+                }
+                ExternalKind::Memory => {
+                    let imported_memories = imported_count(&self.0, ExternalKind::Memory);
+                    if idx < imported_memories {
+                        ExportType::Memory(imported_memory_type(&self.0, idx)?)
+                    } else {
+                        let local_idx = idx - imported_memories;
+                        ExportType::Memory(self.0.memory_types.get(local_idx)?)
+                    }
+                }
                 ExternalKind::Global => {
-                    let imported_globals =
-                        imports.filter(|import| matches!(import.kind, ImportKind::Global(_))).count();
+                    let imported_globals = imported_count(&self.0, ExternalKind::Global);
                     if idx < imported_globals {
                         ExportType::Global(imported_global_type(self, idx)?)
                     } else {

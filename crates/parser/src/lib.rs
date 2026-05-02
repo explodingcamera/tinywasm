@@ -283,7 +283,25 @@ impl Parser {
                         continue;
                     }
 
-                    if eof || reader.end_reached {
+                    if reader.end_reached {
+                        if !buffer.is_empty() {
+                            return Err(ParseError::Other("trailing bytes after end of module".into()));
+                        }
+
+                        if !eof {
+                            let read_bytes = Self::read_more(&mut stream, &mut buffer, 1)?;
+                            eof = read_bytes == 0;
+
+                            if !eof {
+                                return Err(ParseError::Other("trailing bytes after end of module".into()));
+                            }
+                        }
+
+                        reader.process_pending_functions(&self.options)?;
+                        return reader.into_module(&self.options);
+                    }
+
+                    if eof {
                         reader.process_pending_functions(&self.options)?;
                         return reader.into_module(&self.options);
                     }

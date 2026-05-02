@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 use crate::{Result, module::FunctionCode, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
+use wasmparser::{CompositeInnerType, FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
 
 pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
     elements: T,
@@ -39,7 +39,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
-            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(ty), range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(ty)?, range: element.range })
         }
     }
 }
@@ -74,7 +74,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
     let kind = match import.ty {
         wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
         wasmparser::TypeRef::Table(ty) => ImportKind::Table(TableType {
-            element_type: convert_reftype(ty.element_type),
+            element_type: convert_reftype(ty.element_type)?,
             size_initial: ty.initial.try_into().map_err(|_| {
                 crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", ty.initial))
             })?,
@@ -87,7 +87,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         }),
         wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
         wasmparser::TypeRef::Global(ty) => {
-            ImportKind::Global(GlobalType::new(convert_valtype(&ty.content_type), ty.mutable))
+            ImportKind::Global(GlobalType::new(convert_valtype(&ty.content_type)?, ty.mutable))
         }
         wasmparser::TypeRef::Tag(ty) => {
             return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
@@ -129,7 +129,7 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
     let size_max = table.ty.maximum.map(|max| max.try_into()).transpose();
     let size_max =
         size_max.map_err(|e| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {e}")))?;
-    Ok(TableType { element_type: convert_reftype(table.ty.element_type), size_initial, size_max })
+    Ok(TableType { element_type: convert_reftype(table.ty.element_type)?, size_initial, size_max })
 }
 
 pub(crate) fn convert_module_globals(
@@ -139,7 +139,7 @@ pub(crate) fn convert_module_globals(
         .into_iter()
         .map(|global| {
             let global = global?;
-            let ty = convert_valtype(&global.ty.content_type);
+            let ty = convert_valtype(&global.ty.content_type)?;
             let ops = global.init_expr.get_operators_reader();
             Ok(Global { init: process_const_operators(ops)?, ty: GlobalType::new(ty, global.ty.mutable) })
         })
@@ -211,27 +211,37 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncTy
         ));
     }
 
-    let ty = types.next().unwrap().unwrap_func();
+    let ty = types.next().unwrap();
+    let CompositeInnerType::Func(ty) = &ty.composite_type.inner else {
+        return Err(crate::ParseError::UnsupportedOperator(format!(
+            "Unsupported non-function type in type section: {}",
+            ty.composite_type
+        )));
+    };
     let params: Vec<_> = ty.params().iter().map(convert_valtype).collect();
-    let results: Vec<_> = ty.results().iter().map(convert_valtype).collect();
+    let params = params.into_iter().collect::<Result<Vec<_>>>()?;
+    let results = ty.results().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
     Ok(FuncType::new(&params, &results).into())
 }
 
-pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> WasmType {
+pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> Result<WasmType> {
     match reftype {
-        _ if reftype.is_func_ref() => WasmType::RefFunc,
-        _ if reftype.is_extern_ref() => WasmType::RefExtern,
-        _ => unimplemented!("Unsupported reference type: {:?}, {:?}", reftype, reftype.heap_type()),
+        _ if reftype.is_func_ref() => Ok(WasmType::RefFunc),
+        _ if reftype.is_extern_ref() => Ok(WasmType::RefExtern),
+        _ => Err(crate::ParseError::UnsupportedOperator(format!(
+            "Unsupported reference type: {reftype:?}, {:?}",
+            reftype.heap_type()
+        ))),
     }
 }
 
-pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> WasmType {
+pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> Result<WasmType> {
     match valtype {
-        wasmparser::ValType::I32 => WasmType::I32,
-        wasmparser::ValType::I64 => WasmType::I64,
-        wasmparser::ValType::F32 => WasmType::F32,
-        wasmparser::ValType::F64 => WasmType::F64,
-        wasmparser::ValType::V128 => WasmType::V128,
+        wasmparser::ValType::I32 => Ok(WasmType::I32),
+        wasmparser::ValType::I64 => Ok(WasmType::I64),
+        wasmparser::ValType::F32 => Ok(WasmType::F32),
+        wasmparser::ValType::F64 => Ok(WasmType::F64),
+        wasmparser::ValType::V128 => Ok(WasmType::V128),
         wasmparser::ValType::Ref(r) => convert_reftype(*r),
     }
 }
@@ -247,10 +257,14 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     let mut out = Vec::with_capacity(ops.len().saturating_sub(1));
     for op in ops.iter().take(ops.len() - 1) {
         let instr = match op {
-            wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty) {
+            wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty)? {
                 WasmType::RefFunc => ConstInstruction::RefFunc(None),
                 WasmType::RefExtern => ConstInstruction::RefExtern(None),
-                _ => unimplemented!("Unsupported heap type: {:?}", hty),
+                other => {
+                    return Err(crate::ParseError::UnsupportedOperator(format!(
+                        "Unsupported ref.null heap type lowered to {other:?}"
+                    )));
+                }
             },
             wasmparser::Operator::RefFunc { function_index } => ConstInstruction::RefFunc(Some(*function_index)),
             wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(*value),
@@ -277,12 +291,14 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     Ok(out.into_boxed_slice())
 }
 
-pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> WasmType {
+pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> Result<WasmType> {
     match heap {
-        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Func } => WasmType::RefFunc,
-        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Extern } => {
-            WasmType::RefExtern
+        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Func } => {
+            Ok(WasmType::RefFunc)
         }
-        _ => unimplemented!("Unsupported heap type: {:?}", heap),
+        wasmparser::HeapType::Abstract { shared: false, ty: wasmparser::AbstractHeapType::Extern } => {
+            Ok(WasmType::RefExtern)
+        }
+        _ => Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}"))),
     }
 }
