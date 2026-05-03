@@ -107,7 +107,10 @@ pub(crate) mod log {
 
 mod error;
 pub use error::*;
-pub use func::{ExecProgress, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped, HostFunction};
+pub use func::{
+    ExecProgress, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped, HostFunction, ToWasmTypes,
+    WasmTupleChain,
+};
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};
 pub use reference::*;

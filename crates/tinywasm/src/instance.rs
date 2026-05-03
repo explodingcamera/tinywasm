@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
-use crate::func::{FromWasmValueTuple, IntoWasmValueTuple, WasmTypesFromTuple};
+use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};
 use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, Table, Trap};
 
 /// A typed view over an exported extern value.
@@ -21,6 +21,22 @@ pub enum ExternItem {
 }
 
 /// An instantiated WebAssembly module
+///
+/// Create a `ModuleInstance` by parsing a module, creating a [`Store`], and then calling
+/// [`ModuleInstance::instantiate`].
+///
+/// ## Example
+/// ```rust
+/// # fn main() -> tinywasm::Result<()> {
+/// # use tinywasm::{ModuleInstance, Store};
+/// # let wasm = wat::parse_str("(module)").expect("valid wat");
+/// let module = tinywasm::parse_bytes(&wasm)?;
+/// let mut store = Store::default();
+/// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+/// # let _ = instance;
+/// # Ok(())
+/// # }
+/// ```
 ///
 /// Backed by an Rc, so cloning is cheap
 ///
@@ -305,6 +321,30 @@ impl ModuleInstance {
     }
 
     /// Get a function export by name.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ModuleInstance, Store};
+    /// # use tinywasm::types::WasmValue;
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (func (export "add") (param i32 i32) (result i32)
+    /// #         local.get 0
+    /// #         local.get 1
+    /// #         i32.add))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// # let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    /// let add = instance.func_untyped(&store, "add")?;
+    /// let result = add.call(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)])?;
+    /// assert_eq!(result, vec![WasmValue::I32(42)]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// For typed access, see [`Self::func`].
     pub fn func_untyped(&self, store: &Store, name: &str) -> Result<Function> {
         self.validate_store(store)?;
 
@@ -346,7 +386,32 @@ impl ModuleInstance {
     }
 
     /// Get a typed function export by name.
-    pub fn func<P: IntoWasmValueTuple + WasmTypesFromTuple, R: FromWasmValueTuple + WasmTypesFromTuple>(
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (func (export "add") (param i32 i32) (result i32)
+    /// #         local.get 0
+    /// #         local.get 1
+    /// #         i32.add))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// # let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    /// let add = instance.func::<(i32, i32), i32>(&store, "add")?;
+    /// assert_eq!(add.call(&mut store, (20, 22))?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// For untyped access, see [`Self::func_untyped`] and [`Self::extern_item`].
+    ///
+    /// For signatures that exceed tuple arity 12, see [`crate::WasmTupleChain`], which can be used
+    /// directly as `instance.func::<crate::WasmTupleChain<_, _>, _>(...)`.
+    pub fn func<P: IntoWasmValues + ToWasmTypes, R: FromWasmValues + ToWasmTypes>(
         &self,
         store: &Store,
         name: &str,
@@ -359,10 +424,7 @@ impl ModuleInstance {
     /// Get a typed function by its module-local index.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
     #[cfg(feature = "guest-debug")]
-    pub fn func_typed_by_index<
-        P: IntoWasmValueTuple + WasmTypesFromTuple,
-        R: FromWasmValueTuple + WasmTypesFromTuple,
-    >(
+    pub fn func_typed_by_index<P: IntoWasmValues + ToWasmTypes, R: FromWasmValues + ToWasmTypes>(
         &self,
         store: &Store,
         func_index: FuncAddr,
@@ -372,10 +434,7 @@ impl ModuleInstance {
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
-    fn validate_typed_func<P: WasmTypesFromTuple, R: WasmTypesFromTuple>(
-        func: &Function,
-        func_name: &str,
-    ) -> Result<()> {
+    fn validate_typed_func<P: ToWasmTypes, R: ToWasmTypes>(func: &Function, func_name: &str) -> Result<()> {
         if *func.ty.params() != *P::wasm_types() || *func.ty.results() != *R::wasm_types() {
             cold_path();
 

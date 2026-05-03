@@ -152,13 +152,13 @@ impl HostFunction {
     /// Create a new typed host function import.
     pub fn from<P, R>(store: &mut Store, func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static) -> Function
     where
-        P: FromWasmValueTuple + WasmTypesFromTuple,
-        R: IntoWasmValueTuple + WasmTypesFromTuple,
+        P: FromWasmValues + ToWasmTypes,
+        R: IntoWasmValues + ToWasmTypes,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let args = P::from_wasm_value_tuple(args)?;
+            let args = P::from_wasm_values(args)?;
             let result = func(ctx, args)?;
-            Ok(result.into_wasm_value_tuple())
+            Ok(result.into_wasm_values())
         };
 
         let ty = Arc::new(tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types()));
@@ -383,47 +383,45 @@ fn collect_call_results(value_stack: &mut ValueStack, func_ty: &FuncType) -> Res
     Ok(res)
 }
 
-pub trait IntoWasmValueTuple {
-    fn into_wasm_value_tuple(self) -> Vec<WasmValue>;
+pub trait IntoWasmValues {
+    fn into_wasm_values(self) -> Vec<WasmValue>;
 }
 
-pub trait FromWasmValueTuple {
-    fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self>
-    where
-        Self: Sized;
+pub trait FromWasmValues: Sized {
+    fn from_wasm_values(values: &[WasmValue]) -> Result<Self>;
 }
 
-impl<P: IntoWasmValueTuple, R: FromWasmValueTuple> FunctionTyped<P, R> {
+impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         // Convert params into Vec<WasmValue>
-        let wasm_values = params.into_wasm_value_tuple();
+        let wasm_values = params.into_wasm_values();
 
         // Call the underlying WASM function
         let result = self.func.call(store, &wasm_values)?;
 
         // Convert the Vec<WasmValue> back to R
-        R::from_wasm_value_tuple(&result)
+        R::from_wasm_values(&result)
     }
 
     /// Call a typed function and return a resumable execution handle.
     ///
     /// The handle keeps a mutable borrow of the [`Store`] until completion.
     pub fn call_resumable<'store>(&self, store: &'store mut Store, params: P) -> Result<FuncExecutionTyped<'store, R>> {
-        let wasm_values = params.into_wasm_value_tuple();
+        let wasm_values = params.into_wasm_values();
         let execution = self.func.call_resumable(store, &wasm_values)?;
         Ok(FuncExecutionTyped { execution, marker: core::marker::PhantomData })
     }
 }
 
-impl<'store, R: FromWasmValueTuple> FuncExecutionTyped<'store, R> {
+impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
     /// Resume typed execution with up to `fuel` units of fuel.
     ///
     /// Fuel is accounted in chunks, so execution may overshoot the requested
     /// fuel before returning [`ExecProgress::Suspended`].
     pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<ExecProgress<R>> {
         match self.execution.resume_with_fuel(fuel)? {
-            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_value_tuple(&values)?)),
+            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_values(&values)?)),
             ExecProgress::Suspended => Ok(ExecProgress::Suspended),
         }
     }
@@ -435,18 +433,22 @@ impl<'store, R: FromWasmValueTuple> FuncExecutionTyped<'store, R> {
     /// time budget before returning [`ExecProgress::Suspended`].
     pub fn resume_with_time_budget(&mut self, time_budget: crate::std::time::Duration) -> Result<ExecProgress<R>> {
         match self.execution.resume_with_time_budget(time_budget)? {
-            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_value_tuple(&values)?)),
+            ExecProgress::Completed(values) => Ok(ExecProgress::Completed(R::from_wasm_values(&values)?)),
             ExecProgress::Suspended => Ok(ExecProgress::Suspended),
         }
     }
 }
 
-pub trait WasmTypesFromTuple {
+/// Describes the WebAssembly value types produced by a Rust value or tuple shape.
+pub trait ToWasmTypes {
+    /// Return the flattened WebAssembly value types for this tuple shape.
     fn wasm_types() -> Box<[WasmType]>;
 }
 
+/// Describes the WebAssembly value types produced by a scalar Rust type.
 pub trait ToWasmType {
-    fn to_wasm_type() -> WasmType;
+    /// Return the single WebAssembly value type for this scalar type.
+    fn wasm_type() -> WasmType;
 }
 
 macro_rules! impl_scalar_wasm_traits {
@@ -454,34 +456,34 @@ macro_rules! impl_scalar_wasm_traits {
         $(
             impl ToWasmType for $T {
                 #[inline]
-                fn to_wasm_type() -> WasmType {
+                fn wasm_type() -> WasmType {
                     WasmType::$val_ty
                 }
             }
 
-            impl WasmTypesFromTuple for $T {
+            impl ToWasmTypes for $T {
                 #[inline]
                 fn wasm_types() -> Box<[WasmType]> {
                     Box::new([WasmType::$val_ty])
                 }
             }
 
-            impl IntoWasmValueTuple for $T {
+            impl IntoWasmValues for $T {
                 #[inline]
-                fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+                fn into_wasm_values(self) -> Vec<WasmValue> {
                     vec![self.into()]
                 }
             }
 
-            impl FromWasmValueTuple for $T {
+            impl FromWasmValues for $T {
                 #[inline]
-                fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
+                fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
                     let value = *values
                         .first()
                         .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?;
                     <$T>::try_from(value).map_err(|e| {
                         Error::Other(format!(
-                            "FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}",
+                            "FromWasmValues: Could not convert WasmValue to expected type: {:?}",
                             e
                         ))
                     })
@@ -493,34 +495,34 @@ macro_rules! impl_scalar_wasm_traits {
 
 macro_rules! impl_tuple_traits {
     ($($T:ident),+) => {
-        impl<$($T),+> WasmTypesFromTuple for ($($T,)+)
+        impl<$($T),+> ToWasmTypes for ($($T,)+)
         where
             $($T: ToWasmType,)+
         {
             #[inline]
             fn wasm_types() -> Box<[WasmType]> {
-                Box::new([$($T::to_wasm_type(),)+])
+                Box::new([$($T::wasm_type(),)+])
             }
         }
 
-        impl<$($T),+> IntoWasmValueTuple for ($($T,)+)
+        impl<$($T),+> IntoWasmValues for ($($T,)+)
         where
             $($T: Into<WasmValue>,)+
         {
             #[allow(non_snake_case)]
             #[inline]
-            fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+            fn into_wasm_values(self) -> Vec<WasmValue> {
                 let ($($T,)+) = self;
                 vec![$($T.into(),)+]
             }
         }
 
-        impl<$($T),+> FromWasmValueTuple for ($($T,)+)
+        impl<$($T),+> FromWasmValues for ($($T,)+)
         where
             $($T: TryFrom<WasmValue, Error = ()>,)+
         {
             #[inline]
-            fn from_wasm_value_tuple(values: &[WasmValue]) -> Result<Self> {
+            fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
                 let mut iter = values.iter();
 
                 Ok((
@@ -530,7 +532,7 @@ macro_rules! impl_tuple_traits {
                             .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
                         )
                         .map_err(|e| Error::Other(format!(
-                            "FromWasmValueTuple: Could not convert WasmValue to expected type: {:?}",
+                            "FromWasmValues: Could not convert WasmValue to expected type: {:?}",
                             e,
                         )))?,
                     )+
@@ -554,10 +556,6 @@ macro_rules! impl_tuple {
         $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
         $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
         $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
-        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13);
-        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14);
-        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15);
-        $macro!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
     };
 }
 
@@ -571,23 +569,125 @@ impl_scalar_wasm_traits!(
 );
 impl_tuple!(impl_tuple_traits);
 
-impl WasmTypesFromTuple for () {
+/// A helper type for using tuples of arbitrary number of elements as function parameters or results,
+/// by concatenating the Wasm types of each element.
+///
+/// This is useful when a function signature exceeds tuple arity 12. `tinywasm` only implements
+/// direct tuple conversions up to arity 12, but `WasmTupleChain` lets you describe longer
+/// signatures by combining smaller tuples at the type level.
+///
+/// ## Example
+/// ```rust
+/// # fn main() -> tinywasm::Result<()> {
+/// # use tinywasm::{ModuleInstance, Store, WasmTupleChain};
+/// # let wasm = wat::parse_str(r#"
+/// #     (module
+/// #       (func (export "echo13")
+/// #         (param i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+/// #         (result i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32 i32)
+/// #         local.get 0
+/// #         local.get 1
+/// #         local.get 2
+/// #         local.get 3
+/// #         local.get 4
+/// #         local.get 5
+/// #         local.get 6
+/// #         local.get 7
+/// #         local.get 8
+/// #         local.get 9
+/// #         local.get 10
+/// #         local.get 11
+/// #         local.get 12)
+/// #     )
+/// # "#).expect("valid wat");
+/// # let module = tinywasm::parse_bytes(&wasm)?;
+/// # let mut store = Store::default();
+/// # let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+///
+/// type Params = WasmTupleChain<
+///     (i32, i32, i32, i32, i32, i32),
+///     (i32, i32, i32, i32, i32, i32, i32),
+/// >;
+/// type Results = WasmTupleChain<
+///     (i32, i32, i32, i32, i32, i32),
+///     (i32, i32, i32, i32, i32, i32, i32),
+/// >;
+///
+/// let echo13 = instance.func::<Params, Results>(&store, "echo13")?;
+/// let result = echo13.call(&mut store, ((1, 2, 3, 4, 5, 6), (7, 8, 9, 10, 11, 12, 13)).into())?;
+/// assert_eq!(result.into_inner(), ((1, 2, 3, 4, 5, 6), (7, 8, 9, 10, 11, 12, 13)));
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Default)]
+pub struct WasmTupleChain<T1, T2>(T1, T2);
+
+impl<T1, T2> WasmTupleChain<T1, T2> {
+    /// Create a new concatenated tuple wrapper.
+    pub const fn new(left: T1, right: T2) -> Self {
+        Self(left, right)
+    }
+
+    /// Split the wrapper back into its two component values.
+    pub fn into_inner(self) -> (T1, T2) {
+        (self.0, self.1)
+    }
+}
+
+impl<T1, T2> From<(T1, T2)> for WasmTupleChain<T1, T2> {
+    fn from((left, right): (T1, T2)) -> Self {
+        Self::new(left, right)
+    }
+}
+
+impl<T1: ToWasmTypes, T2: ToWasmTypes> ToWasmTypes for WasmTupleChain<T1, T2> {
+    #[inline]
+    fn wasm_types() -> Box<[WasmType]> {
+        let mut types = Vec::new();
+        types.extend_from_slice(&T1::wasm_types());
+        types.extend_from_slice(&T2::wasm_types());
+        types.into_boxed_slice()
+    }
+}
+
+impl<T1: IntoWasmValues, T2: IntoWasmValues> IntoWasmValues for WasmTupleChain<T1, T2> {
+    #[inline]
+    fn into_wasm_values(self) -> Vec<WasmValue> {
+        let (left, right) = self.into_inner();
+        let mut values = Vec::new();
+        values.extend(left.into_wasm_values());
+        values.extend(right.into_wasm_values());
+        values
+    }
+}
+
+impl<T1: FromWasmValues + ToWasmTypes, T2: FromWasmValues> FromWasmValues for WasmTupleChain<T1, T2> {
+    #[inline]
+    fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
+        let left_len = T1::wasm_types().len();
+        let left = T1::from_wasm_values(&values[..values.len().min(left_len)])?;
+        let right = T2::from_wasm_values(values.get(left_len..).unwrap_or(&[]))?;
+        Ok(Self::new(left, right))
+    }
+}
+
+impl ToWasmTypes for () {
     #[inline]
     fn wasm_types() -> Box<[WasmType]> {
         Box::new([])
     }
 }
 
-impl IntoWasmValueTuple for () {
+impl IntoWasmValues for () {
     #[inline]
-    fn into_wasm_value_tuple(self) -> Vec<WasmValue> {
+    fn into_wasm_values(self) -> Vec<WasmValue> {
         vec![]
     }
 }
 
-impl FromWasmValueTuple for () {
+impl FromWasmValues for () {
     #[inline]
-    fn from_wasm_value_tuple(_values: &[WasmValue]) -> Result<Self> {
+    fn from_wasm_values(_values: &[WasmValue]) -> Result<Self> {
         Ok(())
     }
 }
