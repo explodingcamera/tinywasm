@@ -120,6 +120,37 @@ impl HostFunction {
     }
 
     /// Create a new untyped host function import.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
+    /// # use tinywasm::types::{FuncType, WasmType, WasmValue};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (import "host" "add_one" (func $add_one (param i32) (result i32)))
+    /// #       (func (export "call") (param i32) (result i32)
+    /// #         local.get 0
+    /// #         call $add_one))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let ty = FuncType::new(&[WasmType::I32], &[WasmType::I32]);
+    /// let add_one = HostFunction::from_untyped(&mut store, &ty, |_ctx: FuncContext<'_>, args| {
+    ///     let WasmValue::I32(value) = args[0] else {
+    ///         return Err(tinywasm::Error::Other("expected i32".into()));
+    ///     };
+    ///     Ok(vec![WasmValue::I32(value + 1)])
+    /// });
+    ///
+    /// let mut imports = Imports::new();
+    /// imports.define("host", "add_one", add_one);
+    /// # let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    /// # let call = instance.func::<i32, i32>(&store, "call")?;
+    /// # assert_eq!(call.call(&mut store, 41)?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_untyped(
         store: &mut Store,
         ty: &FuncType,
@@ -150,6 +181,30 @@ impl HostFunction {
     }
 
     /// Create a new typed host function import.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{HostFunction, Imports, ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (import "host" "add_one" (func $add_one (param i32) (result i32)))
+    /// #       (func (export "call") (param i32) (result i32)
+    /// #         local.get 0
+    /// #         call $add_one))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let add_one = HostFunction::from(&mut store, |_ctx, value: i32| Ok(value + 1));
+    ///
+    /// let mut imports = Imports::new();
+    /// imports.define("host", "add_one", add_one);
+    /// # let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    /// # let call = instance.func::<i32, i32>(&store, "call")?;
+    /// # assert_eq!(call.call(&mut store, 41)?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from<P, R>(store: &mut Store, func: impl Fn(FuncContext<'_>, P) -> Result<R> + 'static) -> Function
     where
         P: FromWasmValues + ToWasmTypes,
@@ -604,14 +659,10 @@ impl_tuple!(impl_tuple_traits);
 /// # let mut store = Store::default();
 /// # let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 ///
-/// type Params = WasmTupleChain<
-///     (i32, i32, i32, i32, i32, i32),
-///     (i32, i32, i32, i32, i32, i32, i32),
-/// >;
-/// type Results = WasmTupleChain<
-///     (i32, i32, i32, i32, i32, i32),
-///     (i32, i32, i32, i32, i32, i32, i32),
-/// >;
+/// type Params =
+///     WasmTupleChain<(i32, i32, i32, i32, i32, i32), (i32, i32, i32, i32, i32, i32, i32)>;
+/// type Results =
+///     WasmTupleChain<(i32, i32, i32, i32, i32, i32), (i32, i32, i32, i32, i32, i32, i32)>;
 ///
 /// let echo13 = instance.func::<Params, Results>(&store, "echo13")?;
 /// let result = echo13.call(&mut store, ((1, 2, 3, 4, 5, 6), (7, 8, 9, 10, 11, 12, 13)).into())?;

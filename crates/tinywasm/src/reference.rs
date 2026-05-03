@@ -33,6 +33,24 @@ impl StoreItem {
 }
 
 /// A memory instance in a store.
+///
+/// ## Example
+/// ```rust
+/// # fn main() -> tinywasm::Result<()> {
+/// use tinywasm::types::MemoryType;
+/// use tinywasm::{Memory, Store};
+///
+/// let mut store = Store::default();
+/// let memory = Memory::new(&mut store, MemoryType::default().with_page_count_initial(1))?;
+///
+/// memory.copy_from_slice(&mut store, 0, b"hi")?;
+/// assert_eq!(memory.read_vec(&store, 0, 2)?, b"hi");
+/// assert_eq!(memory.page_count(&store)?, 1);
+/// memory.grow(&mut store, 1)?;
+/// assert_eq!(memory.page_count(&store)?, 2);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Memory(pub(crate) StoreItem);

@@ -19,7 +19,6 @@ use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
 /// `rustup target add wasm32-unknown-unknown`.
 /// <https://github.com/WebAssembly/wabt>
 /// <https://github.com/WebAssembly/binaryen>
-///
 fn main() -> Result<()> {
     pretty_env_logger::init();
 

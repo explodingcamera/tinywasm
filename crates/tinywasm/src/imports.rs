@@ -67,24 +67,30 @@ impl From<&Import> for ExternName {
 /// ```rust
 /// # use log;
 /// # fn main() -> tinywasm::Result<()> {
+/// use tinywasm::types::{GlobalType, MemoryType, TableType, WasmType, WasmValue};
 /// use tinywasm::{Global, HostFunction, Imports, Memory, ModuleInstance, Store, Table};
-/// use tinywasm::types::{WasmType, TableType, MemoryType, WasmValue};
 /// # let wasm = wat::parse_str("(module)").expect("valid wat");
 /// # let module = tinywasm::parse_bytes(&wasm)?;
 /// # let mut store = Store::default();
 /// # let my_other_instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 /// let mut imports = Imports::new();
 ///
-/// // function args can be either a single
-/// // value that implements `TryFrom<WasmValue>` or a tuple of them
 /// let print_i32 = HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, arg: i32| {
 ///     log::debug!("print_i32: {}", arg);
 ///     Ok(())
 /// });
 ///
-/// let table = Table::new(&mut store, TableType::new(WasmType::RefFunc, 10, Some(20)), WasmValue::default_for(WasmType::RefFunc))?;
-/// let memory = Memory::new(&mut store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
-/// let global_i32 = Global::new(&mut store, tinywasm::types::GlobalType::default().with_ty(WasmType::I32), WasmValue::I32(666))?;
+/// let table = Table::new(
+///     &mut store,
+///     TableType::new(WasmType::RefFunc, 10, Some(20)),
+///     WasmValue::default_for(WasmType::RefFunc),
+/// )?;
+/// let memory = Memory::new(
+///     &mut store,
+///     MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)),
+/// )?;
+/// let global_i32 =
+///     Global::new(&mut store, GlobalType::default().with_ty(WasmType::I32), WasmValue::I32(666))?;
 ///
 /// imports
 ///     .define("my_module", "print_i32", print_i32)

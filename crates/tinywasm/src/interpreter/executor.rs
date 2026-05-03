@@ -1568,7 +1568,7 @@ impl<'store> Executor<'store, false> {
         }
 
         loop {
-            for _ in 0..1024 {
+            for _ in 0..128 {
                 if self.exec()?.is_some() {
                     return Ok(ExecState::Completed);
                 }
@@ -1590,13 +1590,13 @@ impl<'store> Executor<'store, true> {
         }
 
         loop {
-            for _ in 0..1024 {
+            for _ in 0..128 {
                 if self.exec()?.is_some() {
                     return Ok(ExecState::Completed);
                 }
             }
 
-            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(1024_u32);
+            self.store.execution_fuel = self.store.execution_fuel.saturating_sub(128);
             if self.store.execution_fuel == 0 {
                 return Ok(ExecState::Suspended(self.cf));
             }

@@ -4,6 +4,19 @@ pub use crate::store::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemor
 /// Global configuration for the WebAssembly interpreter
 ///
 /// Can be cheaply cloned and shared across multiple executions and threads.
+///
+/// ## Example
+/// ```rust
+/// use tinywasm::engine::{Config, StackConfig};
+/// use tinywasm::{Engine, Store};
+///
+/// let config = Config::new()
+///     .with_value_stack(StackConfig::dynamic(1024, 16 * 1024))
+///     .with_call_stack(StackConfig::fixed(256));
+/// let engine = Engine::new(config);
+/// let store = Store::new(engine);
+/// # _ = store;
+/// ```
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Engine {
@@ -72,6 +85,19 @@ impl StackConfig {
 }
 
 /// Configuration for the WebAssembly interpreter
+///
+/// ## Example
+/// ```rust
+/// use tinywasm::engine::{Config, FuelPolicy, MemoryBackend, StackConfig};
+///
+/// let config = Config::new()
+///     .with_fuel_policy(FuelPolicy::Weighted)
+///     .with_value_stack(StackConfig::dynamic(1024, 16 * 1024))
+///     .with_memory_backend(MemoryBackend::paged(64 * 1024))
+///     .with_trap_on_oom(true);
+///
+/// assert!(matches!(config.fuel_policy(), FuelPolicy::Weighted));
+/// ```
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]

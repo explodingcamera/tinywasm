@@ -1,2 +1,4 @@
+unstable_features=true
+format_code_in_doc_comments=true
 max_width=120
 use_small_heuristics="Max"

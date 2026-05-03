@@ -24,11 +24,19 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
-/// Data should only be addressable by the module that owns it
-///
 /// Note that the state doesn't do any garbage collection - so it will grow
 /// indefinitely if you keep adding modules to it. When calling temporary
-/// functions, you should create a new store and then drop it when you're done (e.g. in a request handler)
+/// functions, you should create a new store and then drop it when you're done (e.g. in a request handler).
+///
+/// ## Example
+/// ```rust
+/// use tinywasm::engine::{Config, StackConfig};
+/// use tinywasm::{Engine, Store};
+///
+/// let engine = Engine::new(Config::new().with_call_stack(StackConfig::dynamic(64, 512)));
+/// let store = Store::new(engine);
+/// # _ = store;
+/// ```
 ///
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {

@@ -193,6 +193,30 @@ impl ModuleInstance {
 
     /// Instantiate the module in the given store (without running the start function)
     ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (global $g (mut i32) (i32.const 0))
+    /// #       (func $start
+    /// #         i32.const 42
+    /// #         global.set $g)
+    /// #       (start $start)
+    /// #       (export "g" (global $g)))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
+    ///
+    /// assert_eq!(instance.global_get(&store, "g")?, 0.into());
+    /// instance.start(&mut store)?;
+    /// assert_eq!(instance.global_get(&store, "g")?, 42.into());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
         let idx = store.next_module_instance_idx();
@@ -251,6 +275,33 @@ impl ModuleInstance {
     }
 
     /// Returns an iterator over all exported extern values for this instance.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ExternItem, ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (func (export "f"))
+    /// #       (memory (export "mem") 1))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// # let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    ///
+    /// let mut saw_func = false;
+    /// let mut saw_memory = false;
+    /// for (name, item) in instance.exports() {
+    ///     match (name, item) {
+    ///         ("f", ExternItem::Func(_)) => saw_func = true,
+    ///         ("mem", ExternItem::Memory(_)) => saw_memory = true,
+    ///         _ => {}
+    ///     }
+    /// }
+    /// assert!(saw_func && saw_memory);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn exports(&self) -> impl Iterator<Item = (&str, ExternItem)> + '_ {
         self.0.exports.iter().map(move |export| {
             let item = match export.kind {
@@ -302,6 +353,26 @@ impl ModuleInstance {
     }
 
     /// Get any exported extern value by name.
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ExternItem, ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (global (export "answer") i32 (i32.const 42)))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// # let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    ///
+    /// let ExternItem::Global(global) = instance.extern_item("answer")? else {
+    ///     panic!("expected global export");
+    /// };
+    /// assert_eq!(global.get(&store)?, 42.into());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn extern_item(&self, name: &str) -> Result<ExternItem> {
         match self.require_export(name)? {
             ExternVal::Func(addr) => {
@@ -530,6 +601,23 @@ impl ModuleInstance {
     /// Returns None if the module has no start function
     /// If no start function is specified, also checks for a `_start` function in the exports
     ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (func (export "_start"))
+    /// #     )
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// # let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
+    /// assert!(instance.start_func(&store)?.is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#start-function>
     pub fn start_func(&self, store: &Store) -> Result<Option<Function>> {
         self.validate_store(store)?;
@@ -563,6 +651,29 @@ impl ModuleInstance {
     /// Invoke the start function of the module
     ///
     /// Returns `None` if the module has no start function
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (global $g (mut i32) (i32.const 0))
+    /// #       (func (export "_start")
+    /// #         i32.const 7
+    /// #         global.set $g)
+    /// #       (export "g" (global $g)))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
+    ///
+    /// assert_eq!(instance.global_get(&store, "g")?, 0.into());
+    /// assert_eq!(instance.start(&mut store)?, Some(()));
+    /// assert_eq!(instance.global_get(&store, "g")?, 7.into());
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
     pub fn start(&self, store: &mut Store) -> Result<Option<()>> {
