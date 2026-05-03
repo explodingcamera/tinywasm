@@ -261,7 +261,7 @@ impl ValueStack {
             WasmType::F64 => WasmValue::F64(f64::stack_pop(self)),
             WasmType::RefExtern => WasmValue::RefExtern(ExternRef::from_raw(ValueRef::stack_pop(self).raw())),
             WasmType::RefFunc => WasmValue::RefFunc(FuncRef::from_raw(ValueRef::stack_pop(self).raw())),
-            WasmType::V128 => WasmValue::V128(Value128::stack_pop(self).into()),
+            WasmType::V128 => WasmValue::V128(Value128::stack_pop(self).0),
         }
     }
 

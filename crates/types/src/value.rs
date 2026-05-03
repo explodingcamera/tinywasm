@@ -17,7 +17,7 @@ pub enum WasmValue {
     /// A 64-bit float.
     F64(f64),
     // /// A 128-bit vector
-    V128(i128),
+    V128([u8; 16]),
     RefExtern(ExternRef),
     RefFunc(FuncRef),
 }
@@ -176,7 +176,7 @@ impl WasmValue {
             WasmType::I64 => Self::I64(0),
             WasmType::F32 => Self::F32(0.0),
             WasmType::F64 => Self::F64(0.0),
-            WasmType::V128 => Self::V128(0),
+            WasmType::V128 => Self::V128([0; 16]),
             WasmType::RefFunc => Self::RefFunc(FuncRef::null()),
             WasmType::RefExtern => Self::RefExtern(ExternRef::null()),
         }
@@ -188,11 +188,7 @@ impl WasmValue {
         match (self, other) {
             (Self::I32(a), Self::I32(b)) => a == b,
             (Self::I64(a), Self::I64(b)) => a == b,
-            (Self::V128(a), Self::V128(b)) => {
-                let a_bytes = a.to_le_bytes();
-                let b_bytes = b.to_le_bytes();
-                a_bytes == b_bytes || Self::v128_nan_eq(a_bytes, b_bytes)
-            }
+            (Self::V128(a), Self::V128(b)) => a == b || Self::v128_nan_eq(*a, *b),
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
             (Self::F32(a), Self::F32(b)) => {
@@ -293,8 +289,8 @@ impl WasmValue {
         }
     }
 
-    /// Return the `i128` from a `WasmValue`, if it is a `V128`.
-    pub const fn as_v128(&self) -> Option<i128> {
+    /// Return the raw little-endian bytes from a `WasmValue`, if it is a `V128`.
+    pub const fn as_v128(&self) -> Option<[u8; 16]> {
         match self {
             Self::V128(i) => Some(*i),
             _ => None,
@@ -394,4 +390,4 @@ macro_rules! impl_conversion_for_wasmvalue {
     }
 }
 
-impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, i128 => V128, ExternRef => RefExtern, FuncRef => RefFunc }
+impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, [u8; 16] => V128, ExternRef => RefExtern, FuncRef => RefFunc }

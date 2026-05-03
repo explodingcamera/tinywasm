@@ -105,7 +105,7 @@ impl TinyWasmValue {
             (Self::Value64(v), WasmType::F64) => Some(WasmValue::F64(f64::from_bits(v))),
             (Self::ValueRef(v), WasmType::RefExtern) => Some(WasmValue::RefExtern(ExternRef::from_raw(v.raw()))),
             (Self::ValueRef(v), WasmType::RefFunc) => Some(WasmValue::RefFunc(FuncRef::from_raw(v.raw()))),
-            (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128((v).into())),
+            (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128(v.0)),
             (_, WasmType::I32 | WasmType::F32) => None,
             (_, WasmType::I64 | WasmType::F64) => None,
             (_, WasmType::RefExtern | WasmType::RefFunc) => None,
@@ -134,8 +134,8 @@ impl From<WasmValue> for TinyWasmValue {
     }
 }
 
-impl From<i128> for TinyWasmValue {
-    fn from(value: i128) -> Self {
+impl From<[u8; 16]> for TinyWasmValue {
+    fn from(value: [u8; 16]) -> Self {
         Self::Value128(Value128::from(value))
     }
 }

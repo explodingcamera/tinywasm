@@ -271,7 +271,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(*value),
             wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),
             wasmparser::Operator::F64Const { value } => ConstInstruction::F64Const(f64::from_bits(value.bits())),
-            wasmparser::Operator::V128Const { value } => ConstInstruction::V128Const(value.i128()),
+            wasmparser::Operator::V128Const { value } => ConstInstruction::V128Const(*value.bytes()),
             wasmparser::Operator::GlobalGet { global_index } => ConstInstruction::GlobalGet(*global_index),
             wasmparser::Operator::I32Add => ConstInstruction::I32Add,
             wasmparser::Operator::I32Sub => ConstInstruction::I32Sub,

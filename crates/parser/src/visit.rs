@@ -400,11 +400,11 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
     }
 
     fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
-        self.instructions.push(Instruction::Const32(i32::from_ne_bytes(val.bits().to_ne_bytes())));
+        self.instructions.push(Instruction::Const32(val.bits() as i32));
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        self.instructions.push(Instruction::Const64(i64::from_ne_bytes(val.bits().to_ne_bytes())));
+        self.instructions.push(Instruction::Const64(val.bits() as i64));
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {

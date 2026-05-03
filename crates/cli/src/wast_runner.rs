@@ -745,7 +745,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
         F64(f) => WasmValue::F64(f64::from_bits(f.bits)),
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        V128(i) => WasmValue::V128(i128::from_le_bytes(i.to_le_bytes())),
+        V128(i) => WasmValue::V128(i.to_le_bytes()),
         RefExtern(v) => WasmValue::RefExtern(ExternRef::new(Some(v))),
         RefNull(t) => match t {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => {
@@ -760,7 +760,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
     })
 }
 
-fn wast_i128_to_i128(i: wast::core::V128Pattern) -> i128 {
+fn wast_v128_to_bytes(i: wast::core::V128Pattern) -> [u8; 16] {
     let res: Vec<u8> = match i {
         wast::core::V128Pattern::F32x4(f) => {
             f.iter().flat_map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f32().unwrap().to_le_bytes()).collect()
@@ -773,7 +773,7 @@ fn wast_i128_to_i128(i: wast::core::V128Pattern) -> i128 {
         wast::core::V128Pattern::I64x2(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
         wast::core::V128Pattern::I8x16(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
     };
-    i128::from_le_bytes(res.try_into().unwrap())
+    res.try_into().unwrap()
 }
 
 fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<WasmValue>> {
@@ -793,7 +793,7 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<WasmValue> 
         F64(f) => nanpattern2tinywasmvalue(f)?,
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
-        V128(i) => WasmValue::V128(wast_i128_to_i128(i)),
+        V128(i) => WasmValue::V128(wast_v128_to_bytes(i)),
         RefNull(t) => match t {
             Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func }) => {
                 WasmValue::RefFunc(FuncRef::null())

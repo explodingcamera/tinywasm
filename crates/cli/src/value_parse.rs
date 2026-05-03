@@ -17,7 +17,10 @@ fn parse_arg(index: usize, ty: WasmType, value: &str) -> Result<WasmValue> {
         WasmType::I64 => value.parse::<i64>().map(WasmValue::from).map_err(|e| format_error(index, ty, value, e))?,
         WasmType::F32 => value.parse::<f32>().map(WasmValue::from).map_err(|e| format_error(index, ty, value, e))?,
         WasmType::F64 => value.parse::<f64>().map(WasmValue::from).map_err(|e| format_error(index, ty, value, e))?,
-        WasmType::V128 => value.parse::<i128>().map(WasmValue::from).map_err(|e| format_error(index, ty, value, e))?,
+        WasmType::V128 => value
+            .parse::<i128>()
+            .map(|v| WasmValue::V128(v.to_le_bytes()))
+            .map_err(|e| format_error(index, ty, value, e))?,
         WasmType::RefFunc | WasmType::RefExtern => {
             bail!(
                 "unsupported CLI argument type at position {}: {}; use the embedding API for reference values",
