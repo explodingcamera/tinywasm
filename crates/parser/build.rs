@@ -3,7 +3,7 @@ use std::env;
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(parallel_parser)");
 
-    if env::var("CARGO_FEATURE_PARALLEL").is_err() {
+    if env::var_os("CARGO_FEATURE_PARALLEL").is_none() {
         return;
     }
 
@@ -11,6 +11,6 @@ fn main() {
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
 
     if !arch.starts_with("wasm") && os != "unknown" && os != "none" {
-        println!("cargo:rustc-cfg=parallel_parser");
+        println!("cargo::rustc-cfg=parallel_parser");
     }
 }

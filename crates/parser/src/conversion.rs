@@ -3,13 +3,10 @@ use alloc::sync::Arc;
 use crate::{Result, module::FunctionCode, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{CompositeInnerType, FuncValidator, FuncValidatorAllocations, OperatorsReader, ValidatorResources};
-
-pub(crate) fn convert_module_elements<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Element<'a>>>>(
-    elements: T,
-) -> Result<Vec<tinywasm_types::Element>> {
-    elements.into_iter().map(|element| convert_module_element(element?)).collect::<Result<Vec<_>>>()
-}
+use wasmparser::{
+    CompositeInnerType, FuncValidator, FuncValidatorAllocations, OperatorsReader, OperatorsReaderAllocations,
+    ValidatorResources,
+};
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
@@ -44,12 +41,6 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
     }
 }
 
-pub(crate) fn convert_module_data_sections<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Data<'a>>>>(
-    data_sections: T,
-) -> Result<Vec<tinywasm_types::Data>> {
-    data_sections.into_iter().map(|data| convert_module_data(data?)).collect::<Result<Vec<_>>>()
-}
-
 pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm_types::Data> {
     Ok(tinywasm_types::Data {
         data: data.data.to_vec().into_boxed_slice(),
@@ -62,12 +53,6 @@ pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm
             wasmparser::DataKind::Passive => tinywasm_types::DataKind::Passive,
         },
     })
-}
-
-pub(crate) fn convert_module_imports<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Import<'a>>>>(
-    imports: T,
-) -> Result<Vec<Import>> {
-    imports.into_iter().map(|import| convert_module_import(import?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
@@ -100,12 +85,6 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
     Ok(Import { module: import.module.into(), name: import.name.into(), kind })
 }
 
-pub(crate) fn convert_module_memories<T: IntoIterator<Item = wasmparser::Result<wasmparser::MemoryType>>>(
-    memory_types: T,
-) -> Result<Vec<MemoryType>> {
-    memory_types.into_iter().map(|memory| Ok(convert_module_memory(memory?))).collect::<Result<Vec<_>>>()
-}
-
 pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryType {
     MemoryType::new(
         if memory.memory64 { MemoryArch::I64 } else { MemoryArch::I32 },
@@ -113,12 +92,6 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryTyp
         memory.maximum,
         memory.page_size_log2.map(|x| 1 << x),
     )
-}
-
-pub(crate) fn convert_module_tables<'a, T: IntoIterator<Item = wasmparser::Result<wasmparser::Table<'a>>>>(
-    table_types: T,
-) -> Result<Vec<TableType>> {
-    table_types.into_iter().map(|table| convert_module_table(table?)).collect::<Result<Vec<_>>>()
 }
 
 pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
@@ -134,7 +107,7 @@ pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<Table
 
 pub(crate) fn convert_module_globals(
     globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>,
-) -> Result<Vec<Global>> {
+) -> Result<Box<[Global]>> {
     globals
         .into_iter()
         .map(|global| {
@@ -143,7 +116,7 @@ pub(crate) fn convert_module_globals(
             let ops = global.init_expr.get_operators_reader();
             Ok(Global { init: process_const_operators(ops)?, ty: GlobalType::new(ty, global.ty.mutable) })
         })
-        .collect::<Result<Vec<_>>>()
+        .collect::<Result<Box<_>>>()
 }
 
 pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Export> {
@@ -163,7 +136,8 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
     mut validator: FuncValidator<ValidatorResources>,
-) -> Result<(FunctionCode, FuncValidatorAllocations)> {
+    reader_allocs: OperatorsReaderAllocations,
+) -> Result<(FunctionCode, FuncValidatorAllocations, OperatorsReaderAllocations)> {
     let locals_reader = func.get_locals_reader()?;
     let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
@@ -199,8 +173,13 @@ pub(crate) fn convert_module_code(
         }
     }
 
-    let (body, data, allocations) = process_operators_and_validate(validator, func, local_addr_map)?;
-    Ok((FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false }, allocations))
+    let (body, data, validator_allocs, reader_allocs) =
+        process_operators_and_validate(validator, func, local_addr_map, reader_allocs)?;
+    Ok((
+        FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false },
+        validator_allocs,
+        reader_allocs,
+    ))
 }
 
 pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncType>> {

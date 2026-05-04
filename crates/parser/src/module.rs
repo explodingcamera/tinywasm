@@ -1,11 +1,11 @@
 use crate::log::debug;
-use crate::{ParseError, ParserOptions, Result, conversion, optimize};
+use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
 use alloc::sync::Arc;
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
-use wasmparser::{FuncValidatorAllocations, Payload, Validator};
+use wasmparser::{FuncValidatorAllocations, OperatorsReaderAllocations, Payload, Validator};
 
 pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
@@ -46,21 +46,23 @@ pub(crate) fn optimize_function_code(
 #[derive(Default)]
 pub(crate) struct ModuleReader<'a> {
     func_validator_allocations: Option<FuncValidatorAllocations>,
+    operators_reader_allocations: Option<OperatorsReaderAllocations>,
+
     has_code_section: bool,
     marker: PhantomData<&'a [u8]>,
 
     pub(crate) version: Option<u16>,
     pub(crate) start_func: Option<u32>,
-    pub(crate) func_types: Vec<Arc<FuncType>>,
-    pub(crate) code_type_addrs: Vec<u32>,
-    pub(crate) exports: Vec<Export>,
+    pub(crate) func_types: Arc<[Arc<FuncType>]>,
+    pub(crate) code_type_addrs: Box<[u32]>,
+    pub(crate) exports: Arc<[Export]>,
     pub(crate) code: Vec<FunctionCode>,
-    pub(crate) globals: Vec<Global>,
-    pub(crate) table_types: Vec<TableType>,
-    pub(crate) memory_types: Vec<MemoryType>,
-    pub(crate) imports: Vec<Import>,
-    pub(crate) data: Vec<Data>,
-    pub(crate) elements: Vec<Element>,
+    pub(crate) globals: Box<[Global]>,
+    pub(crate) table_types: Box<[TableType]>,
+    pub(crate) memory_types: Box<[MemoryType]>,
+    pub(crate) imports: Box<[Import]>,
+    pub(crate) data: Box<[Data]>,
+    pub(crate) elements: Box<[Element]>,
     pub(crate) end_reached: bool,
 
     #[cfg(parallel_parser)]
@@ -75,6 +77,14 @@ impl<'a> ModuleReader<'a> {
     }
 
     pub(crate) fn process_payload(&mut self, payload: Payload<'_>, validator: &mut Validator) -> Result<()> {
+        fn check_section(section: &str, duplicate: bool) -> Result<()> {
+            debug!("found {section} section");
+            if duplicate {
+                return Err(ParseError::DuplicateSection(format!("{section} section")));
+            }
+            Ok(())
+        }
+
         match payload {
             Payload::Version { num, encoding, range } => {
                 validator.version(num, encoding, &range)?;
@@ -84,99 +94,65 @@ impl<'a> ModuleReader<'a> {
                 }
             }
             Payload::StartSection { func, range } => {
-                if self.start_func.is_some() {
-                    return Err(ParseError::DuplicateSection("Start section".into()));
-                }
-
-                debug!("Found start section");
+                check_section("start", self.start_func.is_some())?;
                 validator.start_section(func, &range)?;
                 self.start_func = Some(func);
             }
             Payload::TypeSection(reader) => {
-                if !self.func_types.is_empty() {
-                    return Err(ParseError::DuplicateSection("Type section".into()));
-                }
-
-                debug!("Found type section");
+                check_section("type", !self.func_types.is_empty())?;
                 validator.type_section(&reader)?;
-                self.func_types =
-                    reader.into_iter().map(|t| conversion::convert_module_type(t?)).collect::<Result<Vec<_>>>()?;
+                self.func_types = reader.into_iter().map(|t| convert_module_type(t?)).collect::<Result<_>>()?;
             }
             Payload::GlobalSection(reader) => {
-                if !self.globals.is_empty() {
-                    return Err(ParseError::DuplicateSection("Global section".into()));
-                }
-
-                debug!("Found global section");
+                check_section("global", !self.globals.is_empty())?;
                 validator.global_section(&reader)?;
-                self.globals = conversion::convert_module_globals(reader)?;
+                self.globals = convert_module_globals(reader)?;
             }
             Payload::TableSection(reader) => {
-                if !self.table_types.is_empty() {
-                    return Err(ParseError::DuplicateSection("Table section".into()));
-                }
-
-                debug!("Found table section");
+                check_section("table", !self.table_types.is_empty())?;
                 validator.table_section(&reader)?;
-                self.table_types = conversion::convert_module_tables(reader)?;
+                self.table_types =
+                    reader.into_iter().map(|table| convert_module_table(table?)).collect::<Result<_>>()?;
             }
             Payload::MemorySection(reader) => {
-                if !self.memory_types.is_empty() {
-                    return Err(ParseError::DuplicateSection("Memory section".into()));
-                }
-
-                debug!("Found memory section");
+                check_section("memory", !self.memory_types.is_empty())?;
                 validator.memory_section(&reader)?;
-                self.memory_types = conversion::convert_module_memories(reader)?;
+                self.memory_types =
+                    reader.into_iter().map(|memory| Ok(convert_module_memory(memory?))).collect::<Result<_>>()?;
             }
             Payload::ElementSection(reader) => {
                 debug!("Found element section");
                 validator.element_section(&reader)?;
-                self.elements = conversion::convert_module_elements(reader)?;
+                self.elements =
+                    reader.into_iter().map(|element| convert_module_element(element?)).collect::<Result<_>>()?;
             }
             Payload::DataSection(reader) => {
-                if !self.data.is_empty() {
-                    return Err(ParseError::DuplicateSection("Data section".into()));
-                }
-
-                debug!("Found data section");
+                check_section("data", !self.data.is_empty())?;
                 validator.data_section(&reader)?;
-                self.data = conversion::convert_module_data_sections(reader)?;
+                self.data = reader.into_iter().map(|data| convert_module_data(data?)).collect::<Result<_>>()?;
             }
             Payload::DataCountSection { count, range } => {
                 debug!("Found data count section");
                 if !self.data.is_empty() {
-                    return Err(ParseError::DuplicateSection("Data count section".into()));
+                    return Err(ParseError::UnsupportedSection("Data count section after data section".into()));
                 }
                 validator.data_count_section(count, &range)?;
             }
             Payload::FunctionSection(reader) => {
-                if !self.code_type_addrs.is_empty() {
-                    return Err(ParseError::DuplicateSection("Function section".into()));
-                }
-
-                debug!("Found function section");
+                check_section("function", !self.code_type_addrs.is_empty())?;
                 validator.function_section(&reader)?;
-                self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<Vec<_>>>()?;
+                self.code_type_addrs = reader.into_iter().map(|f| Ok(f?)).collect::<Result<_>>()?;
             }
             Payload::ImportSection(reader) => {
-                if !self.imports.is_empty() {
-                    return Err(ParseError::DuplicateSection("Import section".into()));
-                }
-
-                debug!("Found import section");
+                check_section("import", !self.imports.is_empty())?;
                 validator.import_section(&reader)?;
-                self.imports = conversion::convert_module_imports(reader.into_imports())?;
+                self.imports =
+                    reader.into_imports().map(|import| convert_module_import(import?)).collect::<Result<_>>()?;
             }
             Payload::ExportSection(reader) => {
-                if !self.exports.is_empty() {
-                    return Err(ParseError::DuplicateSection("Export section".into()));
-                }
-
-                debug!("Found export section");
+                check_section("export", !self.exports.is_empty())?;
                 validator.export_section(&reader)?;
-                self.exports =
-                    reader.into_iter().map(|e| conversion::convert_module_export(e?)).collect::<Result<Vec<_>>>()?;
+                self.exports = reader.into_iter().map(|e| convert_module_export(e?)).collect::<Result<_>>()?;
             }
             Payload::End(offset) => {
                 debug!("Reached end of module");
@@ -192,7 +168,7 @@ impl<'a> ModuleReader<'a> {
                 debug!("Skipping custom section: {:?}", _reader.name());
             }
             Payload::CodeSectionStart { .. } | Payload::CodeSectionEntry(_) => {
-                return Err(ParseError::Other("code section payload handled separately".into()));
+                unreachable!("code section payload handled separately")
             }
             Payload::UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
             section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {section:?}"))),
@@ -242,20 +218,26 @@ impl<'a> ModuleReader<'a> {
         options: &ParserOptions,
     ) -> Result<()> {
         debug!("Found code section entry");
-        let ordinal = self.code.len();
+
+        let func_validator_allocs = self.func_validator_allocations.take().unwrap_or_default();
+        let operators_reader_allocs = self.operators_reader_allocations.take().unwrap_or_default();
+
         let func_to_validate = validator.code_section_entry(&function)?;
-        let func_validator =
-            func_to_validate.into_validator(self.func_validator_allocations.take().unwrap_or_default());
-        let (code, allocations) = conversion::convert_module_code(function, func_validator)?;
-        let code = optimize_function_code(
+        let func_validator = func_to_validate.into_validator(func_validator_allocs);
+
+        let (code, func_validator_allocs, operators_reader_allocs) =
+            convert_module_code(function, func_validator, operators_reader_allocs)?;
+
+        self.code.push(optimize_function_code(
             code,
             options,
-            self.function_results(ordinal),
-            (imported_func_count(&self.imports) + ordinal) as u32,
+            self.function_results(self.code.len()),
+            (imported_func_count(&self.imports) + self.code.len()) as u32,
             imported_memory_count(&self.imports),
-        );
-        self.code.push(code);
-        self.func_validator_allocations = Some(allocations);
+        ));
+
+        self.func_validator_allocations = Some(func_validator_allocs);
+        self.operators_reader_allocations = Some(operators_reader_allocs);
         Ok(())
     }
 
@@ -376,50 +358,51 @@ impl<'a> ModuleReader<'a> {
             LocalMemoryAllocation::Skip
         };
 
-        let mut funcs = Vec::with_capacity(self.code.len());
-        let mut func_type_idxs = self
+        let func_type_idxs = self
             .imports
             .iter()
             .filter_map(|import| match import.kind {
                 ImportKind::Function(type_idx) => Some(type_idx),
                 _ => None,
             })
-            .collect::<Vec<_>>();
-        func_type_idxs.extend(self.code_type_addrs.iter().copied());
+            .chain(self.code_type_addrs.iter().copied())
+            .collect();
 
-        for (code, ty_idx) in self.code.into_iter().zip(self.code_type_addrs) {
-            let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
-            let params = ValueCounts::from_iter(ty.params());
-            let results = ValueCounts::from_iter(ty.results());
-            if code.uses_local_memory {
-                local_memory_allocation = LocalMemoryAllocation::Eager;
-            }
+        let funcs = self
+            .code
+            .into_iter()
+            .zip(self.code_type_addrs)
+            .map(|(code, ty_idx)| {
+                let ty = self.func_types.get(ty_idx as usize).expect("No func type for func, this is a bug").clone();
+                let params = ValueCounts::from_iter(ty.params());
+                let results = ValueCounts::from_iter(ty.results());
+                if code.uses_local_memory {
+                    local_memory_allocation = LocalMemoryAllocation::Eager;
+                }
 
-            funcs.push(
-                WasmFunction {
+                Arc::new(WasmFunction {
                     instructions: code.instructions.into(),
                     data: code.data,
                     locals: code.locals,
                     params,
                     results,
                     ty,
-                }
-                .into(),
-            );
-        }
+                })
+            })
+            .collect();
 
         Ok(ModuleInner {
-            funcs: funcs.into(),
-            func_types: self.func_types.into(),
-            func_type_idxs: func_type_idxs.into(),
-            globals: self.globals.into(),
-            table_types: self.table_types.into(),
-            imports: self.imports.into(),
+            funcs,
+            func_types: self.func_types,
+            func_type_idxs,
+            globals: self.globals,
+            table_types: self.table_types,
+            imports: self.imports,
             start_func: self.start_func,
-            data: self.data.into(),
-            exports: self.exports.into(),
-            elements: self.elements.into(),
-            memory_types: self.memory_types.into(),
+            data: self.data,
+            exports: self.exports,
+            elements: self.elements,
+            memory_types: self.memory_types,
             local_memory_allocation,
         }
         .into())

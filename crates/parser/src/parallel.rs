@@ -66,12 +66,12 @@ fn process_function_job(
     imported_memory_count: u32,
 ) -> Result<(usize, FunctionCode)> {
     let validator = job.func_to_validate.into_validator(FuncValidatorAllocations::default());
-    let (code, _allocations) = match job.body {
-        FunctionBodyInput::Borrowed(func) => conversion::convert_module_code(func, validator)?,
+    let (code, _, _) = match job.body {
+        FunctionBodyInput::Borrowed(func) => conversion::convert_module_code(func, validator, Default::default())?,
         FunctionBodyInput::Owned(body) => {
             let reader = wasmparser::BinaryReader::new(&body.section_bytes[body.body_range], body.body_offset);
             let func = wasmparser::FunctionBody::new(reader);
-            conversion::convert_module_code(func, validator)?
+            conversion::convert_module_code(func, validator, Default::default())?
         }
     };
 

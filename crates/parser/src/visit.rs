@@ -5,8 +5,8 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use tinywasm_types::{Instruction, MemoryArg, WasmFunctionData};
 use wasmparser::{
-    FrameKind, FuncValidator, FuncValidatorAllocations, FunctionBody, VisitOperator, VisitSimdOperator,
-    WasmModuleResources,
+    FrameKind, FuncValidator, FuncValidatorAllocations, FunctionBody, OperatorsReader, OperatorsReaderAllocations,
+    VisitOperator, VisitSimdOperator, WasmModuleResources,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -51,7 +51,6 @@ impl FunctionDataBuilder {
         }
     }
 }
-
 struct ValidateThenVisit<'a, R: WasmModuleResources>(&'a mut FunctionBuilder<R>);
 
 fn operand_size(ty: wasmparser::ValType) -> OperandSize {
@@ -75,12 +74,14 @@ impl<R: WasmModuleResources> VisitSimdOperator<'_> for ValidateThenVisit<'_, R> 
     wasmparser::for_each_visit_simd_operator!(validate_then_visit_simd);
 }
 
-pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
-    validator: FuncValidator<R>,
+pub(crate) fn process_operators_and_validate(
+    validator: FuncValidator<impl WasmModuleResources>,
     body: FunctionBody<'_>,
     local_addr_map: Vec<u16>,
-) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations)> {
-    let mut reader = body.get_operators_reader()?;
+    allocs: OperatorsReaderAllocations,
+) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+    let reader = body.get_binary_reader_for_operators()?;
+    let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
     let mut builder = FunctionBuilder::new(validator, local_addr_map);
 
     while !reader.eof() {
@@ -92,11 +93,12 @@ pub(crate) fn process_operators_and_validate<R: WasmModuleResources>(
     }
 
     reader.finish()?;
+
     if let Some(error) = builder.error {
         return Err(error);
     }
 
-    Ok((builder.instructions, builder.data.finish(), builder.validator.into_allocations()))
+    Ok((builder.instructions, builder.data.finish(), builder.validator.into_allocations(), reader.into_allocations()))
 }
 
 pub(crate) struct FunctionBuilder<R> {
