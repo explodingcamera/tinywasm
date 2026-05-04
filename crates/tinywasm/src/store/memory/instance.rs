@@ -1,14 +1,9 @@
 use alloc::format;
-use tinywasm_types::MemoryArch;
-use tinywasm_types::MemoryType;
+use tinywasm_types::{MemoryArch, MemoryType};
 
-use crate::Error;
-use crate::MemoryBackend;
-use crate::Result;
-use crate::Trap;
+use crate::{Error, MemoryBackend, Result, Trap};
 
-use super::MemoryStorage;
-use super::memory_oob;
+use super::{MemoryStorage, memory_oob};
 use core::hint::cold_path;
 
 /// A WebAssembly Memory Instance

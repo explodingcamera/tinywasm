@@ -1,8 +1,5 @@
+use alloc::{boxed::Box, format, rc::Rc, sync::Arc};
 use core::hint::cold_path;
-
-use alloc::boxed::Box;
-use alloc::sync::Arc;
-use alloc::{format, rc::Rc};
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};

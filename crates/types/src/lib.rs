@@ -76,6 +76,7 @@ impl From<ModuleInner> for Module {
 
 impl Deref for Module {
     type Target = ModuleInner;
+
     fn deref(&self) -> &ModuleInner {
         &self.0
     }

@@ -1,8 +1,6 @@
-use crate::{Result, interpreter::simd::Value128};
-
 use super::stack::{CallFrame, ValueStack};
-use tinywasm_types::LocalAddr;
-use tinywasm_types::{ExternRef, FuncRef, WasmType, WasmValue};
+use crate::{Result, interpreter::simd::Value128};
+use tinywasm_types::{ExternRef, FuncRef, LocalAddr, WasmType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;

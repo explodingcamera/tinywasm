@@ -1,10 +1,6 @@
-use clap::{
-    Args, Parser, Subcommand, ValueEnum,
-    builder::{
-        Styles,
-        styling::{AnsiColor, Effects},
-    },
-};
+use clap::builder::Styles;
+use clap::builder::styling::{AnsiColor, Effects};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
 use crate::engine_flags::EngineFlags;

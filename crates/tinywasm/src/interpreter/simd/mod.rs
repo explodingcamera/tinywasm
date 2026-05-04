@@ -12,8 +12,6 @@ use core::arch::wasm32 as wasm;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64 as wasm;
 
-use crate::MemValue;
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// A 128-bit SIMD value
 pub struct Value128(pub(super) [u8; 16]);
@@ -24,20 +22,15 @@ impl From<[u8; 16]> for Value128 {
     }
 }
 
-impl MemValue<16> for Value128 {
+impl Value128 {
     #[inline(always)]
-    fn from_mem_bytes(bytes: [u8; 16]) -> Self {
+    pub fn from_le_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
 
     #[inline(always)]
-    fn to_mem_bytes(self) -> [u8; 16] {
+    pub fn to_le_bytes(self) -> [u8; 16] {
         self.0
-    }
-
-    #[inline(always)]
-    fn load(mem: &dyn crate::LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
-        Ok(Self(mem.read_128(base, offset)?))
     }
 }
 
@@ -55,6 +48,19 @@ impl From<i128> for Value128 {
 
 #[cfg_attr(any(target_arch = "wasm32", target_arch = "wasm64"), allow(unreachable_code))]
 impl Value128 {
+    impl_lane_accessors! {
+        as_i8x16 => from_i8x16: i8, 16, 1;
+        as_u8x16 => from_u8x16: u8, 16, 1;
+        as_i16x8 => from_i16x8: i16, 8, 2;
+        as_u16x8 => from_u16x8: u16, 8, 2;
+        as_i32x4 => pub from_i32x4: i32, 4, 4;
+        as_u32x4 => from_u32x4: u32, 4, 4;
+        as_f32x4 => from_f32x4: f32, 4, 4;
+        as_i64x2 => pub from_i64x2: i64, 2, 8;
+        as_u64x2 => from_u64x2: u64, 2, 8;
+        as_f64x2 => from_f64x2: f64, 2, 8;
+    }
+
     #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
     #[inline(always)]
     fn to_wasm_v128(self) -> wasm::v128 {
@@ -69,19 +75,6 @@ impl Value128 {
     #[rustfmt::skip]
     fn from_wasm_v128(value: wasm::v128) -> Self {
         Self([ wasm::u8x16_extract_lane::<0>(value), wasm::u8x16_extract_lane::<1>(value), wasm::u8x16_extract_lane::<2>(value), wasm::u8x16_extract_lane::<3>(value), wasm::u8x16_extract_lane::<4>(value), wasm::u8x16_extract_lane::<5>(value), wasm::u8x16_extract_lane::<6>(value), wasm::u8x16_extract_lane::<7>(value), wasm::u8x16_extract_lane::<8>(value), wasm::u8x16_extract_lane::<9>(value), wasm::u8x16_extract_lane::<10>(value), wasm::u8x16_extract_lane::<11>(value), wasm::u8x16_extract_lane::<12>(value), wasm::u8x16_extract_lane::<13>(value), wasm::u8x16_extract_lane::<14>(value), wasm::u8x16_extract_lane::<15>(value)])
-    }
-
-    impl_lane_accessors! {
-        as_i8x16 => from_i8x16: i8, 16, 1;
-        as_u8x16 => from_u8x16: u8, 16, 1;
-        as_i16x8 => from_i16x8: i16, 8, 2;
-        as_u16x8 => from_u16x8: u16, 8, 2;
-        as_i32x4 => pub from_i32x4: i32, 4, 4;
-        as_u32x4 => from_u32x4: u32, 4, 4;
-        as_f32x4 => from_f32x4: f32, 4, 4;
-        as_i64x2 => pub from_i64x2: i64, 2, 8;
-        as_u64x2 => from_u64x2: u64, 2, 8;
-        as_f64x2 => from_f64x2: f64, 2, 8;
     }
 
     #[inline]

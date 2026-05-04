@@ -1,14 +1,12 @@
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, format, sync::Arc};
+use alloc::{vec, vec::Vec};
+use core::cmp::min;
 use core::hint::cold_path;
-use core::ops::DerefMut;
-use core::{cmp::min, ops::Deref};
+use core::ops::{Deref, DerefMut};
 
 use tinywasm_types::MemoryType;
 
+use crate::interpreter::Value128;
 use crate::{Error, Result};
 
 mod instance;
@@ -443,7 +441,7 @@ impl MemValue<1> for i8 {
 
 impl_mem_traits!(
     u16, 2, read_16, i16, 2, read_16, u32, 4, read_32, i32, 4, read_32, f32, 4, read_32, u64, 8, read_64, i64, 8,
-    read_64, f64, 8, read_64,
+    read_64, f64, 8, read_64, Value128, 16, read_128
 );
 
 fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {

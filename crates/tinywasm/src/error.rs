@@ -2,8 +2,7 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::fmt::Debug;
-use core::fmt::Display;
+use core::fmt::{Debug, Display};
 use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
 

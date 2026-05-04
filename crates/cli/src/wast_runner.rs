@@ -1,11 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::fs::canonicalize;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::{
-    panic::{self, AssertUnwindSafe},
-    time::Duration,
-};
+use std::time::Duration;
 
 use eyre::{Context, Result, bail, eyre};
 use log::{debug, error};
@@ -833,9 +831,11 @@ impl FloatToken for wast::token::F32 {
     fn bits(&self) -> Bits {
         Bits::U32(self.bits)
     }
+
     fn canonical_nan() -> WasmValue {
         WasmValue::F32(f32::NAN)
     }
+
     fn arithmetic_nan() -> WasmValue {
         WasmValue::F32(f32::NAN)
     }
@@ -845,9 +845,11 @@ impl FloatToken for wast::token::F64 {
     fn bits(&self) -> Bits {
         Bits::U64(self.bits)
     }
+
     fn canonical_nan() -> WasmValue {
         WasmValue::F64(f64::NAN)
     }
+
     fn arithmetic_nan() -> WasmValue {
         WasmValue::F64(f64::NAN)
     }

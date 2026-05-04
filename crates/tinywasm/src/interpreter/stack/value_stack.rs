@@ -3,11 +3,9 @@ use core::hint::cold_path;
 use tinywasm_types::{ExternRef, FuncRef, ValueCounts, WasmType, WasmValue};
 
 use super::StackBase;
-use crate::{
-    Result, Trap,
-    engine::{Config, StackConfig},
-    interpreter::*,
-};
+use crate::engine::{Config, StackConfig};
+use crate::interpreter::*;
+use crate::{Result, Trap};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct ValueStack {

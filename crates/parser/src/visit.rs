@@ -63,6 +63,7 @@ fn operand_size(ty: wasmparser::ValType) -> OperandSize {
 
 impl<'a, R: WasmModuleResources> VisitOperator<'a> for ValidateThenVisit<'_, R> {
     type Output = ();
+
     wasmparser::for_each_visit_operator!(validate_then_visit);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
@@ -113,11 +114,12 @@ pub(crate) struct FunctionBuilder<R> {
 
 impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuilder<R> {
     type Output = ();
-    wasmparser::for_each_visit_operator!(impl_visit_operator);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
         Some(self)
     }
+
+    wasmparser::for_each_visit_operator!(impl_visit_operator);
 
     define_mem_operands! {
         visit_i32_load(I32Load), visit_i64_load(I64Load), visit_f32_load(F32Load), visit_f64_load(F64Load),
@@ -467,10 +469,12 @@ impl<R: WasmModuleResources> wasmparser::VisitSimdOperator<'_> for FunctionBuild
     define_mem_operands_simd! {
         visit_v128_load(V128Load), visit_v128_load8x8_s(V128Load8x8S), visit_v128_load8x8_u(V128Load8x8U), visit_v128_load16x4_s(V128Load16x4S), visit_v128_load16x4_u(V128Load16x4U), visit_v128_load32x2_s(V128Load32x2S), visit_v128_load32x2_u(V128Load32x2U), visit_v128_load8_splat(V128Load8Splat), visit_v128_load16_splat(V128Load16Splat), visit_v128_load32_splat(V128Load32Splat), visit_v128_load64_splat(V128Load64Splat), visit_v128_load32_zero(V128Load32Zero), visit_v128_load64_zero(V128Load64Zero), visit_v128_store(V128Store)
     }
+
     define_mem_operands_simd_lane! {
         visit_v128_load8_lane(V128Load8Lane), visit_v128_load16_lane(V128Load16Lane), visit_v128_load32_lane(V128Load32Lane), visit_v128_load64_lane(V128Load64Lane),
         visit_v128_store8_lane(V128Store8Lane), visit_v128_store16_lane(V128Store16Lane), visit_v128_store32_lane(V128Store32Lane), visit_v128_store64_lane(V128Store64Lane)
     }
+
     define_operands! {
         visit_v128_not(V128Not), visit_v128_and(V128And), visit_v128_andnot(V128AndNot), visit_v128_or(V128Or), visit_v128_xor(V128Xor), visit_v128_bitselect(V128Bitselect), visit_v128_any_true(V128AnyTrue),
         visit_i8x16_splat(I8x16Splat), visit_i8x16_swizzle(I8x16Swizzle), visit_i8x16_eq(I8x16Eq), visit_i8x16_ne(I8x16Ne), visit_i8x16_lt_s(I8x16LtS), visit_i8x16_lt_u(I8x16LtU), visit_i8x16_gt_s(I8x16GtS), visit_i8x16_gt_u(I8x16GtU), visit_i8x16_le_s(I8x16LeS), visit_i8x16_le_u(I8x16LeU), visit_i8x16_ge_s(I8x16GeS), visit_i8x16_ge_u(I8x16GeU),
@@ -554,7 +558,9 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
     }
 
     fn stack_base_at_frame(&self, depth: usize) -> StackBase {
-        let Some(frame) = self.validator.get_control_frame(depth) else { return StackBase::default() };
+        let Some(frame) = self.validator.get_control_frame(depth) else {
+            return StackBase::default();
+        };
         let mut base = StackBase::default();
         let stack_height = self.validator.operand_stack_height() as usize;
         for i in 0..frame.height {

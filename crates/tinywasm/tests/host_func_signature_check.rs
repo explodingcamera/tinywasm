@@ -1,9 +1,7 @@
 use eyre::Result;
 use std::fmt::Write;
-use tinywasm::{
-    FuncContext, HostFunction, Imports, Module, ModuleInstance, Store,
-    types::{FuncType, WasmType, WasmValue},
-};
+use tinywasm::types::{FuncType, WasmType, WasmValue};
+use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
 use tinywasm_types::ExternRef;
 
 const VAL_LISTS: &[&[WasmValue]] = &[

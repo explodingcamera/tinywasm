@@ -1,8 +1,9 @@
 use core::hint::cold_path;
 
+use alloc::ffi::CString;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use alloc::{ffi::CString, format};
 
 use crate::store::{GlobalInstance, TableElement, TableInstance};
 use crate::{Error, MemoryInstance, Result, Store, Trap};

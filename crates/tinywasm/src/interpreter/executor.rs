@@ -1243,6 +1243,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_const<T: InternalValue>(&mut self, val: T) -> Result<(), Trap> {
         self.store.value_stack.push(val)
     }
+
     fn exec_ref_is_null(&mut self) -> Result<(), Trap> {
         let is_null = i32::from(<ValueRef>::stack_pop(&mut self.store.value_stack).is_null());
         self.store.value_stack.push::<i32>(is_null)
@@ -1255,6 +1256,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             false => self.store.value_stack.push::<i32>(mem.page_count as i32),
         }
     }
+
     fn exec_memory_grow(&mut self, addr: u32) -> Result<(), Trap> {
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
         let is_64bit = mem.is_64bit();
@@ -1290,6 +1292,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
         Ok(())
     }
+
     fn exec_memory_fill(&mut self, addr: u32) -> Result<(), Trap> {
         let size = i32::stack_pop(&mut self.store.value_stack);
         let val = i32::stack_pop(&mut self.store.value_stack);
@@ -1351,6 +1354,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
         Ok(())
     }
+
     fn exec_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<(), Trap> {
         let size = i32::stack_pop(&mut self.store.value_stack);
         let src = i32::stack_pop(&mut self.store.value_stack);
@@ -1473,16 +1477,19 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let v = table.get_wasm_val(idx as u32)?;
         self.store.value_stack.push_dyn(v.into())
     }
+
     fn exec_table_set(&mut self, table_index: u32) -> Result<(), Trap> {
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
         let idx = <i32>::stack_pop(&mut self.store.value_stack) as u32;
         let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
         table.set(idx, val.addr().into())
     }
+
     fn exec_table_size(&mut self, table_index: u32) -> Result<(), Trap> {
         let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
         self.store.value_stack.push(table.size())
     }
+
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<(), Trap> {
         let size = i32::stack_pop(&mut self.store.value_stack); // n
         let offset = i32::stack_pop(&mut self.store.value_stack); // s
@@ -1517,6 +1524,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         table.init(i64::from(dst), &items[offset as usize..(offset + size) as usize])
     }
+
     fn exec_table_grow(&mut self, table_index: u32) -> Result<(), Trap> {
         let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
         let sz = table.size();
@@ -1527,6 +1535,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             Err(_) => self.store.value_stack.push(-1_i32),
         }
     }
+
     fn exec_table_fill(&mut self, table_index: u32) -> Result<(), Trap> {
         let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
 

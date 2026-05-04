@@ -1,49 +1,35 @@
 #![allow(unused_macros)]
 
+macro_rules! target_simd_x86 {
+    () => {
+        all(
+            feature = "simd-x86",
+            target_arch = "x86_64",
+            target_feature = "sse4.2",
+            target_feature = "avx",
+            target_feature = "avx2",
+            target_feature = "bmi1",
+            target_feature = "bmi2",
+            target_feature = "fma",
+            target_feature = "lzcnt",
+            target_feature = "movbe",
+            target_feature = "popcnt",
+        )
+    };
+}
+
 macro_rules! simd_impl {
     ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {
         cfg_select! {
-            any(target_arch = "wasm32", target_arch = "wasm64") => {
-                simd_impl!(@pick_wasm $( $wasm )? ; $generic)
-            },
-
-            all(
-                feature = "simd-x86",
-                target_arch = "x86_64",
-                target_feature = "sse4.2",
-                target_feature = "avx",
-                target_feature = "avx2",
-                target_feature = "bmi1",
-                target_feature = "bmi2",
-                target_feature = "fma",
-                target_feature = "lzcnt",
-                target_feature = "movbe",
-                target_feature = "popcnt"
-            ) => {
-                simd_impl!(@pick_x86 $( $x86 )? ; $generic)
-            },
-
-            _ => {
-                $generic
-            }
+            any(target_arch = "wasm32", target_arch = "wasm64") => { simd_impl!(@pick_wasm $( $wasm )? ; $generic) },
+            all(feature = "simd-x86", target_arch = "x86_64", target_feature = "sse4.2", target_feature = "avx", target_feature = "avx2", target_feature = "bmi1", target_feature = "bmi2", target_feature = "fma", target_feature = "lzcnt", target_feature = "movbe", target_feature = "popcnt") => { simd_impl!(@pick_x86 $( $x86 )? ; $generic) },
+            _ => { $generic }
         }
     };
-
-    (@pick_wasm $wasm:block ; $generic:block) => {
-        $wasm
-    };
-
-    (@pick_wasm ; $generic:block) => {
-        $generic
-    };
-
-    (@pick_x86 $x86:block ; $generic:block) => {
-        $x86
-    };
-
-    (@pick_x86 ; $generic:block) => {
-        $generic
-    };
+    (@pick_wasm $wasm:block ; $generic:block) => { $wasm };
+    (@pick_wasm ; $generic:block) => { $generic };
+    (@pick_x86 $x86:block ; $generic:block) => { $x86 };
+    (@pick_x86 ; $generic:block) => { $generic };
 }
 
 macro_rules! simd_wrapping_binop_generic {

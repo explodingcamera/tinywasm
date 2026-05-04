@@ -1,7 +1,4 @@
-pub(crate) trait TinywasmIntExt
-where
-    Self: Sized,
-{
+pub(crate) trait TinywasmIntExt: Sized {
     fn checked_wrapping_rem(self, rhs: Self) -> Result<Self, Trap>;
     fn wasm_checked_div(self, rhs: Self) -> Result<Self, Trap>;
 }

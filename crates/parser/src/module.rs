@@ -1,7 +1,6 @@
 use crate::log::debug;
 use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
-use alloc::sync::Arc;
-use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
