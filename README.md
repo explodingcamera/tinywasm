@@ -64,7 +64,7 @@ With default features disabled, `tinywasm` depends only on `core`, `alloc`, and 
 
 Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, memory backend selection, or trap-on-OOM behavior.
 
-[^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for `libm` as a fallback in `core`.
+[^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for floating-point math support in `no_std`.
 
 ## Current Status
 
