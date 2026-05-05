@@ -8,6 +8,7 @@ tinywasm-parser={version="0.9.0-alpha.1", path="crates/parser", default-features
 tinywasm-types={version="0.9.0-alpha.1", path="crates/types", default-features=false}
 tinywasm-cli={version="0.9.0-alpha.1", path="crates/cli", default-features=false}
 tinywasm={version="0.9.0-alpha.1", path="crates/tinywasm", default-features=false}
+tinywasm-c-api={version="0.9.0-alpha.1", path="crates/c-api", default-features=false}
 
 criterion={version="0.8", default-features=false, features=["cargo_bench_support", "rayon"]}
 eyre="0.6"

@@ -1,0 +1,17 @@
+[package]
+name="tinywasm-c-api"
+version.workspace=true
+description="C API bindings for TinyWasm"
+edition.workspace=true
+license.workspace=true
+authors.workspace=true
+repository.workspace=true
+rust-version.workspace=true
+keywords.workspace=true
+categories.workspace=true
+readme="README.md"
+
+[lib]
+name="tinywasm_c_api"
+path="src/lib.rs"
+crate-type=["rlib", "staticlib", "cdylib"]

@@ -4,6 +4,7 @@ examples/*/out/*
 examples/*/target
 examples/*/Cargo.lock
 examples/doom/upstream/
+crates/c-api/dist
 *.wad
 *.WAD
 examples/wast/*
