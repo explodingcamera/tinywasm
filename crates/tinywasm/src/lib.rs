@@ -51,18 +51,17 @@
 //! let wasm = include_bytes!("../../../examples/wasm/add.wasm");
 //! let module = tinywasm::parse_bytes(wasm)?;
 //!
-//! // Create a new store
+//! // # Create a new store
 //! // Stores are used to allocate objects like functions and globals
 //! let mut store = Store::default();
 //!
-//! // Instantiate the module
+//! // # Instantiate the module
 //! // This will allocate the module and its globals into the store
 //! // and execute the module's start function.
-//! // Every ModuleInstance has its own ID space for functions, globals, etc.
 //! let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 //!
-//! // Get a typed handle to the exported "add" function
-//! // Alternatively, you can use `instance.func` to get an untyped handle
+//! // # Get a typed handle to the exported "add" function
+//! // Alternatively, you can use `instance.func_untyped` to get an untyped handle
 //! // that takes and returns [`WasmValue`]s
 //! let func = instance.func::<(i32, i32), i32>(&mut store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;

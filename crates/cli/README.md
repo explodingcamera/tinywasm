@@ -8,7 +8,7 @@ The crate also exposes reusable helpers such as `tinywasm_cli::wast_runner::Wast
 ## Usage
 
 ```bash
-$ cargo install tinywasm-cli --version 0.9.0-alpha.0 --bin tinywasm
+$ cargo install tinywasm-cli --version 0.9.0 --bin tinywasm
 $ tinywasm --help
 $ tinywasm ./module.wasm
 $ tinywasm run --invoke add ./module.wasm 1 2

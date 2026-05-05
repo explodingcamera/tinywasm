@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm"
-version = "0.9.0-alpha.1"
+version = "0.9.0"
 dependencies = [
  "criterion",
  "eyre",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-cli"
-version = "0.9.0-alpha.1"
+version = "0.9.0"
 dependencies = [
  "anstream",
  "assert_cmd",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-parser"
-version = "0.9.0-alpha.1"
+version = "0.9.0"
 dependencies = [
  "log",
  "tinywasm-types",
@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-root"
-version = "0.9.0-alpha.1"
+version = "0.9.0"
 dependencies = [
  "eyre",
  "pretty_env_logger",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-types"
-version = "0.9.0-alpha.1"
+version = "0.9.0"
 dependencies = [
  "log",
  "postcard",
@@ -1058,9 +1058,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-testsuite"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc638d7adcaae61bdd173f053d018555843c5deca669b5caaeda9ae37402a602"
+checksum = "17af354cacae1b0e9153bcd3dadd3df726bddfe42d71fc539fa3e6f89125098b"
 dependencies = [
  "include_dir",
  "wast",

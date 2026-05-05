@@ -19,7 +19,11 @@ mod vec_memory;
 pub(crate) use instance::MemoryInstance;
 pub use {lazy::LazyLinearMemory, paged::PagedMemory, vec_memory::VecMemory};
 
-/// Backend storage for a linear memory.
+/// Backend storage for a linear memory
+///
+/// This is a low-level trait that abstracts over the actual storage mechanism for linear memory.
+/// This will probably change in the future to allow more efficient implementations.
+/// See [`MemoryBackend`] for a higher-level interface to configuring memory storage.
 pub trait LinearMemory {
     /// Returns the current memory length in bytes.
     fn len(&self) -> usize;

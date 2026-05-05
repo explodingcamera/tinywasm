@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-05-05
+
+**All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.8.0...v0.9.0
 
 This release is a major runtime and API rework. It adds support for several newer WebAssembly proposals, introduces the new `Engine` configuration API, rewrites large parts of execution and validation, and changes the internal `twasm` archive format. Benchmarks in the repository currently show roughly 30-90% improvement over 0.8.0 depending on workload and execution mode.
 
@@ -13,7 +15,6 @@ This release is a major runtime and API rework. It adds support for several newe
 
 - Support for the `custom_page_sizes` proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
 - Support for the `tail_call`, `memory64`, `simd`, `relaxed_simd`, `wide_arithmetic`, and `extended_const` proposals ([#37](https://github.com/explodingcamera/tinywasm/pull/37), [#38](https://github.com/explodingcamera/tinywasm/pull/38), [#39](https://github.com/explodingcamera/tinywasm/pull/39))
-- Parse-only support for the `annotations` proposal
 - New `Engine` API (`tinywasm::Engine` and `engine::Config`) for runtime configuration
 - Resumable execution APIs: `call_resumable`, `resume_with_fuel`, `resume_with_time_budget`, and `ExecProgress`
 - Host-function fuel APIs: `FuncContext::charge_fuel` and `FuncContext::remaining_fuel`
@@ -24,19 +25,18 @@ This release is a major runtime and API rework. It adds support for several newe
 
 ### Changed
 
-- `Store::new` now takes an `Engine`; use `Store::default()` for default settings.
+- `Store::new` now takes an `Engine`, use `Store::default()` for default settings.
 - `ModuleInstance::func` now validates exact Wasm signatures at lookup time and fails immediately on mismatches.
-- Stack and call-stack limits now come from `engine::Config`, and memory allocation is lazy until first access.
-- Module-internal by-index inspection APIs are now gated behind `guest-debug`, and runtime `Debug` implementations are gated behind `debug`.
-- `Module` is now re-exported directly from `tinywasm_types`; the `module` submodule was removed.
+- Stack and call-stack limits can now be defined with `engine::Config`
+- Module-internal by-index inspection APIs are now gated behind `guest-debug`
+- `Debug` implementations are now gated behind `debug`.
 - MSRV increased to 1.95 and the crate now uses Rust 2024.
 - `Error`, `Trap`, and `LinkingError` are now `#[non_exhaustive]`.
-- `Trap` variant discriminants changed; do not rely on casting variants to integers.
 - `HostFunction::new`, `HostFunction::func`, and `HostFunction::typed` now require `&mut Store`, and `Imports::link_module` now takes a `ModuleInstance` instead of a raw module instance id.
 - Cargo features were renamed from `tinywasm-parser` to `parser` and from `logging` to `log`.
 - `Error::ParseError` was renamed to `Error::Parser`, and `Error::Twasm` was added.
 - `FuncHandle` and `FuncHandleTyped` were renamed to `Function` and `FunctionTyped`, and module export lookups moved from `exported_*` to `func_untyped`, `func`, and `memory`.
-- The `twasm` archive format is now postcard-based and backwards-incompatible with previous versions (thanks [@dragonnn](https://github.com/dragonnn)).
+- The `twasm` archive format is now based on postcard (backwards-incompatible with previous versions) (thanks [@dragonnn](https://github.com/dragonnn)).
 - The interpreter was refactored around more superinstruction fusion, lower-overhead dispatch, typed-stack locals, jump-oriented lowering, and optional parallel parsing.
 
 ### Removed
@@ -51,7 +51,7 @@ This release is a major runtime and API rework. It adds support for several newe
 ### Fixed
 
 - Fixed archive **no_std** support, which was broken in the previous release, and added tests to ensure it stays working.
-- `ModuleInstance::memory` and `FuncContext::memory` are now actually immutable ([#41](https://github.com/explodingcamera/tinywasm/pull/41)).
+- `ModuleInstance::memory` and `FuncContext::memory` now take a non-mut reference to self ([#41](https://github.com/explodingcamera/tinywasm/pull/41)).
 - Untyped host functions now check return values correctly ([#27](https://github.com/explodingcamera/tinywasm/pull/27)) by [@WhaleKit](https://github.com/WhaleKit).
 - `MemoryRefMut::copy_within(src, dst, len)` now follows its documented argument order.
 - Imported tables created with `Extern::table(ty, init)` now honor the provided init value.
@@ -63,7 +63,7 @@ This release is a major runtime and API rework. It adds support for several newe
 - Rename the cargo features `tinywasm-parser` to `parser` and `logging` to `log`.
 - Rename `FuncHandle` to `Function` and `FuncHandleTyped` to `FunctionTyped`.
 - Rename module export lookups from `exported_*` methods to `func`, `func_untyped`, and `memory`.
-- Regenerate any persisted `twasm` archives; the format is now postcard-based and not backwards compatible with earlier releases.
+- Regenerate any pre-existing `twasm` archives, the format is not backwards compatible with earlier releases.
 
 ## [0.8.0] - 2024-08-29
 

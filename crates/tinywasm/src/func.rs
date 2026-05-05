@@ -347,7 +347,7 @@ impl<'store> FuncExecution<'store> {
     /// Resume execution with up to `fuel` units of fuel.
     ///
     /// Fuel is accounted in chunks, so execution may overshoot the requested
-    /// fuel before returning [`ExecProgress::Suspended`].
+    /// fuel before returning [`ExecProgress::Suspended`] (currently the chunk size is 128 instructions between fuel checks, but this may change in the future).
     ///
     /// Returns [`ExecProgress::Suspended`] when fuel is exhausted, or
     /// [`ExecProgress::Completed`] with the final values once the invocation
@@ -381,7 +381,7 @@ impl<'store> FuncExecution<'store> {
     /// Resume execution for at most `time_budget` wall-clock time.
     ///
     /// Time is checked periodically, so execution may overshoot the requested
-    /// time budget before returning [`ExecProgress::Suspended`].
+    /// time budget before returning [`ExecProgress::Suspended`] (currently time is checked every 128 instructions, but this may change in the future).
     ///
     /// Returns [`ExecProgress::Suspended`] when the budget is exhausted, or
     /// [`ExecProgress::Completed`] with the final values once the invocation

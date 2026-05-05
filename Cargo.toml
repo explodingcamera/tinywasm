@@ -4,10 +4,10 @@ default-members=[".", "crates/tinywasm", "crates/types", "crates/parser"]
 resolver="2"
 
 [workspace.dependencies]
-tinywasm-parser={version="0.9.0-alpha.1", path="crates/parser", default-features=false}
-tinywasm-types={version="0.9.0-alpha.1", path="crates/types", default-features=false}
-tinywasm-cli={version="0.9.0-alpha.1", path="crates/cli", default-features=false}
-tinywasm={version="0.9.0-alpha.1", path="crates/tinywasm", default-features=false}
+tinywasm-parser={version="0.9.0", path="crates/parser", default-features=false}
+tinywasm-types={version="0.9.0", path="crates/types", default-features=false}
+tinywasm-cli={version="0.9.0", path="crates/cli", default-features=false}
+tinywasm={version="0.9.0", path="crates/tinywasm", default-features=false}
 
 criterion={version="0.8", default-features=false, features=["cargo_bench_support", "rayon"]}
 eyre="0.6"
@@ -23,7 +23,7 @@ wast="248"
 wat="1.248"
 
 [workspace.package]
-version="0.9.0-alpha.1"
+version="0.9.0"
 rust-version="1.95"
 edition="2024"
 license="MIT OR Apache-2.0"
