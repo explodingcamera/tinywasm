@@ -46,8 +46,8 @@ fn print_ip(ip: usize) -> String {
 
     format!(
         "{}{}",
-        &s[..first_non_zero].to_string().bright_black().dimmed(),
-        &s[first_non_zero..].to_string().bright_black()
+        s[..first_non_zero].to_string().bright_black().dimmed(),
+        s[first_non_zero..].to_string().bright_black()
     )
 }
 
