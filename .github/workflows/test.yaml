@@ -13,12 +13,12 @@ jobs:
     name: Build wasm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: true
           persist-credentials: false
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7 # v1.16.0
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
           toolchain: nightly
           components: rust-src
@@ -78,13 +78,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: true
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7 # v1.16.0
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
           toolchain: ${{ matrix.rust }}
           rustflags: ""
@@ -106,7 +106,7 @@ jobs:
         if: matrix.target == ''
 
       - name: Run tests (${{ matrix.target }})
-        uses: houseabsolute/actions-rust-cross@a8cc74d61047fa553b4e908b4b10e70029f00ca6 # v1.0.6
+        uses: houseabsolute/actions-rust-cross@fe6ede73c7f0a50412ec05994e2aa5a7bf635eac # v1.0.7
         with:
           command: test
           target: ${{ matrix.target }}
