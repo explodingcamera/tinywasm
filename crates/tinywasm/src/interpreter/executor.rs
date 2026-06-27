@@ -27,13 +27,14 @@ pub(crate) struct Executor<'store, const BUDGETED: bool> {
     func: Arc<WasmFunction>,
     module: ModuleInstance,
     store: &'store mut Store,
+    call_stack_base: u32,
 }
 
 impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
-    pub(crate) fn new(store: &'store mut Store, cf: CallFrame) -> Self {
+    pub(crate) fn new(store: &'store mut Store, cf: CallFrame, call_stack_base: u32) -> Self {
         let wasm_func = store.state.get_wasm_func(cf.func_addr);
         let module = store.get_module_instance_internal(wasm_func.owner);
-        Self { module, cf, func: wasm_func.func.clone(), store }
+        Self { module, cf, func: wasm_func.func.clone(), store, call_stack_base }
     }
 
     #[inline(always)]
@@ -1078,7 +1079,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_return(&mut self) -> bool {
         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.results);
-        let Some(caller) = self.store.call_stack.pop() else {
+        let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
             return true;
         };
         if caller.func_addr == self.cf.func_addr {
@@ -1096,7 +1097,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     #[inline(always)]
     fn finish_return(&mut self) -> bool {
-        let Some(caller) = self.store.call_stack.pop() else {
+        let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
             return true;
         };
         if caller.func_addr == self.cf.func_addr {

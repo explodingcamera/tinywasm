@@ -195,6 +195,15 @@ impl ValueStack {
     }
 
     #[inline(always)]
+    pub(crate) fn base(&self) -> StackBase {
+        StackBase {
+            s32: self.stack_32.len() as u32,
+            s64: self.stack_64.len() as u32,
+            s128: self.stack_128.len() as u32,
+        }
+    }
+
+    #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.stack_32.len() + self.stack_64.len() + self.stack_128.len()
     }

@@ -1,7 +1,7 @@
 use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
-use alloc::{boxed::Box, format, rc::Rc, string::ToString, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, sync::Arc, vec, vec::Vec};
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
 
 impl Function {
@@ -10,26 +10,36 @@ impl Function {
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        #[inline]
+        fn call_inner(func: &Function, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
+            let func_instance = store.state.get_func(func.addr);
+            let wasm_func = match func_instance {
+                FunctionInstance::Host(host_func) => {
+                    return host_func.clone().call(FuncContext { store, module_addr: func.module_addr }, params);
+                }
+                FunctionInstance::Wasm(wasm_func) => wasm_func,
+            };
+
+            // Reset stack, push args, allocate locals, create entry frame.
+            store.call_stack.clear();
+            store.value_stack.clear();
+            store.value_stack.extend_from_wasmvalues(params)?;
+            let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+            let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+
+            // Execute until completion and then collect result values from the stack.
+            InterpreterRuntime::exec(store, callframe, 0)?;
+            collect_call_results(&mut store.value_stack, &func.ty)
+        }
+
         self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
-        let wasm_func = match store.state.get_func(self.addr) {
-            FunctionInstance::Host(host_func) => {
-                return host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params);
-            }
-            FunctionInstance::Wasm(wasm_func) => wasm_func,
-        };
+        store.enter_execution()?;
+        let result = call_inner(self, store, params);
+        store.exit_execution();
 
-        // Reset stack, push args, allocate locals, create entry frame.
-        store.call_stack.clear();
-        store.value_stack.clear();
-        store.value_stack.extend_from_wasmvalues(params)?;
-        let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-        let callframe = CallFrame::new(self.addr, locals_base, wasm_func.func.locals);
-
-        // Execute until completion and then collect result values from the stack.
-        InterpreterRuntime::exec(store, callframe)?;
-        collect_call_results(&mut store.value_stack, &self.ty)
+        result
     }
 
     /// Call a function and return a resumable execution handle.
@@ -42,30 +52,41 @@ impl Function {
         store: &'store mut Store,
         params: &[WasmValue],
     ) -> Result<FuncExecution<'store>> {
+        #[inline]
+        fn call_resumable_inner(
+            func: &Function,
+            store: &mut Store,
+            params: &[WasmValue],
+        ) -> Result<FuncExecutionState> {
+            let func_instance = store.state.get_func(func.addr);
+            match func_instance {
+                FunctionInstance::Host(host_func) => host_func
+                    .clone()
+                    .call(FuncContext { store, module_addr: func.module_addr }, params)
+                    .map(|result| FuncExecutionState::Completed { result: Some(result) }),
+                FunctionInstance::Wasm(wasm_func) => {
+                    store.call_stack.clear();
+                    store.value_stack.clear();
+                    store.value_stack.extend_from_wasmvalues(params)?;
+                    let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+                    let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+
+                    Ok(FuncExecutionState::Running {
+                        exec_state: ExecutionState { callframe },
+                        root_func_addr: func.addr,
+                    })
+                }
+            }
+        }
+
         self.item.validate_store(store)?;
         validate_call_params(&self.ty, params)?;
 
-        match store.state.get_func(self.addr) {
-            FunctionInstance::Host(host_func) => {
-                let result = host_func.clone().call(FuncContext { store, module_addr: self.module_addr }, params)?;
-                Ok(FuncExecution { store, state: FuncExecutionState::Completed { result: Some(result) } })
-            }
-            FunctionInstance::Wasm(wasm_func) => {
-                store.call_stack.clear();
-                store.value_stack.clear();
-                store.value_stack.extend_from_wasmvalues(params)?;
-                let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-                let callframe = CallFrame::new(self.addr, locals_base, wasm_func.func.locals);
+        store.enter_execution()?;
+        let result = call_resumable_inner(self, store, params);
+        store.exit_execution();
 
-                Ok(FuncExecution {
-                    store,
-                    state: FuncExecutionState::Running {
-                        exec_state: ExecutionState { callframe },
-                        root_func_addr: self.addr,
-                    },
-                })
-            }
-        }
+        Ok(FuncExecution { store, state: result? })
     }
 }
 
@@ -157,27 +178,24 @@ impl HostFunction {
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Function {
         let ty = Arc::new(ty.clone());
-        let ty_inner = ty.clone();
+        let host_ty = ty.clone();
+
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let ty = ty_inner.clone();
             let result = func(ctx, args)?;
+            let expected = host_ty.results();
 
-            if result.len() != ty.results().len() {
-                return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result });
-            };
+            let valid = result.len() == expected.len()
+                && result.iter().zip(expected).all(|(val, ty)| WasmType::from(val) == *ty);
 
-            result.iter().zip(ty.results().iter()).try_for_each(|(val, res_ty)| {
-                if WasmType::from(val) != *res_ty {
-                    return Err(crate::Error::InvalidHostFnReturn { expected: ty.clone(), actual: result.clone() });
-                }
-                Ok(())
-            })?;
+            if !valid {
+                return Err(crate::Error::InvalidHostFnReturn { expected: Arc::clone(&host_ty), actual: result });
+            }
 
             Ok(result)
         };
 
         let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
-        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty: ty.clone() }
+        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
     }
 
     /// Create a new typed host function import.
@@ -211,9 +229,7 @@ impl HostFunction {
         R: IntoWasmValues + ToWasmTypes,
     {
         let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let args = P::from_wasm_values(args)?;
-            let result = func(ctx, args)?;
-            Ok(result.into_wasm_values())
+            Ok(func(ctx, P::from_wasm_values(args)?)?.into_wasm_values())
         };
 
         let ty = Arc::new(tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types()));
@@ -293,6 +309,66 @@ impl FuncContext<'_> {
     pub fn remaining_fuel(&self) -> u32 {
         self.store.execution_fuel
     }
+
+    /// Call a function from within the current host-function invocation.
+    ///
+    /// This is the safe way for host functions to perform blocking reentrant
+    /// calls into Wasm. Unlike [`Function::call`], it preserves the active
+    /// invocation's stacks and resumes the host caller after the nested call
+    /// completes.
+    ///
+    /// Nested calls are currently blocking only. If the surrounding invocation
+    /// is resumed with fuel or a time budget, this method does not suspend and
+    /// later continue the host function in the middle of the nested call.
+    pub fn call_untyped(&mut self, func: &Function, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        if !self.store.execution_active {
+            return Err(Error::other("FuncContext::call requires an active host-function invocation"));
+        }
+
+        func.item.validate_store(self.store)?;
+        validate_call_params(&func.ty, args)?;
+
+        let func_instance = self.store.state.get_func(func.addr).clone();
+        match func_instance {
+            FunctionInstance::Host(host_func) => {
+                host_func.call(FuncContext { store: &mut *self.store, module_addr: func.module_addr }, args)
+            }
+            FunctionInstance::Wasm(wasm_func) => {
+                let call_stack_base = self.store.call_stack.len();
+                let value_stack_base = self.store.value_stack.base();
+
+                self.store.value_stack.extend_from_wasmvalues(args).inspect_err(|_| {
+                    self.store.value_stack.truncate_to_base(value_stack_base);
+                })?;
+
+                let locals_base = self
+                    .store
+                    .value_stack
+                    .enter_locals(&wasm_func.func.params, &wasm_func.func.locals)
+                    .inspect_err(|_| self.store.value_stack.truncate_to_base(value_stack_base))?;
+
+                let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+                InterpreterRuntime::exec(self.store, callframe, call_stack_base).inspect_err(|_| {
+                    self.store.call_stack.truncate_to(call_stack_base);
+                    self.store.value_stack.truncate_to_base(value_stack_base);
+                })?;
+
+                collect_call_results(&mut self.store.value_stack, &func.ty)
+            }
+        }
+    }
+
+    /// Call a typed function from within the current host-function invocation.
+    ///
+    /// See [`Self::call_untyped`] for reentrancy and resumable-execution
+    /// limitations.
+    pub fn call<P, R>(&mut self, func: &FunctionTyped<P, R>, params: P) -> Result<R>
+    where
+        P: IntoWasmValues,
+        R: FromWasmValues,
+    {
+        R::from_wasm_values(&self.call_untyped(&func.func, &params.into_wasm_values())?)
+    }
 }
 
 impl core::ops::Deref for FuncContext<'_> {
@@ -352,23 +428,30 @@ impl<'store> FuncExecution<'store> {
     /// Returns [`ExecProgress::Suspended`] when fuel is exhausted, or
     /// [`ExecProgress::Completed`] with the final values once the invocation
     /// returns.
+    ///
+    /// Reentrant calls made by host functions through [`FuncContext::call`] are
+    /// currently blocking. They do not suspend and later resume the host
+    /// function in the middle of the nested call.
     pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<ExecProgress<Vec<WasmValue>>> {
         let FuncExecutionState::Running { exec_state, root_func_addr } = &mut self.state else {
             let FuncExecutionState::Completed { result } = &mut self.state else {
                 unreachable!("invalid function execution state")
             };
-            return result
-                .take()
-                .map(ExecProgress::Completed)
-                .ok_or_else(|| Error::Other("execution already completed".to_string()));
+            return match result.take() {
+                Some(res) => Ok(ExecProgress::Completed(res)),
+                None => Err(Error::other("execution already completed")),
+            };
         };
 
-        match InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel)? {
+        self.store.enter_execution()?;
+        let result = InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel);
+        self.store.exit_execution();
+
+        match result? {
             crate::interpreter::ExecState::Completed => {
                 let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                let result = collect_call_results(&mut self.store.value_stack, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(result))
+                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
                 exec_state.callframe = callframe;
@@ -386,6 +469,10 @@ impl<'store> FuncExecution<'store> {
     /// Returns [`ExecProgress::Suspended`] when the budget is exhausted, or
     /// [`ExecProgress::Completed`] with the final values once the invocation
     /// returns.
+    ///
+    /// Reentrant calls made by host functions through [`FuncContext::call`] are
+    /// currently blocking. They do not suspend and later resume the host
+    /// function in the middle of the nested call.
     pub fn resume_with_time_budget(
         &mut self,
         time_budget: crate::std::time::Duration,
@@ -394,18 +481,21 @@ impl<'store> FuncExecution<'store> {
             let FuncExecutionState::Completed { result } = &mut self.state else {
                 unreachable!("invalid function execution state")
             };
-            return result
-                .take()
-                .map(ExecProgress::Completed)
-                .ok_or_else(|| Error::Other("execution already completed".to_string()));
+            return match result.take() {
+                Some(res) => Ok(ExecProgress::Completed(res)),
+                None => Err(Error::other("execution already completed")),
+            };
         };
 
-        match InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget)? {
+        self.store.enter_execution()?;
+        let result = InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget);
+        self.store.exit_execution();
+
+        match result? {
             crate::interpreter::ExecState::Completed => {
                 let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                let result = collect_call_results(&mut self.store.value_stack, &result_ty)?;
                 self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(result))
+                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
                 exec_state.callframe = callframe;
@@ -425,7 +515,7 @@ fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> 
     }
 
     if !(func_ty.params().iter().zip(params).all(|(ty, param)| ty == &param.into())) {
-        return Err(Error::Other("Type mismatch".into()));
+        return Err(Error::other("Type mismatch"));
     }
 
     Ok(())
@@ -533,14 +623,9 @@ macro_rules! impl_scalar_wasm_traits {
             impl FromWasmValues for $T {
                 #[inline]
                 fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
-                    let value = *values
-                        .first()
-                        .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?;
+                    let value = *values.first().ok_or(Error::other("Not enough elemennts in &[WasmValue]"))?;
                     <$T>::try_from(value).map_err(|e| {
-                        Error::Other(format!(
-                            "FromWasmValues: Could not convert WasmValue to expected type: {:?}",
-                            e
-                        ))
+                        Error::Other(format!("FromWasmValues: Could not convert WasmValue to expected type: {e:?}"))
                     })
                 }
             }
@@ -580,18 +665,10 @@ macro_rules! impl_tuple_traits {
             fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
                 let mut iter = values.iter();
 
-                Ok((
-                    $(
-                        $T::try_from(
-                            *iter.next()
-                            .ok_or(Error::Other("Not enough values in WasmValue vector".to_string()))?
-                        )
-                        .map_err(|e| Error::Other(format!(
-                            "FromWasmValues: Could not convert WasmValue to expected type: {:?}",
-                            e,
-                        )))?,
-                    )+
-                ))
+                Ok(($(
+                    $T::try_from(*iter.next().ok_or(Error::other("Not enough values in WasmValue vector"))?)
+                        .map_err(|e| Error::Other(format!("FromWasmValues: Could not convert WasmValue to expected type: {e:?}")))?,
+                )+))
             }
         }
     }

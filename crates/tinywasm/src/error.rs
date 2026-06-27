@@ -96,6 +96,12 @@ impl LinkingError {
     }
 }
 
+impl Error {
+    pub(crate) fn other(message: impl Into<String>) -> Self {
+        Self::Other(message.into())
+    }
+}
+
 /// A WebAssembly trap
 ///
 /// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>

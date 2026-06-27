@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 use core::hint::cold_path;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
@@ -45,6 +45,7 @@ pub struct Store {
 
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
+    pub(crate) execution_active: bool,
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
@@ -73,6 +74,7 @@ impl Store {
             value_stack: ValueStack::new(engine.config()),
             engine,
             execution_fuel: 0,
+            execution_active: false,
         }
     }
 
@@ -90,6 +92,21 @@ impl Store {
                 unreachable!("module instance {addr} not found. This should be unreachable")
             }
         }
+    }
+
+    pub(crate) fn enter_execution(&mut self) -> Result<()> {
+        if self.execution_active {
+            return Err(Trap::Other(
+                "cannot call a function while another invocation is active; use FuncContext::call from host functions",
+            )
+            .into());
+        }
+        self.execution_active = true;
+        Ok(())
+    }
+
+    pub(crate) fn exit_execution(&mut self) {
+        self.execution_active = false;
     }
 }
 
@@ -569,7 +586,7 @@ impl Store {
                 RefFunc(Some(idx)) => TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))),
                 _ => {
                     cold_path();
-                    return Err(Error::Other("unsupported const instruction".to_string()));
+                    return Err(Error::other("unsupported const instruction"));
                 }
             };
 
@@ -591,14 +608,14 @@ impl Store {
                 }
                 RefExtern(Some(_)) => {
                     cold_path();
-                    return Err(Error::Other("ref.extern constants are not supported in init expressions".to_string()));
+                    return Err(Error::other("ref.extern constants are not supported in init expressions"));
                 }
                 I32Add | I32Sub | I32Mul => {
-                    let rhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
-                    let lhs = stack.pop().ok_or_else(|| Error::Other("const stack underflow".to_string()))?;
+                    let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+                    let lhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
                     let (TinyWasmValue::Value32(lhs), TinyWasmValue::Value32(rhs)) = (lhs, rhs) else {
                         cold_path();
-                        return Err(Error::Other("type mismatch in const i32 op".to_string()));
+                        return Err(Error::other("type mismatch in const i32 op"));
                     };
                     let lhs = lhs as i32;
                     let rhs = rhs as i32;
@@ -615,7 +632,7 @@ impl Store {
                     let lhs = stack.pop();
                     let (Some(TinyWasmValue::Value64(lhs)), Some(TinyWasmValue::Value64(rhs))) = (lhs, rhs) else {
                         cold_path();
-                        return Err(Error::Other("type mismatch in const i64 op".to_string()));
+                        return Err(Error::other("type mismatch in const i64 op"));
                     };
 
                     let lhs = lhs as i64;
@@ -636,12 +653,12 @@ impl Store {
 
         let Some(value) = stack.pop() else {
             cold_path();
-            return Err(Error::Other("empty const expression".to_string()));
+            return Err(Error::other("empty const expression"));
         };
 
         if !stack.is_empty() {
             cold_path();
-            return Err(Error::Other("const expression did not reduce to single value".to_string()));
+            return Err(Error::other("const expression did not reduce to single value"));
         }
         Ok(value)
     }

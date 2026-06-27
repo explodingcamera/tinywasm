@@ -22,8 +22,18 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Option<CallFrame> {
-        self.stack.pop()
+    pub(crate) fn len(&self) -> u32 {
+        self.stack.len() as u32
+    }
+
+    pub(crate) fn truncate_to(&mut self, len: u32) {
+        debug_assert!(len as usize <= self.stack.len());
+        self.stack.truncate(len as usize);
+    }
+
+    #[inline(always)]
+    pub(crate) fn pop_frame(&mut self, base: u32) -> Option<CallFrame> {
+        if self.len() == base { None } else { self.stack.pop() }
     }
 
     #[inline(always)]

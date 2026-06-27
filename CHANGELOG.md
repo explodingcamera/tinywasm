@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added blocking reentrant Wasm calls from host functions through `FuncContext::call` and `FuncContext::call_untyped`.
+
+### Fixed
+
+- Direct `Function::call` and `Function::call_resumable` calls during an active invocation now trap instead of corrupting the active call/value stacks
+
 ## [0.9.0] - 2026-05-05
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.8.0...v0.9.0

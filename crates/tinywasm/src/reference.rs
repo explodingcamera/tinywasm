@@ -353,7 +353,7 @@ impl Table {
         let init = match (ty.element_type, init) {
             (WasmType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
             (WasmType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
-            _ => return Err(Error::Other("invalid table init value".to_string())),
+            _ => return Err(Error::other("invalid table init value")),
         };
         let addr = store.state.tables.len() as TableAddr;
         store.state.tables.push(TableInstance::new_with_init(ty, init));
