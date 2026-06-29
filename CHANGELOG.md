@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.1] - 2026-06-29
 
 ### Added
 
@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Direct `Function::call` and `Function::call_resumable` calls during an active invocation now trap instead of corrupting the active call/value stacks
+- Direct `Function::call` and `Function::call_resumable` calls during an active invocation now trap instead of corrupting the active call/value stacks. While this is technically a breaking change, it prevents stack corruption and is a necessary safety fix. Use `FuncContext::call` or `FuncContext::call_untyped` for reentrant calls instead.
 
 ## [0.9.0] - 2026-05-05
 
