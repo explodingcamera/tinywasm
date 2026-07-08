@@ -1,23 +1,5 @@
 #![allow(unused_macros)]
 
-macro_rules! target_simd_x86 {
-    () => {
-        all(
-            feature = "simd-x86",
-            target_arch = "x86_64",
-            target_feature = "sse4.2",
-            target_feature = "avx",
-            target_feature = "avx2",
-            target_feature = "bmi1",
-            target_feature = "bmi2",
-            target_feature = "fma",
-            target_feature = "lzcnt",
-            target_feature = "movbe",
-            target_feature = "popcnt",
-        )
-    };
-}
-
 macro_rules! simd_impl {
     ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {
         cfg_select! {
@@ -32,227 +14,104 @@ macro_rules! simd_impl {
     (@pick_x86 ; $generic:block) => { $generic };
 }
 
-macro_rules! simd_wrapping_binop_generic {
-    ($lhs:expr, $rhs:expr, $lane_ty:ty, $lane_count:expr, $as_lanes:ident, $from_lanes:ident, $op:ident) => {{
-        let a = $lhs.$as_lanes();
-        let b = $rhs.$as_lanes();
-        let mut out = [0 as $lane_ty; $lane_count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = lhs.$op(rhs);
-        }
-        Self::$from_lanes(out)
-    }};
-}
-
-macro_rules! simd_wrapping_binop {
-    ($lhs:expr, $rhs:expr, $wasm_op:ident, $lane_ty:ty, $lane_count:expr, $as_lanes:ident, $from_lanes:ident, $op:ident) => {{
+macro_rules! simd_binop {
+    ($lhs:expr, $rhs:expr, $wasm_op:ident, $as_lanes:ident, $from_lanes:ident, $op:ident) => {{
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
-            generic => { simd_wrapping_binop_generic!($lhs, $rhs, $lane_ty, $lane_count, $as_lanes, $from_lanes, $op) }
+            generic => {
+                let a = $lhs.$as_lanes();
+                let b = $rhs.$as_lanes();
+                Self::$from_lanes(core::array::from_fn(|i| a[i].$op(b[i])))
+            }
         }
     }};
 }
 
-macro_rules! simd_sat_binop_generic {
-    ($lhs:expr, $rhs:expr, $lane_ty:ty, $lane_count:expr, $as_lanes:ident, $from_lanes:ident, $op:ident) => {{
-        let a = $lhs.$as_lanes();
-        let b = $rhs.$as_lanes();
-        let mut out = [0 as $lane_ty; $lane_count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = lhs.$op(rhs);
-        }
-        Self::$from_lanes(out)
-    }};
-}
-
-macro_rules! simd_sat_binop {
-    ($lhs:expr, $rhs:expr, $wasm_op:ident, $lane_ty:ty, $lane_count:expr, $as_lanes:ident, $from_lanes:ident, $op:ident) => {{
-        simd_impl! {
-            wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
-            generic => { simd_sat_binop_generic!($lhs, $rhs, $lane_ty, $lane_count, $as_lanes, $from_lanes, $op) }
-        }
-    }};
-}
-
-macro_rules! simd_shift_left {
-    ($value:expr, $shift:expr, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr) => {{
+macro_rules! simd_shift {
+    ($value:expr, $shift:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr, shl) => {{
         let lanes = $value.$as_lanes();
         let s = $shift & $mask;
-        let mut out = [0 as $lane_ty; $count];
-        for (dst, lane) in out.iter_mut().zip(lanes) {
-            *dst = lane.wrapping_shl(s);
-        }
-        Self::$from_lanes(out)
+        Self::$from_lanes(core::array::from_fn(|i| lanes[i].wrapping_shl(s)))
     }};
-}
-
-macro_rules! simd_shift_right {
-    ($value:expr, $shift:expr, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr) => {{
+    ($value:expr, $shift:expr, $as_lanes:ident, $from_lanes:ident, $mask:expr, shr) => {{
         let lanes = $value.$as_lanes();
         let s = $shift & $mask;
-        let mut out = [0 as $lane_ty; $count];
-        for (dst, lane) in out.iter_mut().zip(lanes) {
-            *dst = lane >> s;
-        }
-        Self::$from_lanes(out)
-    }};
-}
-
-macro_rules! simd_avgr_u_generic {
-    ($lhs:expr, $rhs:expr, $lane_ty:ty, $wide_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {{
-        let a = $lhs.$as_lanes();
-        let b = $rhs.$as_lanes();
-        let mut out = [0 as $lane_ty; $count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = ((lhs as $wide_ty + rhs as $wide_ty + 1) >> 1) as $lane_ty;
-        }
-        Self::$from_lanes(out)
+        Self::$from_lanes(core::array::from_fn(|i| lanes[i] >> s))
     }};
 }
 
 macro_rules! simd_avgr_u {
-    ($lhs:expr, $rhs:expr, $wasm_op:ident, $lane_ty:ty, $wide_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {{
+    ($lhs:expr, $rhs:expr, $wasm_op:ident, $lane_ty:ty, $wide_ty:ty, $as_lanes:ident, $from_lanes:ident) => {{
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
-            generic => { simd_avgr_u_generic!($lhs, $rhs, $lane_ty, $wide_ty, $count, $as_lanes, $from_lanes) }
+            generic => {
+                let a = $lhs.$as_lanes();
+                let b = $rhs.$as_lanes();
+                Self::$from_lanes(core::array::from_fn(|i| ((a[i] as $wide_ty + b[i] as $wide_ty + 1) >> 1) as $lane_ty))
+            }
         }
     }};
 }
 
 macro_rules! simd_extend_cast {
-    ($value:expr, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {{
+    ($value:expr, $src_as:ident, $dst_from:ident, $dst_ty:ty, $offset:expr) => {{
         let lanes = $value.$src_as();
-        let mut out = [0 as $dst_ty; $dst_count];
-        for (dst, src) in out.iter_mut().zip(lanes[$offset..($offset + $dst_count)].iter()) {
-            *dst = *src as $dst_ty;
-        }
-        Self::$dst_from(out)
+        Self::$dst_from(core::array::from_fn(|i| lanes[$offset + i] as $dst_ty))
     }};
 }
 
-macro_rules! simd_extmul_signed {
-    ($lhs:expr, $rhs:expr, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {{
+macro_rules! simd_extmul {
+    ($lhs:expr, $rhs:expr, $src_as:ident, $dst_from:ident, $dst_ty:ty, $offset:expr) => {{
         let a = $lhs.$src_as();
         let b = $rhs.$src_as();
-        let mut out = [0 as $dst_ty; $dst_count];
-        for ((dst, lhs), rhs) in
-            out.iter_mut().zip(a[$offset..($offset + $dst_count)].iter()).zip(b[$offset..($offset + $dst_count)].iter())
-        {
-            *dst = (*lhs as $dst_ty).wrapping_mul(*rhs as $dst_ty);
-        }
-        Self::$dst_from(out)
-    }};
-}
-
-macro_rules! simd_extmul_unsigned {
-    ($lhs:expr, $rhs:expr, $src_as:ident, $dst_from:ident, $dst_ty:ty, $dst_count:expr, $offset:expr) => {{
-        let a = $lhs.$src_as();
-        let b = $rhs.$src_as();
-        let mut out = [0 as $dst_ty; $dst_count];
-        for ((dst, lhs), rhs) in
-            out.iter_mut().zip(a[$offset..($offset + $dst_count)].iter()).zip(b[$offset..($offset + $dst_count)].iter())
-        {
-            *dst = (*lhs as $dst_ty) * (*rhs as $dst_ty);
-        }
-        Self::$dst_from(out)
-    }};
-}
-
-macro_rules! simd_cmp_mask_generic {
-    ($lhs:expr, $rhs:expr, $out_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
-        let a = $lhs.$as_lanes();
-        let b = $rhs.$as_lanes();
-        let mut out = [0 as $out_ty; $count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = if lhs $cmp rhs { -1 } else { 0 };
-        }
-        Self::$from_lanes(out)
+        Self::$dst_from(core::array::from_fn(|i| (a[$offset + i] as $dst_ty).wrapping_mul(b[$offset + i] as $dst_ty)))
     }};
 }
 
 macro_rules! simd_cmp_mask {
-    ($lhs:expr, $rhs:expr, $wasm_op:ident, $out_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
-        simd_impl! {
-            wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
-            generic => { simd_cmp_mask_generic!($lhs, $rhs, $out_ty, $count, $as_lanes, $from_lanes, $cmp) }
-        }
-    }};
-}
-
-macro_rules! simd_cmp_mask_const {
-    ($lhs:expr, $rhs:expr, $out_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
+    (generic $lhs:expr, $rhs:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
         let a = $lhs.$as_lanes();
         let b = $rhs.$as_lanes();
-        let mut out = [0 as $out_ty; $count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = if lhs $cmp rhs { -1 } else { 0 };
-        }
-        Self::$from_lanes(out)
+        Self::$from_lanes(core::array::from_fn(|i| if a[i] $cmp b[i] { -1 } else { 0 }))
     }};
-}
-
-macro_rules! simd_cmp_delegate {
-    ($lhs:expr, $rhs:expr, $delegate:ident) => {{ $rhs.$delegate($lhs) }};
+    ($lhs:expr, $rhs:expr, $wasm_op:ident, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
+        simd_impl! {
+            wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
+            generic => { simd_cmp_mask!(generic $lhs, $rhs, $as_lanes, $from_lanes, $cmp) }
+        }
+    }};
 }
 
 macro_rules! simd_abs_const {
-    ($value:expr, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {{
+    ($value:expr, $as_lanes:ident, $from_lanes:ident) => {{
         let a = $value.$as_lanes();
-        let mut out = [0 as $lane_ty; $count];
-        for (dst, lane) in out.iter_mut().zip(a) {
-            *dst = lane.wrapping_abs();
-        }
-        Self::$from_lanes(out)
-    }};
-}
-
-macro_rules! simd_neg_generic {
-    ($value:expr, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {{
-        let a = $value.$as_lanes();
-        let mut out = [0 as $lane_ty; $count];
-        for (dst, lane) in out.iter_mut().zip(a) {
-            *dst = lane.wrapping_neg();
-        }
-        Self::$from_lanes(out)
+        Self::$from_lanes(core::array::from_fn(|i| a[i].wrapping_abs()))
     }};
 }
 
 macro_rules! simd_neg {
-    ($value:expr, $wasm_op:ident, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident) => {{
+    ($value:expr, $wasm_op:ident, $as_lanes:ident, $from_lanes:ident) => {{
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::$wasm_op($value.to_wasm_v128())) }
-            generic => { simd_neg_generic!($value, $lane_ty, $count, $as_lanes, $from_lanes) }
+            generic => {
+                let a = $value.$as_lanes();
+                Self::$from_lanes(core::array::from_fn(|i| a[i].wrapping_neg()))
+            }
         }
-    }};
-}
-
-macro_rules! simd_minmax_generic {
-    ($lhs:expr, $rhs:expr, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
-        let a = $lhs.$as_lanes();
-        let b = $rhs.$as_lanes();
-        let mut out = [0 as $lane_ty; $count];
-        for ((dst, lhs), rhs) in out.iter_mut().zip(a).zip(b) {
-            *dst = if lhs $cmp rhs { lhs } else { rhs };
-        }
-        Self::$from_lanes(out)
     }};
 }
 
 macro_rules! simd_minmax {
-    ($lhs:expr, $rhs:expr, $wasm_op:ident, $lane_ty:ty, $count:expr, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
+    ($lhs:expr, $rhs:expr, $wasm_op:ident, $as_lanes:ident, $from_lanes:ident, $cmp:tt) => {{
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::$wasm_op($lhs.to_wasm_v128(), $rhs.to_wasm_v128())) }
-            generic => { simd_minmax_generic!($lhs, $rhs, $lane_ty, $count, $as_lanes, $from_lanes, $cmp) }
+            generic => {
+                let a = $lhs.$as_lanes();
+                let b = $rhs.$as_lanes();
+                Self::$from_lanes(core::array::from_fn(|i| if a[i] $cmp b[i] { a[i] } else { b[i] }))
+            }
         }
     }};
-}
-
-macro_rules! simd_float_unary {
-    ($value:expr, $map:ident, $op:expr) => {{ $value.$map($op) }};
-}
-
-macro_rules! simd_float_binary {
-    ($lhs:expr, $rhs:expr, $zip:ident, $op:expr) => {{ $lhs.$zip($rhs, $op) }};
 }
 
 #[rustfmt::skip]
@@ -284,10 +143,11 @@ macro_rules! lane_write {
 }
 
 macro_rules! impl_lane_accessors {
-    ($( $as_vis:vis $as_name:ident => $from_vis:vis $from_name:ident : $lane_ty:tt, $lane_count:expr, $lane_bytes:expr; )*) => {
+    ($($as_vis:vis $as_name:ident => $from_vis:vis $from_name:ident: $lane_ty:tt, $lane_count:expr, $lane_bytes:expr;)*) => {
         $(
             #[inline]
             $as_vis const fn $as_name(self) -> [$lane_ty; $lane_count] {
+                const { assert!($lane_count * $lane_bytes == 16); };
                 let bytes = self.0;
                 let mut out = [0 as $lane_ty; $lane_count];
                 let mut i = 0;
@@ -300,13 +160,16 @@ macro_rules! impl_lane_accessors {
 
             #[inline]
             $from_vis const fn $from_name(lanes: [$lane_ty; $lane_count]) -> Self {
+                const { assert!($lane_count * $lane_bytes == 16); };
+
                 let mut bytes = [0u8; 16];
                 let mut i = 0;
                 while i < $lane_count {
+                    let offset = i * $lane_bytes;
                     let lane = lane_write!($lane_ty, lanes[i]);
                     let mut j = 0;
                     while j < $lane_bytes {
-                        bytes[i * $lane_bytes + j] = lane[j];
+                        bytes[offset + j] = lane[j];
                         j += 1;
                     }
                     i += 1;

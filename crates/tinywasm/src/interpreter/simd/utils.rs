@@ -4,22 +4,23 @@ use super::Value128;
 use crate::interpreter::no_std_floats::NoStdFloatExt;
 
 impl Value128 {
-    pub(super) fn extract_lane_bytes<const LANE_BYTES: usize>(self, lane: u8, lane_count: u8) -> [u8; LANE_BYTES] {
-        debug_assert!(lane < lane_count);
-        let bytes = self.0;
+    pub(super) fn extract_lane_bytes<const LANE_BYTES: usize, const LANE_COUNT: usize>(
+        self,
+        lane: u8,
+    ) -> [u8; LANE_BYTES] {
+        const { assert!(LANE_BYTES * LANE_COUNT == 16) };
+        assert!((lane as usize) < LANE_COUNT);
         let start = lane as usize * LANE_BYTES;
-        let mut out = [0u8; LANE_BYTES];
-        out.copy_from_slice(&bytes[start..start + LANE_BYTES]);
-        out
+        core::array::from_fn(|i| self.0[start + i])
     }
 
-    pub(super) fn replace_lane_bytes<const LANE_BYTES: usize>(
+    pub(super) fn replace_lane_bytes<const LANE_BYTES: usize, const LANE_COUNT: usize>(
         self,
         lane: u8,
         value: [u8; LANE_BYTES],
-        lane_count: u8,
     ) -> Self {
-        debug_assert!(lane < lane_count);
+        const { assert!(LANE_BYTES * LANE_COUNT == 16) };
+        assert!((lane as usize) < LANE_COUNT);
         let mut bytes = self.0;
         let start = lane as usize * LANE_BYTES;
         bytes[start..start + LANE_BYTES].copy_from_slice(&value);

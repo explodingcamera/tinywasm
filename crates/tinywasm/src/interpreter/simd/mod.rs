@@ -79,54 +79,27 @@ impl Value128 {
 
     #[inline]
     fn map_f32x4(self, mut op: impl FnMut(f32) -> f32) -> Self {
-        let bytes = self.0;
-        let mut out_bytes = [0u8; 16];
-        for (src, dst) in bytes.chunks_exact(4).zip(out_bytes.chunks_exact_mut(4)) {
-            let lane = f32::from_bits(u32::from_le_bytes([src[0], src[1], src[2], src[3]]));
-            dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
-        }
-        Self(out_bytes)
+        let [a, b, c, d] = self.as_f32x4();
+        Self::from_f32x4([op(a), op(b), op(c), op(d)])
     }
 
     #[inline]
     fn zip_f32x4(self, rhs: Self, mut op: impl FnMut(f32, f32) -> f32) -> Self {
-        let a_bytes = self.0;
-        let b_bytes = rhs.0;
-        let mut out_bytes = [0u8; 16];
-
-        for ((a, b), dst) in a_bytes.chunks_exact(4).zip(b_bytes.chunks_exact(4)).zip(out_bytes.chunks_exact_mut(4)) {
-            let a_lane = f32::from_bits(u32::from_le_bytes([a[0], a[1], a[2], a[3]]));
-            let b_lane = f32::from_bits(u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
-            dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
-        }
-
-        Self(out_bytes)
+        let [a0, a1, a2, a3] = self.as_f32x4();
+        let [b0, b1, b2, b3] = rhs.as_f32x4();
+        Self::from_f32x4([op(a0, b0), op(a1, b1), op(a2, b2), op(a3, b3)])
     }
 
     #[inline]
     fn map_f64x2(self, mut op: impl FnMut(f64) -> f64) -> Self {
-        let bytes = self.0;
-        let mut out_bytes = [0u8; 16];
-        for (src, dst) in bytes.chunks_exact(8).zip(out_bytes.chunks_exact_mut(8)) {
-            let lane =
-                f64::from_bits(u64::from_le_bytes([src[0], src[1], src[2], src[3], src[4], src[5], src[6], src[7]]));
-            dst.copy_from_slice(&op(lane).to_bits().to_le_bytes());
-        }
-        Self(out_bytes)
+        let [a, b] = self.as_f64x2();
+        Self::from_f64x2([op(a), op(b)])
     }
 
     #[inline]
     fn zip_f64x2(self, rhs: Self, mut op: impl FnMut(f64, f64) -> f64) -> Self {
-        let a_bytes = self.0;
-        let b_bytes = rhs.0;
-        let mut out_bytes = [0u8; 16];
-
-        for ((a, b), dst) in a_bytes.chunks_exact(8).zip(b_bytes.chunks_exact(8)).zip(out_bytes.chunks_exact_mut(8)) {
-            let a_lane = f64::from_bits(u64::from_le_bytes([a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]]));
-            let b_lane = f64::from_bits(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]));
-            dst.copy_from_slice(&op(a_lane, b_lane).to_bits().to_le_bytes());
-        }
-
-        Self(out_bytes)
+        let [a0, a1] = self.as_f64x2();
+        let [b0, b1] = rhs.as_f64x2();
+        Self::from_f64x2([op(a0, b0), op(a1, b1)])
     }
 }
