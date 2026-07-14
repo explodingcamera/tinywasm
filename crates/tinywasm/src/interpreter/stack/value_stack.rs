@@ -79,6 +79,18 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
+    pub(crate) fn copy(&mut self, from: usize, to: usize) {
+        let val = self.data.get(from).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack index out of bounds, this is a bug");
+        });
+        *self.data.get_mut(to).unwrap_or_else(|| {
+            cold_path();
+            unreachable!("Stack index out of bounds, this is a bug");
+        }) = *val;
+    }
+
+    #[inline(always)]
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         let len = self.data.len();
         debug_assert!(n <= len);

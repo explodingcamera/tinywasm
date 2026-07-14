@@ -67,7 +67,7 @@ impl CallStack {
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct CallFrame {
-    pub(crate) instr_ptr: u32,
+    pub(crate) instr_ptr: usize,
     pub(crate) func_addr: FuncAddr,
     pub(crate) locals_base: StackBase,
     pub(crate) stack_offset: ValueCounts,

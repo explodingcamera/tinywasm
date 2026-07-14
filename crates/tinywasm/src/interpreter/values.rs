@@ -204,8 +204,8 @@ macro_rules! impl_internalvalue {
 
                 #[inline(always)]
                 fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr) {
-                    let val = stack.$stack.get(frame.locals_base.$stack_base as usize + from as usize);
-                    stack.$stack.set(frame.locals_base.$stack_base as usize + to as usize, *val);
+                    let base = frame.locals_base.$stack_base as usize;
+                    stack.$stack.copy(base + from as usize, base + to as usize);
                 }
 
                 #[inline(always)]

@@ -50,177 +50,217 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec_binop_32(&self, op: BinOp, lhs: Value32, rhs: Value32) -> Value32 {
-        match op {
-            BinOp::IAdd => ((lhs as i32).wrapping_add(rhs as i32)) as u32,
-            BinOp::ISub => ((lhs as i32).wrapping_sub(rhs as i32)) as u32,
-            BinOp::IMul => ((lhs as i32).wrapping_mul(rhs as i32)) as u32,
-            BinOp::IAnd => lhs & rhs,
-            BinOp::IOr => lhs | rhs,
-            BinOp::IXor => lhs ^ rhs,
-            BinOp::IShl => ((lhs as i32).wasm_shl(rhs as i32)) as u32,
-            BinOp::IShrS => ((lhs as i32).wasm_shr(rhs as i32)) as u32,
-            BinOp::IShrU => lhs.wasm_shr(rhs),
-            BinOp::IRotl => ((lhs as i32).wasm_rotl(rhs as i32)) as u32,
-            BinOp::IRotr => ((lhs as i32).wasm_rotr(rhs as i32)) as u32,
-            BinOp::FAdd => (f32::from_bits(lhs) + f32::from_bits(rhs)).to_bits(),
-            BinOp::FSub => (f32::from_bits(lhs) - f32::from_bits(rhs)).to_bits(),
-            BinOp::FMul => (f32::from_bits(lhs) * f32::from_bits(rhs)).to_bits(),
-            BinOp::FDiv => (f32::from_bits(lhs) / f32::from_bits(rhs)).to_bits(),
-            BinOp::FMin => f32::from_bits(lhs).tw_minimum(f32::from_bits(rhs)).to_bits(),
-            BinOp::FMax => f32::from_bits(lhs).tw_maximum(f32::from_bits(rhs)).to_bits(),
-            BinOp::FCopysign => f32::from_bits(lhs).copysign(f32::from_bits(rhs)).to_bits(),
-        }
-    }
-
-    #[inline(always)]
-    fn exec_binop_64(&self, op: BinOp, lhs: Value64, rhs: Value64) -> Value64 {
-        match op {
-            BinOp::IAdd => ((lhs as i64).wrapping_add(rhs as i64)) as u64,
-            BinOp::ISub => ((lhs as i64).wrapping_sub(rhs as i64)) as u64,
-            BinOp::IMul => ((lhs as i64).wrapping_mul(rhs as i64)) as u64,
-            BinOp::IAnd => lhs & rhs,
-            BinOp::IOr => lhs | rhs,
-            BinOp::IXor => lhs ^ rhs,
-            BinOp::IShl => ((lhs as i64).wasm_shl(rhs as i64)) as u64,
-            BinOp::IShrS => ((lhs as i64).wasm_shr(rhs as i64)) as u64,
-            BinOp::IShrU => lhs.wasm_shr(rhs),
-            BinOp::IRotl => ((lhs as i64).wasm_rotl(rhs as i64)) as u64,
-            BinOp::IRotr => ((lhs as i64).wasm_rotr(rhs as i64)) as u64,
-            BinOp::FAdd => (f64::from_bits(lhs) + f64::from_bits(rhs)).to_bits(),
-            BinOp::FSub => (f64::from_bits(lhs) - f64::from_bits(rhs)).to_bits(),
-            BinOp::FMul => (f64::from_bits(lhs) * f64::from_bits(rhs)).to_bits(),
-            BinOp::FDiv => (f64::from_bits(lhs) / f64::from_bits(rhs)).to_bits(),
-            BinOp::FMin => f64::from_bits(lhs).tw_minimum(f64::from_bits(rhs)).to_bits(),
-            BinOp::FMax => f64::from_bits(lhs).tw_maximum(f64::from_bits(rhs)).to_bits(),
-            BinOp::FCopysign => f64::from_bits(lhs).copysign(f64::from_bits(rhs)).to_bits(),
-        }
-    }
-
-    #[inline(always)]
-    fn exec_binop_128(&self, op: BinOp128, lhs: Value128, rhs: Value128) -> Value128 {
-        match op {
-            BinOp128::And => lhs.v128_and(rhs),
-            BinOp128::AndNot => lhs.v128_andnot(rhs),
-            BinOp128::Or => lhs.v128_or(rhs),
-            BinOp128::Xor => lhs.v128_xor(rhs),
-            BinOp128::I64x2Add => lhs.i64x2_add(rhs),
-            BinOp128::I64x2Mul => lhs.i64x2_mul(rhs),
-        }
-    }
-
-    #[inline(always)]
     fn exec(&mut self) -> Result<Option<()>, Trap> {
         macro_rules! stack_op {
             (unary $ty:ty, |$v:ident| $expr:expr) => {{
-                let $v = <$ty>::stack_pop(&mut self.store.value_stack);
-                <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $v = <$ty>::stack_pop(&mut self.store.value_stack);
+                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (binary $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                    let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (binary try $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                <$ty>::stack_push(&mut self.store.value_stack, $expr?)?;
+                (|| -> Result<(), Trap> {
+                    let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                    let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                    <$ty>::stack_push(&mut self.store.value_stack, $expr?)?;
+                    Ok(())
+                })()?;
             }};
             (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {{
-                let $v = <$from>::stack_pop(&mut self.store.value_stack);
-                <$to>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $v = <$from>::stack_pop(&mut self.store.value_stack);
+                    <$to>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (binary $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
-                let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
-                <$to>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
+                    let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
+                    <$to>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (binary_into2 $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
-                let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
-                let out = $expr;
-                <$to>::stack_push(&mut self.store.value_stack, out.0)?;
-                <$to>::stack_push(&mut self.store.value_stack, out.1)?;
+                (|| -> Result<(), Trap> {
+                    let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
+                    let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
+                    let out = $expr;
+                    <$to>::stack_push(&mut self.store.value_stack, out.0)?;
+                    <$to>::stack_push(&mut self.store.value_stack, out.1)?;
+                    Ok(())
+                })()?;
             }};
             (binary $lhs_ty:ty, $rhs_ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
                 stack_op!(binary $lhs_ty, $rhs_ty => $rhs_ty, |$lhs, $rhs| $expr)
             };
             (binary $lhs_ty:ty, $rhs_ty:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                let $rhs = <$rhs_ty>::stack_pop(&mut self.store.value_stack);
-                let $lhs = <$lhs_ty>::stack_pop(&mut self.store.value_stack);
-                <$res>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $rhs = <$rhs_ty>::stack_pop(&mut self.store.value_stack);
+                    let $lhs = <$lhs_ty>::stack_pop(&mut self.store.value_stack);
+                    <$res>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => {{
-                let $c = <$ty>::stack_pop(&mut self.store.value_stack);
-                let $b = <$ty>::stack_pop(&mut self.store.value_stack);
-                let $a = <$ty>::stack_pop(&mut self.store.value_stack);
-                <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                (|| -> Result<(), Trap> {
+                    let $c = <$ty>::stack_pop(&mut self.store.value_stack);
+                    let $b = <$ty>::stack_pop(&mut self.store.value_stack);
+                    let $a = <$ty>::stack_pop(&mut self.store.value_stack);
+                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
+                    Ok(())
+                })()?;
             }};
             (quaternary_into2 $from:ty => $to:ty, |$a:ident, $b:ident, $c:ident, $d:ident| $expr:expr) => {{
-                let $d = <$from>::stack_pop(&mut self.store.value_stack);
-                let $c = <$from>::stack_pop(&mut self.store.value_stack);
-                let $b = <$from>::stack_pop(&mut self.store.value_stack);
-                let $a = <$from>::stack_pop(&mut self.store.value_stack);
-                let out = $expr;
-                <$to>::stack_push(&mut self.store.value_stack, out.0)?;
-                <$to>::stack_push(&mut self.store.value_stack, out.1)?;
+                (|| -> Result<(), Trap> {
+                    let $d = <$from>::stack_pop(&mut self.store.value_stack);
+                    let $c = <$from>::stack_pop(&mut self.store.value_stack);
+                    let $b = <$from>::stack_pop(&mut self.store.value_stack);
+                    let $a = <$from>::stack_pop(&mut self.store.value_stack);
+                    let out = $expr;
+                    <$to>::stack_push(&mut self.store.value_stack, out.0)?;
+                    <$to>::stack_push(&mut self.store.value_stack, out.1)?;
+                    Ok(())
+                })()?;
             }};
             (local_set_pop $ty:ty, $local_index:expr) => {{
-                let val = <$ty>::stack_pop(&mut self.store.value_stack);
-                <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
+                (|| {
+                    let val = <$ty>::stack_pop(&mut self.store.value_stack);
+                    <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
+                })();
             }};
             (local_tee $ty:ty, $local_index:expr) => {{
-                let val = <$ty>::stack_peek(&self.store.value_stack);
-                <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
+                (|| {
+                    let val = <$ty>::stack_peek(&self.store.value_stack);
+                    <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
+                })();
+            }};
+        }
+
+        macro_rules! exec_binop {
+            (32, $op:expr, $lhs:expr, $rhs:expr) => {{
+                match $op {
+                    BinOp::IAdd => $lhs.wrapping_add($rhs),
+                    BinOp::ISub => $lhs.wrapping_sub($rhs),
+                    BinOp::IMul => $lhs.wrapping_mul($rhs),
+                    BinOp::IAnd => $lhs & $rhs,
+                    BinOp::IOr => $lhs | $rhs,
+                    BinOp::IXor => $lhs ^ $rhs,
+                    BinOp::IShl => (($lhs as i32).wasm_shl($rhs as i32)) as u32,
+                    BinOp::IShrS => (($lhs as i32).wasm_shr($rhs as i32)) as u32,
+                    BinOp::IShrU => $lhs.wasm_shr($rhs),
+                    BinOp::IRotl => (($lhs as i32).wasm_rotl($rhs as i32)) as u32,
+                    BinOp::IRotr => (($lhs as i32).wasm_rotr($rhs as i32)) as u32,
+                    BinOp::FAdd => (f32::from_bits($lhs) + f32::from_bits($rhs)).to_bits(),
+                    BinOp::FSub => (f32::from_bits($lhs) - f32::from_bits($rhs)).to_bits(),
+                    BinOp::FMul => (f32::from_bits($lhs) * f32::from_bits($rhs)).to_bits(),
+                    BinOp::FDiv => (f32::from_bits($lhs) / f32::from_bits($rhs)).to_bits(),
+                    BinOp::FMin => f32::from_bits($lhs).tw_minimum(f32::from_bits($rhs)).to_bits(),
+                    BinOp::FMax => f32::from_bits($lhs).tw_maximum(f32::from_bits($rhs)).to_bits(),
+                    BinOp::FCopysign => f32::from_bits($lhs).copysign(f32::from_bits($rhs)).to_bits(),
+                }
+            }};
+            (64, $op:expr, $lhs:expr, $rhs:expr) => {{
+                match $op {
+                    BinOp::IAdd => $lhs.wrapping_add($rhs),
+                    BinOp::ISub => $lhs.wrapping_sub($rhs),
+                    BinOp::IMul => $lhs.wrapping_mul($rhs),
+                    BinOp::IAnd => $lhs & $rhs,
+                    BinOp::IOr => $lhs | $rhs,
+                    BinOp::IXor => $lhs ^ $rhs,
+                    BinOp::IShl => (($lhs as i64).wasm_shl($rhs as i64)) as u64,
+                    BinOp::IShrS => (($lhs as i64).wasm_shr($rhs as i64)) as u64,
+                    BinOp::IShrU => $lhs.wasm_shr($rhs),
+                    BinOp::IRotl => (($lhs as i64).wasm_rotl($rhs as i64)) as u64,
+                    BinOp::IRotr => (($lhs as i64).wasm_rotr($rhs as i64)) as u64,
+                    BinOp::FAdd => (f64::from_bits($lhs) + f64::from_bits($rhs)).to_bits(),
+                    BinOp::FSub => (f64::from_bits($lhs) - f64::from_bits($rhs)).to_bits(),
+                    BinOp::FMul => (f64::from_bits($lhs) * f64::from_bits($rhs)).to_bits(),
+                    BinOp::FDiv => (f64::from_bits($lhs) / f64::from_bits($rhs)).to_bits(),
+                    BinOp::FMin => f64::from_bits($lhs).tw_minimum(f64::from_bits($rhs)).to_bits(),
+                    BinOp::FMax => f64::from_bits($lhs).tw_maximum(f64::from_bits($rhs)).to_bits(),
+                    BinOp::FCopysign => f64::from_bits($lhs).copysign(f64::from_bits($rhs)).to_bits(),
+                }
+            }};
+            (128, $op:expr, $lhs:expr, $rhs:expr) => {{
+                match $op {
+                    BinOp128::And => $lhs.v128_and($rhs),
+                    BinOp128::AndNot => $lhs.v128_andnot($rhs),
+                    BinOp128::Or => $lhs.v128_or($rhs),
+                    BinOp128::Xor => $lhs.v128_xor($rhs),
+                    BinOp128::I64x2Add => $lhs.i64x2_add($rhs),
+                    BinOp128::I64x2Mul => $lhs.i64x2_mul($rhs),
+                }
             }};
         }
 
         macro_rules! binop {
-            (local_local $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident) => {{
-                self.store.value_stack.push(self.$exec(
-                    *$op,
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
-                ))?
+            (local_local $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident) => {{
+                (|| -> Result<(), Trap> {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                    self.store.value_stack.push(exec_binop!($width, *$op, lhs, rhs))?;
+                    Ok(())
+                })()?;
             }};
-            (local_local_set $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
-                let value = self.$exec(
-                    *$op,
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
-                );
-                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+            (local_local_set $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
+                (|| {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                    let value = exec_binop!($width, *$op, lhs, rhs);
+                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                })();
             }};
-            (local_local_tee $vt:ty, $exec:ident, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
-                let value = self.$exec(
-                    *$op,
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$a),
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$b),
-                );
-                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                self.store.value_stack.push(value)?;
+            (local_local_tee $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
+                (|| -> Result<(), Trap> {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                    let value = exec_binop!($width, *$op, lhs, rhs);
+                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                    self.store.value_stack.push(value)?;
+                    Ok(())
+                })()?;
             }};
-            (local_const $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr) => {{
-                self.store.value_stack.push(self.$exec(
-                    *$op,
-                    <$vt>::local_get(&self.store.value_stack, &self.cf, *$local),
-                    $rhs,
-                ))?
+            (local_const $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr) => {{
+                (|| -> Result<(), Trap> {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                    self.store.value_stack.push(exec_binop!($width, *$op, lhs, $rhs))?;
+                    Ok(())
+                })()?;
             }};
-            (local_const_set $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
-                let value = self.$exec(*$op, <$vt>::local_get(&self.store.value_stack, &self.cf, *$local), $rhs);
-                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+            (local_const_set $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
+                (|| {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                    let value = exec_binop!($width, *$op, lhs, $rhs);
+                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                })();
             }};
-            (local_const_tee $vt:ty, $exec:ident, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
-                let value = self.$exec(*$op, <$vt>::local_get(&self.store.value_stack, &self.cf, *$local), $rhs);
-                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                self.store.value_stack.push(value)?;
+            (local_const_tee $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
+                (|| -> Result<(), Trap> {
+                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                    let value = exec_binop!($width, *$op, lhs, $rhs);
+                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                    self.store.value_stack.push(value)?;
+                    Ok(())
+                })()?;
             }};
-            (stack_global $vt:ty, $as_fn:ident, $exec:ident, $op:ident, $global:ident) => {{
-                let global_val =
-                    self.store.state.get_global_val(self.module.resolve_global_addr(*$global)).$as_fn().unwrap();
-                let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
-                self.store.value_stack.push(self.$exec(*$op, stack_val, global_val))?;
+            (stack_global $vt:ty, $as_fn:ident, $width:tt, $op:ident, $global:ident) => {{
+                (|| -> Result<(), Trap> {
+                    let global_val =
+                        self.store.state.get_global_val(self.module.resolve_global_addr(*$global)).$as_fn().unwrap();
+                    let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
+                    self.store.value_stack.push(exec_binop!($width, *$op, stack_val, global_val))?;
+                    Ok(())
+                })()?;
             }};
         }
 
@@ -239,8 +279,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         use tinywasm_types::Instruction::*;
         #[rustfmt::skip]
         match next {
-            Nop | MergeBarrier => {}
-            Unreachable => return Err(Trap::Unreachable),
+            Nop => {}
+            MergeBarrier | Unreachable => return Err(Trap::Unreachable),
             Drop32 => { _ = Value32::stack_pop(&mut self.store.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut self.store.value_stack)},
             Drop128 => { _ = Value128::stack_pop(&mut self.store.value_stack)},
@@ -254,7 +294,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             ReturnCall(v) => { self.exec_return_call_direct(*v)?; return Ok(None); }
             ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
             ReturnCallIndirect(ty, table) => { self.exec_call_indirect::<true>(*ty, *table)?; return Ok(None); }
-            Jump(ip) => { self.cf.instr_ptr = *ip; return Ok(None); }
+            Jump(ip) => { self.cf.instr_ptr = *ip as usize; return Ok(None); }
             JumpIfZero32(ip) => if self.exec_jump_zero_32(*ip) { return Ok(None) },
             JumpIfNonZero32(ip) => if self.exec_jump_non_zero_32(*ip) { return Ok(None) },
             JumpIfZero64(ip) => if self.exec_jump_zero_64(*ip) { return Ok(None) },
@@ -298,26 +338,26 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             MulAccLocal64(acc) => self.exec_binop_acc_local::<i64, _, _>(*acc, |a, b| a.wrapping_mul(b), |a, b| a.wrapping_add(b)),
             FMulAccLocal32(acc) => self.exec_binop_acc_local::<f32, _, _>(*acc, |a, b| a * b, |a, b| a + b),
             FMulAccLocal64(acc) => self.exec_binop_acc_local::<f64, _, _>(*acc, |a, b| a * b, |a, b| a + b),
-            BinOpLocalLocal32(op, a, b) => binop!(local_local Value32, exec_binop_32, op, a, b),
-            BinOpLocalLocal64(op, a, b) => binop!(local_local Value64, exec_binop_64, op, a, b),
-            BinOpLocalLocal128(op, a, b) => binop!(local_local Value128, exec_binop_128, op, a, b),
-            BinOpLocalLocalSet32(op, a, b, dst) => binop!(local_local_set Value32, exec_binop_32, op, a, b, dst),
-            BinOpLocalLocalSet64(op, a, b, dst) => binop!(local_local_set Value64, exec_binop_64, op, a, b, dst),
-            BinOpLocalLocalSet128(op, a, b, dst) => binop!(local_local_set Value128, exec_binop_128, op, a, b, dst),
-            BinOpLocalLocalTee32(op, a, b, dst) => binop!(local_local_tee Value32, exec_binop_32, op, a, b, dst),
-            BinOpLocalLocalTee64(op, a, b, dst) => binop!(local_local_tee Value64, exec_binop_64, op, a, b, dst),
-            BinOpLocalLocalTee128(op, a, b, dst) => binop!(local_local_tee Value128, exec_binop_128, op, a, b, dst),
-            BinOpLocalConst32(op, local_index, c) => binop!(local_const Value32, exec_binop_32, op, local_index, *c as u32),
-            BinOpLocalConst64(op, local_index, c) => binop!(local_const Value64, exec_binop_64, op, local_index, *c as u64),
-            BinOpLocalConst128(op, local_index, c) => binop!(local_const Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c))),
-            BinOpLocalConstSet32(op, local_index, c, dst) => binop!(local_const_set Value32, exec_binop_32, op, local_index, *c as u32, dst),
-            BinOpLocalConstSet64(op, local_index, c, dst) => binop!(local_const_set Value64, exec_binop_64, op, local_index, *c as u64, dst),
-            BinOpLocalConstSet128(op, local_index, c, dst) => binop!(local_const_set Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
-            BinOpLocalConstTee32(op, local_index, c, dst) => binop!(local_const_tee Value32, exec_binop_32, op, local_index, *c as u32, dst),
-            BinOpLocalConstTee64(op, local_index, c, dst) => binop!(local_const_tee Value64, exec_binop_64, op, local_index, *c as u64, dst),
-            BinOpLocalConstTee128(op, local_index, c, dst) => binop!(local_const_tee Value128, exec_binop_128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
-            BinOpStackGlobal32(op, global_index) => binop!(stack_global Value32, as_32, exec_binop_32, op, global_index),
-            BinOpStackGlobal64(op, global_index) => binop!(stack_global Value64, as_64, exec_binop_64, op, global_index),
+            BinOpLocalLocal32(op, a, b) => binop!(local_local Value32, 32, op, a, b),
+            BinOpLocalLocal64(op, a, b) => binop!(local_local Value64, 64, op, a, b),
+            BinOpLocalLocal128(op, a, b) => binop!(local_local Value128, 128, op, a, b),
+            BinOpLocalLocalSet32(op, a, b, dst) => binop!(local_local_set Value32, 32, op, a, b, dst),
+            BinOpLocalLocalSet64(op, a, b, dst) => binop!(local_local_set Value64, 64, op, a, b, dst),
+            BinOpLocalLocalSet128(op, a, b, dst) => binop!(local_local_set Value128, 128, op, a, b, dst),
+            BinOpLocalLocalTee32(op, a, b, dst) => binop!(local_local_tee Value32, 32, op, a, b, dst),
+            BinOpLocalLocalTee64(op, a, b, dst) => binop!(local_local_tee Value64, 64, op, a, b, dst),
+            BinOpLocalLocalTee128(op, a, b, dst) => binop!(local_local_tee Value128, 128, op, a, b, dst),
+            BinOpLocalConst32(op, local_index, c) => binop!(local_const Value32, 32, op, local_index, *c as u32),
+            BinOpLocalConst64(op, local_index, c) => binop!(local_const Value64, 64, op, local_index, *c as u64),
+            BinOpLocalConst128(op, local_index, c) => binop!(local_const Value128, 128, op, local_index, Value128(self.func.data.v128_const(*c))),
+            BinOpLocalConstSet32(op, local_index, c, dst) => binop!(local_const_set Value32, 32, op, local_index, *c as u32, dst),
+            BinOpLocalConstSet64(op, local_index, c, dst) => binop!(local_const_set Value64, 64, op, local_index, *c as u64, dst),
+            BinOpLocalConstSet128(op, local_index, c, dst) => binop!(local_const_set Value128, 128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
+            BinOpLocalConstTee32(op, local_index, c, dst) => binop!(local_const_tee Value32, 32, op, local_index, *c as u32, dst),
+            BinOpLocalConstTee64(op, local_index, c, dst) => binop!(local_const_tee Value64, 64, op, local_index, *c as u64, dst),
+            BinOpLocalConstTee128(op, local_index, c, dst) => binop!(local_const_tee Value128, 128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
+            BinOpStackGlobal32(op, global_index) => binop!(stack_global Value32, as_32, 32, op, global_index),
+            BinOpStackGlobal64(op, global_index) => binop!(stack_global Value64, as_64, 64, op, global_index),
             SetLocalConst32(local_index, c) => i32::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst64(local_index, c) => i64::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst128(local_index, c) => Value128::local_set(&mut self.store.value_stack, &self.cf, *local_index, Value128(self.func.data.v128_const(*c))),
@@ -825,7 +865,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     #[inline(always)]
     fn jump_if(&mut self, condition: bool, ip: u32) -> bool {
         if condition {
-            self.cf.instr_ptr = ip;
+            self.cf.instr_ptr = ip as usize;
         }
         condition
     }
@@ -918,7 +958,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             default_ip
         };
 
-        self.cf.instr_ptr = target_ip;
+        self.cf.instr_ptr = target_ip as usize;
     }
 
     fn exec_drop_keep(&mut self, base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8) {
@@ -1612,6 +1652,12 @@ impl<'store> Executor<'store, true> {
             }
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+fn instruction_pointer_out_of_bounds(instr_ptr: usize, instruction_count: usize) -> ! {
+    panic!("Instruction pointer out of bounds: {instr_ptr} ({instruction_count} instructions)")
 }
 
 #[inline(always)]
