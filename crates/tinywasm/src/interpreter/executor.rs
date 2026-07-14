@@ -49,6 +49,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
     }
 
+    #[allow(clippy::redundant_closure_call)] // we wrap these in closures to get better perf traces
     #[inline(always)]
     fn exec(&mut self) -> Result<Option<()>, Trap> {
         macro_rules! stack_op {
@@ -264,7 +265,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             }};
         }
 
-        let next = match self.func.instructions.get(self.cf.instr_ptr as usize) {
+        let next = match self.func.instructions.get(self.cf.instr_ptr) {
             Some(instr) => instr,
             None => {
                 cold_path();
@@ -1652,12 +1653,6 @@ impl<'store> Executor<'store, true> {
             }
         }
     }
-}
-
-#[cold]
-#[inline(never)]
-fn instruction_pointer_out_of_bounds(instr_ptr: usize, instruction_count: usize) -> ! {
-    panic!("Instruction pointer out of bounds: {instr_ptr} ({instruction_count} instructions)")
 }
 
 #[inline(always)]

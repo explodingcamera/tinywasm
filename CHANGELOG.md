@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `instantiate` / `start` / `start_func` no longer fall back to `_start` if the module has no start section. This is technically a breaking change, but it is more consistent with the WebAssembly spec and prevents accidental execution of `_start` in wasi modules that don't have a start section. Call the `_start` function explicitly if you want to run it.
+
 ## [0.9.1] - 2026-06-29
 
 ### Added

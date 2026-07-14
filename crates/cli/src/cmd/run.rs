@@ -1,4 +1,4 @@
-use eyre::{Result, bail};
+use eyre::Result;
 use tinywasm::types::ExportType;
 use tinywasm::{ModuleInstance, Store};
 
@@ -34,13 +34,17 @@ pub fn run(args: RunArgs) -> Result<()> {
             Ok(())
         }
         None => {
-            if instance.start_func(&store)?.is_none() {
-                bail!(
-                    "module has no start function or `_start` export; use `tinywasm inspect {module_path}` or `tinywasm run --invoke <export> {module_path}`"
-                )
+            if instance.start_func(&store)?.is_some() {
+                let _ = instance.start(&mut store)?;
+                return Ok(());
             }
 
-            let _ = instance.start(&mut store)?;
+            let start = instance.func_untyped(&store, "_start").map_err(|_| {
+                eyre::eyre!(
+                    "module has no start function or `_start` export. Use `tinywasm inspect {module_path}` or `tinywasm run --invoke <export> {module_path}`"
+                )
+            })?;
+            start.call(&mut store, &[])?;
             Ok(())
         }
     }

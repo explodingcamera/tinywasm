@@ -169,14 +169,15 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
 }
 
 #[test]
-fn start_prefers_exported_start_without_re_resolving_store_addr() -> Result<()> {
+fn start_resolves_module_func_index_to_store_addr() -> Result<()> {
     let wasm = wat::parse_str(
         r#"
         (module
           (global (export "g") (mut i32) (i32.const 0))
-          (func (export "_start")
+          (func $start
             i32.const 1
             global.set 0)
+          (start $start)
         )
         "#,
     )?;

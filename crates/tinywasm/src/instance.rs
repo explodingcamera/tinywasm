@@ -604,7 +604,8 @@ impl ModuleInstance {
     /// # use tinywasm::{ModuleInstance, Store};
     /// # let wasm = wat::parse_str(r#"
     /// #     (module
-    /// #       (func (export "_start"))
+    /// #       (func $start)
+    /// #       (start $start)
     /// #     )
     /// # "#).expect("valid wat");
     /// # let module = tinywasm::parse_bytes(&wasm)?;
@@ -619,21 +620,8 @@ impl ModuleInstance {
     pub fn start_func(&self, store: &Store) -> Result<Option<Function>> {
         self.validate_store(store)?;
 
-        let func_addr = match self.0.func_start {
-            Some(func_index) => func_index,
-            None => {
-                // Alternatively, check for a _start function in the exports.
-                let Some(ExternVal::Func(func_addr)) = self.export_addr("_start") else {
-                    return Ok(None);
-                };
-
-                return Ok(Some(Function {
-                    item: crate::StoreItem::new(self.0.store_id, func_addr),
-                    module_addr: self.id(),
-                    addr: func_addr,
-                    ty: store.state.get_func(func_addr).ty().clone(),
-                }));
-            }
+        let Some(func_addr) = self.0.func_start else {
+            return Ok(None);
         };
 
         let func_addr = self.resolve_func_addr(func_addr);
@@ -656,9 +644,10 @@ impl ModuleInstance {
     /// # let wasm = wat::parse_str(r#"
     /// #     (module
     /// #       (global $g (mut i32) (i32.const 0))
-    /// #       (func (export "_start")
+    /// #       (func $start
     /// #         i32.const 7
     /// #         global.set $g)
+    /// #       (start $start)
     /// #       (export "g" (global $g)))
     /// # "#).expect("valid wat");
     /// # let module = tinywasm::parse_bytes(&wasm)?;
