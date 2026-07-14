@@ -10,7 +10,6 @@
 
 extern crate alloc;
 use alloc::{boxed::Box, sync::Arc};
-use core::hint::cold_path;
 use core::ops::{Deref, Range};
 
 // Memory defaults
@@ -21,26 +20,11 @@ const fn max_page_count(page_size: u64) -> u64 {
     MAX_MEMORY_SIZE / page_size
 }
 
-// log for logging (optional).
-#[cfg(feature = "log")]
-#[allow(clippy::single_component_path_imports, unused_imports)]
-use log;
-
-// noop fallback if logging is disabled.
-#[cfg(not(feature = "log"))]
-#[allow(unused_imports, unused_macros)]
-pub(crate) mod log {
-    macro_rules! debug    ( ($($tt:tt)*) => {{}} );
-    macro_rules! info    ( ($($tt:tt)*) => {{}} );
-    macro_rules! error    ( ($($tt:tt)*) => {{}} );
-    pub(crate) use debug;
-    pub(crate) use error;
-    pub(crate) use info;
-}
-
 mod instructions;
+mod reference;
 mod value;
 pub use instructions::*;
+pub use reference::*;
 pub use value::*;
 
 #[cfg(feature = "archive")]
@@ -48,7 +32,7 @@ pub mod archive;
 
 #[cfg(not(feature = "archive"))]
 pub mod archive {
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum TwasmError {}
     impl core::fmt::Display for TwasmError {
         fn fmt(&self, _: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -181,56 +165,24 @@ impl Module {
                 .count()
         }
 
-        fn imported_func_type(module: &ModuleInner, function_index: usize) -> Option<&FuncType> {
-            let mut seen = 0usize;
-            for import in module.imports.iter() {
-                if let ImportKind::Function(type_idx) = import.kind {
-                    if seen == function_index {
-                        return module.func_types.get(type_idx as usize).map(|ty| &**ty);
-                    }
-                    seen += 1;
-                }
-            }
-            None
-        }
+        fn imported_type(module: &ModuleInner, kind: ExternalKind, index: usize) -> Option<ExportType<'_>> {
+            let mut imports = module.imports.iter().filter(|import| {
+                matches!(
+                    (kind, &import.kind),
+                    (ExternalKind::Func, ImportKind::Function(_))
+                        | (ExternalKind::Table, ImportKind::Table(_))
+                        | (ExternalKind::Memory, ImportKind::Memory(_))
+                        | (ExternalKind::Global, ImportKind::Global(_))
+                )
+            });
+            let import = imports.nth(index)?;
 
-        fn imported_table_type(module: &ModuleInner, table_index: usize) -> Option<&TableType> {
-            let mut seen = 0usize;
-            for import in module.imports.iter() {
-                if let ImportKind::Table(table_ty) = &import.kind {
-                    if seen == table_index {
-                        return Some(table_ty);
-                    }
-                    seen += 1;
-                }
+            match &import.kind {
+                ImportKind::Function(type_idx) => Some(ExportType::Func(module.func_types.get(*type_idx as usize)?)),
+                ImportKind::Table(table_ty) => Some(ExportType::Table(table_ty)),
+                ImportKind::Memory(memory_ty) => Some(ExportType::Memory(memory_ty)),
+                ImportKind::Global(global_ty) => Some(ExportType::Global(global_ty)),
             }
-            None
-        }
-
-        fn imported_memory_type(module: &ModuleInner, memory_index: usize) -> Option<&MemoryType> {
-            let mut seen = 0usize;
-            for import in module.imports.iter() {
-                if let ImportKind::Memory(memory_ty) = &import.kind {
-                    if seen == memory_index {
-                        return Some(memory_ty);
-                    }
-                    seen += 1;
-                }
-            }
-            None
-        }
-
-        fn imported_global_type(module: &Module, global_index: usize) -> Option<&GlobalType> {
-            let mut seen = 0usize;
-            for import in module.imports.iter() {
-                if let ImportKind::Global(global_ty) = &import.kind {
-                    if seen == global_index {
-                        return Some(global_ty);
-                    }
-                    seen += 1;
-                }
-            }
-            None
         }
 
         self.0.exports.iter().filter_map(move |export| {
@@ -239,37 +191,33 @@ impl Module {
                 ExternalKind::Func => {
                     let imported_funcs = imported_count(&self.0, ExternalKind::Func);
                     if idx < imported_funcs {
-                        ExportType::Func(imported_func_type(&self.0, idx)?)
+                        imported_type(&self.0, ExternalKind::Func, idx)?
                     } else {
-                        let local_idx = idx - imported_funcs;
-                        ExportType::Func(&self.0.funcs.get(local_idx)?.ty)
+                        ExportType::Func(&self.0.funcs.get(idx - imported_funcs)?.ty)
                     }
                 }
                 ExternalKind::Table => {
                     let imported_tables = imported_count(&self.0, ExternalKind::Table);
                     if idx < imported_tables {
-                        ExportType::Table(imported_table_type(&self.0, idx)?)
+                        imported_type(&self.0, ExternalKind::Table, idx)?
                     } else {
-                        let local_idx = idx - imported_tables;
-                        ExportType::Table(self.0.table_types.get(local_idx)?)
+                        ExportType::Table(self.0.table_types.get(idx - imported_tables)?)
                     }
                 }
                 ExternalKind::Memory => {
                     let imported_memories = imported_count(&self.0, ExternalKind::Memory);
                     if idx < imported_memories {
-                        ExportType::Memory(imported_memory_type(&self.0, idx)?)
+                        imported_type(&self.0, ExternalKind::Memory, idx)?
                     } else {
-                        let local_idx = idx - imported_memories;
-                        ExportType::Memory(self.0.memory_types.get(local_idx)?)
+                        ExportType::Memory(self.0.memory_types.get(idx - imported_memories)?)
                     }
                 }
                 ExternalKind::Global => {
                     let imported_globals = imported_count(&self.0, ExternalKind::Global);
                     if idx < imported_globals {
-                        ExportType::Global(imported_global_type(self, idx)?)
+                        imported_type(&self.0, ExternalKind::Global, idx)?
                     } else {
-                        let local_idx = idx - imported_globals;
-                        ExportType::Global(&self.0.globals.get(local_idx)?.ty)
+                        ExportType::Global(&self.0.globals.get(idx - imported_globals)?.ty)
                     }
                 }
             };
@@ -422,9 +370,8 @@ pub struct FuncType {
 impl FuncType {
     /// Create a new function type.
     pub fn new(params: &[WasmType], results: &[WasmType]) -> Self {
-        let param_count = params.len() as u16;
         let data: Box<[WasmType]> = params.iter().cloned().chain(results.iter().cloned()).collect();
-        Self { data, param_count }
+        Self { data, param_count: params.len() as u16 }
     }
 
     /// Get the parameter types of this function type.
@@ -494,11 +441,7 @@ impl WasmFunctionData {
     /// Panics if `idx` is out of bounds.
     #[inline(always)]
     pub fn v128_const(&self, idx: ConstIdx) -> [u8; 16] {
-        let Some(val) = self.v128_constants.get(idx as usize) else {
-            cold_path();
-            unreachable!("invalid v128 constant index");
-        };
-        *val
+        *self.v128_constants.get(idx as usize).unwrap_or_else(|| unreachable!("invalid v128 constant index: {idx}"))
     }
 }
 

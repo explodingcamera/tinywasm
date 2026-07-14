@@ -31,6 +31,13 @@ impl VecMemory {
         data.resize(len, 0);
         Ok(Self { data })
     }
+
+    #[inline(always)]
+    fn read_fixed<const N: usize>(&self, addr: usize) -> [u8; N] {
+        self.data[addr..addr + N]
+            .try_into()
+            .unwrap_or_else(|_| unreachable!("fixed-width memory read has incorrect length"))
+    }
 }
 
 impl LinearMemory for VecMemory {
@@ -120,49 +127,25 @@ impl LinearMemory for VecMemory {
     #[inline(always)]
     fn read_16(&self, base: u64, offset: u64) -> core::result::Result<[u8; 2], crate::Trap> {
         let addr = checked_effective_addr::<2>(self.data.len(), base, offset)?;
-        match self.data[addr..addr + 2].try_into() {
-            Ok(bytes) => Ok(bytes),
-            Err(_) => {
-                cold_path();
-                unreachable!();
-            }
-        }
+        Ok(self.read_fixed::<2>(addr))
     }
 
     #[inline(always)]
     fn read_32(&self, base: u64, offset: u64) -> core::result::Result<[u8; 4], crate::Trap> {
         let addr = checked_effective_addr::<4>(self.data.len(), base, offset)?;
-        match self.data[addr..addr + 4].try_into() {
-            Ok(bytes) => Ok(bytes),
-            Err(_) => {
-                cold_path();
-                unreachable!();
-            }
-        }
+        Ok(self.read_fixed::<4>(addr))
     }
 
     #[inline(always)]
     fn read_64(&self, base: u64, offset: u64) -> core::result::Result<[u8; 8], crate::Trap> {
         let addr = checked_effective_addr::<8>(self.data.len(), base, offset)?;
-        match self.data[addr..addr + 8].try_into() {
-            Ok(bytes) => Ok(bytes),
-            Err(_) => {
-                cold_path();
-                unreachable!();
-            }
-        }
+        Ok(self.read_fixed::<8>(addr))
     }
 
     #[inline(always)]
     fn read_128(&self, base: u64, offset: u64) -> core::result::Result<[u8; 16], crate::Trap> {
         let addr = checked_effective_addr::<16>(self.data.len(), base, offset)?;
-        match self.data[addr..addr + 16].try_into() {
-            Ok(bytes) => Ok(bytes),
-            Err(_) => {
-                cold_path();
-                unreachable!();
-            }
-        }
+        Ok(self.read_fixed::<16>(addr))
     }
 
     #[inline(always)]

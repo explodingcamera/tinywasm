@@ -157,16 +157,11 @@ impl crate::std::io::Seek for MemoryCursor<'_> {
 }
 
 impl Memory {
-    #[inline]
-    pub(crate) const fn from_store_addr(store_id: usize, addr: MemAddr) -> Self {
-        Self(StoreItem::new(store_id, addr))
-    }
-
     /// Create a new memory in the given store.
     pub fn new(store: &mut Store, ty: MemoryType) -> Result<Self> {
         let addr = store.state.memories.len() as MemAddr;
         store.state.memories.push(MemoryInstance::new(ty, &store.engine.config().memory_backend)?);
-        Ok(Self::from_store_addr(store.id(), addr))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     /// Creates a cursor positioned at the start of this memory.
@@ -343,11 +338,6 @@ fn table_value_to_element(element_type: WasmType, value: WasmValue) -> Result<Ta
 }
 
 impl Table {
-    #[inline]
-    pub(crate) const fn from_store_addr(store_id: usize, addr: TableAddr) -> Self {
-        Self(StoreItem::new(store_id, addr))
-    }
-
     /// Create a new table in the given store.
     pub fn new(store: &mut Store, ty: TableType, init: WasmValue) -> Result<Self> {
         let init = match (ty.element_type, init) {
@@ -357,7 +347,7 @@ impl Table {
         };
         let addr = store.state.tables.len() as TableAddr;
         store.state.tables.push(TableInstance::new_with_init(ty, init));
-        Ok(Self::from_store_addr(store.id(), addr))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     #[inline]
@@ -424,11 +414,6 @@ impl Table {
 }
 
 impl Global {
-    #[inline]
-    pub(crate) const fn from_store_addr(store_id: usize, addr: GlobalAddr) -> Self {
-        Self(StoreItem::new(store_id, addr))
-    }
-
     /// Create a new global in the given store.
     pub fn new(store: &mut Store, ty: GlobalType, value: WasmValue) -> Result<Self> {
         if WasmType::from(value) != ty.ty {
@@ -437,7 +422,7 @@ impl Global {
         }
         let addr = store.state.globals.len() as GlobalAddr;
         store.state.globals.push(GlobalInstance::new(ty, value.into()));
-        Ok(Self::from_store_addr(store.id(), addr))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     #[inline]

@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use crate::{ConstInstruction, ExternAddr, FuncAddr};
+use crate::{ConstInstruction, ExternRef, FuncRef};
 
 /// A WebAssembly value.
 ///
@@ -42,117 +42,6 @@ impl Debug for WasmValue {
     }
 }
 
-const NULL_REF: u32 = u32::MAX;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ExternRef(u32);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct FuncRef(u32);
-
-#[cfg(feature = "debug")]
-impl Debug for ExternRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.addr() {
-            Some(addr) => write!(f, "extern({addr:?})"),
-            None => write!(f, "extern(null)"),
-        }
-    }
-}
-
-#[cfg(feature = "debug")]
-impl Debug for FuncRef {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.addr() {
-            Some(addr) => write!(f, "func({addr:?})"),
-            None => write!(f, "func(null)"),
-        }
-    }
-}
-
-impl FuncRef {
-    #[inline]
-    /// Create a new [`FuncRef`] from a [`FuncAddr`].
-    pub const fn new(addr: Option<FuncAddr>) -> Self {
-        match addr {
-            Some(addr) => Self(addr),
-            None => Self::null(),
-        }
-    }
-
-    #[inline]
-    /// Create a null [`FuncRef`].
-    pub const fn null() -> Self {
-        Self(NULL_REF)
-    }
-
-    #[inline]
-    /// Check if the [`FuncRef`] is null.
-    pub const fn is_null(&self) -> bool {
-        self.0 == NULL_REF
-    }
-
-    #[inline]
-    /// Get the [`FuncAddr`] from the [`FuncRef`].
-    pub const fn addr(&self) -> Option<FuncAddr> {
-        if self.is_null() { None } else { Some(self.0) }
-    }
-
-    #[inline]
-    #[doc(hidden)]
-    pub const fn from_raw(raw: u32) -> Self {
-        Self(raw)
-    }
-
-    #[inline]
-    #[doc(hidden)]
-    pub const fn raw(&self) -> u32 {
-        self.0
-    }
-}
-
-impl ExternRef {
-    #[inline]
-    /// Create a new [`ExternRef`] from an [`ExternAddr`].
-    /// Should only be used by the runtime.
-    pub const fn new(addr: Option<ExternAddr>) -> Self {
-        match addr {
-            Some(addr) => Self(addr),
-            None => Self::null(),
-        }
-    }
-
-    /// Create a null [`ExternRef`].
-    #[inline]
-    pub const fn null() -> Self {
-        Self(NULL_REF)
-    }
-
-    /// Check if the [`ExternRef`] is null.
-    #[inline]
-    pub const fn is_null(&self) -> bool {
-        self.0 == NULL_REF
-    }
-
-    /// Get the [`ExternAddr`] from the [`ExternRef`].
-    #[inline]
-    pub const fn addr(&self) -> Option<ExternAddr> {
-        if self.is_null() { None } else { Some(self.0) }
-    }
-
-    #[inline]
-    #[doc(hidden)]
-    pub const fn from_raw(raw: u32) -> Self {
-        Self(raw)
-    }
-
-    #[inline]
-    #[doc(hidden)]
-    pub const fn raw(&self) -> u32 {
-        self.0
-    }
-}
-
 impl WasmValue {
     #[inline]
     /// Get the matching [`ConstInstruction`] for this value.
@@ -191,20 +80,8 @@ impl WasmValue {
             (Self::V128(a), Self::V128(b)) => a == b || Self::v128_nan_eq(*a, *b),
             (Self::RefExtern(addr), Self::RefExtern(addr2)) => addr == addr2,
             (Self::RefFunc(addr), Self::RefFunc(addr2)) => addr == addr2,
-            (Self::F32(a), Self::F32(b)) => {
-                if a.is_nan() && b.is_nan() {
-                    true
-                } else {
-                    a.to_bits() == b.to_bits()
-                }
-            }
-            (Self::F64(a), Self::F64(b)) => {
-                if a.is_nan() && b.is_nan() {
-                    true
-                } else {
-                    a.to_bits() == b.to_bits()
-                }
-            }
+            (Self::F32(a), Self::F32(b)) => a.is_nan() && b.is_nan() || a.to_bits() == b.to_bits(),
+            (Self::F64(a), Self::F64(b)) => a.is_nan() && b.is_nan() || a.to_bits() == b.to_bits(),
             _ => false,
         }
     }
@@ -255,62 +132,6 @@ impl WasmValue {
                 x.to_bits() == y.to_bits()
             }
         }) && a_f64x2.iter().any(|x| x.is_nan())
-    }
-
-    /// Return the `i32` from a `WasmValue`, if it is an `I32`.
-    pub const fn as_i32(&self) -> Option<i32> {
-        match self {
-            Self::I32(i) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// Return the `i64` from a `WasmValue`, if it is an `I64`.
-    pub const fn as_i64(&self) -> Option<i64> {
-        match self {
-            Self::I64(i) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// Return the `f32` from a `WasmValue`, if it is a `F32`.
-    pub const fn as_f32(&self) -> Option<f32> {
-        match self {
-            Self::F32(i) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// Return the `f64` from a `WasmValue`, if it is a `F64`.
-    pub const fn as_f64(&self) -> Option<f64> {
-        match self {
-            Self::F64(i) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// Return the raw little-endian bytes from a `WasmValue`, if it is a `V128`.
-    pub const fn as_v128(&self) -> Option<[u8; 16]> {
-        match self {
-            Self::V128(i) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// Return the [[`ExternRef`]] from a `WasmValue`, if it is one
-    pub const fn as_ref_extern(&self) -> Option<ExternRef> {
-        match self {
-            Self::RefExtern(ref_extern) => Some(*ref_extern),
-            _ => None,
-        }
-    }
-
-    /// Return the [`FuncRef`] from a `WasmValue`, if it is one
-    pub const fn as_ref_func(&self) -> Option<FuncRef> {
-        match self {
-            Self::RefFunc(ref_func) => Some(*ref_func),
-            _ => None,
-        }
     }
 }
 
@@ -369,7 +190,19 @@ impl WasmType {
 }
 
 macro_rules! impl_conversion_for_wasmvalue {
-    ($($t:ty => $variant:ident),*) => {
+    ($($t:ty => $variant:ident, $accessor:ident, $doc:literal);* $(;)?) => {
+        impl WasmValue {
+            $(
+                #[doc = $doc]
+                pub const fn $accessor(&self) -> Option<$t> {
+                    match self {
+                        Self::$variant(value) => Some(*value),
+                        _ => None,
+                    }
+                }
+            )*
+        }
+
         $(
             impl From<$t> for WasmValue {
                 #[inline]
@@ -390,4 +223,12 @@ macro_rules! impl_conversion_for_wasmvalue {
     }
 }
 
-impl_conversion_for_wasmvalue! { i32 => I32, i64 => I64, f32 => F32, f64 => F64, [u8; 16] => V128, ExternRef => RefExtern, FuncRef => RefFunc }
+impl_conversion_for_wasmvalue! {
+    i32 => I32, as_i32, "Return the `i32` from a `WasmValue`, if it is an `I32`.";
+    i64 => I64, as_i64, "Return the `i64` from a `WasmValue`, if it is an `I64`.";
+    f32 => F32, as_f32, "Return the `f32` from a `WasmValue`, if it is a `F32`.";
+    f64 => F64, as_f64, "Return the `f64` from a `WasmValue`, if it is a `F64`.";
+    [u8; 16] => V128, as_v128, "Return the raw little-endian bytes from a `WasmValue`, if it is a `V128`.";
+    ExternRef => RefExtern, as_ref_extern, "Return the [`ExternRef`] from a `WasmValue`, if it is one";
+    FuncRef => RefFunc, as_ref_func, "Return the [`FuncRef`] from a `WasmValue`, if it is one";
+}

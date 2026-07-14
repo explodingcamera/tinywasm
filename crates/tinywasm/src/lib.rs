@@ -145,10 +145,3 @@ pub mod types {
 }
 
 pub use tinywasm_types::Module;
-
-pub(crate) fn unlikely(b: bool) -> bool {
-    if b {
-        core::hint::cold_path();
-    };
-    b
-}

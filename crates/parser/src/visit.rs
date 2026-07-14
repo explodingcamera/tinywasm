@@ -303,7 +303,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             if let Some(ctx) = self.ctx_stack.last_mut() {
                 ctx.has_else = true;
                 ctx.branch_jumps.push(jump_ip);
-                self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
+                self.patch_jump(cond_jump_ip, self.instructions.len());
                 if !matches!(self.instructions.last(), Some(Instruction::Nop | Instruction::MergeBarrier)) {
                     self.instructions.push(Instruction::MergeBarrier); // prevent superinstructions from merging across block boundaries
                 }
@@ -343,7 +343,7 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
         }
 
         self.emit_branch_jump_or_return(depth);
-        self.patch_jump_if_zero(cond_jump_ip, self.instructions.len());
+        self.patch_jump(cond_jump_ip, self.instructions.len());
     }
 
     fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Self::Output {
@@ -366,33 +366,28 @@ impl<'a, R: WasmModuleResources> wasmparser::VisitOperator<'a> for FunctionBuild
             jump_or_ret_ip: usize,
             is_return: bool,
         }
-        let mut seen = Vec::<(u32, usize)>::new();
         let mut pads: Vec<PadInfo> = Vec::new();
 
         for &depth in target_depths.iter().chain(core::iter::once(&default_depth)) {
-            if seen.iter().any(|&(seen_depth, _)| seen_depth == depth) {
+            if pads.iter().any(|pad| pad.depth == depth) {
                 continue;
             }
-            seen.push((depth, pads.len()));
 
             let (pad_start, jump_or_ret_ip, is_return) = self.emit_br_table_pad(depth);
             pads.push(PadInfo { depth, pad_start, jump_or_ret_ip, is_return });
         }
 
         for &depth in &target_depths {
-            let pad_idx = seen
-                .iter()
-                .find_map(|&(seen_depth, idx)| (seen_depth == depth).then_some(idx))
-                .expect("visit_br_table: missing branch table target");
-            self.data.branch_table_targets.push(pads[pad_idx].pad_start as u32);
+            let pad = pads.iter().find(|pad| pad.depth == depth).expect("visit_br_table: missing branch table target");
+            self.data.branch_table_targets.push(pad.pad_start as u32);
         }
 
-        let default_pad_idx = seen
+        let default_pad = pads
             .iter()
-            .find_map(|&(seen_depth, idx)| (seen_depth == default_depth).then_some(idx))
+            .find(|pad| pad.depth == default_depth)
             .expect("visit_br_table: missing default branch table target");
         if let Instruction::BranchTable(default_ip, _, _) = &mut self.instructions[header_ip] {
-            *default_ip = pads[default_pad_idx].pad_start as u32;
+            *default_ip = default_pad.pad_start as u32;
         }
 
         for pad in &pads {
@@ -621,16 +616,10 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
     fn patch_jump(&mut self, jump_ip: usize, target: usize) {
         match &mut self.instructions[jump_ip] {
-            Instruction::Jump(ip) | Instruction::JumpIfNonZero32(ip) => {
+            Instruction::Jump(ip) | Instruction::JumpIfZero32(ip) | Instruction::JumpIfNonZero32(ip) => {
                 *ip = target as u32;
             }
             _ => {}
-        }
-    }
-
-    fn patch_jump_if_zero(&mut self, jump_ip: usize, target: usize) {
-        if let Instruction::JumpIfZero32(ip) = &mut self.instructions[jump_ip] {
-            *ip = target as u32;
         }
     }
 
@@ -738,7 +727,7 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
             BlockKind::If => {
                 if let Some((&cond_jump_ip, branch_jumps)) = ctx.branch_jumps.split_first() {
                     if !ctx.has_else {
-                        self.patch_jump_if_zero(cond_jump_ip, end_ip);
+                        self.patch_jump(cond_jump_ip, end_ip);
                     }
                     for &jump_ip in branch_jumps {
                         self.patch_jump(jump_ip, end_ip);

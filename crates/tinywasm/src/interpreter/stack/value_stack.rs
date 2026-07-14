@@ -48,46 +48,28 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        self.data.pop().unwrap_or_else(|| {
-            cold_path();
-            unreachable!("ValueStack underflow, this is a bug");
-        })
+        self.data.pop().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"))
     }
 
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        self.data.last().unwrap_or_else(|| {
-            cold_path();
-            unreachable!("ValueStack underflow, this is a bug");
-        })
+        self.data.last().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"))
     }
 
     #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> &T {
-        self.data.get(index).unwrap_or_else(|| {
-            cold_path();
-            unreachable!("Stack index out of bounds, this is a bug");
-        })
+        self.data.get(index).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug"))
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
-        *self.data.get_mut(index).unwrap_or_else(|| {
-            cold_path();
-            unreachable!("Stack index out of bounds, this is a bug");
-        }) = value;
+        *self.data.get_mut(index).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug")) = value;
     }
 
     #[inline(always)]
     pub(crate) fn copy(&mut self, from: usize, to: usize) {
-        let val = self.data.get(from).unwrap_or_else(|| {
-            cold_path();
-            unreachable!("Stack index out of bounds, this is a bug");
-        });
-        *self.data.get_mut(to).unwrap_or_else(|| {
-            cold_path();
-            unreachable!("Stack index out of bounds, this is a bug");
-        }) = *val;
+        let val = self.data.get(from).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug"));
+        *self.data.get_mut(to).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug")) = *val;
     }
 
     #[inline(always)]
@@ -112,10 +94,7 @@ impl<T: Copy + Default> Stack<T> {
     #[inline(always)]
     pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
         debug_assert!(n < self.data.len());
-        let Some(last) = self.data.pop() else {
-            cold_path();
-            unreachable!("ValueStack underflow, this is a bug");
-        };
+        let last = self.data.pop().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"));
         self.data.truncate(n);
         self.data.push(last);
     }
@@ -172,13 +151,9 @@ impl<T: Copy + Default> Stack<T> {
         }
 
         let len = self.data.len();
-        let needed = count.checked_mul(2).unwrap_or_else(|| {
-            cold_path();
-            unreachable!("Stack underflow, this is a bug");
-        });
+        let needed = count.checked_mul(2).unwrap_or_else(|| unreachable!("Stack underflow, this is a bug"));
 
         if len < needed {
-            cold_path();
             unreachable!("Stack underflow, this is a bug");
         }
 

@@ -85,13 +85,7 @@ impl Store {
 
     #[inline]
     pub(crate) fn get_module_instance_internal(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
-        match self.module_instances.get(addr as usize) {
-            Some(instance) => instance.clone(),
-            None => {
-                cold_path();
-                unreachable!("module instance {addr} not found. This should be unreachable")
-            }
-        }
+        self.get_module_instance(addr).unwrap_or_else(|| unreachable!("invalid module instance: {addr}"))
     }
 
     pub(crate) fn enter_execution(&mut self) -> Result<()> {
@@ -137,81 +131,57 @@ pub(crate) struct State {
 }
 
 impl State {
+    fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
+        items.get(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
+    }
+
+    fn get_mut<'a, T>(items: &'a mut [T], addr: Addr, kind: &str) -> &'a mut T {
+        items.get_mut(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
+    }
+
+    fn get_disjoint_mut<'a, T>(items: &'a mut [T], addr: Addr, addr2: Addr, kind: &str) -> (&'a mut T, &'a mut T) {
+        let [item_a, item_b] = items
+            .get_disjoint_mut([addr as usize, addr2 as usize])
+            .unwrap_or_else(|_| unreachable!("invalid {kind} addresses: {addr}, {addr2}"));
+        (item_a, item_b)
+    }
+
     /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
-        match self.funcs.get(addr as usize) {
-            Some(func) => func,
-            None => {
-                cold_path();
-                unreachable!("function {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get(&self.funcs, addr, "function")
     }
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
     pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
         match self.funcs.get(addr as usize) {
             Some(FunctionInstance::Wasm(wasm_func)) => wasm_func,
-            _ => {
-                cold_path();
-                unreachable!("function {addr} not found. This should be unreachable")
-            }
+            _ => unreachable!("invalid wasm function address: {addr}"),
         }
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
-        match self.memories.get(addr as usize) {
-            Some(mem) => mem,
-            None => {
-                cold_path();
-                unreachable!("memory {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get(&self.memories, addr, "memory")
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
-        match self.memories.get_mut(addr as usize) {
-            Some(mem) => mem,
-            None => {
-                cold_path();
-                unreachable!("memory {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get_mut(&mut self.memories, addr, "memory")
     }
 
     /// Get the memory at the actual index in the store
     pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
-        match self.memories.get_disjoint_mut([addr as usize, addr2 as usize]) {
-            Ok([mem_a, mem_b]) => (mem_a, mem_b),
-            Err(_) => {
-                cold_path();
-                unreachable!("memory {addr} or {addr2} not found. This should be unreachable")
-            }
-        }
+        Self::get_disjoint_mut(&mut self.memories, addr, addr2, "memory")
     }
 
     /// Get the table at the actual index in the store
     pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
-        match self.tables.get(addr as usize) {
-            Some(table) => table,
-            None => {
-                cold_path();
-                unreachable!("table {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get(&self.tables, addr, "table")
     }
 
     /// Get the table at the actual index in the store
     pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
-        match self.tables.get_mut(addr as usize) {
-            Some(table) => table,
-            None => {
-                cold_path();
-                unreachable!("table {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get_mut(&mut self.tables, addr, "table")
     }
 
     /// Get two mutable tables at the actual index in the store
@@ -220,79 +190,37 @@ impl State {
         addr: TableAddr,
         addr2: TableAddr,
     ) -> (&mut TableInstance, &mut TableInstance) {
-        match self.tables.get_disjoint_mut([addr as usize, addr2 as usize]) {
-            Ok([table_a, table_b]) => (table_a, table_b),
-            Err(_) => {
-                cold_path();
-                unreachable!("table {addr} or {addr2} not found. This should be unreachable")
-            }
-        }
+        Self::get_disjoint_mut(&mut self.tables, addr, addr2, "table")
     }
 
     /// Get the data at the actual index in the store
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
-        match self.data.get_mut(addr as usize) {
-            Some(data) => data,
-            None => {
-                cold_path();
-                unreachable!("data {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get_mut(&mut self.data, addr, "data")
     }
 
     /// Get the element at the actual index in the store
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
-        match self.elements.get_mut(addr as usize) {
-            Some(elem) => elem,
-            None => {
-                cold_path();
-                unreachable!("element {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get_mut(&mut self.elements, addr, "element")
     }
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
-        match self.globals.get(addr as usize) {
-            Some(global) => global,
-            None => {
-                cold_path();
-                unreachable!("global {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get(&self.globals, addr, "global")
     }
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_mut(&mut self, addr: GlobalAddr) -> &mut GlobalInstance {
-        match self.globals.get_mut(addr as usize) {
-            Some(global) => global,
-            None => {
-                cold_path();
-                unreachable!("global {addr} not found. This should be unreachable")
-            }
-        }
+        Self::get_mut(&mut self.globals, addr, "global")
     }
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        match self.globals.get(addr as usize) {
-            Some(global) => global.value.get(),
-            None => {
-                cold_path();
-                unreachable!("global {addr} not found. This should be unreachable")
-            }
-        }
+        self.get_global(addr).value.get()
     }
 
     /// Set the global at the actual index in the store
     pub(crate) fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        match self.globals.get_mut(addr as usize) {
-            Some(global) => global.value.set(value),
-            None => {
-                cold_path();
-                unreachable!("global {addr} not found. This should be unreachable")
-            }
-        }
+        self.get_global_mut(addr).value.set(value);
     }
 }
 
@@ -333,7 +261,9 @@ impl Store {
         idx: ModuleInstanceAddr,
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         let start = self.state.funcs.len() as FuncAddr;
-        self.state.funcs.extend(funcs.iter().map(|func| FunctionInstance::new_wasm(func.clone(), idx)));
+        self.state.funcs.extend(
+            funcs.iter().map(|func| FunctionInstance::Wasm(WasmFunctionInstance { func: func.clone(), owner: idx })),
+        );
         start..start + funcs.len() as FuncAddr
     }
 
@@ -345,23 +275,15 @@ impl Store {
     }
 
     /// Add memories to the store, returning their addresses in the store
-    pub(crate) fn init_memories(&mut self, memories: &[MemoryType]) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
-        let start = self.state.memories.len() as MemAddr;
-        self.state.memories.reserve_exact(memories.len());
-        for &mem in memories {
-            self.state.memories.push(MemoryInstance::new(mem, &self.engine.config().memory_backend)?);
-        }
-        Ok(start..start + memories.len() as MemAddr)
-    }
-
-    pub(crate) fn init_lazy_memories(
+    pub(crate) fn init_memories(
         &mut self,
         memories: &[MemoryType],
+        init: fn(MemoryType, &MemoryBackend) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
         let start = self.state.memories.len() as MemAddr;
         self.state.memories.reserve_exact(memories.len());
         for &mem in memories {
-            self.state.memories.push(MemoryInstance::new_lazy(mem, &self.engine.config().memory_backend)?);
+            self.state.memories.push(init(mem, &self.engine.config().memory_backend)?);
         }
         Ok(start..start + memories.len() as MemAddr)
     }
@@ -461,7 +383,7 @@ impl Store {
                 }
             };
 
-            self.state.elements.push(ElementInstance::new(element.kind.clone(), items));
+            self.state.elements.push(ElementInstance { kind: element.kind.clone(), items });
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -508,7 +430,7 @@ impl Store {
                 tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
             };
 
-            self.state.data.push(DataInstance::new(data_val));
+            self.state.data.push(DataInstance { data: data_val });
             data_addrs.push((i + data_count) as Addr);
         }
 
@@ -641,10 +563,7 @@ impl Store {
                         I64Add => lhs.wrapping_add(rhs),
                         I64Sub => lhs.wrapping_sub(rhs),
                         I64Mul => lhs.wrapping_mul(rhs),
-                        _ => {
-                            cold_path();
-                            unreachable!("invalid const instruction in i64 op")
-                        }
+                        _ => unreachable!("invalid const instruction in i64 op"),
                     };
                     stack.push(TinyWasmValue::Value64(out as u64));
                 }

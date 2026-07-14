@@ -94,10 +94,6 @@ pub(crate) fn process_pending(
     imported_func_count: usize,
     imported_memory_count: u32,
 ) -> Result<Vec<FunctionCode>> {
-    if pending.is_empty() {
-        return Ok(Vec::new());
-    }
-
     let (small_jobs, large_jobs): (Vec<_>, Vec<_>) =
         pending.into_iter().partition(|job| !should_parallelize_function(body_len(&job.body)));
 
@@ -105,11 +101,6 @@ pub(crate) fn process_pending(
         .into_iter()
         .map(|job| process_function_job(job, options, func_types, imported_func_count, imported_memory_count))
         .collect::<Result<Vec<_>>>()?;
-
-    if large_jobs.is_empty() {
-        codes.sort_by_key(|(ordinal, _)| *ordinal);
-        return Ok(codes.into_iter().map(|(_, code)| code).collect());
-    }
 
     let num_workers = worker_count(options, large_jobs.len());
     if num_workers == 1 {
@@ -119,54 +110,57 @@ pub(crate) fn process_pending(
                 .map(|job| process_function_job(job, options, func_types, imported_func_count, imported_memory_count))
                 .collect::<Result<Vec<_>>>()?,
         );
-        codes.sort_by_key(|(ordinal, _)| *ordinal);
-        return Ok(codes.into_iter().map(|(_, code)| code).collect());
-    }
-
-    let chunk_size = large_jobs.len().div_ceil(num_workers);
-    let chunks = {
-        let mut chunks = Vec::with_capacity(num_workers);
-        let mut iter = large_jobs.into_iter();
-        while let Some(first) = iter.next() {
-            let mut chunk = alloc::vec![first];
-            for _ in 1..chunk_size {
-                match iter.next() {
-                    Some(job) => chunk.push(job),
-                    None => break,
+    } else {
+        let chunk_size = large_jobs.len().div_ceil(num_workers);
+        let chunks = {
+            let mut chunks = Vec::with_capacity(num_workers);
+            let mut iter = large_jobs.into_iter();
+            while let Some(first) = iter.next() {
+                let mut chunk = alloc::vec![first];
+                for _ in 1..chunk_size {
+                    match iter.next() {
+                        Some(job) => chunk.push(job),
+                        None => break,
+                    }
                 }
+                chunks.push(chunk);
             }
-            chunks.push(chunk);
-        }
-        chunks
-    };
+            chunks
+        };
 
-    let results: Vec<Result<(usize, FunctionCode)>> = std::thread::scope(|s| {
-        let handles: Vec<_> = chunks
-            .into_iter()
-            .map(|chunk| {
-                s.spawn(move || {
-                    chunk
-                        .into_iter()
-                        .map(|job| {
-                            process_function_job(job, options, func_types, imported_func_count, imported_memory_count)
-                        })
-                        .collect::<Vec<_>>()
+        let results: Vec<Result<(usize, FunctionCode)>> = std::thread::scope(|s| {
+            let handles: Vec<_> = chunks
+                .into_iter()
+                .map(|chunk| {
+                    s.spawn(move || {
+                        chunk
+                            .into_iter()
+                            .map(|job| {
+                                process_function_job(
+                                    job,
+                                    options,
+                                    func_types,
+                                    imported_func_count,
+                                    imported_memory_count,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
                 })
-            })
-            .collect();
+                .collect();
 
-        handles
-            .into_iter()
-            .flat_map(|handle| match handle.join() {
-                Ok(results) => results,
-                Err(_) => alloc::vec![Err(ParseError::Other("worker thread panicked".into()))],
-            })
-            .collect()
-    });
+            handles
+                .into_iter()
+                .flat_map(|handle| match handle.join() {
+                    Ok(results) => results,
+                    Err(_) => alloc::vec![Err(ParseError::Other("worker thread panicked".into()))],
+                })
+                .collect()
+        });
 
-    for result in results {
-        let (ordinal, code) = result?;
-        codes.push((ordinal, code));
+        for result in results {
+            codes.push(result?);
+        }
     }
 
     codes.sort_by_key(|(ordinal, _)| *ordinal);

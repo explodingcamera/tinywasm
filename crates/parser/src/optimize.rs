@@ -53,7 +53,7 @@ fn rewrite(
             ReturnCall(addr) if addr == self_func_addr => instrs[i] = ReturnCallSelf,
             Return if let Some(return_instr) = return_instr => instrs[i] = return_instr,
             instr @ (I32Add | I32Mul | I32And | I32Or | I32Xor) => {
-                let Some(op) = int_bin_op_32(instr) else { unreachable!() };
+                let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
@@ -64,7 +64,7 @@ fn rewrite(
                 }
             }
             instr @ (I32Sub | I32Shl | I32ShrS | I32ShrU | I32Rotl | I32Rotr) => {
-                let Some(op) = int_bin_op_32(instr) else { unreachable!() };
+                let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal32(op, global)]);
@@ -74,7 +74,7 @@ fn rewrite(
                 }
             }
             instr @ (I64Add | I64Mul | I64And | I64Or | I64Xor) => {
-                let Some(op) = int_bin_op_64(instr) else { unreachable!() };
+                let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
@@ -85,7 +85,7 @@ fn rewrite(
                 }
             }
             instr @ (I64Sub | I64Shl | I64ShrS | I64ShrU | I64Rotl | I64Rotr) => {
-                let Some(op) = int_bin_op_64(instr) else { unreachable!() };
+                let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
                 rewrite!(instrs, i, [GlobalGet(global)] => [Nop, BinOpStackGlobal64(op, global)]);
@@ -96,24 +96,24 @@ fn rewrite(
                 }
             }
             instr @ (F32Add | F32Mul | F32Min | F32Max) => {
-                let Some(op) = float_bin_op_32(instr) else { unreachable!() };
+                let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
             }
             instr @ (F32Sub | F32Div | F32Copysign) => {
-                let Some(op) = float_bin_op_32(instr) else { unreachable!() };
+                let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
             }
             instr @ (F64Add | F64Mul | F64Min | F64Max) => {
-                let Some(op) = float_bin_op_64(instr) else { unreachable!() };
+                let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
             }
             instr @ (F64Sub | F64Div | F64Copysign) => {
-                let Some(op) = float_bin_op_64(instr) else { unreachable!() };
+                let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
             }
@@ -166,7 +166,7 @@ fn rewrite(
                 fold_local_binop!(
                     instrs, i, dst,
                     source = resolve_local_source_32,
-                    op = scalar_bin_op_32,
+                    op = scalar_bin_op,
                     const = scalar_const_32,
                     local_local = BinOpLocalLocalSet32,
                     local_const = |dst, lhs, op, imm| match (dst == lhs, op) {
@@ -205,7 +205,7 @@ fn rewrite(
                 fold_local_binop!(
                     instrs, i, dst,
                     source = resolve_local_source_64,
-                    op = scalar_bin_op_64,
+                    op = scalar_bin_op,
                     const = scalar_const_64,
                     local_local = BinOpLocalLocalSet64,
                     local_const = |dst, lhs, op, imm| match (dst == lhs, op) {
@@ -266,7 +266,7 @@ fn rewrite(
                 fold_local_binop!(
                     instrs, i, dst,
                     source = resolve_local_source_32,
-                    op = scalar_bin_op_32,
+                    op = scalar_bin_op,
                     const = scalar_const_32,
                     local_local = BinOpLocalLocalTee32,
                     local_const = |dst, lhs, op, imm| Instruction::BinOpLocalConstTee32(op, lhs, imm, dst)
@@ -302,7 +302,7 @@ fn rewrite(
                 fold_local_binop!(
                     instrs, i, dst,
                     source = resolve_local_source_64,
-                    op = scalar_bin_op_64,
+                    op = scalar_bin_op,
                     const = scalar_const_64,
                     local_local = BinOpLocalLocalTee64,
                     local_const = |dst, lhs, op, imm| Instruction::BinOpLocalConstTee64(op, lhs, imm, dst)
@@ -423,7 +423,7 @@ fn rewrite(
                 );
                 rewrite!(instrs, i,
                     [LocalGet64(local), Const64(imm), cmp] if
-                    (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
+                    (let Some(op) = cmp_op(cmp) && let Ok(imm) = i32::try_from(imm)) =>
                     match (imm, inverse_cmp_op(op)) {
                         (0, CmpOp::Eq) => JumpIfLocalZero64 { target_ip: target, local },
                         (0, CmpOp::Ne) => JumpIfLocalNonZero64 { target_ip: target, local },
@@ -435,7 +435,7 @@ fn rewrite(
                     JumpCmpLocalLocal32 { target_ip: target, left, right, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
+                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalLocal64 { target_ip: target, left, right, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i, [Const32(imm), cmp] if (let Some(op) = cmp_op(cmp)) => match (imm, inverse_cmp_op(op)) {
@@ -443,7 +443,7 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero32(target),
                     (imm, op) => JumpCmpStackConst32 { target_ip: target, imm, op },
                 });
-                rewrite!(instrs, i, [Const64(imm), cmp] if (let Some(op) = cmp_op_64(cmp)) => match (imm, inverse_cmp_op(op)) {
+                rewrite!(instrs, i, [Const64(imm), cmp] if (let Some(op) = cmp_op(cmp)) => match (imm, inverse_cmp_op(op)) {
                     (0, CmpOp::Eq) => JumpIfZero64(target),
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
@@ -479,7 +479,7 @@ fn rewrite(
                 );
                 rewrite!(instrs, i,
                     [LocalGet64(local), Const64(imm), cmp] if
-                    (let Some(op) = cmp_op_64(cmp) && let Ok(imm) = i32::try_from(imm)) =>
+                    (let Some(op) = cmp_op(cmp) && let Ok(imm) = i32::try_from(imm)) =>
                     match (imm, op) {
                         (0, CmpOp::Eq) => JumpIfLocalZero64 { target_ip: target, local },
                         (0, CmpOp::Ne) => JumpIfLocalNonZero64 { target_ip: target, local },
@@ -491,7 +491,7 @@ fn rewrite(
                     JumpCmpLocalLocal32 { target_ip: target, left, right, op }
                 );
                 rewrite!(instrs, i,
-                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op_64(cmp)) =>
+                    [LocalGet64(left), LocalGet64(right), cmp] if (let Some(op) = cmp_op(cmp)) =>
                     JumpCmpLocalLocal64 { target_ip: target, left, right, op }
                 );
                 rewrite!(instrs, i, [Const32(imm), cmp] if (let Some(op) = cmp_op(cmp)) => match (imm, op) {
@@ -499,7 +499,7 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero32(target),
                     (imm, op) => JumpCmpStackConst32 { target_ip: target, imm, op },
                 });
-                rewrite!(instrs, i, [Const64(imm), cmp] if (let Some(op) = cmp_op_64(cmp)) => match (imm, op) {
+                rewrite!(instrs, i, [Const64(imm), cmp] if (let Some(op) = cmp_op(cmp)) => match (imm, op) {
                     (0, CmpOp::Eq) => JumpIfZero64(target),
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
@@ -573,98 +573,64 @@ fn rewrite(
 
 fn cmp_op(instr: Instruction) -> Option<CmpOp> {
     Some(match instr {
-        Instruction::I32Eq => CmpOp::Eq,
-        Instruction::I32Ne => CmpOp::Ne,
-        Instruction::I32LtS => CmpOp::LtS,
-        Instruction::I32LtU => CmpOp::LtU,
-        Instruction::I32GtS => CmpOp::GtS,
-        Instruction::I32GtU => CmpOp::GtU,
-        Instruction::I32LeS => CmpOp::LeS,
-        Instruction::I32LeU => CmpOp::LeU,
-        Instruction::I32GeS => CmpOp::GeS,
-        Instruction::I32GeU => CmpOp::GeU,
+        Instruction::I32Eq | Instruction::I64Eq => CmpOp::Eq,
+        Instruction::I32Ne | Instruction::I64Ne => CmpOp::Ne,
+        Instruction::I32LtS | Instruction::I64LtS => CmpOp::LtS,
+        Instruction::I32LtU | Instruction::I64LtU => CmpOp::LtU,
+        Instruction::I32GtS | Instruction::I64GtS => CmpOp::GtS,
+        Instruction::I32GtU | Instruction::I64GtU => CmpOp::GtU,
+        Instruction::I32LeS | Instruction::I64LeS => CmpOp::LeS,
+        Instruction::I32LeU | Instruction::I64LeU => CmpOp::LeU,
+        Instruction::I32GeS | Instruction::I64GeS => CmpOp::GeS,
+        Instruction::I32GeU | Instruction::I64GeU => CmpOp::GeU,
         _ => return None,
     })
 }
 
-fn int_bin_op_32(instr: Instruction) -> Option<BinOp> {
+fn int_bin_op(instr: Instruction) -> Option<BinOp> {
     Some(match instr {
-        Instruction::I32Add => BinOp::IAdd,
-        Instruction::I32Sub => BinOp::ISub,
-        Instruction::I32Mul => BinOp::IMul,
-        Instruction::I32And => BinOp::IAnd,
-        Instruction::I32Or => BinOp::IOr,
-        Instruction::I32Xor => BinOp::IXor,
-        Instruction::I32Shl => BinOp::IShl,
-        Instruction::I32ShrS => BinOp::IShrS,
-        Instruction::I32ShrU => BinOp::IShrU,
-        Instruction::I32Rotl => BinOp::IRotl,
-        Instruction::I32Rotr => BinOp::IRotr,
+        Instruction::I32Add | Instruction::I64Add => BinOp::IAdd,
+        Instruction::I32Sub | Instruction::I64Sub => BinOp::ISub,
+        Instruction::I32Mul | Instruction::I64Mul => BinOp::IMul,
+        Instruction::I32And | Instruction::I64And => BinOp::IAnd,
+        Instruction::I32Or | Instruction::I64Or => BinOp::IOr,
+        Instruction::I32Xor | Instruction::I64Xor => BinOp::IXor,
+        Instruction::I32Shl | Instruction::I64Shl => BinOp::IShl,
+        Instruction::I32ShrS | Instruction::I64ShrS => BinOp::IShrS,
+        Instruction::I32ShrU | Instruction::I64ShrU => BinOp::IShrU,
+        Instruction::I32Rotl | Instruction::I64Rotl => BinOp::IRotl,
+        Instruction::I32Rotr | Instruction::I64Rotr => BinOp::IRotr,
         _ => return None,
     })
 }
 
-fn int_bin_op_64(instr: Instruction) -> Option<BinOp> {
+fn float_bin_op(instr: Instruction) -> Option<BinOp> {
     Some(match instr {
-        Instruction::I64Add => BinOp::IAdd,
-        Instruction::I64Sub => BinOp::ISub,
-        Instruction::I64Mul => BinOp::IMul,
-        Instruction::I64And => BinOp::IAnd,
-        Instruction::I64Or => BinOp::IOr,
-        Instruction::I64Xor => BinOp::IXor,
-        Instruction::I64Shl => BinOp::IShl,
-        Instruction::I64ShrS => BinOp::IShrS,
-        Instruction::I64ShrU => BinOp::IShrU,
-        Instruction::I64Rotl => BinOp::IRotl,
-        Instruction::I64Rotr => BinOp::IRotr,
+        Instruction::F32Add | Instruction::F64Add => BinOp::FAdd,
+        Instruction::F32Sub | Instruction::F64Sub => BinOp::FSub,
+        Instruction::F32Mul | Instruction::F64Mul => BinOp::FMul,
+        Instruction::F32Div | Instruction::F64Div => BinOp::FDiv,
+        Instruction::F32Min | Instruction::F64Min => BinOp::FMin,
+        Instruction::F32Max | Instruction::F64Max => BinOp::FMax,
+        Instruction::F32Copysign | Instruction::F64Copysign => BinOp::FCopysign,
         _ => return None,
     })
 }
 
-fn float_bin_op_32(instr: Instruction) -> Option<BinOp> {
-    Some(match instr {
-        Instruction::F32Add => BinOp::FAdd,
-        Instruction::F32Sub => BinOp::FSub,
-        Instruction::F32Mul => BinOp::FMul,
-        Instruction::F32Div => BinOp::FDiv,
-        Instruction::F32Min => BinOp::FMin,
-        Instruction::F32Max => BinOp::FMax,
-        Instruction::F32Copysign => BinOp::FCopysign,
-        _ => return None,
-    })
-}
-
-fn float_bin_op_64(instr: Instruction) -> Option<BinOp> {
-    Some(match instr {
-        Instruction::F64Add => BinOp::FAdd,
-        Instruction::F64Sub => BinOp::FSub,
-        Instruction::F64Mul => BinOp::FMul,
-        Instruction::F64Div => BinOp::FDiv,
-        Instruction::F64Min => BinOp::FMin,
-        Instruction::F64Max => BinOp::FMax,
-        Instruction::F64Copysign => BinOp::FCopysign,
-        _ => return None,
-    })
-}
-
-fn scalar_bin_op_32(instr: Instruction) -> Option<BinOp> {
-    int_bin_op_32(instr).or_else(|| float_bin_op_32(instr))
-}
-
-fn scalar_bin_op_64(instr: Instruction) -> Option<BinOp> {
-    int_bin_op_64(instr).or_else(|| float_bin_op_64(instr))
+fn scalar_bin_op(instr: Instruction) -> Option<BinOp> {
+    int_bin_op(instr).or_else(|| float_bin_op(instr))
 }
 
 fn scalar_const_32(instr: Instruction, op_instr: Instruction) -> Option<i32> {
     match instr {
-        Instruction::Const32(c) if int_bin_op_32(op_instr).is_some() || float_bin_op_32(op_instr).is_some() => Some(c),
+        Instruction::Const32(c) if scalar_bin_op(op_instr).is_some() => Some(c),
         _ => None,
     }
 }
 
 fn scalar_const_64(instr: Instruction, op_instr: Instruction) -> Option<i64> {
     match instr {
-        Instruction::Const64(c) if int_bin_op_64(op_instr).is_some() || float_bin_op_64(op_instr).is_some() => Some(c),
+        Instruction::Const64(c) if scalar_bin_op(op_instr).is_some() => Some(c),
         _ => None,
     }
 }
@@ -721,22 +687,6 @@ fn bin_op_128(instr: Instruction) -> Option<BinOp128> {
         Instruction::V128Xor => BinOp128::Xor,
         Instruction::I64x2Add => BinOp128::I64x2Add,
         Instruction::I64x2Mul => BinOp128::I64x2Mul,
-        _ => return None,
-    })
-}
-
-fn cmp_op_64(instr: Instruction) -> Option<CmpOp> {
-    Some(match instr {
-        Instruction::I64Eq => CmpOp::Eq,
-        Instruction::I64Ne => CmpOp::Ne,
-        Instruction::I64LtS => CmpOp::LtS,
-        Instruction::I64LtU => CmpOp::LtU,
-        Instruction::I64GtS => CmpOp::GtS,
-        Instruction::I64GtU => CmpOp::GtU,
-        Instruction::I64LeS => CmpOp::LeS,
-        Instruction::I64LeU => CmpOp::LeU,
-        Instruction::I64GeS => CmpOp::GeS,
-        Instruction::I64GeU => CmpOp::GeU,
         _ => return None,
     })
 }
@@ -806,29 +756,8 @@ fn resolve_jump_target(instrs: &[Instruction], target: u32) -> u32 {
     idx as u32
 }
 
-fn jump_target(instr: Instruction) -> Option<u32> {
+fn instruction_target_mut(instr: &mut Instruction, include_branch_table: bool) -> Option<&mut u32> {
     Some(match instr {
-        Instruction::Jump(ip)
-        | Instruction::JumpIfZero32(ip)
-        | Instruction::JumpIfNonZero32(ip)
-        | Instruction::JumpIfZero64(ip)
-        | Instruction::JumpIfNonZero64(ip) => ip,
-        Instruction::JumpCmpStackConst32 { target_ip, .. }
-        | Instruction::JumpCmpStackConst64 { target_ip, .. }
-        | Instruction::JumpIfLocalZero32 { target_ip, .. }
-        | Instruction::JumpIfLocalNonZero32 { target_ip, .. }
-        | Instruction::JumpIfLocalZero64 { target_ip, .. }
-        | Instruction::JumpIfLocalNonZero64 { target_ip, .. }
-        | Instruction::JumpCmpLocalConst32 { target_ip, .. }
-        | Instruction::JumpCmpLocalConst64 { target_ip, .. }
-        | Instruction::JumpCmpLocalLocal32 { target_ip, .. }
-        | Instruction::JumpCmpLocalLocal64 { target_ip, .. } => target_ip,
-        _ => return None,
-    })
-}
-
-fn set_jump_target(instr: &mut Instruction, target: u32) {
-    match instr {
         Instruction::Jump(ip)
         | Instruction::JumpIfZero32(ip)
         | Instruction::JumpIfNonZero32(ip)
@@ -843,13 +772,14 @@ fn set_jump_target(instr: &mut Instruction, target: u32) {
         | Instruction::JumpCmpLocalConst32 { target_ip: ip, .. }
         | Instruction::JumpCmpLocalConst64 { target_ip: ip, .. }
         | Instruction::JumpCmpLocalLocal32 { target_ip: ip, .. }
-        | Instruction::JumpCmpLocalLocal64 { target_ip: ip, .. } => *ip = target,
-        _ => {}
-    }
+        | Instruction::JumpCmpLocalLocal64 { target_ip: ip, .. } => ip,
+        Instruction::BranchTable(ip, _, _) if include_branch_table => ip,
+        _ => return None,
+    })
 }
 
 fn canonicalize_jump_like(instrs: &mut [Instruction], idx: usize) {
-    let Some(target) = jump_target(instrs[idx]) else {
+    let Some(target) = instruction_target_mut(&mut instrs[idx], false).map(|target| *target) else {
         return;
     };
 
@@ -859,8 +789,8 @@ fn canonicalize_jump_like(instrs: &mut [Instruction], idx: usize) {
 fn canonicalize_jump_like_with_target(instrs: &mut [Instruction], idx: usize, target: u32) {
     if matches!(instrs[idx], Instruction::Jump(_)) && target == next_non_nop(instrs, idx + 1) as u32 {
         instrs[idx] = Instruction::Nop;
-    } else {
-        set_jump_target(&mut instrs[idx], target);
+    } else if let Some(ip) = instruction_target_mut(&mut instrs[idx], false) {
+        *ip = target;
     }
 }
 
@@ -894,24 +824,8 @@ fn remove_nop(instructions: &mut Vec<Instruction>, function_data: &mut WasmFunct
     });
 
     instructions.retain_mut(|instr| {
-        let ip = match instr {
-            Instruction::Jump(ip)
-            | Instruction::JumpIfZero32(ip)
-            | Instruction::JumpIfNonZero32(ip)
-            | Instruction::JumpIfZero64(ip)
-            | Instruction::JumpIfNonZero64(ip)
-            | Instruction::JumpIfLocalZero32 { target_ip: ip, .. }
-            | Instruction::JumpIfLocalNonZero32 { target_ip: ip, .. }
-            | Instruction::JumpIfLocalZero64 { target_ip: ip, .. }
-            | Instruction::JumpIfLocalNonZero64 { target_ip: ip, .. }
-            | Instruction::JumpCmpStackConst32 { target_ip: ip, .. }
-            | Instruction::JumpCmpStackConst64 { target_ip: ip, .. }
-            | Instruction::JumpCmpLocalConst32 { target_ip: ip, .. }
-            | Instruction::JumpCmpLocalConst64 { target_ip: ip, .. }
-            | Instruction::JumpCmpLocalLocal32 { target_ip: ip, .. }
-            | Instruction::JumpCmpLocalLocal64 { target_ip: ip, .. }
-            | Instruction::BranchTable(ip, _, _) => ip,
-            _ => return !matches!(instr, Instruction::Nop | Instruction::MergeBarrier),
+        let Some(ip) = instruction_target_mut(instr, true) else {
+            return !matches!(instr, Instruction::Nop | Instruction::MergeBarrier);
         };
 
         let old_target = *ip as usize;

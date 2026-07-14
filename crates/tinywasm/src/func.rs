@@ -1,7 +1,8 @@
 use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
-use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, unlikely};
+use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, Trap};
 use alloc::{boxed::Box, format, rc::Rc, sync::Arc, vec, vec::Vec};
+use core::hint::cold_path;
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
 
 impl Function {
@@ -420,6 +421,40 @@ pub struct FuncExecutionTyped<'store, R> {
 }
 
 impl<'store> FuncExecution<'store> {
+    fn resume(
+        &mut self,
+        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState, Trap>,
+    ) -> Result<ExecProgress<Vec<WasmValue>>> {
+        let (callframe, root_func_addr) = match &mut self.state {
+            FuncExecutionState::Running { exec_state, root_func_addr } => (exec_state.callframe, *root_func_addr),
+            FuncExecutionState::Completed { result } => {
+                return match result.take() {
+                    Some(res) => Ok(ExecProgress::Completed(res)),
+                    None => Err(Error::other("execution already completed")),
+                };
+            }
+        };
+
+        self.store.enter_execution()?;
+        let result = run(self.store, callframe);
+        self.store.exit_execution();
+
+        match result? {
+            crate::interpreter::ExecState::Completed => {
+                let result_ty = self.store.state.get_func(root_func_addr).ty().clone();
+                self.state = FuncExecutionState::Completed { result: None };
+                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
+            }
+            crate::interpreter::ExecState::Suspended(callframe) => {
+                let FuncExecutionState::Running { exec_state, .. } = &mut self.state else {
+                    unreachable!("invalid function execution state")
+                };
+                exec_state.callframe = callframe;
+                Ok(ExecProgress::Suspended)
+            }
+        }
+    }
+
     /// Resume execution with up to `fuel` units of fuel.
     ///
     /// Fuel is accounted in chunks, so execution may overshoot the requested
@@ -433,31 +468,7 @@ impl<'store> FuncExecution<'store> {
     /// currently blocking. They do not suspend and later resume the host
     /// function in the middle of the nested call.
     pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<ExecProgress<Vec<WasmValue>>> {
-        let FuncExecutionState::Running { exec_state, root_func_addr } = &mut self.state else {
-            let FuncExecutionState::Completed { result } = &mut self.state else {
-                unreachable!("invalid function execution state")
-            };
-            return match result.take() {
-                Some(res) => Ok(ExecProgress::Completed(res)),
-                None => Err(Error::other("execution already completed")),
-            };
-        };
-
-        self.store.enter_execution()?;
-        let result = InterpreterRuntime::exec_with_fuel(self.store, exec_state.callframe, fuel);
-        self.store.exit_execution();
-
-        match result? {
-            crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
-            }
-            crate::interpreter::ExecState::Suspended(callframe) => {
-                exec_state.callframe = callframe;
-                Ok(ExecProgress::Suspended)
-            }
-        }
+        self.resume(|store, callframe| InterpreterRuntime::exec_with_fuel(store, callframe, fuel))
     }
 
     #[cfg(feature = "std")]
@@ -477,36 +488,13 @@ impl<'store> FuncExecution<'store> {
         &mut self,
         time_budget: crate::std::time::Duration,
     ) -> Result<ExecProgress<Vec<WasmValue>>> {
-        let FuncExecutionState::Running { exec_state, root_func_addr } = &mut self.state else {
-            let FuncExecutionState::Completed { result } = &mut self.state else {
-                unreachable!("invalid function execution state")
-            };
-            return match result.take() {
-                Some(res) => Ok(ExecProgress::Completed(res)),
-                None => Err(Error::other("execution already completed")),
-            };
-        };
-
-        self.store.enter_execution()?;
-        let result = InterpreterRuntime::exec_with_time_budget(self.store, exec_state.callframe, time_budget);
-        self.store.exit_execution();
-
-        match result? {
-            crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(*root_func_addr).ty().clone();
-                self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
-            }
-            crate::interpreter::ExecState::Suspended(callframe) => {
-                exec_state.callframe = callframe;
-                Ok(ExecProgress::Suspended)
-            }
-        }
+        self.resume(|store, callframe| InterpreterRuntime::exec_with_time_budget(store, callframe, time_budget))
     }
 }
 
 fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> {
-    if unlikely(func_ty.params().len() != params.len()) {
+    if func_ty.params().len() != params.len() {
+        cold_path();
         return Err(Error::Other(format!(
             "param count mismatch: expected {}, got {}",
             func_ty.params().len(),

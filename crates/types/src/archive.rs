@@ -42,9 +42,6 @@ impl Display for TwasmError {
     }
 }
 
-#[cfg(feature = "std")]
-extern crate std;
-
 impl core::error::Error for TwasmError {}
 
 impl Module {

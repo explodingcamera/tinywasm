@@ -1,6 +1,6 @@
 pub(crate) trait TinywasmIntExt: Sized {
-    fn checked_wrapping_rem(self, rhs: Self) -> Result<Self, Trap>;
-    fn wasm_checked_div(self, rhs: Self) -> Result<Self, Trap>;
+    fn tw_checked_wrapping_rem(self, rhs: Self) -> Result<Self, Trap>;
+    fn tw_checked_div(self, rhs: Self) -> Result<Self, Trap>;
 }
 
 /// Doing the actual conversion from float to int is a bit tricky, because
@@ -30,10 +30,12 @@ macro_rules! checked_conv_float {
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
         let v = <$from>::stack_pop(&mut $self.store.value_stack);
         let (min, max) = float_min_max!($from, $intermediate);
-        if unlikely(v.is_nan()) {
+        if v.is_nan() {
+            core::hint::cold_path();
             return Err(crate::Trap::InvalidConversionToInt);
         }
-        if unlikely(v <= min || v >= max) {
+        if v <= min || v >= max {
+            core::hint::cold_path();
             return Err(crate::Trap::IntegerOverflow);
         }
         $self.store.value_stack.push::<$to>((v as $intermediate as $to).into())?;
@@ -43,9 +45,6 @@ macro_rules! checked_conv_float {
 pub(crate) use checked_conv_float;
 pub(crate) use float_min_max;
 
-pub(super) fn trap_0() -> Trap {
-    crate::Trap::DivisionByZero
-}
 pub(crate) trait TinywasmFloatExt {
     fn tw_minimum(self, other: Self) -> Self;
     fn tw_maximum(self, other: Self) -> Self;
@@ -119,45 +118,10 @@ macro_rules! impl_wasm_float_ops {
 
 impl_wasm_float_ops! { f32 f64 }
 
-pub(crate) trait WasmIntOps {
-    fn wasm_shl(self, rhs: Self) -> Self;
-    fn wasm_shr(self, rhs: Self) -> Self;
-    fn wasm_rotl(self, rhs: Self) -> Self;
-    fn wasm_rotr(self, rhs: Self) -> Self;
-}
-
-macro_rules! impl_wrapping_self_sh {
-    ($($t:ty)*) => ($(
-        impl WasmIntOps for $t {
-            #[inline]
-            fn wasm_shl(self, rhs: Self) -> Self {
-                self.wrapping_shl(rhs as u32)
-            }
-
-            #[inline]
-            fn wasm_shr(self, rhs: Self) -> Self {
-                self.wrapping_shr(rhs as u32)
-            }
-
-            #[inline]
-            fn wasm_rotl(self, rhs: Self) -> Self {
-                self.rotate_left(rhs as u32)
-            }
-
-            #[inline]
-            fn wasm_rotr(self, rhs: Self) -> Self {
-                self.rotate_right(rhs as u32)
-            }
-        }
-    )*)
-}
-
-impl_wrapping_self_sh! { i32 i64 u32 u64 }
-
 macro_rules! impl_checked_wrapping_rem {
     ($($t:ty)*) => ($(
         impl TinywasmIntExt for $t {
-            fn checked_wrapping_rem(self, rhs: Self) -> Result<Self, crate::Trap> {
+            fn tw_checked_wrapping_rem(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
                     Err(crate::Trap::DivisionByZero)
                 } else {
@@ -165,7 +129,7 @@ macro_rules! impl_checked_wrapping_rem {
                 }
             }
 
-            fn wasm_checked_div(self, rhs: Self) -> Result<Self, crate::Trap> {
+            fn tw_checked_div(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
                     Err(crate::Trap::DivisionByZero)
                 } else {

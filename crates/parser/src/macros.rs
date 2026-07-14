@@ -105,61 +105,18 @@ pub(crate) mod visit {
 
 pub(crate) mod optimize {
     macro_rules! replace {
-        ($instructions:ident, $read:ident, 1 => [$a:expr $(,)?]) => {{
-            $instructions[$read - 1] = Instruction::Nop;
-            $instructions[$read] = $a;
+        ($instructions:ident, $read:ident, $consumed:literal => [$($out:expr),+ $(,)?]) => {{
+            const {
+                assert!($consumed >= 1 && $consumed <= 3);
+                assert!([$(stringify!($out)),+].len() <= $consumed + 1);
+            }
+            let replacements = [$($out),+];
+            let replacement_start = $read + 1 - replacements.len();
+            $instructions[$read - $consumed..replacement_start].fill(Instruction::Nop);
+            $instructions[replacement_start..=$read].copy_from_slice(&replacements);
         }};
-        ($instructions:ident, $read:ident, 1 => [$a:expr, $b:expr $(,)?]) => {{
-            $instructions[$read - 1] = $a;
-            $instructions[$read] = $b;
-        }};
-        ($instructions:ident, $read:ident, 2 => [$a:expr $(,)?]) => {{
-            $instructions[$read - 2] = Instruction::Nop;
-            $instructions[$read - 1] = Instruction::Nop;
-            $instructions[$read] = $a;
-        }};
-        ($instructions:ident, $read:ident, 2 => [$a:expr, $b:expr $(,)?]) => {{
-            $instructions[$read - 2] = Instruction::Nop;
-            $instructions[$read - 1] = $a;
-            $instructions[$read] = $b;
-        }};
-        ($instructions:ident, $read:ident, 2 => [$a:expr, $b:expr, $c:expr $(,)?]) => {{
-            $instructions[$read - 2] = $a;
-            $instructions[$read - 1] = $b;
-            $instructions[$read] = $c;
-        }};
-        ($instructions:ident, $read:ident, 3 => [$a:expr $(,)?]) => {{
-            $instructions[$read - 3] = Instruction::Nop;
-            $instructions[$read - 2] = Instruction::Nop;
-            $instructions[$read - 1] = Instruction::Nop;
-            $instructions[$read] = $a;
-        }};
-        ($instructions:ident, $read:ident, 3 => [$a:expr, $b:expr $(,)?]) => {{
-            $instructions[$read - 3] = Instruction::Nop;
-            $instructions[$read - 2] = Instruction::Nop;
-            $instructions[$read - 1] = $a;
-            $instructions[$read] = $b;
-        }};
-        ($instructions:ident, $read:ident, 3 => [$a:expr, $b:expr, $c:expr $(,)?]) => {{
-            $instructions[$read - 3] = Instruction::Nop;
-            $instructions[$read - 2] = $a;
-            $instructions[$read - 1] = $b;
-            $instructions[$read] = $c;
-        }};
-        ($instructions:ident, $read:ident, 3 => [$a:expr, $b:expr, $c:expr, $d:expr $(,)?]) => {{
-            $instructions[$read - 3] = $a;
-            $instructions[$read - 2] = $b;
-            $instructions[$read - 1] = $c;
-            $instructions[$read] = $d;
-        }};
-        ($instructions:ident, $read:ident, 1 => $out:expr) => {
-            replace!($instructions, $read, 1 => [$out]);
-        };
-        ($instructions:ident, $read:ident, 2 => $out:expr) => {
-            replace!($instructions, $read, 2 => [$out]);
-        };
-        ($instructions:ident, $read:ident, 3 => $out:expr) => {
-            replace!($instructions, $read, 3 => [$out]);
+        ($instructions:ident, $read:ident, $consumed:literal => $out:expr) => {
+            replace!($instructions, $read, $consumed => [$out]);
         };
     }
 

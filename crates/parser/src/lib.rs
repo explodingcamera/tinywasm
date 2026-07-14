@@ -250,18 +250,15 @@ impl Parser {
 
                             #[cfg(not(parallel_parser))]
                             let _ = defer;
-
-                            buffer.drain(..consumed);
                         }
                         wasmparser::Payload::CodeSectionEntry(function) => {
                             reader.process_inline_code_section_entry(function, &mut validator, &self.options)?;
-                            buffer.drain(..consumed);
                         }
                         payload => {
                             reader.process_payload(payload, &mut validator)?;
-                            buffer.drain(..consumed);
                         }
                     }
+                    buffer.drain(..consumed);
 
                     #[cfg(parallel_parser)]
                     if let Some((count, body_offset, section_size)) = deferred_code_section {
@@ -296,12 +293,9 @@ impl Parser {
                                 return Err(ParseError::Other("trailing bytes after end of module".into()));
                             }
                         }
-
-                        reader.process_pending_functions(&self.options)?;
-                        return reader.into_module(&self.options);
                     }
 
-                    if eof {
+                    if reader.end_reached || eof {
                         reader.process_pending_functions(&self.options)?;
                         return reader.into_module(&self.options);
                     }
@@ -321,20 +315,17 @@ impl TryFrom<ModuleReader<'_>> for Module {
 
 /// Parse a module from bytes
 pub fn parse_bytes(wasm: &[u8]) -> Result<Module> {
-    let data = Parser::new().parse_module_bytes(wasm)?;
-    Ok(data)
+    Parser::new().parse_module_bytes(wasm)
 }
 
 #[cfg(feature = "std")]
 /// Parse a module from a file. Requires the `std` feature.
 pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Module> {
-    let data = Parser::new().parse_module_file(path)?;
-    Ok(data)
+    Parser::new().parse_module_file(path)
 }
 
 #[cfg(feature = "std")]
 /// Parse a module from a stream. Requires `parser` and `std` features.
 pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Module> {
-    let data = Parser::new().parse_module_stream(stream)?;
-    Ok(data)
+    Parser::new().parse_module_stream(stream)
 }

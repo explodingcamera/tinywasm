@@ -9,11 +9,7 @@ pub(crate) struct DataInstance {
 }
 
 impl DataInstance {
-    pub(crate) fn new(data: Option<Vec<u8>>) -> Self {
-        Self { data }
-    }
-
     pub(crate) fn drop(&mut self) {
-        self.data.is_some().then(|| self.data.take());
+        self.data.take();
     }
 }

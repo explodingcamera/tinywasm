@@ -12,11 +12,7 @@ pub(crate) struct ElementInstance {
 }
 
 impl ElementInstance {
-    pub(crate) fn new(kind: ElementKind, items: Option<Vec<TableElement>>) -> Self {
-        Self { kind, items }
-    }
-
     pub(crate) fn drop(&mut self) {
-        self.items.is_some().then(|| self.items.take());
+        self.items.take();
     }
 }

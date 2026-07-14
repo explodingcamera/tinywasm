@@ -336,159 +336,41 @@ impl Value128 {
         Self(self.0.map(|lane| lane.count_ones() as u8))
     }
 
-    #[doc(alias = "i8x16.shl")]
-    pub fn i8x16_shl(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i8x16, from_i8x16, 7, shl)
+    impl_simd_shifts! {
+        "i8x16.shl" => i8x16_shl(as_i8x16, from_i8x16, 7, shl);
+        "i16x8.shl" => i16x8_shl(as_i16x8, from_i16x8, 15, shl);
+        "i32x4.shl" => i32x4_shl(as_i32x4, from_i32x4, 31, shl);
+        "i64x2.shl" => i64x2_shl(as_i64x2, from_i64x2, 63, shl);
+        "i8x16.shr_s" => i8x16_shr_s(as_i8x16, from_i8x16, 7, shr);
+        "i16x8.shr_s" => i16x8_shr_s(as_i16x8, from_i16x8, 15, shr);
+        "i32x4.shr_s" => i32x4_shr_s(as_i32x4, from_i32x4, 31, shr);
+        "i64x2.shr_s" => i64x2_shr_s(as_i64x2, from_i64x2, 63, shr);
+        "i8x16.shr_u" => i8x16_shr_u(as_u8x16, from_u8x16, 7, shr);
+        "i16x8.shr_u" => i16x8_shr_u(as_u16x8, from_u16x8, 15, shr);
+        "i32x4.shr_u" => i32x4_shr_u(as_u32x4, from_u32x4, 31, shr);
+        "i64x2.shr_u" => i64x2_shr_u(as_u64x2, from_u64x2, 63, shr);
     }
 
-    #[doc(alias = "i16x8.shl")]
-    pub fn i16x8_shl(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i16x8, from_i16x8, 15, shl)
-    }
-
-    #[doc(alias = "i32x4.shl")]
-    pub fn i32x4_shl(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i32x4, from_i32x4, 31, shl)
-    }
-
-    #[doc(alias = "i64x2.shl")]
-    pub fn i64x2_shl(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i64x2, from_i64x2, 63, shl)
-    }
-
-    #[doc(alias = "i8x16.shr_s")]
-    pub fn i8x16_shr_s(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i8x16, from_i8x16, 7, shr)
-    }
-
-    #[doc(alias = "i16x8.shr_s")]
-    pub fn i16x8_shr_s(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i16x8, from_i16x8, 15, shr)
-    }
-
-    #[doc(alias = "i32x4.shr_s")]
-    pub fn i32x4_shr_s(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i32x4, from_i32x4, 31, shr)
-    }
-
-    #[doc(alias = "i64x2.shr_s")]
-    pub fn i64x2_shr_s(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_i64x2, from_i64x2, 63, shr)
-    }
-
-    #[doc(alias = "i8x16.shr_u")]
-    pub fn i8x16_shr_u(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_u8x16, from_u8x16, 7, shr)
-    }
-
-    #[doc(alias = "i16x8.shr_u")]
-    pub fn i16x8_shr_u(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_u16x8, from_u16x8, 15, shr)
-    }
-
-    #[doc(alias = "i32x4.shr_u")]
-    pub fn i32x4_shr_u(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_u32x4, from_u32x4, 31, shr)
-    }
-
-    #[doc(alias = "i64x2.shr_u")]
-    pub fn i64x2_shr_u(self, shift: u32) -> Self {
-        simd_shift!(self, shift, as_u64x2, from_u64x2, 63, shr)
-    }
-
-    #[doc(alias = "i8x16.add")]
-    pub fn i8x16_add(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i8x16_add, as_i8x16, from_i8x16, wrapping_add)
-    }
-
-    #[doc(alias = "i16x8.add")]
-    pub fn i16x8_add(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i16x8_add, as_i16x8, from_i16x8, wrapping_add)
-    }
-
-    #[doc(alias = "i32x4.add")]
-    pub fn i32x4_add(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i32x4_add, as_i32x4, from_i32x4, wrapping_add)
-    }
-
-    #[doc(alias = "i64x2.add")]
-    pub fn i64x2_add(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i64x2_add, as_i64x2, from_i64x2, wrapping_add)
-    }
-
-    #[doc(alias = "i8x16.sub")]
-    pub fn i8x16_sub(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i8x16_sub, as_i8x16, from_i8x16, wrapping_sub)
-    }
-
-    #[doc(alias = "i16x8.sub")]
-    pub fn i16x8_sub(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i16x8_sub, as_i16x8, from_i16x8, wrapping_sub)
-    }
-
-    #[doc(alias = "i32x4.sub")]
-    pub fn i32x4_sub(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i32x4_sub, as_i32x4, from_i32x4, wrapping_sub)
-    }
-
-    #[doc(alias = "i64x2.sub")]
-    pub fn i64x2_sub(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i64x2_sub, as_i64x2, from_i64x2, wrapping_sub)
-    }
-
-    #[doc(alias = "i16x8.mul")]
-    pub fn i16x8_mul(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i16x8_mul, as_i16x8, from_i16x8, wrapping_mul)
-    }
-
-    #[doc(alias = "i32x4.mul")]
-    pub fn i32x4_mul(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i32x4_mul, as_i32x4, from_i32x4, wrapping_mul)
-    }
-
-    #[doc(alias = "i64x2.mul")]
-    pub fn i64x2_mul(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i64x2_mul, as_i64x2, from_i64x2, wrapping_mul)
-    }
-
-    #[doc(alias = "i8x16.add_sat_s")]
-    pub fn i8x16_add_sat_s(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i8x16_add_sat, as_i8x16, from_i8x16, saturating_add)
-    }
-
-    #[doc(alias = "i16x8.add_sat_s")]
-    pub fn i16x8_add_sat_s(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i16x8_add_sat, as_i16x8, from_i16x8, saturating_add)
-    }
-
-    #[doc(alias = "i8x16.add_sat_u")]
-    pub fn i8x16_add_sat_u(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, u8x16_add_sat, as_u8x16, from_u8x16, saturating_add)
-    }
-
-    #[doc(alias = "i16x8.add_sat_u")]
-    pub fn i16x8_add_sat_u(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, u16x8_add_sat, as_u16x8, from_u16x8, saturating_add)
-    }
-
-    #[doc(alias = "i8x16.sub_sat_s")]
-    pub fn i8x16_sub_sat_s(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i8x16_sub_sat, as_i8x16, from_i8x16, saturating_sub)
-    }
-
-    #[doc(alias = "i16x8.sub_sat_s")]
-    pub fn i16x8_sub_sat_s(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, i16x8_sub_sat, as_i16x8, from_i16x8, saturating_sub)
-    }
-
-    #[doc(alias = "i8x16.sub_sat_u")]
-    pub fn i8x16_sub_sat_u(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, u8x16_sub_sat, as_u8x16, from_u8x16, saturating_sub)
-    }
-
-    #[doc(alias = "i16x8.sub_sat_u")]
-    pub fn i16x8_sub_sat_u(self, rhs: Self) -> Self {
-        simd_binop!(self, rhs, u16x8_sub_sat, as_u16x8, from_u16x8, saturating_sub)
+    impl_simd_binary_methods! { simd_binop;
+        "i8x16.add" => i8x16_add(i8x16_add, as_i8x16, from_i8x16, wrapping_add);
+        "i16x8.add" => i16x8_add(i16x8_add, as_i16x8, from_i16x8, wrapping_add);
+        "i32x4.add" => i32x4_add(i32x4_add, as_i32x4, from_i32x4, wrapping_add);
+        "i64x2.add" => i64x2_add(i64x2_add, as_i64x2, from_i64x2, wrapping_add);
+        "i8x16.sub" => i8x16_sub(i8x16_sub, as_i8x16, from_i8x16, wrapping_sub);
+        "i16x8.sub" => i16x8_sub(i16x8_sub, as_i16x8, from_i16x8, wrapping_sub);
+        "i32x4.sub" => i32x4_sub(i32x4_sub, as_i32x4, from_i32x4, wrapping_sub);
+        "i64x2.sub" => i64x2_sub(i64x2_sub, as_i64x2, from_i64x2, wrapping_sub);
+        "i16x8.mul" => i16x8_mul(i16x8_mul, as_i16x8, from_i16x8, wrapping_mul);
+        "i32x4.mul" => i32x4_mul(i32x4_mul, as_i32x4, from_i32x4, wrapping_mul);
+        "i64x2.mul" => i64x2_mul(i64x2_mul, as_i64x2, from_i64x2, wrapping_mul);
+        "i8x16.add_sat_s" => i8x16_add_sat_s(i8x16_add_sat, as_i8x16, from_i8x16, saturating_add);
+        "i16x8.add_sat_s" => i16x8_add_sat_s(i16x8_add_sat, as_i16x8, from_i16x8, saturating_add);
+        "i8x16.add_sat_u" => i8x16_add_sat_u(u8x16_add_sat, as_u8x16, from_u8x16, saturating_add);
+        "i16x8.add_sat_u" => i16x8_add_sat_u(u16x8_add_sat, as_u16x8, from_u16x8, saturating_add);
+        "i8x16.sub_sat_s" => i8x16_sub_sat_s(i8x16_sub_sat, as_i8x16, from_i8x16, saturating_sub);
+        "i16x8.sub_sat_s" => i16x8_sub_sat_s(i16x8_sub_sat, as_i16x8, from_i16x8, saturating_sub);
+        "i8x16.sub_sat_u" => i8x16_sub_sat_u(u8x16_sub_sat, as_u8x16, from_u8x16, saturating_sub);
+        "i16x8.sub_sat_u" => i16x8_sub_sat_u(u16x8_sub_sat, as_u16x8, from_u16x8, saturating_sub);
     }
 
     #[doc(alias = "i8x16.avgr_u")]
@@ -577,124 +459,34 @@ impl Value128 {
         Self::from_u32x4(array::from_fn(|i| lanes[i * 2] as u32 + lanes[i * 2 + 1] as u32))
     }
 
-    #[doc(alias = "i16x8.extend_low_i8x16_s")]
-    pub fn i16x8_extend_low_i8x16_s(self) -> Self {
-        simd_extend_cast!(self, as_i8x16, from_i16x8, i16, 0)
+    impl_simd_extend! {
+        "i16x8.extend_low_i8x16_s" => i16x8_extend_low_i8x16_s(as_i8x16, from_i16x8, i16, 0);
+        "i16x8.extend_low_i8x16_u" => i16x8_extend_low_i8x16_u(as_u8x16, from_u16x8, u16, 0);
+        "i16x8.extend_high_i8x16_s" => i16x8_extend_high_i8x16_s(as_i8x16, from_i16x8, i16, 8);
+        "i16x8.extend_high_i8x16_u" => i16x8_extend_high_i8x16_u(as_u8x16, from_u16x8, u16, 8);
+        "i32x4.extend_low_i16x8_s" => i32x4_extend_low_i16x8_s(as_i16x8, from_i32x4, i32, 0);
+        "i32x4.extend_low_i16x8_u" => i32x4_extend_low_i16x8_u(as_u16x8, from_u32x4, u32, 0);
+        "i32x4.extend_high_i16x8_s" => i32x4_extend_high_i16x8_s(as_i16x8, from_i32x4, i32, 4);
+        "i32x4.extend_high_i16x8_u" => i32x4_extend_high_i16x8_u(as_u16x8, from_u32x4, u32, 4);
+        "i64x2.extend_low_i32x4_s" => i64x2_extend_low_i32x4_s(as_i32x4, from_i64x2, i64, 0);
+        "i64x2.extend_low_i32x4_u" => i64x2_extend_low_i32x4_u(as_u32x4, from_u64x2, u64, 0);
+        "i64x2.extend_high_i32x4_s" => i64x2_extend_high_i32x4_s(as_i32x4, from_i64x2, i64, 2);
+        "i64x2.extend_high_i32x4_u" => i64x2_extend_high_i32x4_u(as_u32x4, from_u64x2, u64, 2);
     }
 
-    #[doc(alias = "i16x8.extend_low_i8x16_u")]
-    pub fn i16x8_extend_low_i8x16_u(self) -> Self {
-        simd_extend_cast!(self, as_u8x16, from_u16x8, u16, 0)
-    }
-
-    #[doc(alias = "i16x8.extend_high_i8x16_s")]
-    pub fn i16x8_extend_high_i8x16_s(self) -> Self {
-        simd_extend_cast!(self, as_i8x16, from_i16x8, i16, 8)
-    }
-
-    #[doc(alias = "i16x8.extend_high_i8x16_u")]
-    pub fn i16x8_extend_high_i8x16_u(self) -> Self {
-        simd_extend_cast!(self, as_u8x16, from_u16x8, u16, 8)
-    }
-
-    #[doc(alias = "i32x4.extend_low_i16x8_s")]
-    pub fn i32x4_extend_low_i16x8_s(self) -> Self {
-        simd_extend_cast!(self, as_i16x8, from_i32x4, i32, 0)
-    }
-
-    #[doc(alias = "i32x4.extend_low_i16x8_u")]
-    pub fn i32x4_extend_low_i16x8_u(self) -> Self {
-        simd_extend_cast!(self, as_u16x8, from_u32x4, u32, 0)
-    }
-
-    #[doc(alias = "i32x4.extend_high_i16x8_s")]
-    pub fn i32x4_extend_high_i16x8_s(self) -> Self {
-        simd_extend_cast!(self, as_i16x8, from_i32x4, i32, 4)
-    }
-
-    #[doc(alias = "i32x4.extend_high_i16x8_u")]
-    pub fn i32x4_extend_high_i16x8_u(self) -> Self {
-        simd_extend_cast!(self, as_u16x8, from_u32x4, u32, 4)
-    }
-
-    #[doc(alias = "i64x2.extend_low_i32x4_s")]
-    pub fn i64x2_extend_low_i32x4_s(self) -> Self {
-        simd_extend_cast!(self, as_i32x4, from_i64x2, i64, 0)
-    }
-
-    #[doc(alias = "i64x2.extend_low_i32x4_u")]
-    pub fn i64x2_extend_low_i32x4_u(self) -> Self {
-        simd_extend_cast!(self, as_u32x4, from_u64x2, u64, 0)
-    }
-
-    #[doc(alias = "i64x2.extend_high_i32x4_s")]
-    pub fn i64x2_extend_high_i32x4_s(self) -> Self {
-        simd_extend_cast!(self, as_i32x4, from_i64x2, i64, 2)
-    }
-
-    #[doc(alias = "i64x2.extend_high_i32x4_u")]
-    pub fn i64x2_extend_high_i32x4_u(self) -> Self {
-        simd_extend_cast!(self, as_u32x4, from_u64x2, u64, 2)
-    }
-
-    #[doc(alias = "i16x8.extmul_low_i8x16_s")]
-    pub fn i16x8_extmul_low_i8x16_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i8x16, from_i16x8, i16, 0)
-    }
-
-    #[doc(alias = "i16x8.extmul_low_i8x16_u")]
-    pub fn i16x8_extmul_low_i8x16_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u8x16, from_u16x8, u16, 0)
-    }
-
-    #[doc(alias = "i16x8.extmul_high_i8x16_s")]
-    pub fn i16x8_extmul_high_i8x16_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i8x16, from_i16x8, i16, 8)
-    }
-
-    #[doc(alias = "i16x8.extmul_high_i8x16_u")]
-    pub fn i16x8_extmul_high_i8x16_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u8x16, from_u16x8, u16, 8)
-    }
-
-    #[doc(alias = "i32x4.extmul_low_i16x8_s")]
-    pub fn i32x4_extmul_low_i16x8_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i16x8, from_i32x4, i32, 0)
-    }
-
-    #[doc(alias = "i32x4.extmul_low_i16x8_u")]
-    pub fn i32x4_extmul_low_i16x8_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u16x8, from_u32x4, u32, 0)
-    }
-
-    #[doc(alias = "i32x4.extmul_high_i16x8_s")]
-    pub fn i32x4_extmul_high_i16x8_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i16x8, from_i32x4, i32, 4)
-    }
-
-    #[doc(alias = "i32x4.extmul_high_i16x8_u")]
-    pub fn i32x4_extmul_high_i16x8_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u16x8, from_u32x4, u32, 4)
-    }
-
-    #[doc(alias = "i64x2.extmul_low_i32x4_s")]
-    pub fn i64x2_extmul_low_i32x4_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i32x4, from_i64x2, i64, 0)
-    }
-
-    #[doc(alias = "i64x2.extmul_low_i32x4_u")]
-    pub fn i64x2_extmul_low_i32x4_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u32x4, from_u64x2, u64, 0)
-    }
-
-    #[doc(alias = "i64x2.extmul_high_i32x4_s")]
-    pub fn i64x2_extmul_high_i32x4_s(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_i32x4, from_i64x2, i64, 2)
-    }
-
-    #[doc(alias = "i64x2.extmul_high_i32x4_u")]
-    pub fn i64x2_extmul_high_i32x4_u(self, rhs: Self) -> Self {
-        simd_extmul!(self, rhs, as_u32x4, from_u64x2, u64, 2)
+    impl_simd_binary_methods! { simd_extmul;
+        "i16x8.extmul_low_i8x16_s" => i16x8_extmul_low_i8x16_s(as_i8x16, from_i16x8, i16, 0);
+        "i16x8.extmul_low_i8x16_u" => i16x8_extmul_low_i8x16_u(as_u8x16, from_u16x8, u16, 0);
+        "i16x8.extmul_high_i8x16_s" => i16x8_extmul_high_i8x16_s(as_i8x16, from_i16x8, i16, 8);
+        "i16x8.extmul_high_i8x16_u" => i16x8_extmul_high_i8x16_u(as_u8x16, from_u16x8, u16, 8);
+        "i32x4.extmul_low_i16x8_s" => i32x4_extmul_low_i16x8_s(as_i16x8, from_i32x4, i32, 0);
+        "i32x4.extmul_low_i16x8_u" => i32x4_extmul_low_i16x8_u(as_u16x8, from_u32x4, u32, 0);
+        "i32x4.extmul_high_i16x8_s" => i32x4_extmul_high_i16x8_s(as_i16x8, from_i32x4, i32, 4);
+        "i32x4.extmul_high_i16x8_u" => i32x4_extmul_high_i16x8_u(as_u16x8, from_u32x4, u32, 4);
+        "i64x2.extmul_low_i32x4_s" => i64x2_extmul_low_i32x4_s(as_i32x4, from_i64x2, i64, 0);
+        "i64x2.extmul_low_i32x4_u" => i64x2_extmul_low_i32x4_u(as_u32x4, from_u64x2, u64, 0);
+        "i64x2.extmul_high_i32x4_s" => i64x2_extmul_high_i32x4_s(as_i32x4, from_i64x2, i64, 2);
+        "i64x2.extmul_high_i32x4_u" => i64x2_extmul_high_i32x4_u(as_u32x4, from_u64x2, u64, 2);
     }
 
     #[doc(alias = "i16x8.q15mulr_sat_s")]
@@ -721,24 +513,11 @@ impl Value128 {
         }))
     }
 
-    #[doc(alias = "i8x16.relaxed_laneselect")]
-    pub fn i8x16_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
-        Self::v128_bitselect(v1, v2, c)
-    }
-
-    #[doc(alias = "i16x8.relaxed_laneselect")]
-    pub fn i16x8_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
-        Self::v128_bitselect(v1, v2, c)
-    }
-
-    #[doc(alias = "i32x4.relaxed_laneselect")]
-    pub fn i32x4_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
-        Self::v128_bitselect(v1, v2, c)
-    }
-
-    #[doc(alias = "i64x2.relaxed_laneselect")]
-    pub fn i64x2_relaxed_laneselect(v1: Self, v2: Self, c: Self) -> Self {
-        Self::v128_bitselect(v1, v2, c)
+    impl_simd_relaxed_laneselect! {
+        "i8x16.relaxed_laneselect" => i8x16_relaxed_laneselect;
+        "i16x8.relaxed_laneselect" => i16x8_relaxed_laneselect;
+        "i32x4.relaxed_laneselect" => i32x4_relaxed_laneselect;
+        "i64x2.relaxed_laneselect" => i64x2_relaxed_laneselect;
     }
 
     #[doc(alias = "i16x8.relaxed_q15mulr_s")]
@@ -773,184 +552,46 @@ impl Value128 {
         }))
     }
 
-    #[doc(alias = "i8x16.eq")]
-    pub fn i8x16_eq(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i8x16_eq, as_i8x16, from_i8x16, ==)
+    impl_simd_binary_methods! { simd_cmp_mask;
+        "i8x16.eq" => i8x16_eq(i8x16_eq, as_i8x16, from_i8x16, ==);
+        "i16x8.eq" => i16x8_eq(i16x8_eq, as_i16x8, from_i16x8, ==);
+        "i32x4.eq" => i32x4_eq(i32x4_eq, as_i32x4, from_i32x4, ==);
+        "i64x2.eq" => i64x2_eq(i64x2_eq, as_i64x2, from_i64x2, ==);
+        "i8x16.ne" => i8x16_ne(i8x16_ne, as_i8x16, from_i8x16, !=);
+        "i16x8.ne" => i16x8_ne(i16x8_ne, as_i16x8, from_i16x8, !=);
+        "i32x4.ne" => i32x4_ne(i32x4_ne, as_i32x4, from_i32x4, !=);
+        "i64x2.ne" => i64x2_ne(i64x2_ne, as_i64x2, from_i64x2, !=);
+        "i8x16.lt_s" => i8x16_lt_s(i8x16_lt, as_i8x16, from_i8x16, <);
+        "i16x8.lt_s" => i16x8_lt_s(i16x8_lt, as_i16x8, from_i16x8, <);
+        "i32x4.lt_s" => i32x4_lt_s(i32x4_lt, as_i32x4, from_i32x4, <);
+        "i64x2.lt_s" => i64x2_lt_s(i64x2_lt, as_i64x2, from_i64x2, <);
+        "i8x16.lt_u" => i8x16_lt_u(u8x16_lt, as_u8x16, from_i8x16, <);
+        "i16x8.lt_u" => i16x8_lt_u(u16x8_lt, as_u16x8, from_i16x8, <);
+        "i32x4.lt_u" => i32x4_lt_u(u32x4_lt, as_u32x4, from_i32x4, <);
+        "i8x16.ge_s" => i8x16_ge_s(i8x16_ge, as_i8x16, from_i8x16, >=);
+        "i16x8.ge_s" => i16x8_ge_s(i16x8_ge, as_i16x8, from_i16x8, >=);
+        "i32x4.ge_s" => i32x4_ge_s(i32x4_ge, as_i32x4, from_i32x4, >=);
+        "i64x2.ge_s" => i64x2_ge_s(i64x2_ge, as_i64x2, from_i64x2, >=);
+        "i8x16.ge_u" => i8x16_ge_u(u8x16_ge, as_u8x16, from_i8x16, >=);
+        "i16x8.ge_u" => i16x8_ge_u(u16x8_ge, as_u16x8, from_i16x8, >=);
+        "i32x4.ge_u" => i32x4_ge_u(u32x4_ge, as_u32x4, from_i32x4, >=);
     }
 
-    #[doc(alias = "i16x8.eq")]
-    pub fn i16x8_eq(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i16x8_eq, as_i16x8, from_i16x8, ==)
-    }
-
-    #[doc(alias = "i32x4.eq")]
-    pub fn i32x4_eq(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i32x4_eq, as_i32x4, from_i32x4, ==)
-    }
-
-    #[doc(alias = "i64x2.eq")]
-    pub fn i64x2_eq(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i64x2_eq, as_i64x2, from_i64x2, ==)
-    }
-
-    #[doc(alias = "i8x16.ne")]
-    pub fn i8x16_ne(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i8x16_ne, as_i8x16, from_i8x16, !=)
-    }
-
-    #[doc(alias = "i16x8.ne")]
-    pub fn i16x8_ne(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i16x8_ne, as_i16x8, from_i16x8, !=)
-    }
-
-    #[doc(alias = "i32x4.ne")]
-    pub fn i32x4_ne(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i32x4_ne, as_i32x4, from_i32x4, !=)
-    }
-
-    #[doc(alias = "i64x2.ne")]
-    pub fn i64x2_ne(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i64x2_ne, as_i64x2, from_i64x2, !=)
-    }
-
-    #[doc(alias = "i8x16.lt_s")]
-    pub fn i8x16_lt_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i8x16_lt, as_i8x16, from_i8x16, <)
-    }
-
-    #[doc(alias = "i16x8.lt_s")]
-    pub fn i16x8_lt_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i16x8_lt, as_i16x8, from_i16x8, <)
-    }
-
-    #[doc(alias = "i32x4.lt_s")]
-    pub fn i32x4_lt_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i32x4_lt, as_i32x4, from_i32x4, <)
-    }
-
-    #[doc(alias = "i64x2.lt_s")]
-    pub fn i64x2_lt_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i64x2_lt, as_i64x2, from_i64x2, <)
-    }
-
-    #[doc(alias = "i8x16.lt_u")]
-    pub fn i8x16_lt_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u8x16_lt, as_u8x16, from_i8x16, <)
-    }
-
-    #[doc(alias = "i16x8.lt_u")]
-    pub fn i16x8_lt_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u16x8_lt, as_u16x8, from_i16x8, <)
-    }
-
-    #[doc(alias = "i32x4.lt_u")]
-    pub fn i32x4_lt_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u32x4_lt, as_u32x4, from_i32x4, <)
-    }
-
-    #[doc(alias = "i8x16.gt_s")]
-    pub fn i8x16_gt_s(self, rhs: Self) -> Self {
-        rhs.i8x16_lt_s(self)
-    }
-
-    #[doc(alias = "i16x8.gt_s")]
-    pub fn i16x8_gt_s(self, rhs: Self) -> Self {
-        rhs.i16x8_lt_s(self)
-    }
-
-    #[doc(alias = "i32x4.gt_s")]
-    pub fn i32x4_gt_s(self, rhs: Self) -> Self {
-        rhs.i32x4_lt_s(self)
-    }
-
-    #[doc(alias = "i64x2.gt_s")]
-    pub fn i64x2_gt_s(self, rhs: Self) -> Self {
-        rhs.i64x2_lt_s(self)
-    }
-
-    #[doc(alias = "i8x16.gt_u")]
-    pub fn i8x16_gt_u(self, rhs: Self) -> Self {
-        rhs.i8x16_lt_u(self)
-    }
-
-    #[doc(alias = "i16x8.gt_u")]
-    pub fn i16x8_gt_u(self, rhs: Self) -> Self {
-        rhs.i16x8_lt_u(self)
-    }
-
-    #[doc(alias = "i32x4.gt_u")]
-    pub fn i32x4_gt_u(self, rhs: Self) -> Self {
-        rhs.i32x4_lt_u(self)
-    }
-
-    #[doc(alias = "i8x16.le_s")]
-    pub fn i8x16_le_s(self, rhs: Self) -> Self {
-        rhs.i8x16_ge_s(self)
-    }
-
-    #[doc(alias = "i16x8.le_s")]
-    pub fn i16x8_le_s(self, rhs: Self) -> Self {
-        rhs.i16x8_ge_s(self)
-    }
-
-    #[doc(alias = "i32x4.le_s")]
-    pub fn i32x4_le_s(self, rhs: Self) -> Self {
-        rhs.i32x4_ge_s(self)
-    }
-
-    #[doc(alias = "i64x2.le_s")]
-    pub fn i64x2_le_s(self, rhs: Self) -> Self {
-        rhs.i64x2_ge_s(self)
-    }
-
-    #[doc(alias = "i8x16.le_u")]
-    pub fn i8x16_le_u(self, rhs: Self) -> Self {
-        rhs.i8x16_ge_u(self)
-    }
-
-    #[doc(alias = "i16x8.le_u")]
-    pub fn i16x8_le_u(self, rhs: Self) -> Self {
-        rhs.i16x8_ge_u(self)
-    }
-
-    #[doc(alias = "i32x4.le_u")]
-    pub fn i32x4_le_u(self, rhs: Self) -> Self {
-        rhs.i32x4_ge_u(self)
-    }
-
-    #[doc(alias = "i8x16.ge_s")]
-    pub fn i8x16_ge_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i8x16_ge, as_i8x16, from_i8x16, >=)
-    }
-
-    #[doc(alias = "i16x8.ge_s")]
-    pub fn i16x8_ge_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i16x8_ge, as_i16x8, from_i16x8, >=)
-    }
-
-    #[doc(alias = "i32x4.ge_s")]
-    pub fn i32x4_ge_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i32x4_ge, as_i32x4, from_i32x4, >=)
-    }
-
-    #[doc(alias = "i64x2.ge_s")]
-    pub fn i64x2_ge_s(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, i64x2_ge, as_i64x2, from_i64x2, >=)
-    }
-
-    #[doc(alias = "i8x16.ge_u")]
-    pub fn i8x16_ge_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u8x16_ge, as_u8x16, from_i8x16, >=)
-    }
-
-    #[doc(alias = "i16x8.ge_u")]
-    pub fn i16x8_ge_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u16x8_ge, as_u16x8, from_i16x8, >=)
-    }
-
-    #[doc(alias = "i32x4.ge_u")]
-    pub fn i32x4_ge_u(self, rhs: Self) -> Self {
-        simd_cmp_mask!(self, rhs, u32x4_ge, as_u32x4, from_i32x4, >=)
+    impl_simd_reverse_comparisons! {
+        "i8x16.gt_s" => i8x16_gt_s(i8x16_lt_s);
+        "i16x8.gt_s" => i16x8_gt_s(i16x8_lt_s);
+        "i32x4.gt_s" => i32x4_gt_s(i32x4_lt_s);
+        "i64x2.gt_s" => i64x2_gt_s(i64x2_lt_s);
+        "i8x16.gt_u" => i8x16_gt_u(i8x16_lt_u);
+        "i16x8.gt_u" => i16x8_gt_u(i16x8_lt_u);
+        "i32x4.gt_u" => i32x4_gt_u(i32x4_lt_u);
+        "i8x16.le_s" => i8x16_le_s(i8x16_ge_s);
+        "i16x8.le_s" => i16x8_le_s(i16x8_ge_s);
+        "i32x4.le_s" => i32x4_le_s(i32x4_ge_s);
+        "i64x2.le_s" => i64x2_le_s(i64x2_ge_s);
+        "i8x16.le_u" => i8x16_le_u(i8x16_ge_u);
+        "i16x8.le_u" => i16x8_le_u(i16x8_ge_u);
+        "i32x4.le_u" => i32x4_le_u(i32x4_ge_u);
     }
 
     #[doc(alias = "i8x16.abs")]

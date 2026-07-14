@@ -26,12 +26,6 @@ impl FunctionInstance {
     }
 }
 
-impl FunctionInstance {
-    pub(crate) fn new_wasm(func: Arc<WasmFunction>, owner: ModuleInstanceAddr) -> Self {
-        Self::Wasm(WasmFunctionInstance { func, owner })
-    }
-}
-
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct WasmFunctionInstance {

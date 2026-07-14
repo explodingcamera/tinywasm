@@ -53,21 +53,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     #[inline(always)]
     fn exec(&mut self) -> Result<Option<()>, Trap> {
         macro_rules! stack_op {
-            (unary $ty:ty, |$v:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $v = <$ty>::stack_pop(&mut self.store.value_stack);
-                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
-            }};
-            (binary $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                    let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
-            }};
+            (unary $ty:ty, |$v:ident| $expr:expr) => {
+                stack_op!(unary $ty => $ty, |$v| $expr)
+            };
+            (binary $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
+                stack_op!(binary $ty => $ty, |$lhs, $rhs| $expr)
+            };
             (binary try $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
                 (|| -> Result<(), Trap> {
                     let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
@@ -148,7 +139,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
 
         macro_rules! exec_binop {
-            (32, $op:expr, $lhs:expr, $rhs:expr) => {{
+            (32, $op:expr, $lhs:expr, $rhs:expr) => {
+                exec_binop!(@scalar i32, u32, f32, $op, $lhs, $rhs)
+            };
+            (64, $op:expr, $lhs:expr, $rhs:expr) => {
+                exec_binop!(@scalar i64, u64, f64, $op, $lhs, $rhs)
+            };
+            (@scalar $signed:ty, $unsigned:ty, $float:ty, $op:expr, $lhs:expr, $rhs:expr) => {{
                 match $op {
                     BinOp::IAdd => $lhs.wrapping_add($rhs),
                     BinOp::ISub => $lhs.wrapping_sub($rhs),
@@ -156,40 +153,18 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                     BinOp::IAnd => $lhs & $rhs,
                     BinOp::IOr => $lhs | $rhs,
                     BinOp::IXor => $lhs ^ $rhs,
-                    BinOp::IShl => (($lhs as i32).wasm_shl($rhs as i32)) as u32,
-                    BinOp::IShrS => (($lhs as i32).wasm_shr($rhs as i32)) as u32,
-                    BinOp::IShrU => $lhs.wasm_shr($rhs),
-                    BinOp::IRotl => (($lhs as i32).wasm_rotl($rhs as i32)) as u32,
-                    BinOp::IRotr => (($lhs as i32).wasm_rotr($rhs as i32)) as u32,
-                    BinOp::FAdd => (f32::from_bits($lhs) + f32::from_bits($rhs)).to_bits(),
-                    BinOp::FSub => (f32::from_bits($lhs) - f32::from_bits($rhs)).to_bits(),
-                    BinOp::FMul => (f32::from_bits($lhs) * f32::from_bits($rhs)).to_bits(),
-                    BinOp::FDiv => (f32::from_bits($lhs) / f32::from_bits($rhs)).to_bits(),
-                    BinOp::FMin => f32::from_bits($lhs).tw_minimum(f32::from_bits($rhs)).to_bits(),
-                    BinOp::FMax => f32::from_bits($lhs).tw_maximum(f32::from_bits($rhs)).to_bits(),
-                    BinOp::FCopysign => f32::from_bits($lhs).copysign(f32::from_bits($rhs)).to_bits(),
-                }
-            }};
-            (64, $op:expr, $lhs:expr, $rhs:expr) => {{
-                match $op {
-                    BinOp::IAdd => $lhs.wrapping_add($rhs),
-                    BinOp::ISub => $lhs.wrapping_sub($rhs),
-                    BinOp::IMul => $lhs.wrapping_mul($rhs),
-                    BinOp::IAnd => $lhs & $rhs,
-                    BinOp::IOr => $lhs | $rhs,
-                    BinOp::IXor => $lhs ^ $rhs,
-                    BinOp::IShl => (($lhs as i64).wasm_shl($rhs as i64)) as u64,
-                    BinOp::IShrS => (($lhs as i64).wasm_shr($rhs as i64)) as u64,
-                    BinOp::IShrU => $lhs.wasm_shr($rhs),
-                    BinOp::IRotl => (($lhs as i64).wasm_rotl($rhs as i64)) as u64,
-                    BinOp::IRotr => (($lhs as i64).wasm_rotr($rhs as i64)) as u64,
-                    BinOp::FAdd => (f64::from_bits($lhs) + f64::from_bits($rhs)).to_bits(),
-                    BinOp::FSub => (f64::from_bits($lhs) - f64::from_bits($rhs)).to_bits(),
-                    BinOp::FMul => (f64::from_bits($lhs) * f64::from_bits($rhs)).to_bits(),
-                    BinOp::FDiv => (f64::from_bits($lhs) / f64::from_bits($rhs)).to_bits(),
-                    BinOp::FMin => f64::from_bits($lhs).tw_minimum(f64::from_bits($rhs)).to_bits(),
-                    BinOp::FMax => f64::from_bits($lhs).tw_maximum(f64::from_bits($rhs)).to_bits(),
-                    BinOp::FCopysign => f64::from_bits($lhs).copysign(f64::from_bits($rhs)).to_bits(),
+                    BinOp::IShl => (($lhs as $signed).wrapping_shl($rhs as u32)) as $unsigned,
+                    BinOp::IShrS => (($lhs as $signed).wrapping_shr($rhs as u32)) as $unsigned,
+                    BinOp::IShrU => $lhs.wrapping_shr($rhs as u32),
+                    BinOp::IRotl => (($lhs as $signed).rotate_left($rhs as u32)) as $unsigned,
+                    BinOp::IRotr => (($lhs as $signed).rotate_right($rhs as u32)) as $unsigned,
+                    BinOp::FAdd => (<$float>::from_bits($lhs) + <$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FSub => (<$float>::from_bits($lhs) - <$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FMul => (<$float>::from_bits($lhs) * <$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FDiv => (<$float>::from_bits($lhs) / <$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FMin => <$float>::from_bits($lhs).tw_minimum(<$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FMax => <$float>::from_bits($lhs).tw_maximum(<$float>::from_bits($rhs)).to_bits(),
+                    BinOp::FCopysign => <$float>::from_bits($lhs).copysign(<$float>::from_bits($rhs)).to_bits(),
                 }
             }};
             (128, $op:expr, $lhs:expr, $rhs:expr) => {{
@@ -265,16 +240,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             }};
         }
 
-        let next = match self.func.instructions.get(self.cf.instr_ptr) {
-            Some(instr) => instr,
-            None => {
-                cold_path();
-                unreachable!(
-                    "Instruction pointer out of bounds: {} ({} instructions)",
-                    self.cf.instr_ptr,
-                    self.func.instructions.len()
-                )
-            }
+        let Some(next) = self.func.instructions.get(self.cf.instr_ptr) else {
+            unreachable!(
+                "Instruction pointer out of bounds: {} ({} instructions)",
+                self.cf.instr_ptr,
+                self.func.instructions.len()
+            )
         };
 
         use tinywasm_types::Instruction::*;
@@ -431,30 +402,30 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I64Mul => stack_op!(binary i64, |a, b| a.wrapping_mul(b)),
             F32Mul => stack_op!(binary f32, |a, b| a * b),
             F64Mul => stack_op!(binary f64, |a, b| a * b),
-            I32DivS => stack_op!(binary try i32, |a, b| a.wasm_checked_div(b)),
-            I64DivS => stack_op!(binary try i64, |a, b| a.wasm_checked_div(b)),
-            I32DivU => stack_op!(binary try u32, |a, b| a.checked_div(b).ok_or_else(trap_0)),
-            I64DivU => stack_op!(binary try u64, |a, b| a.checked_div(b).ok_or_else(trap_0)),
-            I32RemS => stack_op!(binary try i32, |a, b| a.checked_wrapping_rem(b)),
-            I64RemS => stack_op!(binary try i64, |a, b| a.checked_wrapping_rem(b)),
-            I32RemU => stack_op!(binary try u32, |a, b| a.checked_wrapping_rem(b)),
-            I64RemU => stack_op!(binary try u64, |a, b| a.checked_wrapping_rem(b)),
+            I32DivS => stack_op!(binary try i32, |a, b| a.tw_checked_div(b)),
+            I64DivS => stack_op!(binary try i64, |a, b| a.tw_checked_div(b)),
+            I32DivU => stack_op!(binary try u32, |a, b| a.checked_div(b).ok_or(Trap::DivisionByZero)),
+            I64DivU => stack_op!(binary try u64, |a, b| a.checked_div(b).ok_or(Trap::DivisionByZero)),
+            I32RemS => stack_op!(binary try i32, |a, b| a.tw_checked_wrapping_rem(b)),
+            I64RemS => stack_op!(binary try i64, |a, b| a.tw_checked_wrapping_rem(b)),
+            I32RemU => stack_op!(binary try u32, |a, b| a.tw_checked_wrapping_rem(b)),
+            I64RemU => stack_op!(binary try u64, |a, b| a.tw_checked_wrapping_rem(b)),
             I32And => stack_op!(binary i32, |a, b| a & b),
             I64And => stack_op!(binary i64, |a, b| a & b),
             I32Or => stack_op!(binary i32, |a, b| a | b),
             I64Or => stack_op!(binary i64, |a, b| a | b),
             I32Xor => stack_op!(binary i32, |a, b| a ^ b),
             I64Xor => stack_op!(binary i64, |a, b| a ^ b),
-            I32Shl => stack_op!(binary i32, |a, b| a.wasm_shl(b)),
-            I64Shl => stack_op!(binary i64, |a, b| a.wasm_shl(b)),
-            I32ShrS => stack_op!(binary i32, |a, b| a.wasm_shr(b)),
-            I64ShrS => stack_op!(binary i64, |a, b| a.wasm_shr(b)),
-            I32ShrU => stack_op!(binary u32, |a, b| a.wasm_shr(b)),
-            I64ShrU => stack_op!(binary u64, |a, b| a.wasm_shr(b)),
-            I32Rotl => stack_op!(binary i32, |a, b| a.wasm_rotl(b)),
-            I64Rotl => stack_op!(binary i64, |a, b| a.wasm_rotl(b)),
-            I32Rotr => stack_op!(binary i32, |a, b| a.wasm_rotr(b)),
-            I64Rotr => stack_op!(binary i64, |a, b| a.wasm_rotr(b)),
+            I32Shl => stack_op!(binary i32, |a, b| a.wrapping_shl(b as u32)),
+            I64Shl => stack_op!(binary i64, |a, b| a.wrapping_shl(b as u32)),
+            I32ShrS => stack_op!(binary i32, |a, b| a.wrapping_shr(b as u32)),
+            I64ShrS => stack_op!(binary i64, |a, b| a.wrapping_shr(b as u32)),
+            I32ShrU => stack_op!(binary u32, |a, b| a.wrapping_shr(b)),
+            I64ShrU => stack_op!(binary u64, |a, b| a.wrapping_shr(b as u32)),
+            I32Rotl => stack_op!(binary i32, |a, b| a.rotate_left(b as u32)),
+            I64Rotl => stack_op!(binary i64, |a, b| a.rotate_left(b as u32)),
+            I32Rotr => stack_op!(binary i32, |a, b| a.rotate_right(b as u32)),
+            I64Rotr => stack_op!(binary i64, |a, b| a.rotate_right(b as u32)),
             I64Add128 => stack_op!(quaternary_into2 i64 => i64, |a_lo, a_hi, b_lo, b_hi| {
                 let lo = a_lo.wrapping_add(b_lo);
                 let carry = u64::from((lo as u64) < (a_lo as u64));
@@ -789,11 +760,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I64x2ExtendHighI32x4U => stack_op!(unary Value128, |a| a.i64x2_extend_high_i32x4_u()),
             I8x16Popcnt => stack_op!(unary Value128, |v| v.i8x16_popcnt()),
             I8x16Shuffle(idx) => {
-                let Some(mask) = self.func.data.v128_constants.get(*idx as usize) else {
-                    cold_path();
-                    unreachable!("invalid i128 constant index")
-                };
-                stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, Value128(*mask)))
+                let mask = self.func.data.v128_const(*idx);
+                stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, Value128(mask)))
             },
             I16x8Q15MulrSatS => stack_op!(binary Value128, |a, b| a.i16x8_q15mulr_sat_s(b)),
             I32x4DotI16x8S => stack_op!(binary Value128, |a, b| a.i32x4_dot_i16x8_s(b)),
@@ -1120,20 +1088,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_return(&mut self) -> bool {
         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.results);
-        let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
-            return true;
-        };
-        if caller.func_addr == self.cf.func_addr {
-            self.cf = caller;
-            return false;
-        }
-        let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
-        self.func = wasm_func.func.clone();
-        if wasm_func.owner != self.module.idx() {
-            self.module = self.store.get_module_instance_internal(wasm_func.owner);
-        }
-        self.cf = caller;
-        false
+        self.finish_return()
     }
 
     #[inline(always)]

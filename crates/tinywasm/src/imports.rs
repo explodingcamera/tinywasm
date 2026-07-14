@@ -149,17 +149,7 @@ impl Imports {
         self.externs.get(&name).cloned()
     }
 
-    #[cfg(not(feature = "debug"))]
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
-        if expected != actual {
-            cold_path();
-            return Err(LinkingError::incompatible_import_type(import).into());
-        }
-        Ok(())
-    }
-
-    #[cfg(feature = "debug")]
-    fn compare_types<T: PartialEq + Debug>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
             cold_path();
             return Err(LinkingError::incompatible_import_type(import).into());
@@ -228,100 +218,61 @@ impl Imports {
         };
 
         for import in &*module.imports {
-            if let Some(defined) = self.take_defined(import) {
+            let (val, func_handle) = if let Some(defined) = self.take_defined(import) {
                 match defined {
-                    Extern::Global(global) => {
-                        let ImportKind::Global(import_ty) = &import.kind else {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
-                        };
-                        let global_instance = store.state.get_global(global.0.addr);
-                        Self::compare_types(import, &global_instance.ty, import_ty)?;
-                        imports.globals.push(global.0.addr);
-                    }
-                    Extern::Table(table) => {
-                        let ImportKind::Table(import_ty) = &import.kind else {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
-                        };
-                        let table_instance = store.state.get_table(table.0.addr);
-                        let mut kind = table_instance.kind.clone();
-                        kind.size_initial = table_instance.size() as u32;
-                        Self::compare_table_types(import, &kind, import_ty)?;
-                        imports.tables.push(table.0.addr);
-                    }
-                    Extern::Memory(memory) => {
-                        let ImportKind::Memory(import_ty) = &import.kind else {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
-                        };
-                        let mem = store.state.get_mem(memory.0.addr);
-                        Self::compare_memory_types(import, &mem.kind, import_ty, mem.page_count)?;
-                        imports.memories.push(memory.0.addr);
-                    }
-                    Extern::Function(func_handle) => {
-                        let ImportKind::Function(ty) = &import.kind else {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
-                        };
-                        let import_func_type = module
-                            .func_types
-                            .get(*ty as usize)
-                            .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-                        func_handle.item.validate_store(store)?;
-                        Self::compare_types(import, &func_handle.ty, import_func_type)?;
-                        imports.funcs.push(func_handle.addr);
-                    }
+                    Extern::Global(global) => (ExternVal::Global(global.0.addr), None),
+                    Extern::Table(table) => (ExternVal::Table(table.0.addr), None),
+                    Extern::Memory(memory) => (ExternVal::Memory(memory.0.addr), None),
+                    Extern::Function(func) => (ExternVal::Func(func.addr), Some(func)),
                 }
-                continue;
+            } else {
+                let name = ExternName::from(import);
+                let Some(instance) = self.modules.get(&name.module) else {
+                    cold_path();
+                    return Err(LinkingError::unknown_import(import).into());
+                };
+                instance.validate_store(store)?;
+                (instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?, None)
+            };
+
+            if val.kind() != (&import.kind).into() {
+                cold_path();
+                return Err(LinkingError::incompatible_import_type(import).into());
             }
 
-            let name = ExternName::from(import);
-            let Some(instance) = self.modules.get(&name.module) else {
-                cold_path();
-                return Err(LinkingError::unknown_import(import).into());
-            };
-            instance.validate_store(store)?;
-
-            let val = instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?;
-
-            {
-                // check if the kind matches
-                if val.kind() != (&import.kind).into() {
-                    cold_path();
-                    return Err(LinkingError::incompatible_import_type(import).into());
+            match (val, &import.kind) {
+                (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
+                    let global = store.state.get_global(global_addr);
+                    Self::compare_types(import, &global.ty, ty)?;
+                    imports.globals.push(global_addr);
                 }
-
-                match (val, &import.kind) {
-                    (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
-                        let global = store.state.get_global(global_addr);
-                        Self::compare_types(import, &global.ty, ty)?;
-                        imports.globals.push(global_addr);
-                    }
-                    (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
-                        let table = store.state.get_table(table_addr);
-                        let mut kind = table.kind.clone();
-                        kind.size_initial = table.size() as u32;
-                        Self::compare_table_types(import, &kind, ty)?;
-                        imports.tables.push(table_addr);
-                    }
-                    (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
-                        let mem = store.state.get_mem(memory_addr);
-                        Self::compare_memory_types(import, &mem.kind, ty, mem.page_count)?;
-                        imports.memories.push(memory_addr);
-                    }
-                    (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
-                        let func = store.state.get_func(func_addr);
-                        let import_func_type = module
-                            .func_types
-                            .get(*ty as usize)
-                            .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-
-                        Self::compare_types(import, func.ty(), import_func_type)?;
-                        imports.funcs.push(func_addr);
-                    }
-                    _ => return Err(LinkingError::incompatible_import_type(import).into()),
+                (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
+                    let table = store.state.get_table(table_addr);
+                    let mut kind = table.kind.clone();
+                    kind.size_initial = table.size() as u32;
+                    Self::compare_table_types(import, &kind, ty)?;
+                    imports.tables.push(table_addr);
                 }
+                (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
+                    let mem = store.state.get_mem(memory_addr);
+                    Self::compare_memory_types(import, &mem.kind, ty, mem.page_count)?;
+                    imports.memories.push(memory_addr);
+                }
+                (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
+                    let import_func_type = module
+                        .func_types
+                        .get(*ty as usize)
+                        .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
+                    let actual_ty = if let Some(func) = &func_handle {
+                        func.item.validate_store(store)?;
+                        &func.ty
+                    } else {
+                        store.state.get_func(func_addr).ty()
+                    };
+                    Self::compare_types(import, actual_ty, import_func_type)?;
+                    imports.funcs.push(func_addr);
+                }
+                _ => unreachable!("import kind checked above"),
             }
         }
 

@@ -1,5 +1,6 @@
 use crate::{Result, Trap};
 use alloc::{vec, vec::Vec};
+use core::ops::Range;
 use tinywasm_types::*;
 
 const MAX_TABLE_SIZE: u32 = 10_000_000;
@@ -28,6 +29,14 @@ impl TableInstance {
         crate::Trap::TableOutOfBounds { offset: addr, len, max: self.elements.len() }
     }
 
+    fn checked_range(&self, addr: usize, len: usize) -> Result<Range<usize>, Trap> {
+        let end = addr.checked_add(len).ok_or_else(|| self.trap_oob(addr, len))?;
+        if end > self.elements.len() {
+            return Err(self.trap_oob(addr, len));
+        }
+        Ok(addr..end)
+    }
+
     pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue, Trap> {
         let val = self.get(addr)?.addr();
 
@@ -40,12 +49,8 @@ impl TableInstance {
 
     pub(crate) fn fill(&mut self, func_addrs: &[u32], addr: usize, len: usize, val: TableElement) -> Result<(), Trap> {
         let val = val.map(|addr| self.resolve_func_ref(func_addrs, addr));
-        let end = addr.checked_add(len).ok_or_else(|| self.trap_oob(addr, len))?;
-        if end > self.elements.len() {
-            return Err(self.trap_oob(addr, len));
-        }
-
-        self.elements[addr..end].fill(val);
+        let range = self.checked_range(addr, len)?;
+        self.elements[range].fill(val);
         Ok(())
     }
 
@@ -58,52 +63,25 @@ impl TableInstance {
     }
 
     pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<(), Trap> {
-        let end = dst.checked_add(src.len()).ok_or_else(|| self.trap_oob(dst, src.len()))?;
-
-        if end > self.elements.len() {
-            return Err(self.trap_oob(dst, src.len()));
-        }
-
-        self.elements[dst..end].copy_from_slice(src);
+        let range = self.checked_range(dst, src.len())?;
+        self.elements[range].copy_from_slice(src);
         Ok(())
     }
 
     pub(crate) fn load(&self, addr: usize, len: usize) -> Result<&[TableElement], Trap> {
-        let Some(end) = addr.checked_add(len) else {
-            return Err(self.trap_oob(addr, len));
-        };
-
-        if end > self.elements.len() || end < addr {
-            return Err(self.trap_oob(addr, len));
-        }
-
-        Ok(&self.elements[addr..end])
+        Ok(&self.elements[self.checked_range(addr, len)?])
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
-        // Calculate the end of the source slice
-        let src_end = src.checked_add(len).ok_or_else(|| self.trap_oob(src, len))?;
-        if src_end > self.elements.len() {
-            return Err(self.trap_oob(src, len));
-        }
-
-        // Calculate the end of the destination slice
-        let dst_end = dst.checked_add(len).ok_or_else(|| self.trap_oob(dst, len))?;
-        if dst_end > self.elements.len() {
-            return Err(self.trap_oob(dst, len));
-        }
-
-        // Perform the copy
-        self.elements.copy_within(src..src_end, dst);
+        let src = self.checked_range(src, len)?;
+        self.checked_range(dst, len)?;
+        self.elements.copy_within(src, dst);
         Ok(())
     }
 
     pub(crate) fn set(&mut self, table_idx: TableAddr, value: TableElement) -> Result<(), Trap> {
-        if table_idx as usize >= self.elements.len() {
-            return Err(self.trap_oob(table_idx as usize, 1));
-        }
-
-        self.elements[table_idx as usize] = value;
+        let range = self.checked_range(table_idx as usize, 1)?;
+        self.elements[range.start] = value;
         Ok(())
     }
 
@@ -138,16 +116,8 @@ impl TableInstance {
 
     pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<(), Trap> {
         let offset = offset as usize;
-        let end = offset.checked_add(init.len()).ok_or(crate::Trap::TableOutOfBounds {
-            offset,
-            len: init.len(),
-            max: self.elements.len(),
-        })?;
-
-        if end > self.elements.len() || end < offset {
-            return Err(crate::Trap::TableOutOfBounds { offset, len: init.len(), max: self.elements.len() });
-        }
-        self.elements[offset..end].copy_from_slice(init);
+        let range = self.checked_range(offset, init.len())?;
+        self.elements[range].copy_from_slice(init);
         Ok(())
     }
 }
