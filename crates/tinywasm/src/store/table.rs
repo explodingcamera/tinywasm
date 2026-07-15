@@ -1,9 +1,9 @@
 use crate::{Result, Trap};
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use core::ops::Range;
 use tinywasm_types::*;
 
-const MAX_TABLE_SIZE: u32 = 10_000_000;
+const MAX_TABLE_SIZE: usize = 10_000_000;
 
 /// A WebAssembly Table Instance
 ///
@@ -15,12 +15,19 @@ pub(crate) struct TableInstance {
 }
 
 impl TableInstance {
-    pub(crate) fn new(kind: TableType) -> Self {
+    pub(crate) fn new(kind: TableType) -> Result<Self> {
         Self::new_with_init(kind, TableElement::Uninitialized)
     }
 
-    pub(crate) fn new_with_init(kind: TableType, init: TableElement) -> Self {
-        Self { elements: vec![init; kind.size_initial as usize], kind }
+    pub(crate) fn new_with_init(kind: TableType, init: TableElement) -> Result<Self> {
+        let size = usize::try_from(kind.size_initial).map_err(|_| Trap::OutOfMemory)?;
+        if size > MAX_TABLE_SIZE {
+            return Err(Trap::OutOfMemory.into());
+        }
+        let mut elements = Vec::new();
+        elements.try_reserve_exact(size).map_err(|_| Trap::OutOfMemory)?;
+        elements.resize(size, init);
+        Ok(Self { elements, kind })
     }
 
     #[inline(never)]
@@ -37,7 +44,7 @@ impl TableInstance {
         Ok(addr..end)
     }
 
-    pub(crate) fn get_wasm_val(&self, addr: TableAddr) -> Result<WasmValue, Trap> {
+    pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue, Trap> {
         let val = self.get(addr)?.addr();
 
         Ok(match self.kind.element_type {
@@ -54,12 +61,8 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn get(&self, addr: TableAddr) -> Result<&TableElement, Trap> {
-        self.elements.get(addr as usize).ok_or(Trap::TableOutOfBounds {
-            offset: addr as usize,
-            len: 1,
-            max: self.elements.len(),
-        })
+    pub(crate) fn get(&self, addr: usize) -> Result<&TableElement, Trap> {
+        self.elements.get(addr).ok_or_else(|| self.trap_oob(addr, 1))
     }
 
     pub(crate) fn copy_from_slice(&mut self, dst: usize, src: &[TableElement]) -> Result<(), Trap> {
@@ -79,29 +82,27 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn set(&mut self, table_idx: TableAddr, value: TableElement) -> Result<(), Trap> {
-        let range = self.checked_range(table_idx as usize, 1)?;
+    pub(crate) fn set(&mut self, table_idx: usize, value: TableElement) -> Result<(), Trap> {
+        let range = self.checked_range(table_idx, 1)?;
         self.elements[range.start] = value;
         Ok(())
     }
 
-    pub(crate) fn grow(&mut self, n: i32, init: TableElement) -> Result<(), Trap> {
-        if n < 0 {
-            return Err(crate::Trap::TableOutOfBounds { offset: 0, len: 1, max: self.elements.len() });
-        }
-
-        let len = n as usize + self.elements.len();
-        let max = self.kind.size_max.unwrap_or(MAX_TABLE_SIZE) as usize;
+    pub(crate) fn grow(&mut self, n: usize, init: TableElement) -> Result<(), Trap> {
+        let len = n.checked_add(self.elements.len()).ok_or(Trap::OutOfMemory)?;
+        let declared_max = self.kind.size_max.and_then(|max| usize::try_from(max).ok()).unwrap_or(usize::MAX);
+        let max = declared_max.min(MAX_TABLE_SIZE);
         if len > max {
             return Err(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() });
         }
 
+        self.elements.try_reserve_exact(n).map_err(|_| Trap::OutOfMemory)?;
         self.elements.resize(len, init);
         Ok(())
     }
 
-    pub(crate) fn size(&self) -> i32 {
-        self.elements.len() as i32
+    pub(crate) fn size(&self) -> usize {
+        self.elements.len()
     }
 
     fn resolve_func_ref(&self, func_addrs: &[u32], addr: Addr) -> Addr {
@@ -114,8 +115,7 @@ impl TableInstance {
             .expect("error initializing table: function not found. This should have been caught by the validator")
     }
 
-    pub(crate) fn init(&mut self, offset: i64, init: &[TableElement]) -> Result<(), Trap> {
-        let offset = offset as usize;
+    pub(crate) fn init(&mut self, offset: usize, init: &[TableElement]) -> Result<(), Trap> {
         let range = self.checked_range(offset, init.len())?;
         self.elements[range].copy_from_slice(init);
         Ok(())
@@ -157,23 +157,24 @@ impl TableElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     // Helper to create a dummy TableType
     fn dummy_table_type() -> TableType {
-        TableType { element_type: WasmType::RefFunc, size_initial: 10, size_max: Some(20) }
+        TableType::new(WasmType::RefFunc, 10, Some(20))
     }
 
     #[test]
     fn test_table_instance_creation() {
         let kind = dummy_table_type();
-        let table_instance = TableInstance::new(kind.clone());
-        assert_eq!(table_instance.size(), kind.size_initial as i32, "Table instance creation failed: size mismatch");
+        let table_instance = TableInstance::new(kind).unwrap();
+        assert_eq!(table_instance.size() as u64, kind.size_initial, "Table instance creation failed: size mismatch");
     }
 
     #[test]
     fn test_get_wasm_val() {
         let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind);
+        let mut table_instance = TableInstance::new(kind).unwrap();
 
         table_instance.set(0, TableElement::Initialized(0)).expect("Setting table element failed");
         table_instance.set(1, TableElement::Uninitialized).expect("Setting table element failed");
@@ -197,7 +198,7 @@ mod tests {
     #[test]
     fn test_set_and_get() {
         let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind);
+        let mut table_instance = TableInstance::new(kind).unwrap();
 
         let result = table_instance.set(0, TableElement::Initialized(1));
         assert!(result.is_ok(), "Setting table element failed");
@@ -212,7 +213,7 @@ mod tests {
     #[test]
     fn test_table_init() {
         let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind);
+        let mut table_instance = TableInstance::new(kind).unwrap();
 
         let init_elements = vec![TableElement::Initialized(0); 5];
         let result = table_instance.init(0, &init_elements);

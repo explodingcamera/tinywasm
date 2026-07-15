@@ -172,7 +172,7 @@ impl ModuleInstance {
         let idx = store.next_module_instance_idx();
         let mut addrs = imports.unwrap_or_default().link(store, module)?;
         addrs.funcs.extend(store.init_funcs(&module.funcs, idx));
-        addrs.tables.extend(store.init_tables(&module.table_types));
+        addrs.tables.extend(store.init_tables(&module.table_types)?);
         match module.local_memory_allocation {
             LocalMemoryAllocation::Skip => {}
             LocalMemoryAllocation::Lazy => {

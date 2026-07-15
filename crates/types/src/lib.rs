@@ -499,22 +499,34 @@ impl Default for GlobalType {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct TableType {
+    arch: MemoryArch,
     pub element_type: WasmType,
-    pub size_initial: u32,
-    pub size_max: Option<u32>,
+    pub size_initial: u64,
+    pub size_max: Option<u64>,
 }
 
 impl TableType {
-    pub fn empty() -> Self {
-        Self { element_type: WasmType::RefFunc, size_initial: 0, size_max: None }
+    pub const fn empty() -> Self {
+        Self::new(WasmType::RefFunc, 0, None)
     }
 
-    pub fn new(element_type: WasmType, size_initial: u32, size_max: Option<u32>) -> Self {
-        Self { element_type, size_initial, size_max }
+    /// Create a table with 32-bit indices.
+    pub const fn new(element_type: WasmType, size_initial: u64, size_max: Option<u64>) -> Self {
+        Self { arch: MemoryArch::I32, element_type, size_initial, size_max }
+    }
+
+    /// Create a table with 64-bit indices.
+    pub const fn new64(element_type: WasmType, size_initial: u64, size_max: Option<u64>) -> Self {
+        Self { arch: MemoryArch::I64, element_type, size_initial, size_max }
+    }
+
+    #[inline]
+    pub const fn arch(&self) -> MemoryArch {
+        self.arch
     }
 }
 

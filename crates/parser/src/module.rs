@@ -128,8 +128,18 @@ impl<'a> ModuleReader<'a> {
                 if let Some(validator) = validator.as_mut() {
                     validator.table_section(&reader)?;
                 }
-                self.table_types =
-                    reader.into_iter().map(|table| convert_module_table(table?)).collect::<Result<_>>()?;
+                self.table_types = reader
+                    .into_iter()
+                    .map(|table| {
+                        let table = table?;
+                        let element_type = convert_reftype(table.ty.element_type)?;
+                        Ok(if table.ty.table64 {
+                            TableType::new64(element_type, table.ty.initial, table.ty.maximum)
+                        } else {
+                            TableType::new(element_type, table.ty.initial, table.ty.maximum)
+                        })
+                    })
+                    .collect::<Result<_>>()?;
             }
             Payload::MemorySection(reader) => {
                 check_section("memory", !self.memory_types.is_empty())?;

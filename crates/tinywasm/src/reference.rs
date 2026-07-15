@@ -346,7 +346,7 @@ impl Table {
             _ => return Err(Error::other("invalid table init value")),
         };
         let addr = store.state.tables.len() as TableAddr;
-        store.state.tables.push(TableInstance::new_with_init(ty, init));
+        store.state.tables.push(TableInstance::new_with_init(ty, init)?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -364,17 +364,17 @@ impl Table {
 
     /// Get the type of the table.
     pub fn ty(&self, store: &Store) -> Result<TableType> {
-        Ok(self.instance(store)?.kind.clone())
+        Ok(self.instance(store)?.kind)
     }
 
     /// Get the current number of elements in the table.
     pub fn size(&self, store: &Store) -> Result<usize> {
-        Ok(self.instance(store)?.size() as usize)
+        Ok(self.instance(store)?.size())
     }
 
     /// Get a table element as a wasm reference value.
     pub fn get(&self, store: &Store, index: TableAddr) -> Result<WasmValue> {
-        Ok(self.instance(store)?.get_wasm_val(index)?)
+        Ok(self.instance(store)?.get_wasm_val(index as usize)?)
     }
 
     /// Load a range of table elements and iterate over wasm reference values.
@@ -394,7 +394,7 @@ impl Table {
     pub fn set(&self, store: &mut Store, index: TableAddr, value: WasmValue) -> Result<(), Trap> {
         let table = self.instance_mut(store)?;
         let value = table_value_to_element(table.kind.element_type, value)?;
-        table.set(index, value)
+        table.set(index as usize, value)
     }
 
     /// Copy elements within the same table.
@@ -406,8 +406,9 @@ impl Table {
     pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<usize> {
         self.0.validate_store(store)?;
         let table = store.state.get_table_mut(self.0.addr);
-        let old_size = table.size() as usize;
+        let old_size = table.size();
         let init = table_value_to_element(table.kind.element_type, init)?;
+        let delta = usize::try_from(delta).map_err(|_| Trap::TableOutOfBounds { offset: 0, len: 1, max: old_size })?;
         table.grow(delta, init)?;
         Ok(old_size)
     }

@@ -60,8 +60,11 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
         wasmparser::TypeRef::Table(ty) => {
             let element_type = convert_reftype(ty.element_type)?;
-            let (size_initial, size_max) = convert_table_limits(ty)?;
-            ImportKind::Table(TableType { element_type, size_initial, size_max })
+            ImportKind::Table(if ty.table64 {
+                TableType::new64(element_type, ty.initial, ty.maximum)
+            } else {
+                TableType::new(element_type, ty.initial, ty.maximum)
+            })
         }
         wasmparser::TypeRef::Memory(ty) => ImportKind::Memory(convert_module_memory(ty)),
         wasmparser::TypeRef::Global(ty) => {
@@ -85,25 +88,6 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryTyp
         memory.maximum,
         memory.page_size_log2.map(|x| 1 << x),
     )
-}
-
-pub(crate) fn convert_module_table(table: wasmparser::Table<'_>) -> Result<TableType> {
-    let (size_initial, size_max) = convert_table_limits(table.ty)?;
-    Ok(TableType { element_type: convert_reftype(table.ty.element_type)?, size_initial, size_max })
-}
-
-fn convert_table_limits(table: wasmparser::TableType) -> Result<(u32, Option<u32>)> {
-    let size_initial = table.initial.try_into().map_err(|_| {
-        crate::ParseError::UnsupportedOperator(format!("Table size initial is too large: {}", table.initial))
-    })?;
-    let size_max = table
-        .maximum
-        .map(|max| {
-            u32::try_from(max)
-                .map_err(|_| crate::ParseError::UnsupportedOperator(format!("Table size max is too large: {max}")))
-        })
-        .transpose()?;
-    Ok((size_initial, size_max))
 }
 
 pub(crate) fn convert_module_globals(

@@ -1036,18 +1036,19 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
 
         // verify that the table is of the right type, this should be validated by the parser already
-        let table_idx: u32 = <i32>::stack_pop(&mut self.store.value_stack) as u32;
-        let table = self.store.state.get_table(self.module.resolve_table_addr(table_addr));
+        let table_addr = self.module.resolve_table_addr(table_addr);
+        let table_idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
+        let table = self.store.state.get_table(table_addr);
         debug_assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
 
         let Ok(table) = table.get(table_idx) else {
             cold_path();
-            return Err(Trap::UndefinedElement { index: table_idx as usize });
+            return Err(Trap::UndefinedElement { index: table_idx });
         };
 
         let Some(func_ref) = table.addr() else {
             cold_path();
-            return Err(Trap::UninitializedElement { index: table_idx as usize });
+            return Err(Trap::UninitializedElement { index: table_idx });
         };
 
         let call_ty = self.module.func_type_by_type_index(type_addr);
@@ -1347,19 +1348,23 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<(), Trap> {
-        let size = i32::stack_pop(&mut self.store.value_stack);
-        let src = i32::stack_pop(&mut self.store.value_stack);
-        let dst = i32::stack_pop(&mut self.store.value_stack);
         let dst_table_addr = self.module.resolve_table_addr(dst_table);
+        let src_table_addr = self.module.resolve_table_addr(src_table);
+        let dst_arch = self.store.state.get_table(dst_table_addr).kind.arch();
+        let src_arch = self.store.state.get_table(src_table_addr).kind.arch();
+        let len_arch =
+            if dst_arch == MemoryArch::I32 || src_arch == MemoryArch::I32 { MemoryArch::I32 } else { MemoryArch::I64 };
+        let size = self.pop_table_operand(len_arch)?;
+        let src = self.pop_table_operand(src_arch)?;
+        let dst = self.pop_table_operand(dst_arch)?;
 
-        if dst_table == src_table {
+        if dst_table_addr == src_table_addr {
             // copy within the same table
-            self.store.state.get_table_mut(dst_table_addr).copy_within(dst as usize, src as usize, size as usize)
+            self.store.state.get_table_mut(dst_table_addr).copy_within(dst, src, size)
         } else {
             // copy between two tables
-            let src_table_addr = self.module.resolve_table_addr(src_table);
             let (dst_table_ref, src_table_ref) = self.store.state.get_tables_mut(dst_table_addr, src_table_addr);
-            dst_table_ref.copy_from_slice(dst as usize, src_table_ref.load(src as usize, size as usize)?)
+            dst_table_ref.copy_from_slice(dst, src_table_ref.load(src, size)?)
         }
     }
 
@@ -1463,87 +1468,83 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_table_get(&mut self, table_index: u32) -> Result<(), Trap> {
-        let idx: i32 = <i32>::stack_pop(&mut self.store.value_stack);
-        let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
-        let v = table.get_wasm_val(idx as u32)?;
+        let table_addr = self.module.resolve_table_addr(table_index);
+        let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
+        let v = self.store.state.get_table(table_addr).get_wasm_val(idx)?;
         self.store.value_stack.push_dyn(v.into())
     }
 
     fn exec_table_set(&mut self, table_index: u32) -> Result<(), Trap> {
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
-        let idx = <i32>::stack_pop(&mut self.store.value_stack) as u32;
-        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
+        let table_addr = self.module.resolve_table_addr(table_index);
+        let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
+        let table = self.store.state.get_table_mut(table_addr);
         table.set(idx, val.addr().into())
     }
 
     fn exec_table_size(&mut self, table_index: u32) -> Result<(), Trap> {
         let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
-        self.store.value_stack.push(table.size())
+        match table.kind.arch() {
+            MemoryArch::I32 => self.store.value_stack.push(table.size() as i32),
+            MemoryArch::I64 => self.store.value_stack.push(table.size() as i64),
+        }
     }
 
     fn exec_table_init(&mut self, elem_index: u32, table_index: u32) -> Result<(), Trap> {
-        let size = i32::stack_pop(&mut self.store.value_stack); // n
-        let offset = i32::stack_pop(&mut self.store.value_stack); // s
-        let dst = i32::stack_pop(&mut self.store.value_stack); // d
+        let size = self.pop_table_operand(MemoryArch::I32)?; // n
+        let offset = self.pop_table_operand(MemoryArch::I32)?; // s
+        let table_addr = self.module.resolve_table_addr(table_index);
+        let dst = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?; // d
         let elem_addr = self.module.resolve_elem_addr(elem_index) as usize;
         let elem = self.store.state.elements.get(elem_addr).ok_or_else(|| Trap::Other("element not found"))?;
-
-        let table_addr = self.module.resolve_table_addr(table_index) as usize;
-        let table = self.store.state.tables.get_mut(table_addr).ok_or_else(|| Trap::Other("table not found"))?;
-
-        let elem_len = elem.items.as_ref().map_or(0, alloc::vec::Vec::len);
-        let table_len = table.size();
-
-        if size < 0 || ((size + offset) as usize > elem_len) || ((dst + size) > table_len) {
+        // Element kind storage is removed separately; table.init only depends on retained items.
+        let _ = &elem.kind;
+        let items = elem.items.as_deref().unwrap_or(&[]);
+        let Some(end) = offset.checked_add(size) else {
             cold_path();
-            return Err(Trap::TableOutOfBounds { offset: offset as usize, len: size as usize, max: elem_len });
-        }
-
-        if size == 0 {
-            return Ok(());
-        }
-
-        if let ElementKind::Active { .. } = elem.kind {
-            cold_path();
-            return Err(Trap::Other("table.init with active element"));
-        }
-
-        let Some(items) = elem.items.as_ref() else {
-            cold_path();
-            return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 });
+            return Err(Trap::TableOutOfBounds { offset, len: size, max: items.len() });
         };
+        if end > items.len() {
+            cold_path();
+            return Err(Trap::TableOutOfBounds { offset, len: size, max: items.len() });
+        }
 
-        table.init(i64::from(dst), &items[offset as usize..(offset + size) as usize])
+        let table =
+            self.store.state.tables.get_mut(table_addr as usize).ok_or_else(|| Trap::Other("table not found"))?;
+        table.init(dst, &items[offset..end])
     }
 
     fn exec_table_grow(&mut self, table_index: u32) -> Result<(), Trap> {
-        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
-        let sz = table.size();
-        let n = <i32>::stack_pop(&mut self.store.value_stack);
+        let table_addr = self.module.resolve_table_addr(table_index);
+        let arch = self.store.state.get_table(table_addr).kind.arch();
+        let n = self.pop_table_operand(arch)?;
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
-        match table.grow(n, val.addr().into()) {
-            Ok(()) => self.store.value_stack.push(sz),
-            Err(_) => self.store.value_stack.push(-1_i32),
+        let table = self.store.state.get_table_mut(table_addr);
+        let sz = table.size();
+        let result = table.grow(n, val.addr().into());
+        match (arch, result) {
+            (MemoryArch::I32, Ok(())) => self.store.value_stack.push(sz as i32),
+            (MemoryArch::I32, Err(_)) => self.store.value_stack.push(-1_i32),
+            (MemoryArch::I64, Ok(())) => self.store.value_stack.push(sz as i64),
+            (MemoryArch::I64, Err(_)) => self.store.value_stack.push(-1_i64),
         }
     }
 
     fn exec_table_fill(&mut self, table_index: u32) -> Result<(), Trap> {
-        let table = self.store.state.get_table_mut(self.module.resolve_table_addr(table_index));
-
-        let n = <i32>::stack_pop(&mut self.store.value_stack);
+        let table_addr = self.module.resolve_table_addr(table_index);
+        let arch = self.store.state.get_table(table_addr).kind.arch();
+        let n = self.pop_table_operand(arch)?;
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
-        let i = <i32>::stack_pop(&mut self.store.value_stack);
+        let i = self.pop_table_operand(arch)?;
+        self.store.state.get_table_mut(table_addr).fill(self.module.func_addrs(), i, n, val.addr().into())
+    }
 
-        if i + n > table.size() {
-            cold_path();
-            return Err(Trap::TableOutOfBounds { offset: i as usize, len: n as usize, max: table.size() as usize });
-        }
-
-        if n == 0 {
-            return Ok(());
-        }
-
-        table.fill(self.module.func_addrs(), i as usize, n as usize, val.addr().into())
+    fn pop_table_operand(&mut self, arch: MemoryArch) -> Result<usize, Trap> {
+        let value = match arch {
+            MemoryArch::I32 => <i32>::stack_pop(&mut self.store.value_stack) as u32 as u64,
+            MemoryArch::I64 => <i64>::stack_pop(&mut self.store.value_stack) as u64,
+        };
+        usize::try_from(value).map_err(|_| Trap::TableOutOfBounds { offset: usize::MAX, len: 1, max: usize::MAX })
     }
 }
 

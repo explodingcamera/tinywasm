@@ -158,6 +158,7 @@ impl Imports {
     }
 
     fn compare_table_types(import: &Import, expected: &TableType, actual: &TableType) -> Result<()> {
+        Self::compare_types(import, &actual.arch(), &expected.arch())?;
         Self::compare_types(import, &actual.element_type, &expected.element_type)?;
         if actual.size_initial > expected.size_initial {
             cold_path();
@@ -248,8 +249,8 @@ impl Imports {
                 }
                 (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                     let table = store.state.get_table(table_addr);
-                    let mut kind = table.kind.clone();
-                    kind.size_initial = table.size() as u32;
+                    let mut kind = table.kind;
+                    kind.size_initial = table.size() as u64;
                     Self::compare_table_types(import, &kind, ty)?;
                     imports.tables.push(table_addr);
                 }

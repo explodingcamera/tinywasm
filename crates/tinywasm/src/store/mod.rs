@@ -268,10 +268,13 @@ impl Store {
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn init_tables(&mut self, tables: &[TableType]) -> impl ExactSizeIterator<Item = TableAddr> {
+    pub(crate) fn init_tables(&mut self, tables: &[TableType]) -> Result<impl ExactSizeIterator<Item = TableAddr>> {
         let start = self.state.tables.len() as TableAddr;
-        self.state.tables.extend(tables.iter().map(|table| TableInstance::new(table.clone())));
-        start..start + tables.len() as TableAddr
+        self.state.tables.reserve_exact(tables.len());
+        for &table in tables {
+            self.state.tables.push(TableInstance::new(table)?);
+        }
+        Ok(start..start + tables.len() as TableAddr)
     }
 
     /// Add memories to the store, returning their addresses in the store
@@ -374,6 +377,13 @@ impl Store {
                     // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
                     // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
                     // I have NO IDEA why this is allowed, but it is.
+                    let Ok(offset) = usize::try_from(offset) else {
+                        return Ok((
+                            elem_addrs.into_boxed_slice(),
+                            Some(Trap::TableOutOfBounds { offset: usize::MAX, len: init.len(), max: table.size() }),
+                        ));
+                    };
+
                     if let Err(trap) = table.init(offset, &init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
@@ -449,11 +459,11 @@ impl Store {
         const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
-    ) -> Result<i64> {
+    ) -> Result<u64> {
         let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
         match value {
-            TinyWasmValue::Value32(i) => Ok(i64::from(i)),
-            TinyWasmValue::Value64(i) => Ok(i as i64),
+            TinyWasmValue::Value32(i) => Ok(u64::from(i)),
+            TinyWasmValue::Value64(i) => Ok(i),
             other => Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
         }
     }

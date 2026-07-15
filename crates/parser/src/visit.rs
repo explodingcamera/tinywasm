@@ -168,14 +168,14 @@ impl ModuleMetadata {
                 ImportKind::Function(ty) => functions.push(*ty),
                 ImportKind::Global(ty) => global_sizes.push(OperandSize::from(&ty.ty)),
                 ImportKind::Memory(ty) => memory_sizes.push(OperandSize::from(ty.arch())),
-                ImportKind::Table(_) => table_sizes.push(OperandSize::S32),
+                ImportKind::Table(ty) => table_sizes.push(OperandSize::from(ty.arch())),
             }
         }
 
         functions.extend_from_slice(code_type_addrs);
         global_sizes.extend(globals.iter().map(|global| OperandSize::from(&global.ty.ty)));
         memory_sizes.extend(memories.iter().map(|ty| OperandSize::from(ty.arch())));
-        table_sizes.extend(tables.iter().map(|_| OperandSize::S32));
+        table_sizes.extend(tables.iter().map(|ty| OperandSize::from(ty.arch())));
 
         let signatures = types
             .iter()
@@ -653,13 +653,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
-        self.metadata.table_size(dst_table)?;
-        self.metadata.table_size(src_table)?;
-        self.emit(
-            &[OperandSize::S32, OperandSize::S32, OperandSize::S32],
-            &[],
-            Instruction::TableCopy { dst_table, src_table },
-        )
+        let dst = self.metadata.table_size(dst_table)?;
+        let src = self.metadata.table_size(src_table)?;
+        let len = if dst == OperandSize::S32 || src == OperandSize::S32 { OperandSize::S32 } else { OperandSize::S64 };
+        self.emit(&[dst, src, len], &[], Instruction::TableCopy { dst_table, src_table })
     }
 
     fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {

@@ -57,8 +57,12 @@ pub fn format_memory_type(ty: &MemoryType) -> String {
 }
 
 pub fn format_table_type(ty: &TableType) -> String {
+    let arch = match ty.arch() {
+        MemoryArch::I32 => "i32",
+        MemoryArch::I64 => "i64",
+    };
     let max = ty.size_max.map(|v| v.to_string()).unwrap_or_else(|| "unbounded".to_string());
-    format!("table[{}] initial={} max={max}", format_wasm_type(ty.element_type), ty.size_initial)
+    format!("table[{arch} {}] initial={} max={max}", format_wasm_type(ty.element_type), ty.size_initial)
 }
 
 pub fn format_global_type(ty: &GlobalType) -> String {

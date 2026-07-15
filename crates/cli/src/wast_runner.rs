@@ -159,6 +159,11 @@ impl WastRunner {
             TableType::new(WasmType::RefFunc, 10, Some(20)),
             WasmValue::default_for(WasmType::RefFunc),
         )?;
+        let table64 = Table::new(
+            store,
+            TableType::new64(WasmType::RefFunc, 10, Some(20)),
+            WasmValue::default_for(WasmType::RefFunc),
+        )?;
         let memory = Memory::new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
         let global_i32 =
             Global::new(store, tinywasm::types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
@@ -172,6 +177,7 @@ impl WastRunner {
         imports
             .define("spectest", "memory", memory)
             .define("spectest", "table", table)
+            .define("spectest", "table64", table64)
             .define("spectest", "global_i32", global_i32)
             .define("spectest", "global_i64", global_i64)
             .define("spectest", "global_f32", global_f32)
