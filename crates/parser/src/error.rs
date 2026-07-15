@@ -60,8 +60,8 @@ impl Display for ParseError {
 
 impl core::error::Error for ParseError {}
 
-impl From<wasmparser::BinaryReaderError> for ParseError {
-    fn from(value: wasmparser::BinaryReaderError) -> Self {
+impl From<wasmparser::Error> for ParseError {
+    fn from(value: wasmparser::Error) -> Self {
         Self::ParseError { message: value.message().to_string(), offset: value.offset() }
     }
 }

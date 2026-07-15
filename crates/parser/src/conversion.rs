@@ -136,42 +136,44 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
 
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    mut validator: FuncValidator<ValidatorResources>,
+    mut validator: Option<FuncValidator<ValidatorResources>>,
     reader_allocs: OperatorsReaderAllocations,
-) -> Result<(FunctionCode, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+    metadata: &crate::visit::ModuleMetadata,
+    ty_idx: u32,
+) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let locals_reader = func.get_locals_reader()?;
-    let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
-
-    // maps a local's address to the index in the type's locals array
-    let mut local_addr_map = Vec::with_capacity(count as usize);
-    let mut local_counts = ValueCounts::default();
+    let signature = metadata.signature(ty_idx)?.clone();
+    let mut local_types = signature.params.clone();
 
     for (i, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
-        validator.define_locals(pos + i, local.0, local.1)?;
+        if let Some(validator) = validator.as_mut() {
+            validator.define_locals(pos + i, local.0, local.1)?;
+        }
+        let size = crate::visit::OperandSize::from(local.1);
+        let count = usize::try_from(local.0)
+            .map_err(|_| crate::ParseError::Other("local declaration count is too large".into()))?;
+        local_types.reserve(count);
+        local_types.extend(core::iter::repeat_n(size, count));
     }
 
-    for i in 0..validator.len_locals() {
-        match validator.get_local_type(i) {
-            Some(wasmparser::ValType::I32 | wasmparser::ValType::F32 | wasmparser::ValType::Ref(_)) => {
-                local_addr_map.push(local_counts.c32);
-                local_counts.c32 += 1;
-            }
-            Some(wasmparser::ValType::I64 | wasmparser::ValType::F64) => {
-                local_addr_map.push(local_counts.c64);
-                local_counts.c64 += 1;
-            }
-            Some(wasmparser::ValType::V128) => {
-                local_addr_map.push(local_counts.c128);
-                local_counts.c128 += 1;
-            }
-            None => return Err(crate::ParseError::UnsupportedOperator("Unknown local type".to_string())),
-        }
+    // maps a local's address to the index in the type's locals array
+    let mut local_addr_map = Vec::with_capacity(local_types.len());
+    let mut local_counts = ValueCounts::default();
+
+    for ty in &local_types {
+        let (count, error) = match ty {
+            crate::visit::OperandSize::S32 => (&mut local_counts.c32, "too many 32-bit locals"),
+            crate::visit::OperandSize::S64 => (&mut local_counts.c64, "too many 64-bit locals"),
+            crate::visit::OperandSize::S128 => (&mut local_counts.c128, "too many 128-bit locals"),
+        };
+        local_addr_map.push(*count);
+        *count = count.checked_add(1).ok_or_else(|| crate::ParseError::Other(error.into()))?;
     }
 
     let (body, data, validator_allocs, reader_allocs) =
-        process_operators_and_validate(validator, func, local_addr_map, reader_allocs)?;
+        process_operators_and_validate(validator, func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
     Ok((
         FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false },
         validator_allocs,

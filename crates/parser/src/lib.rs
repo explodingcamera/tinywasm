@@ -49,12 +49,12 @@ pub use tinywasm_types::Module;
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ParserOptions {
+    /// Whether to validate modules while parsing.
+    pub validation: bool,
     /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
     pub optimize_local_memory_allocation: bool,
     /// Whether to run the peephole rewrite optimizer.
     pub optimize_rewrite: bool,
-    /// Whether to remove `Nop` and `MergeBarrier` instructions after rewriting.
-    pub optimize_remove_nop: bool,
 
     #[cfg(parallel_parser)]
     /// Number of threads to use for parallel parsing.
@@ -70,9 +70,9 @@ pub struct ParserOptions {
 impl Default for ParserOptions {
     fn default() -> Self {
         Self {
+            validation: true,
             optimize_local_memory_allocation: true,
             optimize_rewrite: true,
-            optimize_remove_nop: true,
             #[cfg(parallel_parser)]
             parser_threads: None,
         }
@@ -80,6 +80,17 @@ impl Default for ParserOptions {
 }
 
 impl ParserOptions {
+    /// Enable or disable WebAssembly validation.
+    pub const fn with_validation(mut self, enabled: bool) -> Self {
+        self.validation = enabled;
+        self
+    }
+
+    /// Returns whether WebAssembly validation is enabled.
+    pub const fn validation(&self) -> bool {
+        self.validation
+    }
+
     /// Enable or disable the optimization that skips allocating unused local memories.
     pub const fn with_local_memory_allocation_optimization(mut self, enabled: bool) -> Self {
         self.optimize_local_memory_allocation = enabled;
@@ -100,17 +111,6 @@ impl ParserOptions {
     /// Returns whether the peephole rewrite optimizer is enabled.
     pub const fn optimize_rewrite(&self) -> bool {
         self.optimize_rewrite
-    }
-
-    /// Enable or disable `Nop`/`MergeBarrier` removal after rewriting.
-    pub const fn with_nop_removal_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_remove_nop = enabled;
-        self
-    }
-
-    /// Returns whether `Nop`/`MergeBarrier` removal is enabled.
-    pub const fn optimize_remove_nop(&self) -> bool {
-        self.optimize_remove_nop
     }
 
     #[cfg(parallel_parser)]
@@ -188,18 +188,18 @@ impl Parser {
     /// Parse a [`Module`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<Module> {
         let wasm = wasm.as_ref();
-        let mut validator = Self::create_validator(self.options.clone());
+        let mut validator = self.options.validation().then(|| Self::create_validator(self.options.clone()));
         let mut reader = ModuleReader::default();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
             match payload? {
                 wasmparser::Payload::CodeSectionStart { count, range, size } => {
-                    reader.begin_code_section(count, range, size, &mut validator, &self.options)?;
+                    reader.begin_code_section(count, range, size, validator.as_mut(), &self.options)?;
                 }
                 wasmparser::Payload::CodeSectionEntry(function) => {
-                    reader.process_borrowed_code_section_entry(function, &mut validator, &self.options)?;
+                    reader.process_borrowed_code_section_entry(function, validator.as_mut(), &self.options)?;
                 }
-                payload => reader.process_payload(payload, &mut validator)?,
+                payload => reader.process_payload(payload, validator.as_mut())?,
             }
         }
 
@@ -222,7 +222,7 @@ impl Parser {
     #[cfg(feature = "std")]
     /// Parse a [`Module`] from a stream. Requires `std` feature.
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<Module> {
-        let mut validator = Self::create_validator(self.options.clone());
+        let mut validator = self.options.validation().then(|| Self::create_validator(self.options.clone()));
         let mut reader = ModuleReader::default();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);
@@ -240,8 +240,13 @@ impl Parser {
 
                     match payload {
                         wasmparser::Payload::CodeSectionStart { count, range, size } => {
-                            let defer =
-                                reader.begin_code_section(count, range.clone(), size, &mut validator, &self.options)?;
+                            let defer = reader.begin_code_section(
+                                count,
+                                range.clone(),
+                                size,
+                                validator.as_mut(),
+                                &self.options,
+                            )?;
 
                             #[cfg(parallel_parser)]
                             if defer {
@@ -252,10 +257,10 @@ impl Parser {
                             let _ = defer;
                         }
                         wasmparser::Payload::CodeSectionEntry(function) => {
-                            reader.process_inline_code_section_entry(function, &mut validator, &self.options)?;
+                            reader.process_inline_code_section_entry(function, validator.as_mut(), &self.options)?;
                         }
                         payload => {
-                            reader.process_payload(payload, &mut validator)?;
+                            reader.process_payload(payload, validator.as_mut())?;
                         }
                     }
                     buffer.drain(..consumed);
@@ -274,7 +279,7 @@ impl Parser {
                         }
 
                         let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[..section_size].to_vec());
-                        reader.queue_owned_code_section(count, body_offset, section_bytes, &mut validator)?;
+                        reader.queue_owned_code_section(count, body_offset, section_bytes, validator.as_mut())?;
                         parser.skip_section();
                         buffer.drain(..section_size);
                         continue;

@@ -3,7 +3,7 @@ use crate::{ParseError, ParserOptions, Result, conversion};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Range;
-use tinywasm_types::{FuncType, ValueCounts};
+use tinywasm_types::ValueCounts;
 use wasmparser::{FuncValidatorAllocations, ValidatorResources};
 
 pub(crate) enum FunctionBodyInput<'a> {
@@ -21,8 +21,9 @@ pub(crate) struct OwnedFunctionBody {
 
 pub(crate) struct PendingFunction<'a> {
     pub ordinal: usize,
+    pub results: ValueCounts,
     pub ty_idx: u32,
-    pub func_to_validate: wasmparser::FuncToValidate<ValidatorResources>,
+    pub func_to_validate: Option<wasmparser::FuncToValidate<ValidatorResources>>,
     pub body: FunctionBodyInput<'a>,
 }
 
@@ -60,37 +61,38 @@ fn body_len(body: &FunctionBodyInput<'_>) -> usize {
 
 fn process_function_job(
     job: PendingFunction<'_>,
+    metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
-    func_types: &[Arc<FuncType>],
     imported_func_count: usize,
     imported_memory_count: u32,
 ) -> Result<(usize, FunctionCode)> {
-    let validator = job.func_to_validate.into_validator(FuncValidatorAllocations::default());
+    let validator = job.func_to_validate.map(|func| func.into_validator(FuncValidatorAllocations::default()));
     let (code, _, _) = match job.body {
-        FunctionBodyInput::Borrowed(func) => conversion::convert_module_code(func, validator, Default::default())?,
+        FunctionBodyInput::Borrowed(func) => {
+            conversion::convert_module_code(func, validator, Default::default(), metadata, job.ty_idx)?
+        }
         FunctionBodyInput::Owned(body) => {
             let reader = wasmparser::BinaryReader::new(&body.section_bytes[body.body_range], body.body_offset);
             let func = wasmparser::FunctionBody::new(reader);
-            conversion::convert_module_code(func, validator, Default::default())?
+            conversion::convert_module_code(func, validator, Default::default(), metadata, job.ty_idx)?
         }
     };
 
-    let ty = func_types.get(job.ty_idx as usize).expect("No func type for func, this is a bug");
     let code = optimize_function_code(
         code,
         options,
-        ValueCounts::from_iter(ty.results()),
+        job.results,
         (imported_func_count + job.ordinal) as u32,
         imported_memory_count,
-    );
+    )?;
 
     Ok((job.ordinal, code))
 }
 
 pub(crate) fn process_pending(
     pending: Vec<PendingFunction<'_>>,
+    metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
-    func_types: &[Arc<FuncType>],
     imported_func_count: usize,
     imported_memory_count: u32,
 ) -> Result<Vec<FunctionCode>> {
@@ -99,7 +101,7 @@ pub(crate) fn process_pending(
 
     let mut codes = small_jobs
         .into_iter()
-        .map(|job| process_function_job(job, options, func_types, imported_func_count, imported_memory_count))
+        .map(|job| process_function_job(job, metadata, options, imported_func_count, imported_memory_count))
         .collect::<Result<Vec<_>>>()?;
 
     let num_workers = worker_count(options, large_jobs.len());
@@ -107,7 +109,7 @@ pub(crate) fn process_pending(
         codes.extend(
             large_jobs
                 .into_iter()
-                .map(|job| process_function_job(job, options, func_types, imported_func_count, imported_memory_count))
+                .map(|job| process_function_job(job, metadata, options, imported_func_count, imported_memory_count))
                 .collect::<Result<Vec<_>>>()?,
         );
     } else {
@@ -136,13 +138,7 @@ pub(crate) fn process_pending(
                         chunk
                             .into_iter()
                             .map(|job| {
-                                process_function_job(
-                                    job,
-                                    options,
-                                    func_types,
-                                    imported_func_count,
-                                    imported_memory_count,
-                                )
+                                process_function_job(job, metadata, options, imported_func_count, imported_memory_count)
                             })
                             .collect::<Vec<_>>()
                     })

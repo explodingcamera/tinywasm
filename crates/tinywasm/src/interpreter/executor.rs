@@ -251,8 +251,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         use tinywasm_types::Instruction::*;
         #[rustfmt::skip]
         match next {
-            Nop => {}
-            MergeBarrier | Unreachable => return Err(Trap::Unreachable),
+            Unreachable => return Err(Trap::Unreachable),
             Drop32 => { _ = Value32::stack_pop(&mut self.store.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut self.store.value_stack)},
             Drop128 => { _ = Value128::stack_pop(&mut self.store.value_stack)},
@@ -281,10 +280,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             JumpCmpLocalConst64 { target_ip, local, imm, op } => if self.exec_jump_cmp_local_const_64(*target_ip, *local, *imm, *op) { return Ok(None) },
             JumpCmpLocalLocal32 { target_ip, left, right, op } => if self.exec_jump_cmp_local_local_32(*target_ip, *left, *right, *op) { return Ok(None) },
             JumpCmpLocalLocal64 { target_ip, left, right, op } => if self.exec_jump_cmp_local_local_64(*target_ip, *left, *right, *op) { return Ok(None) },
-            DropKeep { base32, keep32, base64, keep64, base128, keep128 } => self.exec_drop_keep(*base32, *keep32, *base64, *keep64, *base128, *keep128),
-            DropKeep32(base, keep) => self.store.value_stack.stack_32.truncate_keep((self.cf.stack_base().s32 + *base as u32) as usize, *keep as usize),
-            DropKeep64(base, keep) => self.store.value_stack.stack_64.truncate_keep((self.cf.stack_base().s64 + *base as u32) as usize, *keep as usize),
-            DropKeep128(base, keep) => self.store.value_stack.stack_128.truncate_keep((self.cf.stack_base().s128 + *base as u32) as usize, *keep as usize),
+            DropKeep(drop_keep) => self.exec_drop_keep(*drop_keep),
             BranchTable(default_ip, start, len) => { self.exec_branch_table(*default_ip, *start, *len); return Ok(None); }
             Return => { if self.exec_return() { return Ok(Some(())); } return Ok(None); }
             ReturnVoid => { if self.exec_return_void() { return Ok(Some(())); } return Ok(None); }
@@ -930,14 +926,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.cf.instr_ptr = target_ip as usize;
     }
 
-    fn exec_drop_keep(&mut self, base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8) {
+    fn exec_drop_keep(&mut self, drop_keep: DropKeep) {
         let mut base = self.cf.stack_base();
-        base.s32 += base32 as u32;
-        base.s64 += base64 as u32;
-        base.s128 += base128 as u32;
-        self.store
-            .value_stack
-            .truncate_keep_counts(base, ValueCounts { c32: keep32 as u16, c64: keep64 as u16, c128: keep128 as u16 });
+        base.s32 += drop_keep.base.c32 as u32;
+        base.s64 += drop_keep.base.c64 as u32;
+        base.s128 += drop_keep.base.c128 as u32;
+        self.store.value_stack.truncate_keep_counts(base, drop_keep.keep);
     }
 
     fn exec_call(&mut self, wasm_func: WasmFunctionInstance, func_addr: FuncAddr) -> Result<(), Trap> {

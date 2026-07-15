@@ -11,6 +11,21 @@ pub struct MemoryArg {
     mem_addr: MemAddr,
 }
 
+/// Stack lanes discarded and retained when branching to a control frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct DropKeep {
+    pub base: ValueCounts,
+    pub keep: ValueCounts,
+}
+
+impl From<(ValueCounts, ValueCounts)> for DropKeep {
+    fn from((base, keep): (ValueCounts, ValueCounts)) -> Self {
+        Self { base, keep }
+    }
+}
+
 impl MemoryArg {
     #[inline]
     pub const fn new(offset: u64, mem_addr: MemAddr) -> Self {
@@ -159,8 +174,6 @@ pub enum Instruction {
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
     Unreachable,
-    Nop,
-    MergeBarrier,
     Jump(u32),
     JumpIfZero32(u32),
     JumpIfNonZero32(u32),
@@ -176,10 +189,7 @@ pub enum Instruction {
     JumpCmpLocalConst64 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
     JumpCmpLocalLocal32 { target_ip: u32, left: LocalAddr, right: LocalAddr, op: CmpOp },
     JumpCmpLocalLocal64 { target_ip: u32, left: LocalAddr, right: LocalAddr, op: CmpOp },
-    DropKeep { base32: u16, keep32: u8, base64: u16, keep64: u8, base128: u16, keep128: u8 },
-    DropKeep32(u16, u16),
-    DropKeep64(u16, u16),
-    DropKeep128(u16, u16),
+    DropKeep(DropKeep),
     BranchTable(u32, u32, u32),  // (default_landing_pad_ip, branch_table_start, target_count)
     Return,
     ReturnVoid,
