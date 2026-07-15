@@ -129,8 +129,8 @@ fn exported_local_memory_is_not_eagerly_allocated() -> Result<()> {
 }
 
 #[test]
-fn exported_local_memory_materializes_on_first_method_call() -> Result<()> {
-    let (store, instance, created) = instantiate_exported_memory_with_counting_backend(
+fn exported_local_memory_reads_zeroes_without_materializing() -> Result<()> {
+    let (mut store, instance, created) = instantiate_exported_memory_with_counting_backend(
         r#"
         (module
           (memory (export "memory") 1)
@@ -141,7 +141,12 @@ fn exported_local_memory_materializes_on_first_method_call() -> Result<()> {
     let memory = instance.memory("memory")?;
     assert_eq!(created.load(Ordering::Relaxed), 0);
     assert_eq!(memory.len(&store)?, 65536);
+    assert_eq!(memory.read_vec(&store, 65534, 2)?, &[0, 0]);
+    assert_eq!(created.load(Ordering::Relaxed), 0);
+
+    memory.copy_from_slice(&mut store, 65534, &[1, 2])?;
     assert_eq!(created.load(Ordering::Relaxed), 1);
+    assert_eq!(memory.read_vec(&store, 65534, 2)?, &[1, 2]);
     Ok(())
 }
 

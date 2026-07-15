@@ -174,7 +174,10 @@ impl ModuleInstance {
         addrs.funcs.extend(store.init_funcs(&module.funcs, idx));
         addrs.tables.extend(store.init_tables(&module.table_types)?);
         match module.local_memory_allocation {
-            LocalMemoryAllocation::Skip => {}
+            LocalMemoryAllocation::Skip => {
+                #[cfg(feature = "guest-debug")]
+                addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new_lazy)?);
+            }
             LocalMemoryAllocation::Lazy => {
                 addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new_lazy)?)
             }

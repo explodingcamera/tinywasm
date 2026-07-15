@@ -281,12 +281,17 @@ impl Store {
     pub(crate) fn init_memories(
         &mut self,
         memories: &[MemoryType],
-        init: fn(MemoryType, &MemoryBackend) -> Result<MemoryInstance>,
+        init: impl Fn(MemoryType, &MemoryBackend) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
         let start = self.state.memories.len() as MemAddr;
-        self.state.memories.reserve_exact(memories.len());
-        for &mem in memories {
-            self.state.memories.push(init(mem, &self.engine.config().memory_backend)?);
+        for mem in memories {
+            self.state.memories.push(match init(*mem, &self.engine.config().memory_backend) {
+                Ok(mem) => mem,
+                Err(e) => {
+                    cold_path();
+                    return Err(e);
+                }
+            });
         }
         Ok(start..start + memories.len() as MemAddr)
     }
