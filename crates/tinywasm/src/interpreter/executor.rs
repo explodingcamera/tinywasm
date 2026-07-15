@@ -1497,8 +1497,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let dst = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?; // d
         let elem_addr = self.module.resolve_elem_addr(elem_index) as usize;
         let elem = self.store.state.elements.get(elem_addr).ok_or_else(|| Trap::Other("element not found"))?;
-        // Element kind storage is removed separately; table.init only depends on retained items.
-        let _ = &elem.kind;
         let items = elem.items.as_deref().unwrap_or(&[]);
         let Some(end) = offset.checked_add(size) else {
             cold_path();

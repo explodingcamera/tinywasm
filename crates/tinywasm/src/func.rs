@@ -1,7 +1,7 @@
 use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, Trap};
-use alloc::{boxed::Box, format, rc::Rc, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, sync::Arc, vec, vec::Vec};
 use core::hint::cold_path;
 use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
 
@@ -574,31 +574,30 @@ impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
 
 /// Describes the WebAssembly value types produced by a Rust value or tuple shape.
 pub trait ToWasmTypes {
+    /// Static WebAssembly types for shapes that do not require runtime concatenation.
+    const WASM_TYPES: Option<&'static [WasmType]>;
+
     /// Return the flattened WebAssembly value types for this tuple shape.
-    fn wasm_types() -> Box<[WasmType]>;
+    fn wasm_types() -> Cow<'static, [WasmType]> {
+        Cow::Borrowed(Self::WASM_TYPES.expect("dynamic ToWasmTypes implementation must override wasm_types"))
+    }
 }
 
 /// Describes the WebAssembly value types produced by a scalar Rust type.
 pub trait ToWasmType {
-    /// Return the single WebAssembly value type for this scalar type.
-    fn wasm_type() -> WasmType;
+    /// The single WebAssembly value type for this scalar type.
+    const WASM_TYPE: WasmType;
 }
 
 macro_rules! impl_scalar_wasm_traits {
     ($($T:ty => $val_ty:ident),+ $(,)?) => {
         $(
             impl ToWasmType for $T {
-                #[inline]
-                fn wasm_type() -> WasmType {
-                    WasmType::$val_ty
-                }
+                const WASM_TYPE: WasmType = WasmType::$val_ty;
             }
 
             impl ToWasmTypes for $T {
-                #[inline]
-                fn wasm_types() -> Box<[WasmType]> {
-                    Box::new([WasmType::$val_ty])
-                }
+                const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::$val_ty]);
             }
 
             impl IntoWasmValues for $T {
@@ -611,9 +610,16 @@ macro_rules! impl_scalar_wasm_traits {
             impl FromWasmValues for $T {
                 #[inline]
                 fn from_wasm_values(values: &[WasmValue]) -> Result<Self> {
-                    let value = *values.first().ok_or(Error::other("Not enough elemennts in &[WasmValue]"))?;
+                    let value = *values.first().ok_or_else(|| {
+                        core::hint::cold_path();
+                        Error::other("Not enough elements in &[WasmValue]")
+                    })?;
+
                     <$T>::try_from(value).map_err(|e| {
-                        Error::Other(format!("FromWasmValues: Could not convert WasmValue to expected type: {e:?}"))
+                        core::hint::cold_path();
+                        Error::Other(format!(
+                            "FromWasmValues: Could not convert WasmValue to expected type: {e:?}"
+                        ))
                     })
                 }
             }
@@ -627,10 +633,7 @@ macro_rules! impl_tuple_traits {
         where
             $($T: ToWasmType,)+
         {
-            #[inline]
-            fn wasm_types() -> Box<[WasmType]> {
-                Box::new([$($T::wasm_type(),)+])
-            }
+            const WASM_TYPES: Option<&'static [WasmType]> = Some(&[$($T::WASM_TYPE,)+]);
         }
 
         impl<$($T),+> IntoWasmValues for ($($T,)+)
@@ -757,12 +760,14 @@ impl<T1, T2> From<(T1, T2)> for WasmTupleChain<T1, T2> {
 }
 
 impl<T1: ToWasmTypes, T2: ToWasmTypes> ToWasmTypes for WasmTupleChain<T1, T2> {
+    const WASM_TYPES: Option<&'static [WasmType]> = None;
+
     #[inline]
-    fn wasm_types() -> Box<[WasmType]> {
+    fn wasm_types() -> Cow<'static, [WasmType]> {
         let mut types = Vec::new();
         types.extend_from_slice(&T1::wasm_types());
         types.extend_from_slice(&T2::wasm_types());
-        types.into_boxed_slice()
+        Cow::Owned(types)
     }
 }
 
@@ -788,10 +793,7 @@ impl<T1: FromWasmValues + ToWasmTypes, T2: FromWasmValues> FromWasmValues for Wa
 }
 
 impl ToWasmTypes for () {
-    #[inline]
-    fn wasm_types() -> Box<[WasmType]> {
-        Box::new([])
-    }
+    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[]);
 }
 
 impl IntoWasmValues for () {

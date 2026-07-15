@@ -210,25 +210,23 @@ impl ModuleInstance {
         let instance = ModuleInstance(Rc::new(instance));
         store.add_instance(instance.clone());
 
-        match (elem_trapped, data_trapped) {
-            (Some(trap), _) | (_, Some(trap)) => {
-                cold_path();
-                Err(trap.into())
-            }
-            _ => Ok(instance),
+        if let Some(trap) = elem_trapped.or(data_trapped) {
+            cold_path();
+            return Err(trap.into());
         }
+        Ok(instance)
     }
 
     /// Get a export by name
     pub fn export_addr(&self, name: &str) -> Option<ExternVal> {
-        let exports = self.0.exports.iter().find(|e| *e.name == *name)?;
-        let addr = match exports.kind {
-            ExternalKind::Func => self.0.func_addrs.get(exports.index as usize)?,
-            ExternalKind::Table => self.0.table_addrs.get(exports.index as usize)?,
-            ExternalKind::Memory => self.0.mem_addrs.get(exports.index as usize)?,
-            ExternalKind::Global => self.0.global_addrs.get(exports.index as usize)?,
+        let export = self.0.exports.iter().find(|e| *e.name == *name)?;
+        let addr = match export.kind {
+            ExternalKind::Func => self.0.func_addrs.get(export.index as usize)?,
+            ExternalKind::Table => self.0.table_addrs.get(export.index as usize)?,
+            ExternalKind::Memory => self.0.mem_addrs.get(export.index as usize)?,
+            ExternalKind::Global => self.0.global_addrs.get(export.index as usize)?,
         };
-        Some(ExternVal::new(exports.kind, *addr))
+        Some(ExternVal::new(export.kind, *addr))
     }
 
     /// Returns an iterator over all exported extern values for this instance.
@@ -288,25 +286,19 @@ impl ModuleInstance {
 
     #[inline]
     fn require_export(&self, name: &str) -> Result<ExternVal> {
-        match self.export_addr(name) {
-            Some(addr) => Ok(addr),
-            None => {
-                cold_path();
-                Err(Error::Other(format!("Export not found: {name}")))
-            }
-        }
+        self.export_addr(name).ok_or_else(|| {
+            cold_path();
+            Error::Other(format!("Export not found: {name}"))
+        })
     }
 
     #[inline]
     #[cfg(feature = "guest-debug")]
     fn index_addr<T: Copy>(slice: &[T], idx: u32, kind: &str) -> Result<T> {
-        match slice.get(idx as usize) {
-            Some(addr) => Ok(*addr),
-            None => {
-                cold_path();
-                Err(Error::Other(format!("{kind} index out of bounds: {idx}")))
-            }
-        }
+        slice.get(idx as usize).copied().ok_or_else(|| {
+            cold_path();
+            Error::Other(format!("{kind} index out of bounds: {idx}"))
+        })
     }
 
     /// Get any exported extern value by name.
@@ -376,12 +368,9 @@ impl ModuleInstance {
     pub fn func_untyped(&self, store: &Store, name: &str) -> Result<Function> {
         self.validate_store(store)?;
 
-        let func_addr = match self.require_export(name)? {
-            ExternVal::Func(func_addr) => func_addr,
-            _ => {
-                cold_path();
-                return Err(Error::Other(format!("Export is not a function: {name}")));
-            }
+        let ExternVal::Func(func_addr) = self.require_export(name)? else {
+            cold_path();
+            return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
         Ok(Function {
@@ -444,7 +433,20 @@ impl ModuleInstance {
         store: &Store,
         name: &str,
     ) -> Result<FunctionTyped<P, R>> {
-        let func = self.func_untyped(store, name)?;
+        self.validate_store(store)?;
+
+        let ExternVal::Func(func_addr) = self.require_export(name)? else {
+            cold_path();
+            return Err(Error::Other(format!("Export is not a function: {name}")));
+        };
+
+        let func = Function {
+            item: StoreItem::new(self.0.store_id, func_addr),
+            addr: func_addr,
+            module_addr: self.id(),
+            ty: store.state.get_func(func_addr).ty().clone(),
+        };
+
         Self::validate_typed_func::<P, R>(&func, name)?;
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
@@ -462,14 +464,17 @@ impl ModuleInstance {
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
+    #[inline]
     fn validate_typed_func<P: ToWasmTypes, R: ToWasmTypes>(func: &Function, func_name: &str) -> Result<()> {
-        if *func.ty.params() != *P::wasm_types() || *func.ty.results() != *R::wasm_types() {
+        let params = P::wasm_types();
+        let results = R::wasm_types();
+        if func.ty.params() != params.as_ref() || func.ty.results() != results.as_ref() {
             cold_path();
 
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
                 "function type mismatch for {func_name}: expected {:?}, actual {:?}",
-                FuncType::new(&P::wasm_types(), &R::wasm_types()),
+                FuncType::new(&params, &results),
                 func.ty
             )));
 

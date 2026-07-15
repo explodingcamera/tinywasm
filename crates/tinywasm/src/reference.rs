@@ -446,7 +446,7 @@ impl Global {
     /// Get the current value of the global.
     pub fn get(&self, store: &Store) -> Result<WasmValue> {
         let global = self.instance(store)?;
-        let value = global.value.get().attach_type(global.ty.ty);
+        let value = global.value.attach_type(global.ty.ty);
         Ok(value.unwrap_or_else(|| unreachable!("Global value type does not match global type, this is a bug")))
     }
 
@@ -461,7 +461,7 @@ impl Global {
             cold_path();
             return Err(Error::Other("invalid global value type".to_string()));
         }
-        global.value.set(value.into());
+        global.value = value.into();
         Ok(())
     }
 }

@@ -85,7 +85,10 @@ impl Store {
 
     #[inline]
     pub(crate) fn get_module_instance_internal(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
-        self.get_module_instance(addr).unwrap_or_else(|| unreachable!("invalid module instance: {addr}"))
+        self.module_instances
+            .get(addr as usize)
+            .unwrap_or_else(|| unreachable!("invalid module instance: {addr}"))
+            .clone()
     }
 
     pub(crate) fn enter_execution(&mut self) -> Result<()> {
@@ -215,12 +218,12 @@ impl State {
 
     /// Get the global at the actual index in the store
     pub(crate) fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        self.get_global(addr).value.get()
+        self.get_global(addr).value
     }
 
     /// Set the global at the actual index in the store
     pub(crate) fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        self.get_global_mut(addr).value.set(value);
+        self.get_global_mut(addr).value = value;
     }
 }
 
@@ -300,14 +303,13 @@ impl Store {
     pub(crate) fn init_globals(
         &mut self,
         out: &mut Vec<Addr>,
-        new_globals: &[Global],
+        globals: &[Global],
         func_addrs: &[FuncAddr],
     ) -> Result<()> {
         let start = self.state.globals.len() as Addr;
-        out.reserve_exact(new_globals.len());
-        self.state.globals.reserve_exact(new_globals.len());
+        out.extend(start..start + globals.len() as Addr);
 
-        for (i, global) in new_globals.iter().enumerate() {
+        for global in globals {
             let value = match self.eval_const(&global.init, out, func_addrs) {
                 Ok(val) => val,
                 Err(e) => {
@@ -315,29 +317,31 @@ impl Store {
                     return Err(e);
                 }
             };
-
             self.state.globals.push(GlobalInstance::new(global.ty, value));
-            out.push(start + i as Addr);
         }
 
         Ok(())
     }
 
     fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
-        let res = match item {
-            ElementItem::Func(addr) => match funcs.get(*addr as usize) {
-                Some(func_addr) => Some(*func_addr),
-                None => {
+        match item {
+            ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs)? {
+                TinyWasmValue::ValueRef(v) => Ok(v.addr()),
+                other => {
                     cold_path();
-                    return Err(Error::Other(format!(
-                        "function {addr} not found. This should have been caught by the validator"
-                    )));
+                    Err(Error::Other(format!("expected ref type, got {other:?}")))
                 }
             },
-            ElementItem::Expr(expr) => self.eval_ref_const(expr, globals, funcs)?,
-        };
-
-        Ok(res)
+            ElementItem::Func(addr) => match funcs.get(*addr as usize) {
+                Some(func_addr) => Ok(Some(*func_addr)),
+                None => {
+                    cold_path();
+                    Err(Error::Other(format!(
+                        "function {addr} not found. This should have been caught by the validator"
+                    )))
+                }
+            },
+        }
     }
 
     /// Add elements to the store, returning their addresses in the store
@@ -398,7 +402,7 @@ impl Store {
                 }
             };
 
-            self.state.elements.push(ElementInstance { kind: element.kind.clone(), items });
+            self.state.elements.push(ElementInstance { items });
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -428,13 +432,14 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    match mem.inner.write_all(offset as usize, &data.data) {
+                    let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+                    match mem.inner.write_all(offset, &data.data) {
                         Some(()) => None,
                         None => {
                             return Ok((
                                 data_addrs.into_boxed_slice(),
                                 Some(crate::Trap::MemoryOutOfBounds {
-                                    offset: offset as usize,
+                                    offset,
                                     len: data.data.len(),
                                     max: mem.inner.len(),
                                 }),
@@ -474,6 +479,7 @@ impl Store {
     }
 
     /// Evaluate a constant expression
+    #[inline]
     fn eval_const(
         &self,
         const_instrs: &[tinywasm_types::ConstInstruction],
@@ -495,12 +501,12 @@ impl Store {
                 return Err(Error::Other(format!("global {addr} not found")));
             };
 
-            Ok(global.value.get())
+            Ok(global.value)
         };
 
         let resolve_func = |idx: u32| -> Result<u32> {
-            match module_func_addrs.get(idx as usize).copied() {
-                Some(func_addr) => Ok(func_addr),
+            match module_func_addrs.get(idx as usize) {
+                Some(func_addr) => Ok(*func_addr),
                 None => {
                     cold_path();
                     Err(Error::Other(format!(
@@ -530,7 +536,7 @@ impl Store {
             return Ok(val);
         }
 
-        let mut stack = Vec::with_capacity(const_instrs.len());
+        let mut stack = Vec::new();
         for instr in const_instrs {
             match instr {
                 I32Const(i) => stack.push(TinyWasmValue::Value32(*i as u32)),
@@ -560,7 +566,10 @@ impl Store {
                         I32Add => lhs.wrapping_add(rhs),
                         I32Sub => lhs.wrapping_sub(rhs),
                         I32Mul => lhs.wrapping_mul(rhs),
-                        _ => unreachable!("invalid const instruction in i32 op"),
+                        _ => {
+                            cold_path();
+                            return Err(Error::other("invalid const instruction in i32 op"));
+                        }
                     };
                     stack.push(TinyWasmValue::Value32(out as u32));
                 }
@@ -578,7 +587,10 @@ impl Store {
                         I64Add => lhs.wrapping_add(rhs),
                         I64Sub => lhs.wrapping_sub(rhs),
                         I64Mul => lhs.wrapping_mul(rhs),
-                        _ => unreachable!("invalid const instruction in i64 op"),
+                        _ => {
+                            cold_path();
+                            return Err(Error::other("invalid const instruction in i64 op"));
+                        }
                     };
                     stack.push(TinyWasmValue::Value64(out as u64));
                 }
@@ -594,19 +606,7 @@ impl Store {
             cold_path();
             return Err(Error::other("const expression did not reduce to single value"));
         }
-        Ok(value)
-    }
 
-    fn eval_ref_const(
-        &self,
-        const_instrs: &[tinywasm_types::ConstInstruction],
-        module_global_addrs: &[Addr],
-        module_func_addrs: &[FuncAddr],
-    ) -> Result<Option<u32>> {
-        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
-        match value {
-            TinyWasmValue::ValueRef(v) => Ok(v.addr()),
-            other => Err(Error::Other(format!("expected reference const value, got {other:?}"))),
-        }
+        Ok(value)
     }
 }
