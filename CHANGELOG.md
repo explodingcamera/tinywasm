@@ -9,7 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `instantiate` / `start` / `start_func` no longer fall back to `_start` if the module has no start section. This is technically a breaking change, but it is more consistent with the WebAssembly spec and prevents accidental execution of `_start` in wasi modules that don't have a start section. Call the `_start` function explicitly if you want to run it.
+- Fixed table addressing for 64-bit tables.
+- Added `validation` option to `ParserConfig` to enable/disable wasmparser validation.
+
+### Breaking Changes
+
+- `instantiate` / `start` / `start_func` no longer fall back to `_start` if the module has no start section. Call the `_start` function explicitly if you want to run it.
+- Removed the parser's `optimize_remove_nop` option and accessors.
+- Changed public `Instruction` variants and the `.twasm` format. Existing archives must be regenerated.
+- `TableType` limits now use `u64`. Use `TableType::new` or `TableType::new64` instead of struct literals.
 
 ## [0.9.1] - 2026-06-29
 

@@ -7,7 +7,7 @@ use crate::Module;
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
-const TWASM_VERSION: &[u8; 2] = b"03";
+const TWASM_VERSION: &[u8; 2] = b"04";
 
 fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
