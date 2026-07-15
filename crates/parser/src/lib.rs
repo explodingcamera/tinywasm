@@ -177,7 +177,7 @@ impl Parser {
     #[cfg(feature = "std")]
     fn read_more(stream: &mut impl std::io::Read, buffer: &mut alloc::vec::Vec<u8>, hint: usize) -> Result<usize> {
         let len = buffer.len();
-        buffer.extend((0..hint).map(|_| 0u8));
+        buffer.resize(len + hint, 0);
         let read_bytes = stream
             .read(&mut buffer[len..])
             .map_err(|e| ParseError::Other(alloc::format!("Error reading from stream: {e}")))?;
@@ -227,10 +227,16 @@ impl Parser {
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);
         let mut eof = false;
+        let mut buffer_offset = 0;
 
         loop {
-            match parser.parse(&buffer, eof)? {
+            match parser.parse(&buffer[buffer_offset..], eof)? {
                 wasmparser::Chunk::NeedMoreData(hint) => {
+                    if buffer_offset != 0 {
+                        buffer.copy_within(buffer_offset.., 0);
+                        buffer.truncate(buffer.len() - buffer_offset);
+                        buffer_offset = 0;
+                    }
                     let read_bytes = Self::read_more(&mut stream, &mut buffer, hint as usize)?;
                     eof = read_bytes == 0;
                 }
@@ -263,30 +269,31 @@ impl Parser {
                             reader.process_payload(payload, validator.as_mut())?;
                         }
                     }
-                    buffer.drain(..consumed);
+                    buffer_offset += consumed;
 
                     #[cfg(parallel_parser)]
                     if let Some((count, body_offset, section_size)) = deferred_code_section {
-                        while buffer.len() < section_size {
-                            let remaining = section_size - buffer.len();
+                        while buffer.len() - buffer_offset < section_size {
+                            let remaining = section_size - (buffer.len() - buffer_offset);
                             let read_bytes = Self::read_more(&mut stream, &mut buffer, remaining)?;
                             if read_bytes == 0 {
                                 return Err(ParseError::ParseError {
                                     message: "unexpected end-of-file".into(),
-                                    offset: body_offset + buffer.len(),
+                                    offset: body_offset + buffer.len() - buffer_offset,
                                 });
                             }
                         }
 
-                        let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[..section_size].to_vec());
+                        let section_end = buffer_offset + section_size;
+                        let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[buffer_offset..section_end].to_vec());
                         reader.queue_owned_code_section(count, body_offset, section_bytes, validator.as_mut())?;
                         parser.skip_section();
-                        buffer.drain(..section_size);
+                        buffer_offset = section_end;
                         continue;
                     }
 
                     if reader.end_reached {
-                        if !buffer.is_empty() {
+                        if buffer_offset != buffer.len() {
                             return Err(ParseError::Other("trailing bytes after end of module".into()));
                         }
 

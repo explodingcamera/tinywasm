@@ -180,8 +180,7 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncTy
             ty.composite_type
         )));
     };
-    let params: Vec<_> = ty.params().iter().map(convert_valtype).collect();
-    let params = params.into_iter().collect::<Result<Vec<_>>>()?;
+    let params = ty.params().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
     let results = ty.results().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
     Ok(FuncType::new(&params, &results).into())
 }
@@ -209,17 +208,20 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> Result<WasmType>
 }
 
 pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[ConstInstruction]>> {
-    let ops = ops.into_iter().collect::<wasmparser::Result<Vec<_>>>()?;
-    // In practice, the len can never be something other than 2,
-    // but we'll keep this here since it's part of the spec
-    // Invalid modules will be rejected by the validator anyway (there are also tests for this in the testsuite)
-    debug_assert!(ops.len() >= 2);
-    debug_assert!(matches!(ops[ops.len() - 1], wasmparser::Operator::End));
+    let mut out = Vec::new();
+    let mut operator_count = 0;
+    let mut end_reached = false;
 
-    let mut out = Vec::with_capacity(ops.len().saturating_sub(1));
-    for op in ops.iter().take(ops.len() - 1) {
+    for op in ops {
+        let op = op?;
+        operator_count += 1;
+        if matches!(op, wasmparser::Operator::End) {
+            end_reached = true;
+            break;
+        }
+
         let instr = match op {
-            wasmparser::Operator::RefNull { hty } => match convert_heaptype(*hty)? {
+            wasmparser::Operator::RefNull { hty } => match convert_heaptype(hty)? {
                 WasmType::RefFunc => ConstInstruction::RefFunc(None),
                 WasmType::RefExtern => ConstInstruction::RefExtern(None),
                 other => {
@@ -228,13 +230,13 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
                     )));
                 }
             },
-            wasmparser::Operator::RefFunc { function_index } => ConstInstruction::RefFunc(Some(*function_index)),
-            wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(*value),
-            wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(*value),
+            wasmparser::Operator::RefFunc { function_index } => ConstInstruction::RefFunc(Some(function_index)),
+            wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(value),
+            wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(value),
             wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),
             wasmparser::Operator::F64Const { value } => ConstInstruction::F64Const(f64::from_bits(value.bits())),
             wasmparser::Operator::V128Const { value } => ConstInstruction::V128Const(*value.bytes()),
-            wasmparser::Operator::GlobalGet { global_index } => ConstInstruction::GlobalGet(*global_index),
+            wasmparser::Operator::GlobalGet { global_index } => ConstInstruction::GlobalGet(global_index),
             wasmparser::Operator::I32Add => ConstInstruction::I32Add,
             wasmparser::Operator::I32Sub => ConstInstruction::I32Sub,
             wasmparser::Operator::I32Mul => ConstInstruction::I32Mul,
@@ -248,6 +250,10 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             }
         };
         out.push(instr);
+    }
+
+    if operator_count < 2 || !end_reached {
+        return Err(crate::ParseError::Other("constant expression did not end correctly".into()));
     }
 
     Ok(out.into_boxed_slice())
