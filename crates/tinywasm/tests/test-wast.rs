@@ -6,7 +6,7 @@ use tinywasm_cli::wast_runner::WastRunner;
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
-        bail!("usage: cargo test-wast <wast-file>")
+        bail!("usage: cargo test-wast <wast-file>");
     };
 
     let mut cwd = std::env::current_dir()?;

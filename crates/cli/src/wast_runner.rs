@@ -219,7 +219,7 @@ impl WastRunner {
             let span = directive.span();
             use wast::WastDirective::{
                 AssertExhaustion, AssertInvalid, AssertMalformed, AssertReturn, AssertTrap, AssertUnlinkable, Invoke,
-                Module as Wat, Register,
+                Module as Wat, ModuleDefinition, Register,
             };
 
             match directive {
@@ -252,6 +252,17 @@ impl WastRunner {
                     };
 
                     test_group.add_result(&format!("Wat({i})"), span.linecol_in(wast_raw), result.map(|_| ()));
+                }
+                ModuleDefinition(module) => {
+                    let result = catch_unwind_silent(|| {
+                        let (_, bytes) = encode_quote_wat(module);
+                        parse_module_bytes(&bytes)
+                    })
+                    .map_err(|err| eyre!("failed to parse module definition: {}", try_downcast_panic(err)))
+                    .and_then(|result| result)
+                    .map(|_| ());
+
+                    test_group.add_result(&format!("ModuleDefinition({i})"), span.linecol_in(wast_raw), result);
                 }
                 AssertMalformed { span, mut module, message } => {
                     let Ok(encoded) = module.encode() else {
@@ -742,7 +753,9 @@ fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<
 }
 
 fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
-    let wast::WastArg::Core(arg) = arg else { bail!("unsupported arg type: Component") };
+    let wast::WastArg::Core(arg) = arg else {
+        bail!("unsupported arg type: Component");
+    };
     use wast::core::WastArgCore::*;
     Ok(match arg {
         F32(f) => WasmValue::F32(f32::from_bits(f.bits)),
@@ -758,9 +771,13 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern } => {
                 WasmValue::RefExtern(ExternRef::null())
             }
-            _ => bail!("unsupported arg type: refnull: {:?}", t),
+            _ => {
+                bail!("unsupported arg type: refnull: {:?}", t);
+            }
         },
-        RefHost(_) => bail!("unsupported arg type: RefHost"),
+        RefHost(_) => {
+            bail!("unsupported arg type: RefHost");
+        }
     })
 }
 
@@ -781,7 +798,9 @@ fn wast_v128_to_bytes(i: wast::core::V128Pattern) -> [u8; 16] {
 }
 
 fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<WasmValue>> {
-    let wast::WastRet::Core(ret) = ret else { bail!("unsupported arg type") };
+    let wast::WastRet::Core(ret) = ret else {
+        bail!("unsupported arg type");
+    };
     match ret {
         wast::core::WastRetCore::Either(options) => {
             options.into_iter().map(wastretcore2tinywasmvalue).collect::<Result<Vec<_>>>()
@@ -805,14 +824,20 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<WasmValue> 
             Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern }) => {
                 WasmValue::RefExtern(ExternRef::null())
             }
-            _ => bail!("unsupported arg type: refnull: {:?}", t),
+            _ => {
+                bail!("unsupported arg type: refnull: {:?}", t);
+            }
         },
         RefExtern(v) => WasmValue::RefExtern(ExternRef::new(v)),
         RefFunc(v) => WasmValue::RefFunc(FuncRef::new(match v {
             Some(wast::token::Index::Num(n, _)) => Some(n),
-            _ => bail!("unsupported arg type: reffunc: {:?}", v),
+            _ => {
+                bail!("unsupported arg type: reffunc: {:?}", v);
+            }
         })),
-        a => bail!("unsupported arg type {:?}", a),
+        a => {
+            bail!("unsupported arg type {:?}", a);
+        }
     })
 }
 

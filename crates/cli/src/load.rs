@@ -25,14 +25,14 @@ pub fn load_module(input: &str) -> Result<LoadedModule> {
 pub fn load_compilable_module(input: &str) -> Result<Module> {
     let loaded = load_module(input)?;
     if loaded.format == InputFormat::Twasm {
-        bail!("input is already a twasm archive; use `run`, `dump`, or `inspect` instead")
+        bail!("input is already a twasm archive; use `run`, `dump`, or `inspect` instead");
     }
     Ok(loaded.module)
 }
 
 pub fn default_twasm_output_path(input: &str) -> Result<String> {
     if input == "-" {
-        bail!("--output is required when compiling from stdin")
+        bail!("--output is required when compiling from stdin");
     }
 
     let path = Path::new(input);
@@ -50,7 +50,7 @@ pub fn write_output_bytes(output: &str, bytes: &[u8], force: bool) -> Result<()>
 
     let path = Path::new(output);
     if path.exists() && !force {
-        bail!("output file already exists: {output}; pass --force to overwrite")
+        bail!("output file already exists: {output}; pass --force to overwrite");
     }
 
     std::fs::write(path, bytes).with_context(|| format!("failed to write output file `{output}`"))?;

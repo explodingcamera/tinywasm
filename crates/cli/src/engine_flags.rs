@@ -91,7 +91,7 @@ impl EngineFlags {
                 MemoryBackendArg::Vec => tinywasm::MemoryBackend::vec(),
                 MemoryBackendArg::Paged => {
                     if self.memory_page_chunk_size == 0 {
-                        bail!("--memory-page-chunk-size must be greater than zero")
+                        bail!("--memory-page-chunk-size must be greater than zero");
                     }
                     tinywasm::MemoryBackend::paged(self.memory_page_chunk_size)
                 }

@@ -5,7 +5,7 @@ use crate::output::format_wasm_type;
 
 pub fn parse_invocation_args(ty: &FuncType, args: &[String]) -> Result<Vec<WasmValue>> {
     if args.len() != ty.params().len() {
-        bail!("wrong number of arguments: expected {}, got {}", ty.params().len(), args.len())
+        bail!("wrong number of arguments: expected {}, got {}", ty.params().len(), args.len());
     }
 
     ty.params().iter().enumerate().map(|(idx, param_ty)| parse_arg(idx, *param_ty, &args[idx])).collect()
@@ -26,7 +26,7 @@ fn parse_arg(index: usize, ty: WasmType, value: &str) -> Result<WasmValue> {
                 "unsupported CLI argument type at position {}: {}; use the embedding API for reference values",
                 index + 1,
                 format_wasm_type(ty)
-            )
+            );
         }
     };
 
