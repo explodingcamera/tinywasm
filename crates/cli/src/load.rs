@@ -73,7 +73,7 @@ fn load_module_from_bytes(input: &str, bytes: &[u8]) -> Result<LoadedModule> {
 
     #[cfg(not(feature = "wat"))]
     if input != "-" && has_extension(input, "wat") {
-        bail!("wat support is not enabled in this build")
+        bail!("wat support is not enabled in this build");
     }
 
     #[cfg(feature = "wat")]

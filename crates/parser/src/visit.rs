@@ -1017,7 +1017,8 @@ impl FunctionBuilder<'_> {
 
     /// Emits the stack-shaping instruction required by a branch.
     fn emit_dropkeep(&mut self, base: ValueCounts, keep: ValueCounts) {
-        if base.is_empty() && keep.is_empty() {
+        let target = ValueCounts { c32: base.c32 + keep.c32, c64: base.c64 + keep.c64, c128: base.c128 + keep.c128 };
+        if self.lane_counts == target {
             return;
         }
         self.instructions.push(Instruction::DropKeep((base, keep).into()));
