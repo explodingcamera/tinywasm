@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::hint::cold_path;
 
-use super::{LinearMemory, checked_effective_addr};
+use super::{LinearMemory, memory_oob};
 
 /// A contiguous `Vec<u8>`-backed linear memory.
 ///
@@ -33,10 +33,18 @@ impl VecMemory {
     }
 
     #[inline(always)]
-    fn read_fixed<const N: usize>(&self, addr: usize) -> [u8; N] {
-        self.data[addr..addr + N]
-            .try_into()
-            .unwrap_or_else(|_| unreachable!("fixed-width memory read has incorrect length"))
+    fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
+        self.check_fixed_addr::<N>(addr)?;
+        Ok(self.data[addr..addr + N].try_into().unwrap_or_else(|_| unreachable!("slice length should be {N}")))
+    }
+
+    #[inline(always)]
+    fn check_fixed_addr<const N: usize>(&self, addr: usize) -> Result<(), crate::Trap> {
+        if N > self.data.len() || addr > self.data.len() - N {
+            cold_path();
+            return Err(memory_oob(addr, N, self.data.len()));
+        }
+        Ok(())
     }
 }
 
@@ -120,66 +128,63 @@ impl LinearMemory for VecMemory {
     }
 
     #[inline(always)]
-    fn read_8(&self, base: u64, offset: u64) -> core::result::Result<u8, crate::Trap> {
-        Ok(self.data[checked_effective_addr::<1>(self.data.len(), base, offset)?])
+    fn read_8(&self, addr: usize) -> core::result::Result<[u8; 1], crate::Trap> {
+        self.check_fixed_addr::<1>(addr)?;
+        Ok([self.data[addr]])
     }
 
     #[inline(always)]
-    fn read_16(&self, base: u64, offset: u64) -> core::result::Result<[u8; 2], crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.data.len(), base, offset)?;
-        Ok(self.read_fixed::<2>(addr))
+    fn read_16(&self, addr: usize) -> core::result::Result<[u8; 2], crate::Trap> {
+        self.read_fixed::<2>(addr)
     }
 
     #[inline(always)]
-    fn read_32(&self, base: u64, offset: u64) -> core::result::Result<[u8; 4], crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.data.len(), base, offset)?;
-        Ok(self.read_fixed::<4>(addr))
+    fn read_32(&self, addr: usize) -> core::result::Result<[u8; 4], crate::Trap> {
+        self.read_fixed::<4>(addr)
     }
 
     #[inline(always)]
-    fn read_64(&self, base: u64, offset: u64) -> core::result::Result<[u8; 8], crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.data.len(), base, offset)?;
-        Ok(self.read_fixed::<8>(addr))
+    fn read_64(&self, addr: usize) -> core::result::Result<[u8; 8], crate::Trap> {
+        self.read_fixed::<8>(addr)
     }
 
     #[inline(always)]
-    fn read_128(&self, base: u64, offset: u64) -> core::result::Result<[u8; 16], crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.data.len(), base, offset)?;
-        Ok(self.read_fixed::<16>(addr))
+    fn read_128(&self, addr: usize) -> core::result::Result<[u8; 16], crate::Trap> {
+        self.read_fixed::<16>(addr)
     }
 
     #[inline(always)]
-    fn write_8(&mut self, base: u64, offset: u64, byte: u8) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<1>(self.data.len(), base, offset)?;
-        self.data[addr] = byte;
+    fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.check_fixed_addr::<1>(addr)?;
+        self.data[addr] = bytes[0];
         Ok(())
     }
 
     #[inline(always)]
-    fn write_16(&mut self, base: u64, offset: u64, bytes: [u8; 2]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.data.len(), base, offset)?;
-        self.data[addr..addr + 2].copy_from_slice(&bytes);
+    fn write_16(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.check_fixed_addr::<2>(addr)?;
+        self.data[addr..addr + 2].copy_from_slice(bytes);
         Ok(())
     }
 
     #[inline(always)]
-    fn write_32(&mut self, base: u64, offset: u64, bytes: [u8; 4]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.data.len(), base, offset)?;
-        self.data[addr..addr + 4].copy_from_slice(&bytes);
+    fn write_32(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.check_fixed_addr::<4>(addr)?;
+        self.data[addr..addr + 4].copy_from_slice(bytes);
         Ok(())
     }
 
     #[inline(always)]
-    fn write_64(&mut self, base: u64, offset: u64, bytes: [u8; 8]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.data.len(), base, offset)?;
-        self.data[addr..addr + 8].copy_from_slice(&bytes);
+    fn write_64(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.check_fixed_addr::<8>(addr)?;
+        self.data[addr..addr + 8].copy_from_slice(bytes);
         Ok(())
     }
 
     #[inline(always)]
-    fn write_128(&mut self, base: u64, offset: u64, bytes: [u8; 16]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.data.len(), base, offset)?;
-        self.data[addr..addr + 16].copy_from_slice(&bytes);
+    fn write_128(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.check_fixed_addr::<16>(addr)?;
+        self.data[addr..addr + 16].copy_from_slice(bytes);
         Ok(())
     }
 }

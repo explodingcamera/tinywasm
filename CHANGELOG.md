@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the parser's `optimize_remove_nop` option and accessors.
 - Changed public `Instruction` variants and the `.twasm` format. Existing archives must be regenerated.
 - `TableType` limits now use `u64`. Use `TableType::new` or `TableType::new64` instead of struct literals.
+- `LinearMemory` trait now uses a single `usize` address for all memory operations
 
 ## [0.9.1] - 2026-06-29
 

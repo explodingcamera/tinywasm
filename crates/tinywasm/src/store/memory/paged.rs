@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use core::cmp::min;
 use core::hint::cold_path;
 
-use super::{LinearMemory, checked_effective_addr};
+use super::{LinearMemory, memory_oob};
 
 /// A sparse chunked linear memory.
 ///
@@ -275,151 +275,25 @@ impl LinearMemory for PagedMemory {
     }
 
     #[inline(always)]
-    fn read_8(&self, base: u64, offset: u64) -> core::result::Result<u8, crate::Trap> {
-        let addr = checked_effective_addr::<1>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        Ok(self.chunk_slice(chunk_idx).map_or(0, |chunk| chunk[chunk_offset]))
-    }
-
-    #[inline(always)]
-    fn read_16(&self, base: u64, offset: u64) -> core::result::Result<[u8; 2], crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 2 <= self.chunk_size {
-            return Ok(match self.chunk_slice(chunk_idx) {
-                Some(chunk) => chunk[chunk_offset..chunk_offset + 2].try_into().unwrap_or_else(|_| unreachable!()),
-                None => [0; 2],
-            });
+    fn read_8(&self, addr: usize) -> core::result::Result<[u8; 1], crate::Trap> {
+        if addr >= self.len {
+            cold_path();
+            return Err(memory_oob(addr, 1, self.len));
         }
-
-        let mut bytes = [0; 2];
-        self.read_exact(addr, &mut bytes).unwrap();
-        Ok(bytes)
+        let chunk_idx = addr >> self.chunk_shift;
+        let chunk_offset = addr & self.chunk_mask;
+        Ok([self.chunk_slice(chunk_idx).map_or(0, |chunk| chunk[chunk_offset])])
     }
 
     #[inline(always)]
-    fn read_32(&self, base: u64, offset: u64) -> core::result::Result<[u8; 4], crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 4 <= self.chunk_size {
-            return Ok(match self.chunk_slice(chunk_idx) {
-                Some(chunk) => chunk[chunk_offset..chunk_offset + 4].try_into().unwrap_or_else(|_| unreachable!()),
-                None => [0; 4],
-            });
+    fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        if addr >= self.len {
+            cold_path();
+            return Err(memory_oob(addr, 1, self.len));
         }
-
-        let mut bytes = [0; 4];
-        self.read_exact(addr, &mut bytes).unwrap();
-        Ok(bytes)
-    }
-
-    #[inline(always)]
-    fn read_64(&self, base: u64, offset: u64) -> core::result::Result<[u8; 8], crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.len, base, offset)?;
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 8 <= self.chunk_size {
-            return Ok(match self.chunk_slice(chunk_idx) {
-                Some(chunk) => chunk[chunk_offset..chunk_offset + 8].try_into().unwrap_or_else(|_| unreachable!()),
-                None => [0; 8],
-            });
-        }
-
-        let mut bytes = [0; 8];
-        self.read_exact(addr, &mut bytes).unwrap();
-        Ok(bytes)
-    }
-
-    #[inline(always)]
-    fn read_128(&self, base: u64, offset: u64) -> core::result::Result<[u8; 16], crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 16 <= self.chunk_size {
-            return Ok(match self.chunk_slice(chunk_idx) {
-                Some(chunk) => chunk[chunk_offset..chunk_offset + 16].try_into().unwrap_or_else(|_| unreachable!()),
-                None => [0; 16],
-            });
-        }
-
-        let mut bytes = [0; 16];
-        self.read_exact(addr, &mut bytes).unwrap();
-        Ok(bytes)
-    }
-
-    #[inline(always)]
-    fn write_8(&mut self, base: u64, offset: u64, byte: u8) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<1>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        self.chunk_mut(chunk_idx)?[chunk_offset] = byte;
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_16(&mut self, base: u64, offset: u64, bytes: [u8; 2]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 2 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 2].copy_from_slice(&bytes);
-        } else {
-            if self.write_all(addr, &bytes).is_none() {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_32(&mut self, base: u64, offset: u64, bytes: [u8; 4]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 4 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 4].copy_from_slice(&bytes);
-        } else {
-            if self.write_all(addr, &bytes).is_none() {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_64(&mut self, base: u64, offset: u64, bytes: [u8; 8]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 8 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 8].copy_from_slice(&bytes);
-        } else {
-            if self.write_all(addr, &bytes).is_none() {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_128(&mut self, base: u64, offset: u64, bytes: [u8; 16]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.len, base, offset)?;
-        let chunk_idx = addr >> self.chunk_shift;
-        let chunk_offset = addr & self.chunk_mask;
-        if chunk_offset + 16 <= self.chunk_size {
-            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + 16].copy_from_slice(&bytes);
-        } else {
-            if self.write_all(addr, &bytes).is_none() {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
+        self.chunk_mut(chunk_idx)?[chunk_offset] = bytes[0];
         Ok(())
     }
 }

@@ -33,7 +33,7 @@ impl LazyLinearMemory {
     fn materialize(&mut self) -> &mut dyn LinearMemory {
         if self.inner.is_none() {
             self.inner =
-                Some(self.backend.create(self.ty, self.initial_len).expect("lazy memory materialization failed").0);
+                Some(self.backend.create(self.ty, self.initial_len).expect("lazy memory materialization failed"));
         }
         self.inner.as_deref_mut().expect("lazy memory should be materialized")
     }
@@ -48,7 +48,7 @@ impl LazyLinearMemory {
                 }
                 Err(err) => panic!("lazy memory materialization failed: {err}"),
             };
-            self.inner = Some(storage.0);
+            self.inner = Some(storage);
         }
         Ok(self.inner.as_deref_mut().expect("lazy memory should be materialized"))
     }

@@ -9,15 +9,52 @@ use core::hint::cold_path;
 /// A WebAssembly Memory Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
-#[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct MemoryInstance {
     pub(crate) kind: MemoryType,
     pub(crate) inner: MemoryStorage,
     pub(crate) page_count: usize,
 }
 
+#[cfg(feature = "debug")]
+impl core::fmt::Debug for MemoryInstance {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MemoryInstance").field("kind", &self.kind).field("page_count", &self.page_count).finish()
+    }
+}
+
 impl MemoryInstance {
     const COPY_CHUNK_SIZE: usize = 4 * 1024;
+
+    #[inline(always)]
+    pub(crate) fn effective_addr_32<const N: usize>(&self, base: u32, offset: u64) -> Result<usize, Trap> {
+        #[cfg(target_pointer_width = "64")]
+        {
+            debug_assert!(u32::try_from(offset).is_ok(), "validated memory32 offsets fit in u32");
+            Ok(base as usize + offset as usize)
+        }
+
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            match usize::try_from(u64::from(base) + offset) {
+                Ok(addr) => Ok(addr),
+                Err(_) => {
+                    cold_path();
+                    Err(memory_oob(base as usize, N, self.inner.len()))
+                }
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn effective_addr_64<const N: usize>(&self, base: u64, offset: u64) -> Result<usize, Trap> {
+        match base.checked_add(offset).and_then(|addr| usize::try_from(addr).ok()) {
+            Some(addr) => Ok(addr),
+            None => {
+                cold_path();
+                Err(memory_oob(base as usize, N, self.inner.len()))
+            }
+        }
+    }
 
     pub(crate) fn new(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
         assert!(kind.page_count_initial() <= kind.page_count_max());
@@ -60,132 +97,6 @@ impl MemoryInstance {
 
     pub(crate) const fn is_64bit(&self) -> bool {
         matches!(self.kind.arch(), MemoryArch::I64)
-    }
-
-    #[inline(always)]
-    pub(crate) fn load<const SIZE: usize>(&self, base: u64, offset: u64) -> Result<[u8; SIZE], Trap> {
-        // the compiler doesn't optimize .as_slice().try_into() for some reason, so we have to manually copy the bytes into an array
-        // heavy usage of cold_path() seems to help a lot from looking at profile data
-        match SIZE {
-            1 => {
-                let res = match self.inner.read_8(base, offset) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        cold_path();
-                        return Err(e);
-                    }
-                };
-                let mut bytes = [0; SIZE];
-                bytes[0] = res;
-                Ok(bytes)
-            }
-            2 => {
-                let res = match self.inner.read_16(base, offset) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        cold_path();
-                        return Err(e);
-                    }
-                };
-                let mut bytes = [0; SIZE];
-                bytes[0] = res[0];
-                bytes[1] = res[1];
-                Ok(bytes)
-            }
-            4 => {
-                let mut bytes = [0; SIZE];
-                let res = match self.inner.read_32(base, offset) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        cold_path();
-                        return Err(e);
-                    }
-                };
-                bytes[0] = res[0];
-                bytes[1] = res[1];
-                bytes[2] = res[2];
-                bytes[3] = res[3];
-                Ok(bytes)
-            }
-            8 => {
-                let mut bytes = [0; SIZE];
-                let res = match self.inner.read_64(base, offset) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        cold_path();
-                        return Err(e);
-                    }
-                };
-                bytes[0] = res[0];
-                bytes[1] = res[1];
-                bytes[2] = res[2];
-                bytes[3] = res[3];
-                bytes[4] = res[4];
-                bytes[5] = res[5];
-                bytes[6] = res[6];
-                bytes[7] = res[7];
-                Ok(bytes)
-            }
-            16 => {
-                let mut bytes = [0; SIZE];
-                let res = match self.inner.read_128(base, offset) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        cold_path();
-                        return Err(e);
-                    }
-                };
-                bytes[0] = res[0];
-                bytes[1] = res[1];
-                bytes[2] = res[2];
-                bytes[3] = res[3];
-                bytes[4] = res[4];
-                bytes[5] = res[5];
-                bytes[6] = res[6];
-                bytes[7] = res[7];
-                bytes[8] = res[8];
-                bytes[9] = res[9];
-                bytes[10] = res[10];
-                bytes[11] = res[11];
-                bytes[12] = res[12];
-                bytes[13] = res[13];
-                bytes[14] = res[14];
-                bytes[15] = res[15];
-                Ok(bytes)
-            }
-            _ => unreachable!("unsupported fixed-size read width {SIZE}"),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn store<const SIZE: usize>(&mut self, base: u64, offset: u64, bytes: [u8; SIZE]) -> Result<(), Trap> {
-        // the compiler doesn't optimize .as_slice().try_into() for some reason, so we have to manually copy the bytes into an array
-        // heavy usage of cold_path() seems to help a lot from looking at profile data
-        let res = match SIZE {
-            1 => self.inner.write_8(base, offset, bytes[0]),
-            2 => self.inner.write_16(base, offset, [bytes[0], bytes[1]]),
-            4 => self.inner.write_32(base, offset, [bytes[0], bytes[1], bytes[2], bytes[3]]),
-            8 => self.inner.write_64(
-                base,
-                offset,
-                [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]],
-            ),
-            16 => self.inner.write_128(
-                base,
-                offset,
-                [
-                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
-                    bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
-                ],
-            ),
-            _ => unreachable!("unsupported fixed-size write width {SIZE}"),
-        };
-
-        if let Err(e) = res {
-            cold_path();
-            return Err(e);
-        }
-        Ok(())
     }
 
     pub(crate) fn copy_from_memory(

@@ -9,7 +9,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use alloc::sync::Arc;
-use interpreter::stack::CallFrame;
+use interpreter::stack::{CallFrame, ValueStack};
 use tinywasm_types::*;
 
 use super::ExecState;
@@ -31,6 +31,19 @@ pub(crate) struct Executor<'store, const BUDGETED: bool> {
 }
 
 impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
+    #[inline(always)]
+    fn pop_memory_addr<const N: usize>(
+        stack: &mut ValueStack,
+        mem: &MemoryInstance,
+        offset: u64,
+    ) -> Result<usize, Trap> {
+        if mem.is_64bit() {
+            mem.effective_addr_64::<N>(<i64>::stack_pop(stack) as u64, offset)
+        } else {
+            mem.effective_addr_32::<N>(<i32>::stack_pop(stack) as u32, offset)
+        }
+    }
+
     pub(crate) fn new(store: &'store mut Store, cf: CallFrame, call_stack_base: u32) -> Self {
         let wasm_func = store.state.get_wasm_func(cf.func_addr);
         let module = store.get_module_instance_internal(wasm_func.owner);
@@ -240,18 +253,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             }};
         }
 
-        let Some(next) = self.func.instructions.get(self.cf.instr_ptr) else {
-            unreachable!(
-                "Instruction pointer out of bounds: {} ({} instructions)",
-                self.cf.instr_ptr,
-                self.func.instructions.len()
-            )
-        };
-
         use tinywasm_types::Instruction::*;
         #[rustfmt::skip]
-        match next {
-            Unreachable => return Err(Trap::Unreachable),
+        match &self.func.instructions[self.cf.instr_ptr] {
+            Unreachable => { cold_path(); return Err(Trap::Unreachable) },
             Drop32 => { _ = Value32::stack_pop(&mut self.store.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut self.store.value_stack)},
             Drop128 => { _ = Value128::stack_pop(&mut self.store.value_stack)},
@@ -755,10 +760,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I64x2ExtendHighI32x4S => stack_op!(unary Value128, |a| a.i64x2_extend_high_i32x4_s()),
             I64x2ExtendHighI32x4U => stack_op!(unary Value128, |a| a.i64x2_extend_high_i32x4_u()),
             I8x16Popcnt => stack_op!(unary Value128, |v| v.i8x16_popcnt()),
-            I8x16Shuffle(idx) => {
-                let mask = self.func.data.v128_const(*idx);
-                stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, Value128(mask)))
-            },
+            I8x16Shuffle(idx) => stack_op!(binary Value128, |a, b| Value128::i8x16_shuffle(a, b, Value128(self.func.data.v128_const(*idx)))),
             I16x8Q15MulrSatS => stack_op!(binary Value128, |a, b| a.i16x8_q15mulr_sat_s(b)),
             I32x4DotI16x8S => stack_op!(binary Value128, |a, b| a.i32x4_dot_i16x8_s(b)),
             I8x16RelaxedLaneselect => stack_op!(ternary Value128, |a, b, c| Value128::i8x16_relaxed_laneselect(a, b, c)),
@@ -822,7 +824,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I32x4RelaxedTruncF64x2UZero => stack_op!(unary Value128, |v| v.i32x4_relaxed_trunc_f64x2_u_zero()),
         };
 
-        self.cf.incr_instr_ptr();
+        self.cf.instr_ptr += 1;
 
         Ok(None)
     }
@@ -985,7 +987,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
 
         self.store.value_stack.extend_from_wasmvalues(&res)?;
-        self.cf.incr_instr_ptr();
+        self.cf.instr_ptr += 1;
         Ok(())
     }
 
@@ -1140,10 +1142,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         addr_local: u8,
         value_local: u8,
     ) -> Result<(), Trap> {
-        let addr = u64::from(u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)));
-        let value = T::local_get(&self.store.value_stack, &self.cf, u16::from(value_local)).to_mem_bytes();
+        let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
+        let value = T::local_get(&self.store.value_stack, &self.cf, u16::from(value_local));
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(memarg.mem_addr()));
-        mem.store(addr, memarg.offset(), value)?;
+        let addr = mem.effective_addr_32::<N>(base, memarg.offset())?;
+        value.store_at(&mut *mem.inner, addr)?;
         Ok(())
     }
 
@@ -1161,7 +1164,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let addr = i32::stack_pop(&mut self.store.value_stack);
         let fma = acc + lhs * rhs;
         let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(m.mem_addr()));
-        mem.store(addr as u32 as u64, m.offset(), fma.to_mem_bytes())?;
+        let addr = mem.effective_addr_32::<N>(addr as u32, m.offset())?;
+        fma.store_at(&mut *mem.inner, addr)?;
         Ok(())
     }
 
@@ -1183,9 +1187,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         addr_local: u8,
     ) -> Result<T, Trap> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(memarg.mem_addr()));
-        let addr = u64::from(u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)));
-        let bytes = mem.load(addr, memarg.offset())?;
-        Ok(T::from_mem_bytes(bytes))
+        let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
+        let addr = mem.effective_addr_32::<N>(base, memarg.offset())?;
+        match T::load_at(&*mem.inner, addr) {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                cold_path();
+                Err(err)
+            }
+        }
     }
 
     fn exec_load_local_tee<T: InternalValue + MemValue<N>, const N: usize>(
@@ -1375,20 +1385,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         lane: u8,
     ) -> Result<(), Trap> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
-        let base = match mem.is_64bit() {
-            true => <i64>::stack_pop(&mut self.store.value_stack) as u64,
-            false => <i32>::stack_pop(&mut self.store.value_stack) as u32 as u64,
-        };
-        let val = match mem.load::<LOAD_SIZE>(base, offset) {
-            Ok(val) => val,
-            Err(e) => {
-                cold_path();
-                return Err(e);
-            }
-        };
+        let addr = Self::pop_memory_addr::<LOAD_SIZE>(&mut self.store.value_stack, mem, offset)?;
+        let val = LOAD::load_at(&*mem.inner, addr)?;
         let offset = lane as usize * LOAD_SIZE;
         let mut imm = <Value128>::stack_pop(&mut self.store.value_stack).to_mem_bytes();
-        imm[offset..offset + LOAD_SIZE].copy_from_slice(&val);
+        imm[offset..offset + LOAD_SIZE].copy_from_slice(&val.to_mem_bytes());
         self.store.value_stack.push(Value128(imm))?;
         Ok(())
     }
@@ -1401,12 +1402,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(mem_addr));
-        let base = match mem.is_64bit() {
-            true => <i64>::stack_pop(&mut self.store.value_stack) as u64,
-            false => <i32>::stack_pop(&mut self.store.value_stack) as u32 as u64,
-        };
+        let addr = Self::pop_memory_addr::<LOAD_SIZE>(&mut self.store.value_stack, mem, offset)?;
 
-        match LOAD::load(&*mem.inner, base, offset) {
+        match LOAD::load_at(&*mem.inner, addr) {
             Ok(val) => {
                 self.store.value_stack.push(cast(val))?;
                 Ok(())
@@ -1426,15 +1424,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     ) -> Result<(), Trap> {
         let bytes = <Value128>::stack_pop(&mut self.store.value_stack).to_mem_bytes();
         let lane_offset = lane as usize * N;
-        let mut val = [0u8; N];
-        val.copy_from_slice(&bytes[lane_offset..lane_offset + N]);
+        let mut val_bytes = [0u8; N];
+        val_bytes.copy_from_slice(&bytes[lane_offset..lane_offset + N]);
+        let val = U::from_mem_bytes(val_bytes);
         let mem_addr = self.module.resolve_mem_addr(mem_addr);
         let mem = self.store.state.get_mem_mut(mem_addr);
-        let addr = match mem.is_64bit() {
-            true => <i64>::stack_pop(&mut self.store.value_stack) as u64,
-            false => <i32>::stack_pop(&mut self.store.value_stack) as u32 as u64,
-        };
-        match mem.store(addr, offset, val) {
+        let addr = Self::pop_memory_addr::<N>(&mut self.store.value_stack, mem, offset)?;
+        match val.store_at(&mut *mem.inner, addr) {
             Ok(()) => Ok(()),
             Err(e) => {
                 cold_path();
@@ -1450,15 +1446,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         cast: impl Fn(T) -> U,
     ) -> Result<(), Trap> {
         let val = <T>::stack_pop(&mut self.store.value_stack);
-        let val = cast(val).to_mem_bytes();
+        let val = cast(val);
 
         let mem_addr = self.module.resolve_mem_addr(mem_addr);
         let mem = self.store.state.get_mem_mut(mem_addr);
-        let addr = match mem.is_64bit() {
-            true => <i64>::stack_pop(&mut self.store.value_stack) as u64,
-            false => <i32>::stack_pop(&mut self.store.value_stack) as u32 as u64,
-        };
-        match mem.store(addr, offset, val) {
+        let addr = Self::pop_memory_addr::<N>(&mut self.store.value_stack, mem, offset)?;
+        match val.store_at(&mut *mem.inner, addr) {
             Ok(()) => Ok(()),
             Err(e) => {
                 cold_path();

@@ -2,7 +2,6 @@ use alloc::{boxed::Box, format, sync::Arc};
 use alloc::{vec, vec::Vec};
 use core::cmp::min;
 use core::hint::cold_path;
-use core::ops::{Deref, DerefMut};
 
 use tinywasm_types::MemoryType;
 
@@ -53,8 +52,13 @@ pub trait LinearMemory {
 
     /// Writes all bytes in `src` starting at `addr`, or returns `None` if any byte could not be written.
     fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
-        let end = addr.checked_add(src.len())?;
+        let Some(end) = addr.checked_add(src.len()) else {
+            cold_path();
+            return None;
+        };
+
         if end > self.len() {
+            cold_path();
             return None;
         }
 
@@ -62,6 +66,7 @@ pub trait LinearMemory {
         while offset < src.len() {
             let written = self.write(addr + offset, &src[offset..]);
             if written == 0 {
+                cold_path();
                 return None;
             }
             offset += written;
@@ -127,8 +132,13 @@ pub trait LinearMemory {
 
     /// Reads exactly `dst.len()` bytes starting at `addr`.
     fn read_exact(&self, addr: usize, dst: &mut [u8]) -> Option<()> {
-        let end = addr.checked_add(dst.len())?;
+        let Some(end) = addr.checked_add(dst.len()) else {
+            cold_path();
+            return None;
+        };
+
         if end > self.len() {
+            cold_path();
             return None;
         }
 
@@ -136,6 +146,7 @@ pub trait LinearMemory {
         while offset < dst.len() {
             let read = self.read(addr + offset, &mut dst[offset..]);
             if read == 0 {
+                cold_path();
                 return None;
             }
             offset += read;
@@ -156,20 +167,18 @@ pub trait LinearMemory {
         Some(data)
     }
 
-    /// Reads exactly 1 byte at the effective address `base + offset`.
-    fn read_8(&self, base: u64, offset: u64) -> core::result::Result<u8, crate::Trap> {
-        let addr = checked_effective_addr::<1>(self.len(), base, offset)?;
+    /// Reads exactly 1 byte at `addr`.
+    fn read_8(&self, addr: usize) -> core::result::Result<[u8; 1], crate::Trap> {
         let mut bytes = [0; 1];
         self.read_exact(addr, &mut bytes).ok_or_else(|| {
             cold_path();
             memory_oob(addr, 1, self.len())
         })?;
-        Ok(bytes[0])
+        Ok(bytes)
     }
 
-    /// Reads exactly 2 bytes at the effective address `base + offset`.
-    fn read_16(&self, base: u64, offset: u64) -> core::result::Result<[u8; 2], crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.len(), base, offset)?;
+    /// Reads exactly 2 bytes at `addr`.
+    fn read_16(&self, addr: usize) -> core::result::Result<[u8; 2], crate::Trap> {
         let mut bytes = [0; 2];
         self.read_exact(addr, &mut bytes).ok_or_else(|| {
             cold_path();
@@ -178,9 +187,8 @@ pub trait LinearMemory {
         Ok(bytes)
     }
 
-    /// Reads exactly 4 bytes at the effective address `base + offset`.
-    fn read_32(&self, base: u64, offset: u64) -> core::result::Result<[u8; 4], crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.len(), base, offset)?;
+    /// Reads exactly 4 bytes at `addr`.
+    fn read_32(&self, addr: usize) -> core::result::Result<[u8; 4], crate::Trap> {
         let mut bytes = [0; 4];
         self.read_exact(addr, &mut bytes).ok_or_else(|| {
             cold_path();
@@ -189,9 +197,8 @@ pub trait LinearMemory {
         Ok(bytes)
     }
 
-    /// Reads exactly 8 bytes at the effective address `base + offset`.
-    fn read_64(&self, base: u64, offset: u64) -> core::result::Result<[u8; 8], crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.len(), base, offset)?;
+    /// Reads exactly 8 bytes at `addr`.
+    fn read_64(&self, addr: usize) -> core::result::Result<[u8; 8], crate::Trap> {
         let mut bytes = [0; 8];
         self.read_exact(addr, &mut bytes).ok_or_else(|| {
             cold_path();
@@ -200,9 +207,8 @@ pub trait LinearMemory {
         Ok(bytes)
     }
 
-    /// Reads exactly 16 bytes at the effective address `base + offset`.
-    fn read_128(&self, base: u64, offset: u64) -> core::result::Result<[u8; 16], crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.len(), base, offset)?;
+    /// Reads exactly 16 bytes at `addr`.
+    fn read_128(&self, addr: usize) -> core::result::Result<[u8; 16], crate::Trap> {
         let mut bytes = [0; 16];
         self.read_exact(addr, &mut bytes).ok_or_else(|| {
             cold_path();
@@ -211,44 +217,41 @@ pub trait LinearMemory {
         Ok(bytes)
     }
 
-    /// Writes exactly 1 byte at the effective address `base + offset`.
-    fn write_8(&mut self, base: u64, offset: u64, byte: u8) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<1>(self.len(), base, offset)?;
-        self.write(addr, &[byte]);
-        Ok(())
+    /// Writes exactly 1 byte at `addr`.
+    fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_all(addr, bytes).ok_or_else(|| {
+            cold_path();
+            memory_oob(addr, 1, self.len())
+        })
     }
 
-    /// Writes exactly 2 bytes at the effective address `base + offset`.
-    fn write_16(&mut self, base: u64, offset: u64, bytes: [u8; 2]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<2>(self.len(), base, offset)?;
-        self.write_all(addr, &bytes).ok_or_else(|| {
+    /// Writes exactly 2 bytes at `addr`.
+    fn write_16(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_all(addr, bytes).ok_or_else(|| {
             cold_path();
             memory_oob(addr, 2, self.len())
         })
     }
 
-    /// Writes exactly 4 bytes at the effective address `base + offset`.
-    fn write_32(&mut self, base: u64, offset: u64, bytes: [u8; 4]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<4>(self.len(), base, offset)?;
-        self.write_all(addr, &bytes).ok_or_else(|| {
+    /// Writes exactly 4 bytes at `addr`.
+    fn write_32(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_all(addr, bytes).ok_or_else(|| {
             cold_path();
             memory_oob(addr, 4, self.len())
         })
     }
 
-    /// Writes exactly 8 bytes at the effective address `base + offset`.
-    fn write_64(&mut self, base: u64, offset: u64, bytes: [u8; 8]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<8>(self.len(), base, offset)?;
-        self.write_all(addr, &bytes).ok_or_else(|| {
+    /// Writes exactly 8 bytes at `addr`.
+    fn write_64(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_all(addr, bytes).ok_or_else(|| {
             cold_path();
             memory_oob(addr, 8, self.len())
         })
     }
 
-    /// Writes exactly 16 bytes at the effective address `base + offset`.
-    fn write_128(&mut self, base: u64, offset: u64, bytes: [u8; 16]) -> core::result::Result<(), crate::Trap> {
-        let addr = checked_effective_addr::<16>(self.len(), base, offset)?;
-        self.write_all(addr, &bytes).ok_or_else(|| {
+    /// Writes exactly 16 bytes at `addr`.
+    fn write_128(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_all(addr, bytes).ok_or_else(|| {
             cold_path();
             memory_oob(addr, 16, self.len())
         })
@@ -259,12 +262,10 @@ type MemoryFactory = dyn Fn(MemoryType) -> Result<Box<dyn LinearMemory>> + Send 
 
 /// Configures how runtime memory instances are created.
 #[derive(Clone, Default)]
-pub struct MemoryBackend {
-    kind: MemoryBackendKind,
-}
+pub struct MemoryBackend(MemoryBackendInner);
 
 #[derive(Clone, Default)]
-enum MemoryBackendKind {
+enum MemoryBackendInner {
     #[default]
     Vec,
     Paged {
@@ -279,7 +280,7 @@ impl MemoryBackend {
     /// This is usually the fastest option for reads and writes, but large grows can be expensive
     /// because they may reallocate and copy the entire buffer.
     pub const fn vec() -> Self {
-        Self { kind: MemoryBackendKind::Vec }
+        Self(MemoryBackendInner::Vec)
     }
 
     /// Uses sparse chunked storage for each memory instance.
@@ -290,7 +291,7 @@ impl MemoryBackend {
     /// little more work and may be slightly slower.
     pub fn paged(chunk_size: usize) -> Self {
         assert!(chunk_size != 0, "chunk_size must be greater than zero");
-        Self { kind: MemoryBackendKind::Paged { chunk_size } }
+        Self(MemoryBackendInner::Paged { chunk_size })
     }
 
     /// Uses a custom factory to create memory instances.
@@ -299,23 +300,21 @@ impl MemoryBackend {
         F: Fn(MemoryType) -> Result<M> + Send + Sync + 'static,
         M: LinearMemory + 'static,
     {
-        Self {
-            kind: MemoryBackendKind::Custom(Arc::new(move |ty| {
-                let memory = factory(ty)?;
-                Ok(Box::new(memory) as Box<dyn LinearMemory>)
-            })),
-        }
+        Self(MemoryBackendInner::Custom(Arc::new(move |ty| {
+            let memory = factory(ty)?;
+            Ok(Box::new(memory) as Box<dyn LinearMemory>)
+        })))
     }
 
     pub(crate) fn create(&self, ty: MemoryType, initial_len: usize) -> Result<MemoryStorage> {
-        let storage = match &self.kind {
-            MemoryBackendKind::Vec => {
+        let storage = match &self.0 {
+            MemoryBackendInner::Vec => {
                 Box::new(VecMemory::try_new(initial_len).map_err(Error::Trap)?) as Box<dyn LinearMemory>
             }
-            MemoryBackendKind::Paged { chunk_size } => {
+            MemoryBackendInner::Paged { chunk_size } => {
                 Box::new(PagedMemory::try_new(initial_len, *chunk_size).map_err(Error::Trap)?) as Box<dyn LinearMemory>
             }
-            MemoryBackendKind::Custom(factory) => factory(ty)?,
+            MemoryBackendInner::Custom(factory) => factory(ty)?,
         };
 
         if storage.len() < initial_len {
@@ -325,150 +324,87 @@ impl MemoryBackend {
             )));
         }
 
-        Ok(MemoryStorage(storage))
+        Ok(storage)
     }
 
     pub(crate) fn create_lazy(&self, ty: MemoryType, initial_len: usize) -> Result<MemoryStorage> {
-        Ok(MemoryStorage(Box::new(LazyLinearMemory::new_with_initial_len(ty, initial_len, self.clone()))))
+        Ok(Box::new(LazyLinearMemory::new_with_initial_len(ty, initial_len, self.clone())))
     }
 }
 
 #[cfg(feature = "debug")]
 impl core::fmt::Debug for MemoryBackend {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match &self.kind {
-            MemoryBackendKind::Vec => f.debug_tuple("MemoryBackend::Vec").finish(),
-            MemoryBackendKind::Paged { chunk_size } => {
+        match &self.0 {
+            MemoryBackendInner::Vec => f.debug_tuple("MemoryBackend::Vec").finish(),
+            MemoryBackendInner::Paged { chunk_size } => {
                 f.debug_struct("MemoryBackend::Paged").field("chunk_size", chunk_size).finish()
             }
-            MemoryBackendKind::Custom(_) => f.debug_tuple("MemoryBackend::Custom").finish(),
+            MemoryBackendInner::Custom(_) => f.debug_tuple("MemoryBackend::Custom").finish(),
         }
     }
 }
 
-pub(crate) struct MemoryStorage(Box<dyn LinearMemory>);
-
-impl Deref for MemoryStorage {
-    type Target = dyn LinearMemory;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &*self.0
-    }
-}
-
-impl DerefMut for MemoryStorage {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.0
-    }
-}
-
-#[cfg(feature = "debug")]
-impl core::fmt::Debug for MemoryStorage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("MemoryStorage").field(&format!("{} bytes", self.len())).finish()
-    }
-}
+pub(crate) type MemoryStorage = Box<dyn LinearMemory>;
 
 /// A trait for types that can be converted to and from static byte arrays
 pub(crate) trait MemValue<const N: usize>: Copy + Default {
     /// Store a value in memory
     fn to_mem_bytes(self) -> [u8; N];
 
-    /// Load a value from memory
     fn from_mem_bytes(bytes: [u8; N]) -> Self;
 
-    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap>;
+    fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap>;
+
+    fn store_at(self, mem: &mut dyn LinearMemory, addr: usize) -> core::result::Result<(), crate::Trap>;
 }
 
 macro_rules! impl_mem_traits {
-    ($($ty:ty, $size:expr, $read:ident),* $(,)?) => {
+    ($($ty:ty, $size:expr, $read:ident, $write:ident),* $(,)?) => {
         $(
             impl MemValue<$size> for $ty {
-                #[inline(always)]
-                fn from_mem_bytes(bytes: [u8; $size]) -> Self {
-                    <$ty>::from_le_bytes(bytes)
-                }
-
                 #[inline(always)]
                 fn to_mem_bytes(self) -> [u8; $size] {
                     self.to_le_bytes()
                 }
 
                 #[inline(always)]
-                fn load(
-                    mem: &dyn LinearMemory,
-                    base: u64,
-                    offset: u64,
-                ) -> core::result::Result<Self, crate::Trap> {
-                    Ok(Self::from_mem_bytes(mem.$read(base, offset)?))
+                fn from_mem_bytes(bytes: [u8; $size]) -> Self {
+                    Self::from_le_bytes(bytes)
+                }
+
+                #[inline(always)]
+                fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
+                    Ok(Self::from_mem_bytes(match mem.$read(addr) {
+                        Ok(bytes) => bytes,
+                        Err(trap) => {
+                            cold_path();
+                            return Err(trap);
+                        }
+                    }))
+                }
+
+                #[inline(always)]
+                fn store_at(
+                    self,
+                    mem: &mut dyn LinearMemory,
+                    addr: usize,
+                ) -> core::result::Result<(), crate::Trap> {
+                    mem.$write(addr, &self.to_mem_bytes())
                 }
             }
         )*
     };
 }
 
-impl MemValue<1> for u8 {
-    #[inline(always)]
-    fn from_mem_bytes(bytes: [u8; 1]) -> Self {
-        bytes[0]
-    }
-
-    #[inline(always)]
-    fn to_mem_bytes(self) -> [u8; 1] {
-        [self]
-    }
-
-    #[inline(always)]
-    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
-        mem.read_8(base, offset)
-    }
-}
-
-impl MemValue<1> for i8 {
-    #[inline(always)]
-    fn from_mem_bytes(bytes: [u8; 1]) -> Self {
-        i8::from_le_bytes(bytes)
-    }
-
-    #[inline(always)]
-    fn to_mem_bytes(self) -> [u8; 1] {
-        self.to_le_bytes()
-    }
-
-    #[inline(always)]
-    fn load(mem: &dyn LinearMemory, base: u64, offset: u64) -> core::result::Result<Self, crate::Trap> {
-        Ok(mem.read_8(base, offset)? as i8)
-    }
-}
-
 impl_mem_traits!(
-    u16, 2, read_16, i16, 2, read_16, u32, 4, read_32, i32, 4, read_32, f32, 4, read_32, u64, 8, read_64, i64, 8,
-    read_64, f64, 8, read_64, Value128, 16, read_128
+    u8, 1, read_8, write_8, i8, 1, read_8, write_8, u16, 2, read_16, write_16, i16, 2, read_16, write_16, u32, 4,
+    read_32, write_32, i32, 4, read_32, write_32, f32, 4, read_32, write_32, u64, 8, read_64, write_64, i64, 8,
+    read_64, write_64, f64, 8, read_64, write_64, Value128, 16, read_128, write_128
 );
 
 fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
     crate::Trap::MemoryOutOfBounds { offset, len, max }
-}
-
-fn checked_effective_addr<const LEN: usize>(
-    max: usize,
-    base: u64,
-    offset: u64,
-) -> core::result::Result<usize, crate::Trap> {
-    let Some(max_addr) = max.checked_sub(LEN).map(|max_addr| max_addr as u64) else {
-        cold_path();
-        return Err(memory_oob(usize::try_from(base).unwrap_or(usize::MAX), LEN, max));
-    };
-
-    let addr = base.wrapping_add(offset);
-    if addr < base || addr > max_addr {
-        cold_path();
-        return Err(memory_oob(usize::try_from(addr).unwrap_or(usize::MAX), LEN, max));
-    }
-
-    Ok(addr as usize)
 }
 
 #[cfg(test)]
@@ -482,6 +418,23 @@ mod tests {
 
     fn test_backends() -> [MemoryBackend; 2] {
         [MemoryBackend::vec(), MemoryBackend::paged(4)]
+    }
+
+    #[test]
+    fn effective_memory_addresses_handle_host_and_wasm_overflow() {
+        let memory = create_test_memory(MemoryType::new(MemoryArch::I32, 1, Some(1), None), MemoryBackend::vec());
+        assert_eq!(memory.effective_addr_32::<1>(1, 2), Ok(3));
+        assert_eq!(memory.effective_addr_64::<1>(1, 2), Ok(3));
+        assert!(memory.effective_addr_64::<1>(u64::MAX, 1).is_err());
+
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            memory.effective_addr_32::<1>(u32::MAX, u64::from(u32::MAX)),
+            Ok(usize::try_from(u64::from(u32::MAX) * 2).unwrap())
+        );
+
+        #[cfg(target_pointer_width = "32")]
+        assert!(memory.effective_addr_32::<1>(u32::MAX, 1).is_err());
     }
 
     #[test]
@@ -515,6 +468,20 @@ mod tests {
             let data = [1, 2, 3, 4];
             let len = memory.inner.len();
             assert!(memory.inner.write_all(len, &data).is_none());
+        }
+    }
+
+    #[test]
+    fn fixed_width_access_out_of_bounds_traps() {
+        for backend in test_backends() {
+            let kind = MemoryType::new(MemoryArch::I32, 1, Some(2), None);
+            let mut memory = create_test_memory(kind, backend);
+            let len = memory.inner.len();
+
+            assert!(memory.inner.read_8(len).is_err());
+            assert!(memory.inner.read_32(len - 3).is_err());
+            assert!(memory.inner.write_8(len, &[0]).is_err());
+            assert!(memory.inner.write_32(len - 3, &[0; 4]).is_err());
         }
     }
 
