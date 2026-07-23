@@ -178,7 +178,11 @@ macro_rules! impl_internalvalue {
                 #[inline(always)]
                 fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
                     let $to_stack_v = value;
-                    stack.$stack.push($to_stack)
+                    if let Err(e) = stack.$stack.push($to_stack) {
+                        core::hint::cold_path();
+                        return Err(e);
+                    }
+                    Ok(())
                 }
 
                 #[inline(always)]

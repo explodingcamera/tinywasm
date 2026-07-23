@@ -58,18 +58,17 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> &T {
-        self.data.get(index).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug"))
+        &self.data[index]
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
-        *self.data.get_mut(index).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug")) = value;
+        self.data[index] = value;
     }
 
     #[inline(always)]
     pub(crate) fn copy(&mut self, from: usize, to: usize) {
-        let val = self.data.get(from).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug"));
-        *self.data.get_mut(to).unwrap_or_else(|| unreachable!("Stack index out of bounds, this is a bug")) = *val;
+        self.data[to] = self.data[from];
     }
 
     #[inline(always)]

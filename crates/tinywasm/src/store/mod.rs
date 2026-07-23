@@ -41,7 +41,7 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
     id: usize,
-    module_instances: Vec<ModuleInstance>,
+    pub(crate) module_instances: Vec<ModuleInstance>,
 
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,

@@ -62,7 +62,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
     }
 
-    #[allow(clippy::redundant_closure_call)] // we wrap these in closures to get better perf traces
     #[inline(always)]
     fn exec(&mut self) -> Result<Option<()>, Trap> {
         macro_rules! stack_op {
@@ -73,81 +72,56 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 stack_op!(binary $ty => $ty, |$lhs, $rhs| $expr)
             };
             (binary try $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                    let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
-                    <$ty>::stack_push(&mut self.store.value_stack, $expr?)?;
-                    Ok(())
-                })()?;
+                let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                let $lhs = <$ty>::stack_pop(&mut self.store.value_stack);
+                <$ty>::stack_push(&mut self.store.value_stack, $expr?)?;
             }};
             (unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $v = <$from>::stack_pop(&mut self.store.value_stack);
-                    <$to>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
+                let $v = <$from>::stack_pop(&mut self.store.value_stack);
+                <$to>::stack_push(&mut self.store.value_stack, $expr)?;
             }};
             (binary $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
-                    let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
-                    <$to>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
+                let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
+                let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
+                <$to>::stack_push(&mut self.store.value_stack, $expr)?;
             }};
             (binary_into2 $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
-                    let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
-                    let out = $expr;
-                    <$to>::stack_push(&mut self.store.value_stack, out.0)?;
-                    <$to>::stack_push(&mut self.store.value_stack, out.1)?;
-                    Ok(())
-                })()?;
+                let $rhs = <$from>::stack_pop(&mut self.store.value_stack);
+                let $lhs = <$from>::stack_pop(&mut self.store.value_stack);
+                let out = $expr;
+                <$to>::stack_push(&mut self.store.value_stack, out.0)?;
+                <$to>::stack_push(&mut self.store.value_stack, out.1)?;
             }};
             (binary $lhs_ty:ty, $rhs_ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {
                 stack_op!(binary $lhs_ty, $rhs_ty => $rhs_ty, |$lhs, $rhs| $expr)
             };
             (binary $lhs_ty:ty, $rhs_ty:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $rhs = <$rhs_ty>::stack_pop(&mut self.store.value_stack);
-                    let $lhs = <$lhs_ty>::stack_pop(&mut self.store.value_stack);
-                    <$res>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
+                let $rhs = <$rhs_ty>::stack_pop(&mut self.store.value_stack);
+                let $lhs = <$lhs_ty>::stack_pop(&mut self.store.value_stack);
+                <$res>::stack_push(&mut self.store.value_stack, $expr)?;
             }};
             (ternary $ty:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $c = <$ty>::stack_pop(&mut self.store.value_stack);
-                    let $b = <$ty>::stack_pop(&mut self.store.value_stack);
-                    let $a = <$ty>::stack_pop(&mut self.store.value_stack);
-                    <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
-                    Ok(())
-                })()?;
+                let $c = <$ty>::stack_pop(&mut self.store.value_stack);
+                let $b = <$ty>::stack_pop(&mut self.store.value_stack);
+                let $a = <$ty>::stack_pop(&mut self.store.value_stack);
+                <$ty>::stack_push(&mut self.store.value_stack, $expr)?;
             }};
             (quaternary_into2 $from:ty => $to:ty, |$a:ident, $b:ident, $c:ident, $d:ident| $expr:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let $d = <$from>::stack_pop(&mut self.store.value_stack);
-                    let $c = <$from>::stack_pop(&mut self.store.value_stack);
-                    let $b = <$from>::stack_pop(&mut self.store.value_stack);
-                    let $a = <$from>::stack_pop(&mut self.store.value_stack);
-                    let out = $expr;
-                    <$to>::stack_push(&mut self.store.value_stack, out.0)?;
-                    <$to>::stack_push(&mut self.store.value_stack, out.1)?;
-                    Ok(())
-                })()?;
+                let $d = <$from>::stack_pop(&mut self.store.value_stack);
+                let $c = <$from>::stack_pop(&mut self.store.value_stack);
+                let $b = <$from>::stack_pop(&mut self.store.value_stack);
+                let $a = <$from>::stack_pop(&mut self.store.value_stack);
+                let out = $expr;
+                <$to>::stack_push(&mut self.store.value_stack, out.0)?;
+                <$to>::stack_push(&mut self.store.value_stack, out.1)?;
             }};
             (local_set_pop $ty:ty, $local_index:expr) => {{
-                (|| {
-                    let val = <$ty>::stack_pop(&mut self.store.value_stack);
-                    <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
-                })();
+                let val = <$ty>::stack_pop(&mut self.store.value_stack);
+                <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
             }};
             (local_tee $ty:ty, $local_index:expr) => {{
-                (|| {
-                    let val = <$ty>::stack_peek(&self.store.value_stack);
-                    <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
-                })();
+                let val = <$ty>::stack_peek(&self.store.value_stack);
+                <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
             }};
         }
 
@@ -194,62 +168,46 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         macro_rules! binop {
             (local_local $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident) => {{
-                (|| -> Result<(), Trap> {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
-                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
-                    self.store.value_stack.push(exec_binop!($width, *$op, lhs, rhs))?;
-                    Ok(())
-                })()?;
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                self.store.value_stack.push(exec_binop!($width, *$op, lhs, rhs))?;
             }};
             (local_local_set $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
-                (|| {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
-                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
-                    let value = exec_binop!($width, *$op, lhs, rhs);
-                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                })();
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                let value = exec_binop!($width, *$op, lhs, rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
             }};
             (local_local_tee $vt:ty, $width:tt, $op:ident, $a:ident, $b:ident, $dst:ident) => {{
-                (|| -> Result<(), Trap> {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
-                    let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
-                    let value = exec_binop!($width, *$op, lhs, rhs);
-                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                    self.store.value_stack.push(value)?;
-                    Ok(())
-                })()?;
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$a);
+                let rhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$b);
+                let value = exec_binop!($width, *$op, lhs, rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                self.store.value_stack.push(value)?;
             }};
             (local_const $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr) => {{
-                (|| -> Result<(), Trap> {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
-                    self.store.value_stack.push(exec_binop!($width, *$op, lhs, $rhs))?;
-                    Ok(())
-                })()?;
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                self.store.value_stack.push(exec_binop!($width, *$op, lhs, $rhs))?;
             }};
             (local_const_set $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
-                (|| {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
-                    let value = exec_binop!($width, *$op, lhs, $rhs);
-                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                })();
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                let value = exec_binop!($width, *$op, lhs, $rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
             }};
             (local_const_tee $vt:ty, $width:tt, $op:ident, $local:ident, $rhs:expr, $dst:ident) => {{
-                (|| -> Result<(), Trap> {
-                    let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
-                    let value = exec_binop!($width, *$op, lhs, $rhs);
-                    <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
-                    self.store.value_stack.push(value)?;
-                    Ok(())
-                })()?;
+                let lhs = <$vt>::local_get(&self.store.value_stack, &self.cf, *$local);
+                let value = exec_binop!($width, *$op, lhs, $rhs);
+                <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
+                self.store.value_stack.push(value)?;
             }};
-            (stack_global $vt:ty, $as_fn:ident, $width:tt, $op:ident, $global:ident) => {{
-                (|| -> Result<(), Trap> {
-                    let global_val =
-                        self.store.state.get_global_val(self.module.resolve_global_addr(*$global)).$as_fn().unwrap();
-                    let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
-                    self.store.value_stack.push(exec_binop!($width, *$op, stack_val, global_val))?;
-                    Ok(())
-                })()?;
+            (stack_global $vt:ident, $width:tt, $op:ident, $global:ident) => {{
+                let TinyWasmValue::$vt(global_val) =
+                    self.store.state.get_global_val(self.module.resolve_global_addr(*$global))
+                else {
+                    unreachable!("expected global to be Value32")
+                };
+                let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
+                self.store.value_stack.push(exec_binop!($width, *$op, stack_val, global_val))?;
             }};
         }
 
@@ -329,8 +287,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             BinOpLocalConstTee32(op, local_index, c, dst) => binop!(local_const_tee Value32, 32, op, local_index, *c as u32, dst),
             BinOpLocalConstTee64(op, local_index, c, dst) => binop!(local_const_tee Value64, 64, op, local_index, *c as u64, dst),
             BinOpLocalConstTee128(op, local_index, c, dst) => binop!(local_const_tee Value128, 128, op, local_index, Value128(self.func.data.v128_const(*c)), dst),
-            BinOpStackGlobal32(op, global_index) => binop!(stack_global Value32, as_32, 32, op, global_index),
-            BinOpStackGlobal64(op, global_index) => binop!(stack_global Value64, as_64, 64, op, global_index),
+            BinOpStackGlobal32(op, global_index) => binop!(stack_global Value32, 32, op, global_index),
+            BinOpStackGlobal64(op, global_index) => binop!(stack_global Value64, 64, op, global_index),
             SetLocalConst32(local_index, c) => i32::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst64(local_index, c) => i64::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst128(local_index, c) => Value128::local_set(&mut self.store.value_stack, &self.cf, *local_index, Value128(self.func.data.v128_const(*c))),
@@ -1381,16 +1339,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let offset = i32::stack_pop(&mut self.store.value_stack);
         let dst = i32::stack_pop(&mut self.store.value_stack);
 
-        let data_addr = self.module.resolve_data_addr(data_index) as usize;
-        let Some(data) = self.store.state.data.get(data_addr) else {
-            unreachable!("data segment not found, should have been validated by the parser")
-        };
-
-        let mem_addr = self.module.resolve_mem_addr(mem_index) as usize;
-        let Some(mem) = self.store.state.memories.get_mut(mem_addr) else {
-            unreachable!("memory not found, should have been validated by the parser")
-        };
-
+        let data = &self.store.state.data[self.module.resolve_data_addr(data_index) as usize];
+        let mem = &mut self.store.state.memories[self.module.resolve_mem_addr(mem_index) as usize];
         let data_len = data.data.as_ref().map_or(0, |d| d.len());
         if ((size + offset) as usize > data_len) || ((dst + size) as usize > mem.inner.len()) {
             cold_path();
