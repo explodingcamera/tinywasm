@@ -375,7 +375,7 @@ macro_rules! impl_mem_traits {
 
                 #[inline(always)]
                 fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
-                    Ok(Self::from_mem_bytes(match mem.$read(addr) {
+                    Ok(Self::from_le_bytes(match mem.$read(addr) {
                         Ok(bytes) => bytes,
                         Err(trap) => {
                             cold_path();

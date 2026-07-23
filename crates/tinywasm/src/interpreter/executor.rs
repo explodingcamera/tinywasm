@@ -334,14 +334,41 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             SetLocalConst32(local_index, c) => i32::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst64(local_index, c) => i64::local_set(&mut self.store.value_stack, &self.cf, *local_index, *c),
             SetLocalConst128(local_index, c) => Value128::local_set(&mut self.store.value_stack, &self.cf, *local_index, Value128(self.func.data.v128_const(*c))),
+            IncMemoryLocal32(m, addr_local) => self.exec_inc_memory_local::<i32, 4>(*m, *addr_local, |v| v.wrapping_add(1))?,
+            IncMemoryLocal64(m, addr_local) => self.exec_inc_memory_local::<i64, 8>(*m, *addr_local, |v| v.wrapping_add(1))?,
             StoreLocalLocal32(m, addr_local, value_local) => self.exec_store_local_local::<u32, 4>(*m, *addr_local, *value_local)?,
             StoreLocalLocal64(m, addr_local, value_local) => self.exec_store_local_local::<i64, 8>(*m, *addr_local, *value_local)?,
             StoreLocalLocal128(m, addr_local, value_local) => self.exec_store_local_local::<Value128, 16>(*m, *addr_local, *value_local)?,
             LoadLocal32(m, addr_local) => self.store.value_stack.push(self.exec_load_local_value::<i32, 4>(*m, *addr_local)?)?,
-            LoadLocalTee32(m, addr_local, dst_local) => self.exec_load_local_tee::<i32, 4>(*m, *addr_local, *dst_local)?,
-            LoadLocalSet32(m, addr_local, dst_local) => self.exec_load_local_set::<i32, 4>(*m, *addr_local, *dst_local)?,
-            LoadLocalTee128(m, addr_local, dst_local) => self.exec_load_local_tee::<Value128, 16>(*m, *addr_local, *dst_local)?,
-            LoadLocalSet128(m, addr_local, dst_local) => self.exec_load_local_set::<Value128, 16>(*m, *addr_local, *dst_local)?,
+            LoadLocal64(m, addr_local) => self.store.value_stack.push(self.exec_load_local_value::<i64, 8>(*m, *addr_local)?)?,
+            LoadLocal8S32(m, addr_local) => {
+                let value = self.exec_load_local_value::<i8, 1>(*m, *addr_local)?;
+                self.store.value_stack.push(i32::from(value))?;
+            }
+            LoadLocal8U32(m, addr_local) => {
+                let value = self.exec_load_local_value::<u8, 1>(*m, *addr_local)?;
+                self.store.value_stack.push(i32::from(value))?;
+            }
+            LoadLocal16S32(m, addr_local) => {
+                let value = self.exec_load_local_value::<i16, 2>(*m, *addr_local)?;
+                self.store.value_stack.push(i32::from(value))?;
+            }
+            LoadLocal16U32(m, addr_local) => {
+                let value = self.exec_load_local_value::<u16, 2>(*m, *addr_local)?;
+                self.store.value_stack.push(i32::from(value))?;
+            }
+            LoadLocalTee32(m, addr_local, dst_local) => self.exec_load_local_tee::<i32, 4, _>(*m, *addr_local, *dst_local, |v| v)?,
+            LoadLocalSet32(m, addr_local, dst_local) => self.exec_load_local_set::<i32, 4, _>(*m, *addr_local, *dst_local, |v| v)?,
+            LoadLocalTee8S32(m, addr_local, dst_local) => self.exec_load_local_tee::<i8, 1, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalTee8U32(m, addr_local, dst_local) => self.exec_load_local_tee::<u8, 1, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalTee16S32(m, addr_local, dst_local) => self.exec_load_local_tee::<i16, 2, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalTee16U32(m, addr_local, dst_local) => self.exec_load_local_tee::<u16, 2, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalSet8S32(m, addr_local, dst_local) => self.exec_load_local_set::<i8, 1, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalSet8U32(m, addr_local, dst_local) => self.exec_load_local_set::<u8, 1, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalSet16S32(m, addr_local, dst_local) => self.exec_load_local_set::<i16, 2, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalSet16U32(m, addr_local, dst_local) => self.exec_load_local_set::<u16, 2, _>(*m, *addr_local, *dst_local, i32::from)?,
+            LoadLocalTee128(m, addr_local, dst_local) => self.exec_load_local_tee::<Value128, 16, _>(*m, *addr_local, *dst_local, |v| v)?,
+            LoadLocalSet128(m, addr_local, dst_local) => self.exec_load_local_set::<Value128, 16, _>(*m, *addr_local, *dst_local, |v| v)?,
             AndConstTee32(c, local_index) => { stack_op!(unary i32, |v| v & *c); stack_op!(local_tee i32, local_index); }
             SubConstTee32(c, local_index) => { stack_op!(unary i32, |v| v.wrapping_sub(*c)); stack_op!(local_tee i32, local_index); }
             AndConstTee64(c, local_index) => { stack_op!(unary i64, |v| v & *c); stack_op!(local_tee i64, local_index); }
@@ -1151,6 +1178,28 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
+    fn exec_inc_memory_local<T: MemValue<N>, const N: usize>(
+        &mut self,
+        memarg: MemoryArg,
+        addr_local: u8,
+        increment: impl FnOnce(T) -> T,
+    ) -> Result<(), Trap> {
+        let mem_addr = self.module.resolve_mem_addr(memarg.mem_addr());
+        let mem = self.store.state.get_mem(mem_addr);
+        let addr = if mem.is_64bit() {
+            let base = i64::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)) as u64;
+            mem.effective_addr_64::<N>(base, memarg.offset())?
+        } else {
+            let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
+            mem.effective_addr_32::<N>(base, memarg.offset())?
+        };
+
+        let mem = self.store.state.get_mem_mut(mem_addr);
+        let value = T::load_at(&*mem.inner, addr)?;
+        increment(value).store_at(&mut *mem.inner, addr)
+    }
+
+    #[inline(always)]
     fn exec_fma_store<
         T: InternalValue + MemValue<N> + core::ops::Add<Output = T> + core::ops::Mul<Output = T>,
         const N: usize,
@@ -1187,8 +1236,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         addr_local: u8,
     ) -> Result<T, Trap> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(memarg.mem_addr()));
-        let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
-        let addr = mem.effective_addr_32::<N>(base, memarg.offset())?;
+        let addr = if mem.is_64bit() {
+            let base = i64::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)) as u64;
+            mem.effective_addr_64::<N>(base, memarg.offset())?
+        } else {
+            let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
+            mem.effective_addr_32::<N>(base, memarg.offset())?
+        };
         match T::load_at(&*mem.inner, addr) {
             Ok(res) => Ok(res),
             Err(err) => {
@@ -1198,26 +1252,28 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
     }
 
-    fn exec_load_local_tee<T: InternalValue + MemValue<N>, const N: usize>(
+    fn exec_load_local_tee<LOAD: MemValue<N>, const N: usize, TARGET: InternalValue>(
         &mut self,
         memarg: MemoryArg,
         addr_local: u8,
         dst_local: u8,
+        cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
-        let value = self.exec_load_local_value::<T, N>(memarg, addr_local)?;
-        T::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
+        let value = cast(self.exec_load_local_value::<LOAD, N>(memarg, addr_local)?);
+        TARGET::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
         self.store.value_stack.push(value)?;
         Ok(())
     }
 
-    fn exec_load_local_set<T: InternalValue + MemValue<N>, const N: usize>(
+    fn exec_load_local_set<LOAD: MemValue<N>, const N: usize, TARGET: InternalValue>(
         &mut self,
         memarg: MemoryArg,
         addr_local: u8,
         dst_local: u8,
+        cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
-        let value = self.exec_load_local_value::<T, N>(memarg, addr_local)?;
-        T::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
+        let value = cast(self.exec_load_local_value::<LOAD, N>(memarg, addr_local)?);
+        TARGET::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
         Ok(())
     }
 

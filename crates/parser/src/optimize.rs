@@ -164,6 +164,16 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet128(local), Const128(c)] => BinOpLocalConst128(BinOp128::AndNot, local, c));
             }
             I32Store(memarg) | F32Store(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), LoadLocal32(load_memarg, load_addr), AddConst32(1)] if
+                    (load_memarg == memarg && addr == u16::from(load_addr)) =>
+                    IncMemoryLocal32(memarg, load_addr)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr), LoadLocal32(load_memarg, load_addr), AddConst32(1)] if
+                    (load_memarg == memarg && addr == u16::from(load_addr)) =>
+                    IncMemoryLocal32(memarg, load_addr)
+                );
                 rewrite!(instrs, i, [F32Mul, F32Add] => FMaStoreF32(memarg));
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local), LocalGet32(value_local)] if
@@ -172,6 +182,16 @@ fn rewrite(
                 );
             }
             I64Store(memarg) | F64Store(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr), LoadLocal64(load_memarg, load_addr), AddConst64(1)] if
+                    (load_memarg == memarg && addr == u16::from(load_addr)) =>
+                    IncMemoryLocal64(memarg, load_addr)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr), LoadLocal64(load_memarg, load_addr), AddConst64(1)] if
+                    (load_memarg == memarg && addr == u16::from(load_addr)) =>
+                    IncMemoryLocal64(memarg, load_addr)
+                );
                 rewrite!(instrs, i, [F64Mul, F64Add] => FMaStoreF64(memarg));
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local), LocalGet64(value_local)] if
@@ -190,6 +210,60 @@ fn rewrite(
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
                     LoadLocal32(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal32(memarg, addr_local)
+                );
+            }
+            I64Load(memarg) | F64Load(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal64(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal64(memarg, addr_local)
+                );
+            }
+            I32Load8S(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal8S32(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal8S32(memarg, addr_local)
+                );
+            }
+            I32Load8U(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal8U32(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal8U32(memarg, addr_local)
+                );
+            }
+            I32Load16S(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal16S32(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal16S32(memarg, addr_local)
+                );
+            }
+            I32Load16U(memarg) => {
+                rewrite!(instrs, i,
+                    [LocalGet32(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal16U32(memarg, addr_local)
+                );
+                rewrite!(instrs, i,
+                    [LocalGet64(addr_local)] if (let Ok(addr_local) = u8::try_from(addr_local)) =>
+                    LoadLocal16U32(memarg, addr_local)
                 );
             }
             MemoryFill(mem) => {
@@ -231,6 +305,10 @@ fn rewrite(
                     set_local_const = SetLocalConst32
                 );
                 rewrite!(instrs, i, [LoadLocal32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet32(memarg, addr, dst));
+                rewrite!(instrs, i, [LoadLocal8S32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet8S32(memarg, addr, dst));
+                rewrite!(instrs, i, [LoadLocal8U32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet8U32(memarg, addr, dst));
+                rewrite!(instrs, i, [LoadLocal16S32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet16S32(memarg, addr, dst));
+                rewrite!(instrs, i, [LoadLocal16U32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) => LoadLocalSet16U32(memarg, addr, dst));
                 rewrite!(instrs, i,
                     [LocalGet32(addr), I32Load(memarg)] if
                     (let (Ok(addr), Ok(dst)) = (u8::try_from(addr), u8::try_from(dst))) =>
@@ -332,6 +410,22 @@ fn rewrite(
                 rewrite!(instrs, i,
                     [LoadLocal32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
                     LoadLocalTee32(memarg, addr, dst)
+                );
+                rewrite!(instrs, i,
+                    [LoadLocal8S32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
+                    LoadLocalTee8S32(memarg, addr, dst)
+                );
+                rewrite!(instrs, i,
+                    [LoadLocal8U32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
+                    LoadLocalTee8U32(memarg, addr, dst)
+                );
+                rewrite!(instrs, i,
+                    [LoadLocal16S32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
+                    LoadLocalTee16S32(memarg, addr, dst)
+                );
+                rewrite!(instrs, i,
+                    [LoadLocal16U32(memarg, addr)] if (let Ok(dst) = u8::try_from(dst)) =>
+                    LoadLocalTee16U32(memarg, addr, dst)
                 );
             }
             LocalTee64(dst) => {

@@ -150,12 +150,27 @@ pub enum Instruction {
     BinOpStackGlobal32(BinOp, u32),
     BinOpStackGlobal64(BinOp, u32),
     SetLocalConst32(LocalAddr, i32), SetLocalConst64(LocalAddr, i64), SetLocalConst128(LocalAddr, ConstIdx),
+    IncMemoryLocal32(MemoryArg, u8),
+    IncMemoryLocal64(MemoryArg, u8),
     StoreLocalLocal32(MemoryArg, u8, u8),
     StoreLocalLocal64(MemoryArg, u8, u8),
     StoreLocalLocal128(MemoryArg, u8, u8),
     LoadLocal32(MemoryArg, u8),
+    LoadLocal64(MemoryArg, u8),
+    LoadLocal8S32(MemoryArg, u8),
+    LoadLocal8U32(MemoryArg, u8),
+    LoadLocal16S32(MemoryArg, u8),
+    LoadLocal16U32(MemoryArg, u8),
     LoadLocalTee32(MemoryArg, u8, u8),
     LoadLocalSet32(MemoryArg, u8, u8),
+    LoadLocalTee8S32(MemoryArg, u8, u8),
+    LoadLocalTee8U32(MemoryArg, u8, u8),
+    LoadLocalTee16S32(MemoryArg, u8, u8),
+    LoadLocalTee16U32(MemoryArg, u8, u8),
+    LoadLocalSet8S32(MemoryArg, u8, u8),
+    LoadLocalSet8U32(MemoryArg, u8, u8),
+    LoadLocalSet16S32(MemoryArg, u8, u8),
+    LoadLocalSet16U32(MemoryArg, u8, u8),
     LoadLocalTee128(MemoryArg, u8, u8),
     LoadLocalSet128(MemoryArg, u8, u8),
     AndConstTee32(i32, LocalAddr),
@@ -381,12 +396,27 @@ impl Instruction {
     #[inline]
     pub const fn memory_addr(&self) -> Option<MemAddr> {
         match self {
-            Self::StoreLocalLocal32(arg, ..)
+            Self::IncMemoryLocal32(arg, ..)
+            | Self::IncMemoryLocal64(arg, ..)
+            | Self::StoreLocalLocal32(arg, ..)
             | Self::StoreLocalLocal64(arg, ..)
             | Self::StoreLocalLocal128(arg, ..)
             | Self::LoadLocal32(arg, ..)
+            | Self::LoadLocal64(arg, ..)
+            | Self::LoadLocal8S32(arg, ..)
+            | Self::LoadLocal8U32(arg, ..)
+            | Self::LoadLocal16S32(arg, ..)
+            | Self::LoadLocal16U32(arg, ..)
             | Self::LoadLocalTee32(arg, ..)
             | Self::LoadLocalSet32(arg, ..)
+            | Self::LoadLocalTee8S32(arg, ..)
+            | Self::LoadLocalTee8U32(arg, ..)
+            | Self::LoadLocalTee16S32(arg, ..)
+            | Self::LoadLocalTee16U32(arg, ..)
+            | Self::LoadLocalSet8S32(arg, ..)
+            | Self::LoadLocalSet8U32(arg, ..)
+            | Self::LoadLocalSet16S32(arg, ..)
+            | Self::LoadLocalSet16U32(arg, ..)
             | Self::LoadLocalTee128(arg, ..)
             | Self::LoadLocalSet128(arg, ..)
             | Self::I32Load(arg)
