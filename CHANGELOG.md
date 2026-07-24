@@ -5,22 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-07-24
+
+**All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.9.1...v0.10.0
+
+### Added
+
+- Added `ParserOptions::validation` to optionally skip wasmparser validation.
 
 ### Changed
 
-- Fixed table addressing for 64-bit tables.
-- Added `validation` option to `ParserConfig` to enable/disable wasmparser validation.
+- Improved parser, lazy-memory, and interpreter performance.
+
+### Fixed
+
+- Fixed addressing and operand widths for 64-bit tables.
+- Fixed branch stack shaping that could corrupt execution or panic (fixes [#47](https://github.com/explodingcamera/tinywasm/issues/47)).
 
 ### Breaking Changes
 
-- `instantiate` / `start` / `start_func` no longer fall back to `_start` if the module has no start section. Call the `_start` function explicitly if you want to run it.
+- The embedding API's `instantiate` / `start` / `start_func` no longer fall back to `_start` if the module has no start section. The CLI still uses `_start` as its default entry point (fixes [#46](https://github.com/explodingcamera/tinywasm/issues/46)).
 - Removed the parser's `optimize_remove_nop` option and accessors.
 - Changed public `Instruction` variants and the `.twasm` format. Existing archives must be regenerated.
 - `TableType` limits now use `u64`. Use `TableType::new` or `TableType::new64` instead of struct literals.
-- `LinearMemory` trait now uses a single `usize` address for all memory operations
+- `ToWasmType` and `ToWasmTypes` now use associated constants, and `wasm_types` returns `Cow`.
+- `LinearMemory` now uses a single `usize` address and changed its fixed-width read/write signatures.
 
 ## [0.9.1] - 2026-06-29
+
+**All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.9.0...v0.9.1
 
 ### Added
 
