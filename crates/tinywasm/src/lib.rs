@@ -9,42 +9,22 @@
 
 //! `tinywasm` provides a small, portable WebAssembly interpreter with support for
 //! the WebAssembly MVP, WebAssembly 2.0, and a growing set of newer proposals.
+//! It also supports the [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1)
+//! interoperability target.
 //! It is designed to stay lightweight while still being practical to embed in
 //! applications, tools, and `no_std + alloc` environments.
-//!
-//! ## Features
-//! - **`std`**\
-//!   Enables parsing from files and streams. Enabled by default.
-//! - **`log`**\
-//!   Enables integration with the `log` crate. Enabled by default.
-//! - **`parser`**\
-//!   Enables the bundled `tinywasm-parser` crate and top-level parse helpers. Enabled by default.
-//! - **`archive`**\
-//!   Enables serialization and deserialization of compiled modules in the internal `twasm` format. Enabled by default.
-//! - **`canonicalize-nans`**\
-//!   Canonicalizes NaN values to a single representation. Enabled by default.
-//! - **`debug`**\
-//!   Derives `Debug` for runtime types. Enabled by default.
-//! - **`parallel-parser`**\
-//!   Parallelizes function parsing and validation across threads when `std` is enabled. Enabled by default.
-//! - **`guest-debug`**\
-//!   Exposes module-internal by-index inspection APIs (`*_by_index`).
-//! - **`simd-x86`**\
-//!   Enables x86-specific SIMD intrinsics for selected operations and uses `unsafe` internally.
-//!
-//! With default features disabled, `tinywasm` only depends on `core`, `alloc`, and `libm`.
-//! By disabling `std`, you can use `tinywasm` in `no_std` environments. This requires
-//! a custom allocator and removes support for parsing from files and streams, but otherwise the API is the same.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //!
-//! ## Getting Started
-//! The easiest way to get started is to use the [`crate::parse_bytes`] function to load a
+//! ## Getting started
+//!
+//! The easiest way to get started is to use the `parse_bytes` function to load a
 //! WebAssembly module from bytes. This will parse the module and validate it, returning
 //! a [`Module`] that can be used to instantiate the module.
 //!
-//!
 //! ```rust
+//! # #[cfg(feature = "parser")]
+//! # fn main() -> tinywasm::Result<()> {
 //! use tinywasm::{ModuleInstance, Store};
 //!
 //! // Load a module from bytes
@@ -62,12 +42,15 @@
 //!
 //! // # Get a typed handle to the exported "add" function
 //! // Alternatively, you can use `instance.func_untyped` to get an untyped handle
-//! // that takes and returns [`WasmValue`]s
-//! let func = instance.func::<(i32, i32), i32>(&mut store, "add")?;
+//! // that takes and returns [`types::WasmValue`]s
+//! let func = instance.func::<(i32, i32), i32>(&store, "add")?;
 //! let res = func.call(&mut store, (1, 2))?;
 //!
 //! assert_eq!(res, 3);
-//! # Ok::<(), tinywasm::Error>(())
+//! # Ok(())
+//! # }
+//! # #[cfg(not(feature = "parser"))]
+//! # fn main() {}
 //! ```
 //!
 //! For non-default runtime behavior, construct a [`Store`] with a custom [`Engine`]
@@ -75,6 +58,21 @@
 //! and trap-on-OOM behavior.
 //!
 //! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
+//!
+//! ## Cargo features
+//!
+//! - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
+//! - **`log`:** Enables integration with the `log` crate. Enabled by default.
+//! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
+//! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
+//! - **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
+//! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
+//! - **`parallel-parser`:** Parallelizes function parsing and validation when `std` is enabled. Enabled by default.
+//! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
+//! - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
+//!
+//! With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`,
+//! making it usable in `no_std + alloc` environments with a custom allocator.
 //!
 //! ## Imports
 //!

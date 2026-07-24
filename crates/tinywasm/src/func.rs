@@ -47,7 +47,7 @@ impl Function {
     ///
     /// The returned handle keeps a mutable borrow of the [`Store`] until it
     /// completes. Use [`FuncExecution::resume_with_fuel`] (or
-    /// [`FuncExecution::resume_with_time_budget`] with `std`) to continue.
+    /// `resume_with_time_budget` with `std`) to continue.
     pub fn call_resumable<'store>(
         &self,
         store: &'store mut Store,
@@ -540,6 +540,25 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     /// Call a typed function and return a resumable execution handle.
     ///
     /// The handle keeps a mutable borrow of the [`Store`] until completion.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// use tinywasm::{ExecProgress, ModuleInstance, Store};
+    ///
+    /// let wasm = include_bytes!("../../../examples/wasm/add.wasm");
+    /// let module = tinywasm::parse_bytes(wasm)?;
+    /// let mut store = Store::default();
+    /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    /// let add = instance.func::<(i32, i32), i32>(&store, "add")?;
+    ///
+    /// let mut execution = add.call_resumable(&mut store, (20, 22))?;
+    /// assert!(matches!(execution.resume_with_fuel(0)?, ExecProgress::Suspended));
+    /// assert!(matches!(execution.resume_with_fuel(16)?, ExecProgress::Completed(42)));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn call_resumable<'store>(&self, store: &'store mut Store, params: P) -> Result<FuncExecutionTyped<'store, R>> {
         let wasm_values = params.into_wasm_values();
         let execution = self.func.call_resumable(store, &wasm_values)?;
@@ -574,7 +593,10 @@ impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
 
 /// Describes the WebAssembly value types produced by a Rust value or tuple shape.
 pub trait ToWasmTypes {
-    /// Static WebAssembly types for shapes that do not require runtime concatenation.
+    /// Static WebAssembly types for this shape.
+    ///
+    /// Implementations that require runtime construction may set this to `None`,
+    /// but must then override [`Self::wasm_types`].
     const WASM_TYPES: Option<&'static [WasmType]>;
 
     /// Return the flattened WebAssembly value types for this tuple shape.

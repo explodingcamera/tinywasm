@@ -45,8 +45,8 @@ pub mod archive {
 /// A `TinyWasm` WebAssembly Module
 ///
 /// This is the internal representation of a WebAssembly module in `TinyWasm`.
-/// [`Module`] are validated before being created, so they are guaranteed to be valid (as long as they were created by `TinyWasm`).
-/// This means you should not trust a [`Module`] created by a third party to be valid.
+/// Modules produced by the parser are validated by default, but validation can be
+/// disabled for trusted input. Do not trust modules or archives from third parties.
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -76,7 +76,7 @@ pub struct ModuleInner {
     /// Corresponds to the `start` section of the original WebAssembly module.
     pub start_func: Option<FuncAddr>,
 
-    /// Optimized and validated WebAssembly functions
+    /// Optimized WebAssembly functions
     ///
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
     pub funcs: Box<[Arc<WasmFunction>]>,

@@ -49,7 +49,10 @@ pub use tinywasm_types::Module;
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ParserOptions {
-    /// Whether to validate modules while parsing.
+    /// Whether to validate modules while parsing. Enabled by default.
+    ///
+    /// Disable this only for trusted input. Parsing without validation may produce
+    /// a module that violates runtime assumptions.
     pub validation: bool,
     /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
     pub optimize_local_memory_allocation: bool,
@@ -81,6 +84,9 @@ impl Default for ParserOptions {
 
 impl ParserOptions {
     /// Enable or disable WebAssembly validation.
+    ///
+    /// Disable this only for trusted input. Parsing without validation may produce
+    /// a module that violates runtime assumptions.
     pub const fn with_validation(mut self, enabled: bool) -> Self {
         self.validation = enabled;
         self
@@ -337,7 +343,7 @@ pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Mo
 }
 
 #[cfg(feature = "std")]
-/// Parse a module from a stream. Requires `parser` and `std` features.
+/// Parse a module from a stream. Requires the `std` feature.
 pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Module> {
     Parser::new().parse_module_stream(stream)
 }

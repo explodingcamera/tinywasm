@@ -23,6 +23,7 @@ pub use {lazy::LazyLinearMemory, paged::PagedMemory, vec_memory::VecMemory};
 /// This is a low-level trait that abstracts over the actual storage mechanism for linear memory.
 /// This will probably change in the future to allow more efficient implementations.
 /// See [`MemoryBackend`] for a higher-level interface to configuring memory storage.
+/// The runtime passes slices of the exact indicated width to the fixed-width `write_*` methods.
 pub trait LinearMemory {
     /// Returns the current memory length in bytes.
     fn len(&self) -> usize;
@@ -285,12 +286,13 @@ impl MemoryBackend {
 
     /// Uses sparse chunked storage for each memory instance.
     ///
-    /// `chunk_size` is the backend chunk size in bytes. It is independent from the Wasm page size.
+    /// `chunk_size` is the backend chunk size in bytes. It must be a non-zero power
+    /// of two and is independent from the Wasm page size.
     ///
     /// This generally makes growth cheaper than [`Self::vec`], but read and write operations do a
     /// little more work and may be slightly slower.
     pub fn paged(chunk_size: usize) -> Self {
-        assert!(chunk_size != 0, "chunk_size must be greater than zero");
+        assert!(chunk_size.is_power_of_two(), "chunk_size must be a non-zero power of two");
         Self(MemoryBackendInner::Paged { chunk_size })
     }
 

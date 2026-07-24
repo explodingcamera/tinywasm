@@ -45,7 +45,10 @@ impl Display for TwasmError {
 impl core::error::Error for TwasmError {}
 
 impl Module {
-    /// Creates a [`Module`] from a slice of bytes.
+    /// Creates a [`Module`] from internal `twasm` archive bytes.
+    ///
+    /// Archives are version-specific and are not validated as untrusted input.
+    /// Only load archives from a trusted source.
     pub fn try_from_twasm(wasm: &[u8]) -> Result<Self, TwasmError> {
         let len = validate_magic(wasm)?;
         postcard::from_bytes(&wasm[len..]).map_err(TwasmError::InvalidArchive)

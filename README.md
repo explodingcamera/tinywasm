@@ -12,7 +12,7 @@
 
 ```toml
 [dependencies]
-tinywasm = "0.9"
+tinywasm = "0.10"
 ```
 
 ## Usage
@@ -31,7 +31,7 @@ let mut store = Store::default();
 let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
 // Call an exported function with typed parameters
-let func = instance.func::<(i32, i32), i32>(&mut store, "add")?;
+let func = instance.func::<(i32, i32), i32>(&store, "add")?;
 let result = func.call(&mut store, (1, 2))?;
 
 assert_eq!(result, 3);
@@ -41,24 +41,15 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 ## Cargo Features
 
-- **`std`**\
-  Enables the use of `std` and `std::io` for parsing from files and streams. This is enabled by default.
-- **`log`**\
-  Enables logging using the `log` crate. This is enabled by default.
-- **`parser`**\
-  Enables the `tinywasm-parser` crate. This is enabled by default.
-- **`archive`**\
-  Enables serialization/deserialization of compiled modules to the internal `twasm` bytecode format. This is enabled by default.
-- **`canonicalize-nans`**\
-  Canonicalizes NaN values to a single representation. This is enabled by default.
-- **`debug`**\
-  Derives `Debug` for runtime types. This is enabled by default.
-- **`parallel-parser`**\
-  Parallelizes function parsing and validation across threads (requires `std`). This is enabled by default.
-- **`guest-debug`**\
-  Exposes module-internal by-index inspection APIs (`*_by_index`).
-- **`simd-x86`**\
-  Enables x86-specific SIMD intrinsics for `i8x16_swizzle` and `i8x16_shuffle` (uses `unsafe` code).
+- **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
+- **`log`:** Enables integration with the `log` crate. Enabled by default.
+- **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
+- **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
+- **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
+- **`debug`:** Derives `Debug` for runtime types. Enabled by default.
+- **`parallel-parser`:** Parallelizes function parsing and validation when `std` is enabled. Enabled by default.
+- **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
+- **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 
 With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`[^libm], making it usable in `no_std + alloc` environments.
 
@@ -68,13 +59,13 @@ Use `Engine` and `engine::Config` when you need non-default runtime settings suc
 
 ## Current Status
 
-`tinywasm` passes the WebAssembly MVP and WebAssembly 2.0 core testsuites. WebAssembly 3.0 support is still in progress, and some newer proposal suites are tracked in-repo as experimental coverage rather than release guarantees; see [Supported Proposals](#supported-proposals) for details.
+`tinywasm` passes the WebAssembly MVP and WebAssembly 2.0 core testsuites and supports the [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1) interoperability target. WebAssembly 3.0 support is still in progress, and some newer proposal suites are tracked in-repo as experimental coverage rather than release guarantees; see [Supported Proposals](#supported-proposals) for details.
 
-TinyWasm also has its own internal bytecode format, `twasm`. WebAssembly modules can be compiled to `twasm`, which stores TinyWasm's validated and optimized instruction representation for faster loading and reuse.
+TinyWasm also has its own internal bytecode format, `twasm`. WebAssembly modules can be compiled to `twasm`, which stores TinyWasm's optimized instruction representation for faster loading and reuse.
 
 ## Safety
 
-TinyWasm only uses safe Rust by default. The optional `simd-x86` feature enables x86-specific SIMD intrinsics and uses `unsafe` internally. WebAssembly input is validated by TinyWasm before execution and runs inside a sandbox: untrusted Wasm should not be able to access host memory, escape the sandbox, or cause undefined behavior in the runtime.
+TinyWasm only uses safe Rust by default. The optional `simd-x86` feature enables x86-specific SIMD intrinsics and uses `unsafe` internally. WebAssembly input is validated by default and runs inside a sandbox: untrusted Wasm should not be able to access host memory, escape the sandbox, or cause undefined behavior in the runtime. Validation should only be disabled for trusted input.
 
 The internal `twasm` bytecode format is not currently validated as an untrusted input format. Malformed `twasm` may panic, but should not compromise memory safety or allow sandbox escape. Only run trusted `twasm` bytecode, or generate it through TinyWasm from Wasm input.
 

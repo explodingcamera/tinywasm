@@ -92,7 +92,10 @@ impl StackConfig {
 ///
 /// let config = Config::new()
 ///     .with_fuel_policy(FuelPolicy::Weighted)
-///     .with_value_stack(StackConfig::dynamic(1024, 16 * 1024))
+///     .with_value_stack_32(StackConfig::dynamic(1024, 36 * 1024))
+///     .with_value_stack_64(StackConfig::dynamic(1024, 32 * 1024))
+///     .with_value_stack_128(StackConfig::dynamic(256, 4 * 1024))
+///     .with_call_stack(StackConfig::dynamic(64, 1024))
 ///     .with_memory_backend(MemoryBackend::paged(64 * 1024))
 ///     .with_trap_on_oom(true);
 ///
@@ -103,23 +106,27 @@ impl StackConfig {
 #[non_exhaustive]
 pub struct Config {
     /// Configuration for the 32-bit value stack (i32, f32, ref values).
+    /// Defaults to `StackConfig::fixed(36 * 1024)`.
     pub value_stack_32: StackConfig,
     /// Configuration for the 64-bit value stack (i64, f64 values).
+    /// Defaults to `StackConfig::fixed(32 * 1024)`.
     pub value_stack_64: StackConfig,
     /// Configuration for the 128-bit value stack (v128 values).
+    /// Defaults to `StackConfig::fixed(4 * 1024)`.
     pub value_stack_128: StackConfig,
-    /// Configuration for the call stack.
+    /// Configuration for the call stack. Defaults to `StackConfig::fixed(1024)`.
     pub call_stack: StackConfig,
-    /// Fuel accounting policy used by budgeted execution.
+    /// Fuel accounting policy used by budgeted execution. Defaults to [`FuelPolicy::PerInstruction`].
     pub fuel_policy: FuelPolicy,
-    /// Backend used for runtime memories.
+    /// Backend used for runtime memories. Defaults to [`MemoryBackend::vec`].
     pub memory_backend: MemoryBackend,
     /// Whether memory and stack allocation failures should trap instead of degrading into normal operation failure modes.
+    /// Defaults to `false`.
     pub trap_on_oom: bool,
 }
 
 impl Config {
-    /// Create a new stack configuration with default settings.
+    /// Create a new interpreter configuration with default settings.
     pub fn new() -> Self {
         Self::default()
     }

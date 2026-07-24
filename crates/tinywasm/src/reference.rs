@@ -167,6 +167,29 @@ impl Memory {
     /// Creates a cursor positioned at the start of this memory.
     ///
     /// Available with the `std` feature enabled.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use std::io::{Read, Seek, SeekFrom, Write};
+    /// use tinywasm::types::MemoryType;
+    /// use tinywasm::{Memory, Store};
+    ///
+    /// let mut store = Store::default();
+    /// let memory = Memory::new(&mut store, MemoryType::default().with_page_count_initial(1))?;
+    /// let mut cursor = memory.cursor(&mut store)?;
+    ///
+    /// cursor.seek(SeekFrom::Start(2))?;
+    /// cursor.write_all(b"abc")?;
+    /// cursor.seek(SeekFrom::Start(0))?;
+    ///
+    /// let mut bytes = [0; 5];
+    /// cursor.read_exact(&mut bytes)?;
+    /// assert_eq!(bytes, [0, 0, b'a', b'b', b'c']);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[cfg(feature = "std")]
     pub fn cursor<'a>(&self, store: &'a mut Store) -> Result<MemoryCursor<'a>> {
         self.cursor_at(store, 0)

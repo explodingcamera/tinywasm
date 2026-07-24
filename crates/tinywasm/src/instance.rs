@@ -560,8 +560,8 @@ impl ModuleInstance {
 
     /// Get the start function of the module
     ///
-    /// Returns None if the module has no start function
-    /// If no start function is specified, also checks for a `_start` function in the exports
+    /// Returns `None` if the module has no start section. Exported functions named
+    /// `_start` are not treated as the module's start function.
     ///
     /// ## Example
     /// ```rust

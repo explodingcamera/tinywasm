@@ -116,10 +116,11 @@ pub enum BinOp128 {
     I64x2Mul,
 }
 
-/// A WebAssembly Instruction
+/// A TinyWasm bytecode instruction.
 ///
-/// These are our own internal bytecode instructions so they may not match the spec exactly.
-/// Wasm Bytecode can map to multiple of these instructions.
+/// These instructions are an internal, version-specific representation and do not
+/// map one-to-one to WebAssembly instructions. Their variants and serialized form
+/// may change between TinyWasm releases.
 ///
 /// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[rustfmt::skip]
