@@ -1,23 +1,23 @@
+[package]
+name = "tinywasm-doom"
+edition = "2024"
+publish = false
+
 # treat this as an independent package
 [workspace]
 
-[package]
-name="tinywasm-doom"
-publish=false
-edition="2024"
-
 [dependencies]
-eyre="0.6"
-pretty_env_logger="0.5"
-tinywasm={features=[
-    "std",
-    "parser",
-    "log",
-    "archive",
-    "canonicalize-nans",
-    "debug",
-    "parallel-parser",
-], path="../../crates/tinywasm"}
-log="0.4"
-softbuffer="0.4"
-winit="0.30"
+eyre = "0.6"
+log = "0.4"
+pretty_env_logger = "0.5"
+softbuffer = "0.4"
+tinywasm = { path = "../../crates/tinywasm", features = [
+  "archive",
+  "canonicalize-nans",
+  "debug",
+  "log",
+  "parallel-parser",
+  "parser",
+  "std",
+] }
+winit = "0.30"

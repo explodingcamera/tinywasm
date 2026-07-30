@@ -1,52 +1,55 @@
+[package]
+name = "rust-wasm-examples"
+edition = "2021"
+publish = false
+
 # treat this as an independent package
 [workspace]
 
-[package]
-publish=false
-name="rust-wasm-examples"
-edition="2021"
+[[bin]]
+name = "hello"
+path = "src/hello.rs"
+
+[[bin]]
+name = "host_fn"
+path = "src/host_fn.rs"
+
+[[bin]]
+name = "print"
+path = "src/print.rs"
+
+[[bin]]
+name = "tinywasm"
+path = "src/tinywasm.rs"
+
+[[bin]]
+name = "tinywasm_no_std"
+path = "src/tinywasm_no_std.rs"
+
+[[bin]]
+name = "fibonacci"
+path = "src/fibonacci.rs"
+
+[[bin]]
+name = "argon2id"
+path = "src/argon2id.rs"
 
 [dependencies]
-tinywasm={path="../../crates/tinywasm", default-features=false, features=["parser", "archive"]}
-argon2={version="0.5"}
-dlmalloc={version="0.2", features=["global"]}
+argon2 = { version = "0.5" }
+dlmalloc = { version = "0.2", features = ["global"] }
+tinywasm = { path = "../../crates/tinywasm", default-features = false, features = [
+  "archive",
+  "parser"
+] }
 
 [features]
-default=["std"]
-std=["tinywasm/std"]
-
-[[bin]]
-name="hello"
-path="src/hello.rs"
-
-[[bin]]
-name="host_fn"
-path="src/host_fn.rs"
-
-[[bin]]
-name="print"
-path="src/print.rs"
-
-[[bin]]
-name="tinywasm"
-path="src/tinywasm.rs"
-
-[[bin]]
-name="tinywasm_no_std"
-path="src/tinywasm_no_std.rs"
-
-[[bin]]
-name="fibonacci"
-path="src/fibonacci.rs"
-
-[[bin]]
-name="argon2id"
-path="src/argon2id.rs"
+default = ["std"]
+std = ["tinywasm/std"]
 
 [profile.wasm]
-opt-level=3
-lto="fat"
-codegen-units=1
-panic="abort"
-inherits="release"
-strip=true
+inherits = "release"
+opt-level = 3
+strip = true
+lto = "fat"
+panic = "abort"
+codegen-units = 1

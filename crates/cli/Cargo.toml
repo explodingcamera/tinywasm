@@ -1,53 +1,52 @@
 [package]
-name="tinywasm-cli"
-version.workspace=true
-description="Minimal command-line interface for TinyWasm"
-edition.workspace=true
-license.workspace=true
-authors.workspace=true
-repository.workspace=true
-documentation="https://docs.rs/tinywasm-cli"
-rust-version.workspace=true
-keywords=["tinywasm", "wasm", "webassembly", "cli", "runtime"]
-categories=["command-line-utilities", "wasm"]
-readme="README.md"
+name = "tinywasm-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Minimal command-line interface for TinyWasm"
+documentation = "https://docs.rs/tinywasm-cli"
+readme = "README.md"
+repository.workspace = true
+license.workspace = true
+keywords = ["cli", "runtime", "tinywasm", "wasm", "webassembly"]
+categories = ["command-line-utilities", "wasm"]
 
 [lib]
-name="tinywasm_cli"
-path="src/lib.rs"
+name = "tinywasm_cli"
+path = "src/lib.rs"
 
 [[bin]]
-name="tinywasm"
-path="src/bin.rs"
+name = "tinywasm"
+path = "src/bin.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap={version="4.6", features=["derive"]}
-clap_complete="4.6"
-eyre.workspace=true
-log.workspace=true
-pretty_env_logger.workspace=true
-tinywasm={workspace=true, features=[
-    "std",
-    "parser",
-    "log",
-    "archive",
-    "canonicalize-nans",
-    "debug",
-    "parallel-parser",
-]}
-wat={workspace=true, optional=true}
-wast={workspace=true, optional=true}
-owo-colors={workspace=true}
-anstream={version="1.0"}
-
-[features]
-default=["wat", "wast"]
-wat=["dep:wat"]
-wast=["dep:wast"]
+anstream = { version = "1.0" }
+clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6"
+eyre.workspace = true
+log.workspace = true
+owo-colors = { workspace = true }
+pretty_env_logger.workspace = true
+tinywasm = { workspace = true, features = [
+  "archive",
+  "canonicalize-nans",
+  "debug",
+  "log",
+  "parallel-parser",
+  "parser",
+  "std",
+] }
+wast = { workspace = true, optional = true }
+wat = { workspace = true, optional = true }
 
 [dev-dependencies]
-assert_cmd="2.2"
-predicates="3.1"
-tempfile="3.27"
+assert_cmd = "2.2"
+predicates = "3.1"
+tempfile = "3.27"
+
+[features]
+default = ["wast", "wat"]
+wast = ["dep:wast"]
+wat = ["dep:wat"]

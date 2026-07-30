@@ -1,23 +1,22 @@
 [package]
-name="tinywasm-parser"
-version.workspace=true
-description="Parser and lowering pipeline for TinyWasm"
-edition.workspace=true
-license.workspace=true
-authors.workspace=true
-repository.workspace=true
-rust-version.workspace=true
-keywords.workspace=true
-categories.workspace=true
-readme="README.md"
+name = "tinywasm-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Parser and lowering pipeline for TinyWasm"
+readme = "README.md"
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-wasmparser={workspace=true, features=["validate", "features", "simd"]}
-log={workspace=true, optional=true}
-tinywasm-types={workspace=true}
+log = { workspace = true, optional = true }
+tinywasm-types = { workspace = true }
+wasmparser = { workspace = true, features = ["features", "simd", "validate"] }
 
 [features]
-default=["std", "log", "parallel"]
-log=["dep:log"]
-std=["tinywasm-types/std", "wasmparser/std"]
-parallel=["std"]
+default = ["log", "parallel", "std"]
+log = ["dep:log"]
+parallel = ["std"]
+std = ["tinywasm-types/std", "wasmparser/std"]

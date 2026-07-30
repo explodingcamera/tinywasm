@@ -1,25 +1,24 @@
 [package]
-name="tinywasm-types"
-version.workspace=true
-description="Shared runtime, module, and archive types for TinyWasm"
-edition.workspace=true
-license.workspace=true
-authors.workspace=true
-repository.workspace=true
-rust-version.workspace=true
-keywords.workspace=true
-categories.workspace=true
-readme="README.md"
+name = "tinywasm-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared runtime, module, and archive types for TinyWasm"
+readme = "README.md"
+repository.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-log={workspace=true, optional=true}
-postcard={version="1.1", optional=true, default-features=false, features=["alloc"]}
-serde={version="1.0", optional=true, default-features=false, features=["alloc", "rc"]}
+log = { workspace = true, optional = true }
+postcard = { version = "1.1", default-features = false, features = ["alloc"], optional = true }
+serde = { version = "1.0", default-features = false, features = ["alloc", "rc"], optional = true }
 
 [features]
-default=["std", "log", "archive", "debug"]
+default = ["archive", "debug", "log", "std"]
 
-std=["serde?/std"]
-archive=["dep:postcard", "dep:serde"]
-log=["dep:log"]
-debug=[]
+archive = ["dep:postcard", "dep:serde"]
+debug = []
+log = ["dep:log"]
+std = ["serde?/std"]
