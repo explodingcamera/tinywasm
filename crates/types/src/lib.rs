@@ -408,7 +408,7 @@ impl<'a> FromIterator<&'a WasmType> for ValueCounts {
 
         for ty in iter {
             match ty {
-                WasmType::I32 | WasmType::F32 | WasmType::RefExtern | WasmType::RefFunc => counts.c32 += 1,
+                WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => counts.c32 += 1,
                 WasmType::I64 | WasmType::F64 => counts.c64 += 1,
                 WasmType::V128 => counts.c128 += 1,
             }
@@ -511,7 +511,7 @@ pub struct TableType {
 
 impl TableType {
     pub const fn empty() -> Self {
-        Self::new(WasmType::RefFunc, 0, None)
+        Self::new(WasmType::Ref(RefType::FUNCREF), 0, None)
     }
 
     /// Create a table with 32-bit indices.
