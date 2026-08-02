@@ -113,6 +113,23 @@ impl RefType {
     pub const fn with_nullability(self, nullable: bool) -> Self {
         Self((self.0 & !Self::NULLABLE) | ((nullable as u32) << 31))
     }
+
+    #[inline]
+    pub const fn is_func(self) -> bool {
+        // TODO(wasm3): Classify concrete refs from the module type definition once GC types are represented.
+        self.is_concrete()
+            || matches!(self.abstract_heap_type(), Some(AbstractHeapType::Func | AbstractHeapType::NoFunc))
+    }
+
+    #[inline]
+    pub const fn is_extern(self) -> bool {
+        matches!(self.abstract_heap_type(), Some(AbstractHeapType::Extern | AbstractHeapType::NoExtern))
+    }
+
+    #[inline]
+    pub const fn is_exn(self) -> bool {
+        matches!(self.abstract_heap_type(), Some(AbstractHeapType::Exn | AbstractHeapType::NoExn))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,6 +141,19 @@ pub enum RefValue {
     Extern(ExternRef),
     Any(AnyRef),
     Exn(ExnRef),
+}
+
+impl RefValue {
+    /// Return the reference's raw representation, or `None` for null.
+    pub const fn raw(self) -> Option<u32> {
+        match self {
+            Self::Null => None,
+            Self::Func(value) => Some(value.addr()),
+            Self::Extern(value) => Some(value.addr()),
+            Self::Any(value) => Some(value.raw()),
+            Self::Exn(value) => Some(value.addr()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -148,10 +178,34 @@ impl FuncRef {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExternRef(u32);
 
+impl ExternRef {
+    #[inline]
+    pub const fn new(addr: u32) -> Self {
+        Self(addr)
+    }
+
+    #[inline]
+    pub const fn addr(self) -> u32 {
+        self.0
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExnRef(u32);
+
+impl ExnRef {
+    #[inline]
+    pub const fn new(addr: u32) -> Self {
+        Self(addr)
+    }
+
+    #[inline]
+    pub const fn addr(self) -> u32 {
+        self.0
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -161,6 +215,12 @@ pub struct AnyRef(u32);
 impl AnyRef {
     // Odd values are inline i31s.
     // Even values are GC object handles.
+
+    #[doc(hidden)]
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
 
     pub const fn from_i31(value: i32) -> Option<Self> {
         if value < -(1 << 30) || value >= (1 << 30) {
@@ -186,5 +246,10 @@ impl AnyRef {
 
     pub const fn gc_addr(self) -> Option<u32> {
         if self.0 != 0 && self.0 & 1 == 0 { Some(self.0 / 2 - 1) } else { None }
+    }
+
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
     }
 }

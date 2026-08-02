@@ -23,7 +23,49 @@ pub enum WasmValue {
 }
 
 impl WasmValue {
-    pub const REF_NULL: Self = Self::Ref(RefValue::Null);
+    /// Return this value's broad WebAssembly type.
+    ///
+    /// A null reference has no intrinsic heap type and returns `None`.
+    pub const fn ty(self) -> Option<WasmType> {
+        match self {
+            Self::I32(_) => Some(WasmType::I32),
+            Self::I64(_) => Some(WasmType::I64),
+            Self::F32(_) => Some(WasmType::F32),
+            Self::F64(_) => Some(WasmType::F64),
+            Self::V128(_) => Some(WasmType::V128),
+            Self::Ref(RefValue::Null) => None,
+            Self::Ref(RefValue::Func(_)) => Some(WasmType::Ref(RefType::FUNCREF)),
+            Self::Ref(RefValue::Extern(_)) => Some(WasmType::Ref(RefType::EXTERNREF)),
+            Self::Ref(RefValue::Exn(_)) => Some(WasmType::Ref(RefType::EXNREF)),
+            Self::Ref(RefValue::Any(_)) => {
+                Some(WasmType::Ref(RefType::new_abstract(true, crate::AbstractHeapType::Any)))
+            }
+        }
+    }
+
+    #[inline]
+    pub const fn matches_type(self, ty: WasmType) -> bool {
+        // Concrete references require a store lookup; this method only classifies their broad heap type.
+        match (self, ty) {
+            (Self::I32(_), WasmType::I32)
+            | (Self::I64(_), WasmType::I64)
+            | (Self::F32(_), WasmType::F32)
+            | (Self::F64(_), WasmType::F64)
+            | (Self::V128(_), WasmType::V128) => true,
+            (Self::Ref(RefValue::Null), WasmType::Ref(ty)) => ty.is_nullable(),
+            (Self::Ref(RefValue::Func(_)), WasmType::Ref(ty)) => {
+                ty.is_concrete() || matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Func))
+            }
+            (Self::Ref(RefValue::Extern(_)), WasmType::Ref(ty)) => {
+                matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Extern))
+            }
+            (Self::Ref(RefValue::Exn(_)), WasmType::Ref(ty)) => {
+                matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Exn))
+            }
+            (Self::Ref(RefValue::Any(_)), WasmType::Ref(ty)) => !ty.is_func() && !ty.is_extern() && !ty.is_exn(),
+            _ => false,
+        }
+    }
 }
 
 impl Debug for WasmValue {
@@ -65,7 +107,7 @@ impl WasmValue {
             WasmType::F32 => Some(Self::F32(0.0)),
             WasmType::F64 => Some(Self::F64(0.0)),
             WasmType::V128 => Some(Self::V128([0; 16])),
-            WasmType::Ref(ty) if ty.is_nullable() => Some(Self::REF_NULL),
+            WasmType::Ref(ty) if ty.is_nullable() => Some(Self::Ref(RefValue::Null)),
             WasmType::Ref(_) => None,
         }
     }
@@ -205,4 +247,31 @@ impl_conversion_for_wasmvalue! {
     f64 => F64, as_f64, "Return the `f64` from a `WasmValue`, if it is a `F64`.";
     [u8; 16] => V128, as_v128, "Return the raw little-endian bytes from a `WasmValue`, if it is a `V128`.";
     RefValue => Ref, as_ref, "Return the `RefValue` from a `WasmValue`, if it is a `Ref`.";
+}
+
+macro_rules! impl_ref_conversion_for_wasmvalue {
+    ($($ty:ty => $variant:ident);* $(;)?) => {
+        $(
+            impl From<$ty> for WasmValue {
+                fn from(value: $ty) -> Self {
+                    Self::Ref(RefValue::$variant(value))
+                }
+            }
+
+            impl TryFrom<WasmValue> for $ty {
+                type Error = ();
+
+                fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+                    if let WasmValue::Ref(RefValue::$variant(value)) = value { Ok(value) } else { Err(()) }
+                }
+            }
+        )*
+    };
+}
+
+impl_ref_conversion_for_wasmvalue! {
+    crate::FuncRef => Func;
+    crate::ExternRef => Extern;
+    crate::AnyRef => Any;
+    crate::ExnRef => Exn;
 }

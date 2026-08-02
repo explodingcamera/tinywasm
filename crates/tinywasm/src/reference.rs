@@ -7,9 +7,7 @@ use alloc::vec::Vec;
 
 use crate::store::{GlobalInstance, TableElement, TableInstance};
 use crate::{Error, MemoryInstance, Result, Store, Trap};
-use tinywasm_types::{
-    Addr, ExternRef, FuncRef, GlobalAddr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue,
-};
+use tinywasm_types::{Addr, GlobalAddr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -344,30 +342,25 @@ impl Memory {
     }
 }
 
-fn table_element_to_value(element_type: WasmType, element: TableElement) -> WasmValue {
-    match element_type {
-        WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(element.addr())),
-        WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(element.addr())),
-        _ => unreachable!("table element type must be a reference type"),
+fn table_value_to_element(
+    state: &crate::store::State,
+    element_type: tinywasm_types::RefType,
+    value: WasmValue,
+) -> Result<TableElement, Trap> {
+    if !state.value_matches_type(value, WasmType::Ref(element_type)) {
+        return Err(Trap::Other("invalid table value type"));
     }
-}
-
-fn table_value_to_element(element_type: WasmType, value: WasmValue) -> Result<TableElement, Trap> {
-    match (element_type, value) {
-        (WasmType::RefFunc, WasmValue::RefFunc(func_ref)) => Ok(TableElement::from(func_ref.addr())),
-        (WasmType::RefExtern, WasmValue::RefExtern(extern_ref)) => Ok(TableElement::from(extern_ref.addr())),
-        _ => Err(Trap::Other("invalid table value type")),
-    }
+    let WasmValue::Ref(value) = value else { unreachable!() };
+    Ok(TableElement::from(value.raw()))
 }
 
 impl Table {
     /// Create a new table in the given store.
     pub fn new(store: &mut Store, ty: TableType, init: WasmValue) -> Result<Self> {
-        let init = match (ty.element_type, init) {
-            (WasmType::RefFunc, WasmValue::RefFunc(func_ref)) => TableElement::from(func_ref.addr()),
-            (WasmType::RefExtern, WasmValue::RefExtern(extern_ref)) => TableElement::from(extern_ref.addr()),
-            _ => return Err(Error::other("invalid table init value")),
-        };
+        if ty.element_type.is_concrete() {
+            return Err(Error::other("host tables cannot use module-relative concrete reference types"));
+        }
+        let init = table_value_to_element(&store.state, ty.element_type, init).map_err(Error::from)?;
         let addr = store.state.tables.len() as TableAddr;
         store.state.tables.push(TableInstance::new_with_init(ty, init)?);
         Ok(Self(StoreItem::new(store.id(), addr)))
@@ -408,16 +401,17 @@ impl Table {
         Ok(elements
             .iter()
             .copied()
-            .map(move |element| table_element_to_value(element_type, element))
+            .map(move |element| element.to_wasm_value(element_type))
             .collect::<alloc::vec::Vec<_>>()
             .into_iter())
     }
 
     /// Set a table element.
     pub fn set(&self, store: &mut Store, index: TableAddr, value: WasmValue) -> Result<(), Trap> {
-        let table = self.instance_mut(store)?;
-        let value = table_value_to_element(table.kind.element_type, value)?;
-        table.set(index as usize, value)
+        self.0.validate_store(store)?;
+        let element_type = store.state.get_table(self.0.addr).kind.element_type;
+        let value = table_value_to_element(&store.state, element_type, value)?;
+        store.state.get_table_mut(self.0.addr).set(index as usize, value)
     }
 
     /// Copy elements within the same table.
@@ -428,11 +422,11 @@ impl Table {
     /// Grow the table and return the previous size.
     pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<usize> {
         self.0.validate_store(store)?;
-        let table = store.state.get_table_mut(self.0.addr);
+        let table = store.state.get_table(self.0.addr);
         let old_size = table.size();
-        let init = table_value_to_element(table.kind.element_type, init)?;
+        let init = table_value_to_element(&store.state, table.kind.element_type, init)?;
         let delta = usize::try_from(delta).map_err(|_| Trap::TableOutOfBounds { offset: 0, len: 1, max: old_size })?;
-        table.grow(delta, init)?;
+        store.state.get_table_mut(self.0.addr).grow(delta, init)?;
         Ok(old_size)
     }
 }
@@ -440,7 +434,10 @@ impl Table {
 impl Global {
     /// Create a new global in the given store.
     pub fn new(store: &mut Store, ty: GlobalType, value: WasmValue) -> Result<Self> {
-        if WasmType::from(value) != ty.ty {
+        if matches!(ty.ty, WasmType::Ref(ty) if ty.is_concrete()) {
+            return Err(Error::other("host globals cannot use module-relative concrete reference types"));
+        }
+        if !store.state.value_matches_type(value, ty.ty) {
             cold_path();
             return Err(Error::Other("invalid global value type".to_string()));
         }
@@ -453,12 +450,6 @@ impl Global {
     fn instance<'a>(&self, store: &'a Store) -> Result<&'a GlobalInstance> {
         self.0.validate_store(store)?;
         Ok(store.state.get_global(self.0.addr))
-    }
-
-    #[inline]
-    fn instance_mut<'a>(&self, store: &'a mut Store) -> Result<&'a mut GlobalInstance> {
-        self.0.validate_store(store)?;
-        Ok(store.state.get_global_mut(self.0.addr))
     }
 
     /// Get the type of the global.
@@ -475,16 +466,17 @@ impl Global {
 
     /// Set the current value of the global.
     pub fn set(&self, store: &mut Store, value: WasmValue) -> Result<()> {
-        let global = self.instance_mut(store)?;
+        self.0.validate_store(store)?;
+        let global = store.state.get_global(self.0.addr);
         if !global.ty.mutable {
             cold_path();
             return Err(Error::Other("global is immutable".to_string()));
         }
-        if WasmType::from(value) != global.ty.ty {
+        if !store.state.value_matches_type(value, global.ty.ty) {
             cold_path();
             return Err(Error::Other("invalid global value type".to_string()));
         }
-        global.value = value.into();
+        store.state.get_global_mut(self.0.addr).value = value.into();
         Ok(())
     }
 }

@@ -45,13 +45,13 @@ pub(crate) struct ModuleReader<'a> {
 
     pub(crate) version: Option<u16>,
     pub(crate) start_func: Option<u32>,
-    pub(crate) func_types: Arc<[Arc<FuncType>]>,
+    pub(crate) func_types: Box<[FuncType]>,
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
     pub(crate) exports: Arc<[Export]>,
     pub(crate) code: Vec<FunctionCode>,
     pub(crate) globals: Box<[Global]>,
-    pub(crate) table_types: Box<[TableType]>,
+    pub(crate) tables: Box<[TableDefinition]>,
     pub(crate) memory_types: Box<[MemoryType]>,
     pub(crate) imports: Box<[Import]>,
     pub(crate) data: Box<[Data]>,
@@ -73,7 +73,7 @@ impl<'a> ModuleReader<'a> {
                 &self.imports,
                 &self.globals,
                 &self.memory_types,
-                &self.table_types,
+                &self.tables,
             )));
         }
         self.translation_metadata.as_deref().unwrap()
@@ -124,22 +124,28 @@ impl<'a> ModuleReader<'a> {
                 self.globals = convert_module_globals(reader)?;
             }
             Payload::TableSection(reader) => {
-                check_section("table", !self.table_types.is_empty())?;
+                check_section("table", !self.tables.is_empty())?;
                 if let Some(validator) = validator.as_mut() {
                     validator.table_section(&reader)?;
                 }
-                self.table_types = reader
-                    .into_iter()
-                    .map(|table| {
-                        let table = table?;
-                        let element_type = convert_reftype(table.ty.element_type)?;
-                        Ok(if table.ty.table64 {
-                            TableType::new64(element_type, table.ty.initial, table.ty.maximum)
-                        } else {
-                            TableType::new(element_type, table.ty.initial, table.ty.maximum)
-                        })
-                    })
-                    .collect::<Result<_>>()?;
+                let mut tables = Vec::with_capacity(reader.count() as usize);
+                for table in reader {
+                    let table = table?;
+                    let element_type = convert_ref_type(table.ty.element_type)?;
+                    let ty = if table.ty.table64 {
+                        TableType::new64(element_type, table.ty.initial, table.ty.maximum)
+                    } else {
+                        TableType::new(element_type, table.ty.initial, table.ty.maximum)
+                    };
+                    let init = match table.init {
+                        wasmparser::TableInit::RefNull => None,
+                        wasmparser::TableInit::Expr(expr) => {
+                            Some(process_const_operators(expr.get_operators_reader())?)
+                        }
+                    };
+                    tables.push(TableDefinition { ty, init });
+                }
+                self.tables = tables.into_boxed_slice();
             }
             Payload::MemorySection(reader) => {
                 check_section("memory", !self.memory_types.is_empty())?;
@@ -466,7 +472,6 @@ impl<'a> ModuleReader<'a> {
                     locals: code.locals,
                     params,
                     results,
-                    ty,
                 })
             })
             .collect();
@@ -476,7 +481,7 @@ impl<'a> ModuleReader<'a> {
             func_types: self.func_types,
             func_type_idxs,
             globals: self.globals,
-            table_types: self.table_types,
+            tables: self.tables,
             imports: self.imports,
             start_func: self.start_func,
             data: self.data,

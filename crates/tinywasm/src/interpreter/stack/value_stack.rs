@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::hint::cold_path;
-use tinywasm_types::{ExternRef, FuncRef, ValueCounts, WasmType, WasmValue};
+use tinywasm_types::{ValueCounts, WasmType, WasmValue};
 
 use super::StackBase;
 use crate::engine::{Config, StackConfig};
@@ -252,8 +252,7 @@ impl ValueStack {
             WasmType::I64 => WasmValue::I64(i64::stack_pop(self)),
             WasmType::F32 => WasmValue::F32(f32::stack_pop(self)),
             WasmType::F64 => WasmValue::F64(f64::stack_pop(self)),
-            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::from_raw(ValueRef::stack_pop(self).raw())),
-            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::from_raw(ValueRef::stack_pop(self).raw())),
+            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(self)).attach_type(val_type).unwrap(),
             WasmType::V128 => WasmValue::V128(Value128::stack_pop(self).0),
         }
     }
@@ -265,8 +264,9 @@ impl ValueStack {
                 WasmValue::I64(v) => self.stack_64.push(*v as u64)?,
                 WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
                 WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
-                WasmValue::RefExtern(v) => self.stack_32.push(v.raw())?,
-                WasmValue::RefFunc(v) => self.stack_32.push(v.raw())?,
+                WasmValue::Ref(v) => {
+                    self.stack_32.push(TinyWasmValue::from(WasmValue::Ref(*v)).as_ref().unwrap().raw())?
+                }
                 WasmValue::V128(v) => self.stack_128.push((*v).into())?,
             }
         }

@@ -1,11 +1,24 @@
 use crate::interpreter::stack::{CallFrame, ValueStack};
 use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store, Trap};
-use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, vec, vec::Vec};
 use core::hint::cold_path;
-use tinywasm_types::{ExternRef, FuncRef, FuncType, ModuleInstanceAddr, WasmType, WasmValue};
+use tinywasm_types::{ExternRef, FuncAddr, FuncRef, FuncType, ModuleInstanceId, TypeAddr, WasmType, WasmValue};
 
 impl Function {
+    #[inline]
+    pub(crate) const fn addr(&self) -> FuncAddr {
+        self.item.addr
+    }
+
+    /// Get this function's canonical type from its store.
+    ///
+    /// Concrete reference types are only meaningful in this store.
+    pub fn ty<'a>(&self, store: &'a Store) -> Result<&'a FuncType> {
+        self.item.validate_store(store)?;
+        Ok(store.state.get_func_type(self.addr()))
+    }
+
     /// Call a function (Invocation)
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#invocation>
@@ -13,12 +26,13 @@ impl Function {
     pub fn call(&self, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
         #[inline]
         fn call_inner(func: &Function, store: &mut Store, params: &[WasmValue]) -> Result<Vec<WasmValue>> {
-            let func_instance = store.state.get_func(func.addr);
-            let wasm_func = match func_instance {
-                FunctionInstance::Host(host_func) => {
-                    return host_func.clone().call(FuncContext { store, module_addr: func.module_addr }, params);
+            let func_instance = store.state.get_func(func.addr()).clone();
+            let wasm_func = match &func_instance.kind {
+                crate::store::FunctionKind::Host(host_func) => {
+                    let result = host_func.clone().call(FuncContext { store, module_id: func.module_id }, params)?;
+                    return validate_host_results(store, func_instance.type_addr, result);
                 }
-                FunctionInstance::Wasm(wasm_func) => wasm_func,
+                crate::store::FunctionKind::Wasm(wasm_func) => wasm_func,
             };
 
             // Reset stack, push args, allocate locals, create entry frame.
@@ -26,15 +40,15 @@ impl Function {
             store.value_stack.clear();
             store.value_stack.extend_from_wasmvalues(params)?;
             let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-            let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+            let callframe = CallFrame::new(func.addr(), locals_base, wasm_func.func.locals);
 
             // Execute until completion and then collect result values from the stack.
             InterpreterRuntime::exec(store, callframe, 0)?;
-            collect_call_results(&mut store.value_stack, &func.ty)
+            collect_call_results(&mut store.value_stack, store.state.get_type(func_instance.type_addr))
         }
 
         self.item.validate_store(store)?;
-        validate_call_params(&self.ty, params)?;
+        validate_call_params(&store.state, store.state.get_func_type(self.addr()), params)?;
 
         store.enter_execution()?;
         let result = call_inner(self, store, params);
@@ -59,29 +73,30 @@ impl Function {
             store: &mut Store,
             params: &[WasmValue],
         ) -> Result<FuncExecutionState> {
-            let func_instance = store.state.get_func(func.addr);
-            match func_instance {
-                FunctionInstance::Host(host_func) => host_func
-                    .clone()
-                    .call(FuncContext { store, module_addr: func.module_addr }, params)
-                    .map(|result| FuncExecutionState::Completed { result: Some(result) }),
-                FunctionInstance::Wasm(wasm_func) => {
+            let func_instance = store.state.get_func(func.addr()).clone();
+            match &func_instance.kind {
+                crate::store::FunctionKind::Host(host_func) => {
+                    let result = host_func.clone().call(FuncContext { store, module_id: func.module_id }, params)?;
+                    let result = validate_host_results(store, func_instance.type_addr, result)?;
+                    Ok(FuncExecutionState::Completed { result: Some(result) })
+                }
+                crate::store::FunctionKind::Wasm(wasm_func) => {
                     store.call_stack.clear();
                     store.value_stack.clear();
                     store.value_stack.extend_from_wasmvalues(params)?;
                     let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-                    let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+                    let callframe = CallFrame::new(func.addr(), locals_base, wasm_func.func.locals);
 
                     Ok(FuncExecutionState::Running {
                         exec_state: ExecutionState { callframe },
-                        root_func_addr: func.addr,
+                        root_func_addr: func.addr(),
                     })
                 }
             }
         }
 
         self.item.validate_store(store)?;
-        validate_call_params(&self.ty, params)?;
+        validate_call_params(&store.state, store.state.get_func_type(self.addr()), params)?;
 
         store.enter_execution()?;
         let result = call_resumable_inner(self, store, params);
@@ -111,9 +126,7 @@ pub(crate) struct ExecutionState {
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 pub struct Function {
     pub(crate) item: StoreItem,
-    pub(crate) module_addr: ModuleInstanceAddr,
-    pub(crate) addr: u32,
-    pub(crate) ty: Arc<FuncType>,
+    pub(crate) module_id: ModuleInstanceId,
 }
 
 /// A typed function handle
@@ -126,16 +139,10 @@ pub struct FunctionTyped<P, R> {
 
 /// A host function
 pub struct HostFunction {
-    pub(crate) ty: Arc<tinywasm_types::FuncType>,
     pub(crate) func: HostFuncInner,
 }
 
 impl HostFunction {
-    /// Get the function's type
-    pub fn ty(&self) -> &Arc<tinywasm_types::FuncType> {
-        &self.ty
-    }
-
     /// Call the function
     pub fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
         (self.func)(ctx, args)
@@ -178,25 +185,12 @@ impl HostFunction {
         ty: &FuncType,
         func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + 'static,
     ) -> Function {
-        let ty = Arc::new(ty.clone());
-        let host_ty = ty.clone();
-
-        let inner_func = move |ctx: FuncContext<'_>, args: &[WasmValue]| -> Result<Vec<WasmValue>> {
-            let result = func(ctx, args)?;
-            let expected = host_ty.results();
-
-            let valid = result.len() == expected.len()
-                && result.iter().zip(expected).all(|(val, ty)| WasmType::from(val) == *ty);
-
-            if !valid {
-                return Err(crate::Error::InvalidHostFnReturn { expected: Arc::clone(&host_ty), actual: result });
-            }
-
-            Ok(result)
-        };
-
-        let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
-        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
+        let type_addr = store.register_host_type(ty);
+        let addr = store.add_func(FunctionInstance {
+            type_addr,
+            kind: crate::store::FunctionKind::Host(Rc::new(Self { func: Box::new(func) })),
+        });
+        Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
     }
 
     /// Create a new typed host function import.
@@ -233,9 +227,13 @@ impl HostFunction {
             Ok(func(ctx, P::from_wasm_values(args)?)?.into_wasm_values())
         };
 
-        let ty = Arc::new(tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types()));
-        let addr = store.add_func(FunctionInstance::Host(Rc::new(Self { func: Box::new(inner_func), ty: ty.clone() })));
-        Function { item: crate::StoreItem::new(store.id(), addr), module_addr: 0, addr, ty }
+        let ty = tinywasm_types::FuncType::new(&P::wasm_types(), &R::wasm_types());
+        let type_addr = store.register_host_type(&ty);
+        let addr = store.add_func(FunctionInstance {
+            type_addr,
+            kind: crate::store::FunctionKind::Host(Rc::new(Self { func: Box::new(inner_func) })),
+        });
+        Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
     }
 }
 
@@ -245,7 +243,7 @@ pub(crate) type HostFuncInner = Box<dyn Fn(FuncContext<'_>, &[WasmValue]) -> Res
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 pub struct FuncContext<'a> {
     pub(crate) store: &'a mut crate::Store,
-    pub(crate) module_addr: ModuleInstanceAddr,
+    pub(crate) module_id: ModuleInstanceId,
 }
 
 impl FuncContext<'_> {
@@ -261,9 +259,9 @@ impl FuncContext<'_> {
 
     /// Get the module instance.
     pub fn module(&self) -> crate::ModuleInstance {
-        self.store.get_module_instance(self.module_addr).unwrap_or_else(|| {
-            unreachable!("invalid module instance address in host function context: {}", self.module_addr)
-        })
+        self.store
+            .get_module_instance(self.module_id)
+            .unwrap_or_else(|| unreachable!("invalid module instance id in host function context: {}", self.module_id))
     }
 
     /// Get a memory export.
@@ -327,14 +325,16 @@ impl FuncContext<'_> {
         }
 
         func.item.validate_store(self.store)?;
-        validate_call_params(&func.ty, args)?;
+        validate_call_params(&self.store.state, self.store.state.get_func_type(func.addr()), args)?;
 
-        let func_instance = self.store.state.get_func(func.addr).clone();
-        match func_instance {
-            FunctionInstance::Host(host_func) => {
-                host_func.call(FuncContext { store: &mut *self.store, module_addr: func.module_addr }, args)
+        let func_instance = self.store.state.get_func(func.addr()).clone();
+        match func_instance.kind {
+            crate::store::FunctionKind::Host(host_func) => {
+                let result =
+                    host_func.call(FuncContext { store: &mut *self.store, module_id: func.module_id }, args)?;
+                validate_host_results(self.store, func_instance.type_addr, result)
             }
-            FunctionInstance::Wasm(wasm_func) => {
+            crate::store::FunctionKind::Wasm(wasm_func) => {
                 let call_stack_base = self.store.call_stack.len();
                 let value_stack_base = self.store.value_stack.base();
 
@@ -348,13 +348,13 @@ impl FuncContext<'_> {
                     .enter_locals(&wasm_func.func.params, &wasm_func.func.locals)
                     .inspect_err(|_| self.store.value_stack.truncate_to_base(value_stack_base))?;
 
-                let callframe = CallFrame::new(func.addr, locals_base, wasm_func.func.locals);
+                let callframe = CallFrame::new(func.addr(), locals_base, wasm_func.func.locals);
                 InterpreterRuntime::exec(self.store, callframe, call_stack_base).inspect_err(|_| {
                     self.store.call_stack.truncate_to(call_stack_base);
                     self.store.value_stack.truncate_to_base(value_stack_base);
                 })?;
 
-                collect_call_results(&mut self.store.value_stack, &func.ty)
+                collect_call_results(&mut self.store.value_stack, self.store.state.get_type(func_instance.type_addr))
             }
         }
     }
@@ -388,15 +388,15 @@ impl core::ops::DerefMut for FuncContext<'_> {
 
 impl<'a> FuncContext<'a> {
     /// Create a new host function context.
-    pub const fn new(store: &'a mut crate::Store, module_addr: ModuleInstanceAddr) -> Self {
-        Self { store, module_addr }
+    pub const fn new(store: &'a mut crate::Store, module_id: ModuleInstanceId) -> Self {
+        Self { store, module_id }
     }
 }
 
 #[cfg(feature = "debug")]
 impl core::fmt::Debug for HostFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("HostFunction").field("ty", &self.ty).field("func", &"...").finish()
+        f.debug_struct("HostFunction").field("func", &"...").finish()
     }
 }
 
@@ -441,9 +441,12 @@ impl<'store> FuncExecution<'store> {
 
         match result? {
             crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(root_func_addr).ty().clone();
+                let result_ty = self.store.state.get_func(root_func_addr).type_addr;
                 self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(collect_call_results(&mut self.store.value_stack, &result_ty)?))
+                Ok(ExecProgress::Completed(collect_call_results(
+                    &mut self.store.value_stack,
+                    self.store.state.get_type(result_ty),
+                )?))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
                 let FuncExecutionState::Running { exec_state, .. } = &mut self.state else {
@@ -492,7 +495,7 @@ impl<'store> FuncExecution<'store> {
     }
 }
 
-fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> {
+fn validate_call_params(state: &crate::store::State, func_ty: &FuncType, params: &[WasmValue]) -> Result<()> {
     if func_ty.params().len() != params.len() {
         cold_path();
         return Err(Error::Other(format!(
@@ -502,11 +505,26 @@ fn validate_call_params(func_ty: &FuncType, params: &[WasmValue]) -> Result<()> 
         )));
     }
 
-    if !(func_ty.params().iter().zip(params).all(|(ty, param)| ty == &param.into())) {
+    if !func_ty.params().iter().zip(params).all(|(ty, param)| state.value_matches_type(*param, *ty)) {
         return Err(Error::other("Type mismatch"));
     }
 
     Ok(())
+}
+
+pub(crate) fn validate_host_results(
+    store: &Store,
+    type_addr: TypeAddr,
+    result: Vec<WasmValue>,
+) -> Result<Vec<WasmValue>> {
+    let expected = store.state.get_type(type_addr);
+    if result.len() == expected.results().len()
+        && result.iter().zip(expected.results()).all(|(&value, &ty)| store.state.value_matches_type(value, ty))
+    {
+        return Ok(result);
+    }
+
+    Err(Error::InvalidHostFnReturn { expected: Box::new(expected.clone()), actual: result })
 }
 
 fn collect_call_results(value_stack: &mut ValueStack, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
@@ -612,14 +630,14 @@ pub trait ToWasmType {
 }
 
 macro_rules! impl_scalar_wasm_traits {
-    ($($T:ty => $val_ty:ident),+ $(,)?) => {
+    ($($T:ty => $val_ty:expr),+ $(,)?) => {
         $(
             impl ToWasmType for $T {
-                const WASM_TYPE: WasmType = WasmType::$val_ty;
+                const WASM_TYPE: WasmType = $val_ty;
             }
 
             impl ToWasmTypes for $T {
-                const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::$val_ty]);
+                const WASM_TYPES: Option<&'static [WasmType]> = Some(&[$val_ty]);
             }
 
             impl IntoWasmValues for $T {
@@ -705,12 +723,12 @@ macro_rules! impl_tuple {
 }
 
 impl_scalar_wasm_traits!(
-    i32 => I32,
-    i64 => I64,
-    f32 => F32,
-    f64 => F64,
-    FuncRef => RefFunc,
-    ExternRef => RefExtern,
+    i32 => WasmType::I32,
+    i64 => WasmType::I64,
+    f32 => WasmType::F32,
+    f64 => WasmType::F64,
+    FuncRef => WasmType::Ref(tinywasm_types::RefType::FUNCREF),
+    ExternRef => WasmType::Ref(tinywasm_types::RefType::EXTERNREF),
 );
 impl_tuple!(impl_tuple_traits);
 

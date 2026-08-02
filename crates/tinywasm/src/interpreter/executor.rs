@@ -225,14 +225,18 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             Call(v) => { self.exec_call_direct(*v)?; return Ok(None); }
             CallSelf => { self.exec_call_self()?; return Ok(None); }
             CallIndirect(ty, table) => { self.exec_call_indirect::<false>(*ty, *table)?; return Ok(None); }
-            ReturnCall(v) => { self.exec_return_call_direct(*v)?; return Ok(None); }
+            CallRef(ty) => { self.exec_call_ref::<false>(*ty)?; return Ok(None); }
+            ReturnCall(v) => { if self.exec_return_call_direct(*v)? { return Ok(Some(())); } return Ok(None); }
             ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
-            ReturnCallIndirect(ty, table) => { self.exec_call_indirect::<true>(*ty, *table)?; return Ok(None); }
+            ReturnCallIndirect(ty, table) => { if self.exec_call_indirect::<true>(*ty, *table)? { return Ok(Some(())); } return Ok(None); }
+            ReturnCallRef(ty) => { if self.exec_call_ref::<true>(*ty)? { return Ok(Some(())); } return Ok(None); }
             Jump(ip) => { self.cf.instr_ptr = *ip as usize; return Ok(None); }
             JumpIfZero32(ip) => if self.exec_jump_zero_32(*ip) { return Ok(None) },
             JumpIfNonZero32(ip) => if self.exec_jump_non_zero_32(*ip) { return Ok(None) },
             JumpIfZero64(ip) => if self.exec_jump_zero_64(*ip) { return Ok(None) },
             JumpIfNonZero64(ip) => if self.exec_jump_non_zero_64(*ip) { return Ok(None) },
+            JumpIfRefNull(ip) => if self.exec_jump_ref_null(*ip) { return Ok(None) },
+            JumpIfRefNonNull(ip) => if self.exec_jump_ref_non_null(*ip) { return Ok(None) },
             JumpIfLocalZero32 { target_ip, local } => if self.exec_jump_local_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalNonZero32 { target_ip, local } => if self.exec_jump_local_non_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalZero64 { target_ip, local } => if self.exec_jump_local_zero_64(*target_ip, *local) { return Ok(None) },
@@ -443,6 +447,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             RefFunc(func_idx) => self.exec_const(ValueRef::from_addr(Some(self.module.resolve_func_addr(*func_idx))))?,
             RefNull(_) => self.exec_const(ValueRef::NULL)?,
             RefIsNull => self.exec_ref_is_null()?,
+            RefAsNonNull => self.exec_ref_as_non_null()?,
             MemorySize(addr) => self.exec_memory_size(*addr)?,
             MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
 
@@ -847,6 +852,24 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
+    fn exec_jump_ref_null(&mut self, target_ip: u32) -> bool {
+        let is_null = ValueRef::stack_peek(&self.store.value_stack).is_null();
+        if is_null {
+            ValueRef::stack_pop(&mut self.store.value_stack);
+        }
+        self.jump_if(is_null, target_ip)
+    }
+
+    #[inline(always)]
+    fn exec_jump_ref_non_null(&mut self, target_ip: u32) -> bool {
+        let is_non_null = !ValueRef::stack_peek(&self.store.value_stack).is_null();
+        if !is_non_null {
+            ValueRef::stack_pop(&mut self.store.value_stack);
+        }
+        self.jump_if(is_non_null, target_ip)
+    }
+
+    #[inline(always)]
     fn exec_jump_local_zero_32(&mut self, target_ip: u32, local: LocalAddr) -> bool {
         self.jump_if(Value32::local_get(&self.store.value_stack, &self.cf, local) == 0, target_ip)
     }
@@ -934,7 +957,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
         self.store.call_stack.push(self.cf)?;
         self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
-        if wasm_func.owner != self.module.idx() {
+        if wasm_func.owner != self.module.id() {
             self.module = self.store.get_module_instance_internal(wasm_func.owner);
         }
 
@@ -953,17 +976,23 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Err(Trap::CallStackOverflow);
         };
         self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
-        if wasm_func.owner != self.module.idx() {
+        if wasm_func.owner != self.module.id() {
             self.module = self.store.get_module_instance_internal(wasm_func.owner);
         }
 
         Ok(())
     }
 
-    fn exec_call_host(&mut self, host_func: Rc<HostFunction>) -> Result<(), Trap> {
-        let mut params = self.store.value_stack.pop_types(host_func.ty.params().iter().rev()).collect::<Vec<_>>();
+    fn exec_call_host<const TAIL: bool>(
+        &mut self,
+        host_func: Rc<HostFunction>,
+        type_addr: TypeAddr,
+    ) -> Result<bool, Trap> {
+        let ty = self.store.state.get_type(type_addr);
+        let mut params = self.store.value_stack.pop_types(ty.params().iter().rev()).collect::<Vec<_>>();
         params.reverse();
-        let res = match host_func.call(FuncContext { store: self.store, module_addr: self.module.idx() }, &params) {
+        let result = host_func.call(FuncContext { store: self.store, module_id: self.module.id() }, &params);
+        let res = match result.and_then(|result| crate::func::validate_host_results(self.store, type_addr, result)) {
             Ok(res) => res,
             Err(err) => {
                 cold_path();
@@ -972,25 +1001,37 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
 
         self.store.value_stack.extend_from_wasmvalues(&res)?;
-        self.cf.instr_ptr += 1;
-        Ok(())
+        if TAIL {
+            Ok(self.exec_return())
+        } else {
+            self.cf.instr_ptr += 1;
+            Ok(false)
+        }
     }
 
     fn exec_call_direct(&mut self, v: u32) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
-        match self.store.state.get_func(addr) {
-            crate::FunctionInstance::Wasm(wasm_func) => self.exec_call(wasm_func.clone(), addr),
-            crate::FunctionInstance::Host(host_func) => self.exec_call_host(host_func.clone()),
+        let func = self.store.state.get_func(addr).clone();
+        match func.kind {
+            crate::store::FunctionKind::Wasm(wasm_func) => self.exec_call(wasm_func, addr),
+            crate::store::FunctionKind::Host(host_func) => {
+                self.exec_call_host::<false>(host_func, func.type_addr)?;
+                Ok(())
+            }
         }
     }
 
-    fn exec_return_call_direct(&mut self, v: u32) -> Result<(), Trap> {
+    fn exec_return_call_direct(&mut self, v: u32) -> Result<bool, Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
-        match self.store.state.get_func(addr) {
-            crate::FunctionInstance::Wasm(wasm_func) => self.exec_return_call(wasm_func.clone(), addr),
-            crate::FunctionInstance::Host(host_func) => self.exec_call_host(host_func.clone()),
+        let func = self.store.state.get_func(addr).clone();
+        match func.kind {
+            crate::store::FunctionKind::Wasm(wasm_func) => {
+                self.exec_return_call(wasm_func, addr)?;
+                Ok(false)
+            }
+            crate::store::FunctionKind::Host(host_func) => self.exec_call_host::<true>(host_func, func.type_addr),
         }
     }
 
@@ -1019,14 +1060,18 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
-    fn exec_call_indirect<const IS_RETURN_CALL: bool>(&mut self, type_addr: u32, table_addr: u32) -> Result<(), Trap> {
+    fn exec_call_indirect<const IS_RETURN_CALL: bool>(
+        &mut self,
+        type_addr: u32,
+        table_addr: u32,
+    ) -> Result<bool, Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
 
         // verify that the table is of the right type, this should be validated by the parser already
         let table_addr = self.module.resolve_table_addr(table_addr);
         let table_idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
         let table = self.store.state.get_table(table_addr);
-        debug_assert!(table.kind.element_type == WasmType::RefFunc, "table is not of type funcref");
+        debug_assert!(table.kind.element_type.is_func(), "table is not of type funcref");
 
         let Ok(table) = table.get(table_idx) else {
             cold_path();
@@ -1038,34 +1083,43 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Err(Trap::UninitializedElement { index: table_idx });
         };
 
-        let call_ty = self.module.func_type_by_type_index(type_addr);
-        match self.store.state.get_func(func_ref) {
-            crate::FunctionInstance::Wasm(wasm_func) => {
-                if wasm_func.ty() != call_ty {
-                    cold_path();
-                    return Err(Trap::IndirectCallTypeMismatch {
-                        actual: wasm_func.ty().clone(),
-                        expected: call_ty.clone(),
-                    });
-                }
+        self.exec_typed_call::<IS_RETURN_CALL>(func_ref, self.module.resolve_type_addr(type_addr))
+    }
 
-                match IS_RETURN_CALL {
-                    true => self.exec_return_call(wasm_func.clone(), func_ref),
-                    false => self.exec_call(wasm_func.clone(), func_ref),
-                }
-            }
-            crate::FunctionInstance::Host(host_func) => {
-                if host_func.ty != *call_ty {
-                    cold_path();
-                    return Err(Trap::IndirectCallTypeMismatch {
-                        actual: host_func.ty.clone(),
-                        expected: call_ty.clone(),
-                    });
-                }
-
-                self.exec_call_host(host_func.clone())
-            }
+    fn exec_typed_call<const IS_RETURN_CALL: bool>(
+        &mut self,
+        func_addr: FuncAddr,
+        expected_type_addr: TypeAddr,
+    ) -> Result<bool, Trap> {
+        let func = self.store.state.get_func(func_addr).clone();
+        if func.type_addr != expected_type_addr {
+            cold_path();
+            return Err(Trap::IndirectCallTypeMismatch {
+                actual: Box::new(self.store.state.get_type(func.type_addr).clone()),
+                expected: Box::new(self.store.state.get_type(expected_type_addr).clone()),
+            });
         }
+        match func.kind {
+            crate::store::FunctionKind::Wasm(wasm_func) => match IS_RETURN_CALL {
+                true => self.exec_return_call(wasm_func, func_addr),
+                false => self.exec_call(wasm_func, func_addr),
+            },
+            crate::store::FunctionKind::Host(host_func) => {
+                return self.exec_call_host::<IS_RETURN_CALL>(host_func, func.type_addr);
+            }
+        }?;
+        Ok(false)
+    }
+
+    fn exec_call_ref<const IS_RETURN_CALL: bool>(&mut self, type_addr: u32) -> Result<bool, Trap> {
+        self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+        let func_ref = ValueRef::stack_pop(&mut self.store.value_stack);
+        let Some(func_addr) = func_ref.addr() else {
+            cold_path();
+            return Err(Trap::NullFunctionReference);
+        };
+
+        self.exec_typed_call::<IS_RETURN_CALL>(func_addr, self.module.resolve_type_addr(type_addr))
     }
 
     fn exec_return(&mut self) -> bool {
@@ -1084,7 +1138,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
         let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
         self.func = wasm_func.func.clone();
-        if wasm_func.owner != self.module.idx() {
+        if wasm_func.owner != self.module.id() {
             self.module = self.store.get_module_instance_internal(wasm_func.owner);
         }
         self.cf = caller;
@@ -1250,7 +1304,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let raw = <Value32>::stack_pop(&mut self.store.value_stack);
         let value = match self.store.state.get_global(global_addr).ty.ty {
             WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(raw),
-            WasmType::RefExtern | WasmType::RefFunc => TinyWasmValue::ValueRef(ValueRef::from_raw(raw)),
+            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::from_raw(raw)),
             WasmType::I64 | WasmType::F64 | WasmType::V128 => unreachable!("invalid global.set.32 target type"),
         };
         self.store.state.set_global_val(global_addr, value);
@@ -1263,6 +1317,14 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_ref_is_null(&mut self) -> Result<(), Trap> {
         let is_null = i32::from(<ValueRef>::stack_pop(&mut self.store.value_stack).is_null());
         self.store.value_stack.push::<i32>(is_null)
+    }
+
+    fn exec_ref_as_non_null(&mut self) -> Result<(), Trap> {
+        if ValueRef::stack_peek(&self.store.value_stack).is_null() {
+            cold_path();
+            return Err(Trap::NullReference);
+        }
+        Ok(())
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {
@@ -1533,7 +1595,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let n = self.pop_table_operand(arch)?;
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
         let i = self.pop_table_operand(arch)?;
-        self.store.state.get_table_mut(table_addr).fill(self.module.func_addrs(), i, n, val.addr().into())
+        self.store.state.get_table_mut(table_addr).fill(i, n, val.addr().into())
     }
 
     fn pop_table_operand(&mut self, arch: MemoryArch) -> Result<usize, Trap> {

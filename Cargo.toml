@@ -11,7 +11,7 @@ members = ["crates/*"]
 default-members = [".", "crates/parser", "crates/tinywasm", "crates/types"]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.11.0-pre.0"
 edition = "2024"
 rust-version = "1.95"
 repository = "https://github.com/explodingcamera/tinywasm"
@@ -20,10 +20,10 @@ keywords = ["interpreter", "no-std", "tinywasm", "wasm", "webassembly"]
 categories = ["compilers", "embedded", "no-std", "virtualization", "wasm"]
 
 [workspace.dependencies]
-tinywasm = { path = "crates/tinywasm", version = "0.10.0", default-features = false }
-tinywasm-cli = { path = "crates/cli", version = "0.10.0", default-features = false }
-tinywasm-parser = { path = "crates/parser", version = "0.10.0", default-features = false }
-tinywasm-types = { path = "crates/types", version = "0.10.0", default-features = false }
+tinywasm = { path = "crates/tinywasm", version = "0.11.0-pre.0", default-features = false }
+tinywasm-cli = { path = "crates/cli", version = "0.11.0-pre.0", default-features = false }
+tinywasm-parser = { path = "crates/parser", version = "0.11.0-pre.0", default-features = false }
+tinywasm-types = { path = "crates/types", version = "0.11.0-pre.0", default-features = false }
 
 eyre = "0.6"
 indexmap = "2.14"

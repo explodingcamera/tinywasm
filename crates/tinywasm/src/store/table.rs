@@ -15,6 +15,7 @@ pub(crate) struct TableInstance {
 }
 
 impl TableInstance {
+    #[cfg(test)]
     pub(crate) fn new(kind: TableType) -> Result<Self> {
         Self::new_with_init(kind, TableElement::Uninitialized)
     }
@@ -45,17 +46,10 @@ impl TableInstance {
     }
 
     pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue, Trap> {
-        let val = self.get(addr)?.addr();
-
-        Ok(match self.kind.element_type {
-            WasmType::RefFunc => WasmValue::RefFunc(FuncRef::new(val)),
-            WasmType::RefExtern => WasmValue::RefExtern(ExternRef::new(val)),
-            _ => Err(Trap::Other("non-ref table"))?,
-        })
+        Ok(self.get(addr)?.to_wasm_value(self.kind.element_type))
     }
 
-    pub(crate) fn fill(&mut self, func_addrs: &[u32], addr: usize, len: usize, val: TableElement) -> Result<(), Trap> {
-        let val = val.map(|addr| self.resolve_func_ref(func_addrs, addr));
+    pub(crate) fn fill(&mut self, addr: usize, len: usize, val: TableElement) -> Result<(), Trap> {
         let range = self.checked_range(addr, len)?;
         self.elements[range].fill(val);
         Ok(())
@@ -105,16 +99,6 @@ impl TableInstance {
         self.elements.len()
     }
 
-    fn resolve_func_ref(&self, func_addrs: &[u32], addr: Addr) -> Addr {
-        if self.kind.element_type != WasmType::RefFunc {
-            return addr;
-        }
-
-        *func_addrs
-            .get(addr as usize)
-            .expect("error initializing table: function not found. This should have been caught by the validator")
-    }
-
     pub(crate) fn init(&mut self, offset: usize, init: &[TableElement]) -> Result<(), Trap> {
         let range = self.checked_range(offset, init.len())?;
         self.elements[range].copy_from_slice(init);
@@ -146,11 +130,18 @@ impl TableElement {
         }
     }
 
-    pub(crate) fn map(self, f: impl FnOnce(Addr) -> Addr) -> Self {
-        match self {
-            Self::Uninitialized => Self::Uninitialized,
-            Self::Initialized(addr) => Self::Initialized(f(addr)),
-        }
+    pub(crate) fn to_wasm_value(self, ty: RefType) -> WasmValue {
+        let Some(addr) = self.addr() else { return RefValue::Null.into() };
+        let value = if ty.is_func() {
+            RefValue::Func(FuncRef::new(addr))
+        } else if ty.is_extern() {
+            RefValue::Extern(ExternRef::new(addr))
+        } else if ty.is_exn() {
+            RefValue::Exn(ExnRef::new(addr))
+        } else {
+            RefValue::Any(AnyRef::from_raw(addr))
+        };
+        value.into()
     }
 }
 
@@ -161,7 +152,7 @@ mod tests {
 
     // Helper to create a dummy TableType
     fn dummy_table_type() -> TableType {
-        TableType::new(WasmType::RefFunc, 10, Some(20))
+        TableType::new(RefType::FUNCREF, 10, Some(20))
     }
 
     #[test]
@@ -180,12 +171,12 @@ mod tests {
         table_instance.set(1, TableElement::Uninitialized).expect("Setting table element failed");
 
         match table_instance.get_wasm_val(0) {
-            Ok(WasmValue::RefFunc(_)) => {}
+            Ok(WasmValue::Ref(RefValue::Func(_))) => {}
             _ => panic!("get_wasm_val failed to return the correct WasmValue"),
         }
 
         match table_instance.get_wasm_val(1) {
-            Ok(WasmValue::RefFunc(f)) if f.is_null() => {}
+            Ok(WasmValue::Ref(RefValue::Null)) => {}
             _ => panic!("get_wasm_val failed to return the correct WasmValue"),
         }
 

@@ -1,5 +1,3 @@
-use alloc::sync::Arc;
-
 use crate::{Result, module::FunctionCode, visit::process_operators_and_validate};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
@@ -26,7 +24,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
-            Ok(tinywasm_types::Element { kind, items, ty: WasmType::Ref(RefType::FUNCREF), range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: RefType::FUNCREF, range: element.range })
         }
 
         wasmparser::ElementItems::Expressions(ty, exprs) => {
@@ -36,7 +34,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
-            Ok(tinywasm_types::Element { kind, items, ty: convert_reftype(ty)?, range: element.range })
+            Ok(tinywasm_types::Element { kind, items, ty: convert_ref_type(ty)?, range: element.range })
         }
     }
 }
@@ -59,7 +57,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
     let kind = match import.ty {
         wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
         wasmparser::TypeRef::Table(ty) => {
-            let element_type = convert_reftype(ty.element_type)?;
+            let element_type = convert_ref_type(ty.element_type)?;
             ImportKind::Table(if ty.table64 {
                 TableType::new64(element_type, ty.initial, ty.maximum)
             } else {
@@ -165,8 +163,9 @@ pub(crate) fn convert_module_code(
     ))
 }
 
-pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncType>> {
+pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {
     let mut types = ty.types();
+    // TODO(wasm3): Preserve recursive groups and non-function composite types instead of flattening singleton funcs.
     if types.len() != 1 {
         return Err(crate::ParseError::UnsupportedOperator(
             "Expected exactly one type in the type section".to_string(),
@@ -182,12 +181,11 @@ pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<Arc<FuncTy
     };
     let params = ty.params().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
     let results = ty.results().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
-    Ok(FuncType::new(&params, &results).into())
+    Ok(FuncType::new(&params, &results))
 }
 
-pub(crate) fn convert_reftype(reftype: wasmparser::RefType) -> Result<WasmType> {
-    let ty = convert_heaptype(reftype.heap_type())?.with_nullability(reftype.is_nullable());
-    Ok(WasmType::Ref(ty))
+pub(crate) fn convert_ref_type(ty: wasmparser::RefType) -> Result<RefType> {
+    convert_heap_type(ty.heap_type(), ty.is_nullable())
 }
 
 pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> Result<WasmType> {
@@ -197,7 +195,7 @@ pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> Result<WasmType>
         wasmparser::ValType::F32 => Ok(WasmType::F32),
         wasmparser::ValType::F64 => Ok(WasmType::F64),
         wasmparser::ValType::V128 => Ok(WasmType::V128),
-        wasmparser::ValType::Ref(r) => convert_reftype(*r),
+        wasmparser::ValType::Ref(r) => Ok(WasmType::Ref(convert_ref_type(*r)?)),
     }
 }
 
@@ -216,7 +214,7 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
 
         let instr = match op {
             wasmparser::Operator::RefNull { hty } => {
-                convert_heaptype(hty)?;
+                convert_heap_type(hty, false)?;
                 ConstInstruction::Ref(RefValue::Null)
             }
             wasmparser::Operator::RefFunc { function_index } => {
@@ -250,36 +248,37 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
     Ok(out.into_boxed_slice())
 }
 
-pub(crate) fn convert_heaptype(heap: wasmparser::HeapType) -> Result<RefType> {
-    let ty = match heap {
-        wasmparser::HeapType::Abstract { shared: false, ty } => match ty {
-            wasmparser::AbstractHeapType::Any => AbstractHeapType::Any,
-            wasmparser::AbstractHeapType::Eq => AbstractHeapType::Eq,
-            wasmparser::AbstractHeapType::I31 => AbstractHeapType::I31,
-            wasmparser::AbstractHeapType::Struct => AbstractHeapType::Struct,
-            wasmparser::AbstractHeapType::Array => AbstractHeapType::Array,
-            wasmparser::AbstractHeapType::None => AbstractHeapType::None,
-            wasmparser::AbstractHeapType::Func => AbstractHeapType::Func,
-            wasmparser::AbstractHeapType::NoFunc => AbstractHeapType::NoFunc,
-            wasmparser::AbstractHeapType::Exn => AbstractHeapType::Exn,
-            wasmparser::AbstractHeapType::NoExn => AbstractHeapType::NoExn,
-            wasmparser::AbstractHeapType::Extern => AbstractHeapType::Extern,
-            wasmparser::AbstractHeapType::NoExtern => AbstractHeapType::NoExtern,
-            wasmparser::AbstractHeapType::Cont | wasmparser::AbstractHeapType::NoCont => {
-                return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")));
-            }
-        },
+pub(crate) fn convert_heap_type(heap: wasmparser::HeapType, nullable: bool) -> Result<RefType> {
+    match heap {
+        wasmparser::HeapType::Abstract { shared: false, ty } => Ok(RefType::new_abstract(
+            nullable,
+            match ty {
+                wasmparser::AbstractHeapType::Any => AbstractHeapType::Any,
+                wasmparser::AbstractHeapType::Eq => AbstractHeapType::Eq,
+                wasmparser::AbstractHeapType::I31 => AbstractHeapType::I31,
+                wasmparser::AbstractHeapType::Struct => AbstractHeapType::Struct,
+                wasmparser::AbstractHeapType::Array => AbstractHeapType::Array,
+                wasmparser::AbstractHeapType::None => AbstractHeapType::None,
+                wasmparser::AbstractHeapType::Func => AbstractHeapType::Func,
+                wasmparser::AbstractHeapType::NoFunc => AbstractHeapType::NoFunc,
+                wasmparser::AbstractHeapType::Exn => AbstractHeapType::Exn,
+                wasmparser::AbstractHeapType::NoExn => AbstractHeapType::NoExn,
+                wasmparser::AbstractHeapType::Extern => AbstractHeapType::Extern,
+                wasmparser::AbstractHeapType::NoExtern => AbstractHeapType::NoExtern,
+                wasmparser::AbstractHeapType::Cont | wasmparser::AbstractHeapType::NoCont => {
+                    return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")));
+                }
+            },
+        )),
         wasmparser::HeapType::Concrete(index) => {
             let index = index.as_module_index().ok_or_else(|| {
                 crate::ParseError::UnsupportedOperator(format!("Unsupported non-module heap type index: {index:?}"))
             })?;
-            return RefType::new_concrete(false, index)
-                .ok_or_else(|| crate::ParseError::Other(format!("heap type index is too large: {index}")));
+            RefType::new_concrete(nullable, index)
+                .ok_or_else(|| crate::ParseError::Other(format!("heap type index is too large: {index}")))
         }
         wasmparser::HeapType::Abstract { shared: true, .. } | wasmparser::HeapType::Exact(_) => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")));
+            Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")))
         }
-    };
-
-    Ok(RefType::new_abstract(false, ty))
+    }
 }

@@ -1,12 +1,14 @@
 use super::stack::{CallFrame, ValueStack};
 use crate::{Result, interpreter::simd::Value128};
-use tinywasm_types::{ExternRef, FuncRef, LocalAddr, WasmType, WasmValue};
+use tinywasm_types::{AnyRef, ExnRef, ExternRef, FuncRef, LocalAddr, RefValue, WasmType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ValueRef(u32);
+
+// TODO(wasm3): GC references need a tagged representation; this raw address is only sufficient for current refs.
 
 impl Default for ValueRef {
     fn default() -> Self {
@@ -101,12 +103,21 @@ impl TinyWasmValue {
             (Self::Value64(v), WasmType::I64) => Some(WasmValue::I64(v as i64)),
             (Self::Value32(v), WasmType::F32) => Some(WasmValue::F32(f32::from_bits(v))),
             (Self::Value64(v), WasmType::F64) => Some(WasmValue::F64(f64::from_bits(v))),
-            (Self::ValueRef(v), WasmType::RefExtern) => Some(WasmValue::RefExtern(ExternRef::from_raw(v.raw()))),
-            (Self::ValueRef(v), WasmType::RefFunc) => Some(WasmValue::RefFunc(FuncRef::from_raw(v.raw()))),
+            (Self::ValueRef(v), WasmType::Ref(_)) if v.is_null() => Some(RefValue::Null.into()),
+            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_func() => {
+                Some(WasmValue::Ref(RefValue::Func(FuncRef::new(v.raw()))))
+            }
+            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_extern() => {
+                Some(WasmValue::Ref(RefValue::Extern(ExternRef::new(v.raw()))))
+            }
+            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_exn() => {
+                Some(WasmValue::Ref(RefValue::Exn(ExnRef::new(v.raw()))))
+            }
+            (Self::ValueRef(v), WasmType::Ref(_)) => Some(WasmValue::Ref(RefValue::Any(AnyRef::from_raw(v.raw())))),
             (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128(v.0)),
             (_, WasmType::I32 | WasmType::F32) => None,
             (_, WasmType::I64 | WasmType::F64) => None,
-            (_, WasmType::RefExtern | WasmType::RefFunc) => None,
+            (_, WasmType::Ref(_)) => None,
             (_, WasmType::V128) => None,
         }
     }
@@ -119,8 +130,7 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::I64(v) => Self::Value64(*v as u64),
             WasmValue::F32(v) => Self::Value32(v.to_bits()),
             WasmValue::F64(v) => Self::Value64(v.to_bits()),
-            WasmValue::RefExtern(v) => Self::ValueRef(ValueRef::from_addr(v.addr())),
-            WasmValue::RefFunc(v) => Self::ValueRef(ValueRef::from_addr(v.addr())),
+            WasmValue::Ref(value) => Self::ValueRef(ValueRef::from_addr(value.raw())),
             WasmValue::V128(v) => Self::Value128((*v).into()),
         }
     }

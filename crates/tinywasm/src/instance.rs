@@ -46,9 +46,8 @@ pub struct ModuleInstance(Rc<ModuleInstanceInner>);
 #[cfg_attr(feature = "debug", derive(Debug))]
 struct ModuleInstanceInner {
     store_id: usize,
-    idx: ModuleInstanceAddr,
-    types: Arc<[Arc<FuncType>]>,
-    func_type_idxs: Arc<[u32]>,
+    id: ModuleInstanceId,
+    type_addrs: Box<[TypeAddr]>,
     func_addrs: Box<[FuncAddr]>,
     table_addrs: Box<[TableAddr]>,
     mem_addrs: Box<[MemAddr]>,
@@ -61,25 +60,8 @@ struct ModuleInstanceInner {
 
 impl ModuleInstance {
     #[inline]
-    pub(crate) fn idx(&self) -> ModuleInstanceAddr {
-        self.0.idx
-    }
-
-    /// Type indices come from the module type section and are used by indirect calls.
-    #[inline]
-    pub(crate) fn func_type_by_type_index(&self, type_idx: u32) -> &Arc<FuncType> {
-        self.0.types.get(type_idx as usize).unwrap_or_else(|| unreachable!("invalid type index: {type_idx}"))
-    }
-
-    /// Function indices need their own lookup because they are not type-section indices.
-    #[inline]
-    pub(crate) fn func_type_idx(&self, addr: FuncAddr) -> u32 {
-        *self.0.func_type_idxs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid function address: {addr}"))
-    }
-
-    #[inline]
-    pub(crate) fn func_addrs(&self) -> &[FuncAddr] {
-        &self.0.func_addrs
+    pub(crate) fn resolve_type_addr(&self, type_addr: TypeAddr) -> TypeAddr {
+        *self.0.type_addrs.get(type_addr as usize).unwrap_or_else(|| unreachable!("invalid type address: {type_addr}"))
     }
 
     /// resolve a function address to the global store address
@@ -128,8 +110,8 @@ impl ModuleInstance {
     }
 
     /// Get the module instance's address
-    pub fn id(&self) -> ModuleInstanceAddr {
-        self.0.idx
+    pub fn id(&self) -> ModuleInstanceId {
+        self.0.id
     }
 
     /// Instantiate the module in the given store
@@ -169,10 +151,14 @@ impl ModuleInstance {
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
-        let idx = store.next_module_instance_idx();
-        let mut addrs = imports.unwrap_or_default().link(store, module)?;
-        addrs.funcs.extend(store.init_funcs(&module.funcs, idx));
-        addrs.tables.extend(store.init_tables(&module.table_types)?);
+        let type_addrs = store.register_module_types(&module.func_types);
+        let id = store.next_module_instance_id();
+        let mut addrs = imports.unwrap_or_default().link(store, module, &type_addrs)?;
+        let local_type_addrs = module.func_type_idxs[addrs.funcs.len()..]
+            .iter()
+            .map(|&addr| type_addrs[addr as usize])
+            .collect::<Box<[_]>>();
+        addrs.funcs.extend(store.init_funcs(&module.funcs, id, &local_type_addrs));
         match module.local_memory_allocation {
             LocalMemoryAllocation::Skip => {
                 #[cfg(feature = "guest-debug")]
@@ -186,7 +172,8 @@ impl ModuleInstance {
             }
         }
 
-        store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs)?;
+        store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
+        addrs.tables.extend(store.init_tables(&module.tables, &addrs.globals, &addrs.funcs, &type_addrs)?);
         let (elem_addrs, elem_trapped) =
             store.init_elements(&addrs.tables, &addrs.funcs, &addrs.globals, &module.elements)?;
         let (data_addrs, data_trapped) =
@@ -194,9 +181,8 @@ impl ModuleInstance {
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
-            idx,
-            types: module.func_types.clone(),
-            func_type_idxs: module.func_type_idxs.clone(),
+            id,
+            type_addrs,
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
@@ -264,9 +250,7 @@ impl ModuleInstance {
                     let func_addr = self.resolve_func_addr(export.index);
                     ExternItem::Func(Function {
                         item: StoreItem::new(self.0.store_id, func_addr),
-                        module_addr: self.id(),
-                        addr: func_addr,
-                        ty: self.func_type_by_type_index(self.func_type_idx(export.index)).clone(),
+                        module_id: self.id(),
                     })
                 }
                 ExternalKind::Table => {
@@ -325,14 +309,7 @@ impl ModuleInstance {
     pub fn extern_item(&self, name: &str) -> Result<ExternItem> {
         match self.require_export(name)? {
             ExternVal::Func(addr) => {
-                let export = self.0.exports.iter().find(|e| e.name == name.into());
-                let export = export.ok_or_else(|| Error::Other(format!("Export not found: {name}")))?;
-                Ok(ExternItem::Func(Function {
-                    item: StoreItem::new(self.0.store_id, addr),
-                    module_addr: self.id(),
-                    addr,
-                    ty: self.func_type_by_type_index(self.func_type_idx(export.index)).clone(),
-                }))
+                Ok(ExternItem::Func(Function { item: StoreItem::new(self.0.store_id, addr), module_id: self.id() }))
             }
             ExternVal::Memory(addr) => Ok(ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))),
             ExternVal::Table(addr) => Ok(ExternItem::Table(Table(StoreItem::new(self.0.store_id, addr)))),
@@ -373,12 +350,7 @@ impl ModuleInstance {
             return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
-        Ok(Function {
-            item: StoreItem::new(self.0.store_id, func_addr),
-            addr: func_addr,
-            module_addr: self.id(),
-            ty: store.state.get_func(func_addr).ty().clone(),
-        })
+        Ok(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() })
     }
 
     /// Get a function by its module-local index.
@@ -393,13 +365,7 @@ impl ModuleInstance {
         self.validate_store(store)?;
         let func_addr = Self::index_addr(&self.0.func_addrs, func_index, "function")?;
 
-        let ty = store.state.get_func(func_addr).ty();
-        Ok(Function {
-            item: StoreItem::new(self.0.store_id, func_addr),
-            addr: func_addr,
-            module_addr: self.id(),
-            ty: ty.clone(),
-        })
+        Ok(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() })
     }
 
     /// Get a typed function export by name.
@@ -440,14 +406,9 @@ impl ModuleInstance {
             return Err(Error::Other(format!("Export is not a function: {name}")));
         };
 
-        let func = Function {
-            item: StoreItem::new(self.0.store_id, func_addr),
-            addr: func_addr,
-            module_addr: self.id(),
-            ty: store.state.get_func(func_addr).ty().clone(),
-        };
+        let func = Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() };
 
-        Self::validate_typed_func::<P, R>(&func, name)?;
+        Self::validate_typed_func::<P, R>(store, &func, name)?;
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
@@ -460,22 +421,27 @@ impl ModuleInstance {
         func_index: FuncAddr,
     ) -> Result<FunctionTyped<P, R>> {
         let func = self.func_by_index(store, func_index)?;
-        Self::validate_typed_func::<P, R>(&func, &format!("function index {func_index}"))?;
+        Self::validate_typed_func::<P, R>(store, &func, &format!("function index {func_index}"))?;
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
 
     #[inline]
-    fn validate_typed_func<P: ToWasmTypes, R: ToWasmTypes>(func: &Function, func_name: &str) -> Result<()> {
+    fn validate_typed_func<P: ToWasmTypes, R: ToWasmTypes>(
+        store: &Store,
+        func: &Function,
+        func_name: &str,
+    ) -> Result<()> {
         let params = P::wasm_types();
         let results = R::wasm_types();
-        if func.ty.params() != params.as_ref() || func.ty.results() != results.as_ref() {
+        let ty = store.state.get_func_type(func.addr());
+        if ty.params() != params.as_ref() || ty.results() != results.as_ref() {
             cold_path();
 
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
                 "function type mismatch for {func_name}: expected {:?}, actual {:?}",
                 FuncType::new(&params, &results),
-                func.ty
+                ty
             )));
 
             #[cfg(not(feature = "debug"))]
@@ -590,12 +556,7 @@ impl ModuleInstance {
         };
 
         let func_addr = self.resolve_func_addr(func_addr);
-        Ok(Some(Function {
-            item: StoreItem::new(self.0.store_id, func_addr),
-            module_addr: self.id(),
-            addr: func_addr,
-            ty: store.state.get_func(func_addr).ty().clone(),
-        }))
+        Ok(Some(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() }))
     }
 
     /// Invoke the start function of the module

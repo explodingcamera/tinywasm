@@ -1,9 +1,8 @@
-use crate::{Result, conversion::convert_heaptype, macros::visit::*};
+use crate::{Result, conversion::convert_heap_type, macros::visit::*};
 use alloc::string::ToString;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableType, ValueCounts,
+    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, ValueCounts,
     WasmFunctionData, WasmType,
 };
 use wasmparser::{
@@ -151,12 +150,12 @@ struct ValidateThenVisit<'a, 'm> {
 
 impl ModuleMetadata {
     pub(crate) fn new(
-        types: &[Arc<FuncType>],
+        types: &[FuncType],
         code_type_addrs: &[u32],
         imports: &[Import],
         globals: &[Global],
         memories: &[MemoryType],
-        tables: &[TableType],
+        tables: &[TableDefinition],
     ) -> Self {
         let mut functions = Vec::with_capacity(imports.len() + code_type_addrs.len());
         let mut global_sizes = Vec::with_capacity(imports.len() + globals.len());
@@ -175,7 +174,7 @@ impl ModuleMetadata {
         functions.extend_from_slice(code_type_addrs);
         global_sizes.extend(globals.iter().map(|global| OperandSize::from(&global.ty.ty)));
         memory_sizes.extend(memories.iter().map(|ty| OperandSize::from(ty.arch())));
-        table_sizes.extend(tables.iter().map(|ty| OperandSize::from(ty.arch())));
+        table_sizes.extend(tables.iter().map(|table| OperandSize::from(table.ty.arch())));
 
         let signatures = types
             .iter()
@@ -685,7 +684,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     // Reference Types
     fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        let instruction = Instruction::RefNull(convert_heaptype(ty)?);
+        let instruction = Instruction::RefNull(convert_heap_type(ty, false)?);
         self.emit(&[], &[OperandSize::S32], instruction)
     }
 

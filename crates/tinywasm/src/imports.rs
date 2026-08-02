@@ -82,8 +82,8 @@ impl From<&Import> for ExternName {
 ///
 /// let table = Table::new(
 ///     &mut store,
-///     TableType::new(WasmType::RefFunc, 10, Some(20)),
-///     WasmValue::default_for(WasmType::RefFunc),
+///     TableType::new(tinywasm::types::RefType::FUNCREF, 10, Some(20)),
+///     tinywasm::types::RefValue::Null.into(),
 /// )?;
 /// let memory = Memory::new(
 ///     &mut store,
@@ -157,20 +157,44 @@ impl Imports {
         Ok(())
     }
 
-    fn compare_table_types(import: &Import, expected: &TableType, actual: &TableType) -> Result<()> {
+    fn ref_subtype(actual: RefType, expected: RefType) -> bool {
+        if actual.is_nullable() && !expected.is_nullable() {
+            return false;
+        }
+        match (actual.type_index(), expected.type_index()) {
+            (Some(actual), Some(expected)) => actual == expected,
+            (Some(_), None) => matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func)),
+            (None, Some(_)) => matches!(actual.abstract_heap_type(), Some(AbstractHeapType::NoFunc)),
+            (None, None) => {
+                actual.abstract_heap_type() == expected.abstract_heap_type()
+                    || actual.is_func() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func))
+                    || actual.is_extern() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Extern))
+                    || actual.is_exn() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Exn))
+            }
+        }
+    }
+
+    fn value_subtype(actual: WasmType, expected: WasmType) -> bool {
+        match (actual, expected) {
+            (WasmType::Ref(actual), WasmType::Ref(expected)) => Self::ref_subtype(actual, expected),
+            _ => actual == expected,
+        }
+    }
+
+    fn compare_table_types(import: &Import, actual: &TableType, expected: &TableType) -> Result<()> {
         Self::compare_types(import, &actual.arch(), &expected.arch())?;
-        Self::compare_types(import, &actual.element_type, &expected.element_type)?;
-        if actual.size_initial > expected.size_initial {
+        if !Self::ref_subtype(actual.element_type, expected.element_type)
+            || !Self::ref_subtype(expected.element_type, actual.element_type)
+        {
+            return Err(LinkingError::incompatible_import_type(import).into());
+        }
+        if actual.size_initial < expected.size_initial {
             cold_path();
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        match (expected.size_max, actual.size_max) {
-            (None, Some(_)) => {
-                cold_path();
-                Err(LinkingError::incompatible_import_type(import).into())
-            }
-            (Some(expected_max), Some(actual_max)) if actual_max < expected_max => {
+        match expected.size_max {
+            Some(expected_max) if actual.size_max.is_none_or(|actual_max| actual_max > expected_max) => {
                 cold_path();
                 Err(LinkingError::incompatible_import_type(import).into())
             }
@@ -202,7 +226,12 @@ impl Imports {
         Ok(())
     }
 
-    pub(crate) fn link(&self, store: &mut crate::Store, module: &Module) -> Result<ResolvedImports> {
+    pub(crate) fn link(
+        &self,
+        store: &mut crate::Store,
+        module: &Module,
+        type_addrs: &[TypeAddr],
+    ) -> Result<ResolvedImports> {
         let (global_count, table_count, mem_count, func_count) =
             module.imports.iter().fold((0, 0, 0, 0), |(g, t, m, f), import| match import.kind {
                 ImportKind::Global(_) => (g + 1, t, m, f),
@@ -213,7 +242,7 @@ impl Imports {
 
         let mut imports = ResolvedImports {
             globals: Vec::with_capacity(global_count + module.globals.len()),
-            tables: Vec::with_capacity(table_count + module.table_types.len()),
+            tables: Vec::with_capacity(table_count + module.tables.len()),
             memories: Vec::with_capacity(mem_count + module.memory_types.len()),
             funcs: Vec::with_capacity(func_count + module.funcs.len()),
         };
@@ -224,7 +253,7 @@ impl Imports {
                     Extern::Global(global) => (ExternVal::Global(global.0.addr), None),
                     Extern::Table(table) => (ExternVal::Table(table.0.addr), None),
                     Extern::Memory(memory) => (ExternVal::Memory(memory.0.addr), None),
-                    Extern::Function(func) => (ExternVal::Func(func.addr), Some(func)),
+                    Extern::Function(func) => (ExternVal::Func(func.addr()), Some(func)),
                 }
             } else {
                 let name = ExternName::from(import);
@@ -244,14 +273,26 @@ impl Imports {
             match (val, &import.kind) {
                 (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
                     let global = store.state.get_global(global_addr);
-                    Self::compare_types(import, &global.ty, ty)?;
+                    let expected = ty.with_ty(crate::store::canonicalize_value_type(ty.ty, type_addrs));
+                    let compatible = global.ty.mutable == ty.mutable
+                        && Self::value_subtype(global.ty.ty, expected.ty)
+                        && (!ty.mutable || Self::value_subtype(expected.ty, global.ty.ty));
+                    if !compatible {
+                        cold_path();
+                        return Err(LinkingError::incompatible_import_type(import).into());
+                    }
                     imports.globals.push(global_addr);
                 }
                 (ExternVal::Table(table_addr), ImportKind::Table(ty)) => {
                     let table = store.state.get_table(table_addr);
                     let mut kind = table.kind;
                     kind.size_initial = table.size() as u64;
-                    Self::compare_table_types(import, &kind, ty)?;
+                    let element_type = crate::store::canonicalize_ref_type(ty.element_type, type_addrs);
+                    let expected = match ty.arch() {
+                        MemoryArch::I32 => TableType::new(element_type, ty.size_initial, ty.size_max),
+                        MemoryArch::I64 => TableType::new64(element_type, ty.size_initial, ty.size_max),
+                    };
+                    Self::compare_table_types(import, &kind, &expected)?;
                     imports.tables.push(table_addr);
                 }
                 (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
@@ -260,17 +301,15 @@ impl Imports {
                     imports.memories.push(memory_addr);
                 }
                 (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
-                    let import_func_type = module
-                        .func_types
-                        .get(*ty as usize)
-                        .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-                    let actual_ty = if let Some(func) = &func_handle {
+                    let expected_type_addr =
+                        type_addrs.get(*ty as usize).ok_or_else(|| LinkingError::incompatible_import_type(import))?;
+                    if let Some(func) = &func_handle {
                         func.item.validate_store(store)?;
-                        &func.ty
-                    } else {
-                        store.state.get_func(func_addr).ty()
-                    };
-                    Self::compare_types(import, actual_ty, import_func_type)?;
+                    }
+                    if store.state.get_func(func_addr).type_addr != *expected_type_addr {
+                        cold_path();
+                        return Err(LinkingError::incompatible_import_type(import).into());
+                    }
                     imports.funcs.push(func_addr);
                 }
                 _ => unreachable!("import kind checked above"),
