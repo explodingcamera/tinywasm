@@ -1,3 +1,6 @@
+> [!WARNING]
+> This is the `next` branch and contains unreleased changes. See [`v0.10.0`](https://github.com/explodingcamera/tinywasm/tree/v0.10.0) for the latest released version.
+
 # <b>`tinywasm`</b>
 
 [![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust&style=flat-square)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
