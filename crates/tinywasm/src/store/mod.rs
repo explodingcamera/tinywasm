@@ -22,6 +22,20 @@ pub(crate) use {data::*, element::*, function::*, global::*, table::*};
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 
+pub(crate) fn canonicalize_ref_type(ty: RefType, type_addrs: &[TypeAddr]) -> RefType {
+    let Some(type_addr) = ty.type_index() else { return ty };
+    let canonical =
+        *type_addrs.get(type_addr as usize).unwrap_or_else(|| unreachable!("invalid type address: {type_addr}"));
+    RefType::new_concrete(ty.is_nullable(), canonical).unwrap()
+}
+
+pub(crate) fn canonicalize_value_type(ty: WasmType, type_addrs: &[TypeAddr]) -> WasmType {
+    match ty {
+        WasmType::Ref(ty) => WasmType::Ref(canonicalize_ref_type(ty, type_addrs)),
+        ty => ty,
+    }
+}
+
 /// Global state that can be manipulated by WebAssembly programs
 ///
 /// Note that the state doesn't do any garbage collection - so it will grow
@@ -79,16 +93,13 @@ impl Store {
     }
 
     /// Get a module instance by the internal id
-    pub fn get_module_instance(&self, addr: ModuleInstanceAddr) -> Option<ModuleInstance> {
-        self.module_instances.get(addr as usize).cloned()
+    pub fn get_module_instance(&self, id: ModuleInstanceId) -> Option<ModuleInstance> {
+        self.module_instances.get(id as usize).cloned()
     }
 
     #[inline]
-    pub(crate) fn get_module_instance_internal(&self, addr: ModuleInstanceAddr) -> ModuleInstance {
-        self.module_instances
-            .get(addr as usize)
-            .unwrap_or_else(|| unreachable!("invalid module instance: {addr}"))
-            .clone()
+    pub(crate) fn get_module_instance_internal(&self, id: ModuleInstanceId) -> ModuleInstance {
+        self.module_instances.get(id as usize).unwrap_or_else(|| unreachable!("invalid module instance: {id}")).clone()
     }
 
     pub(crate) fn enter_execution(&mut self) -> Result<()> {
@@ -125,6 +136,8 @@ impl Default for Store {
 /// Data should only be addressable by the module that owns it
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub(crate) struct State {
+    // Concrete type indexes in store instances address this canonical type space.
+    canonical_types: Vec<FuncType>,
     pub(crate) funcs: Vec<FunctionInstance>,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
@@ -134,6 +147,30 @@ pub(crate) struct State {
 }
 
 impl State {
+    pub(crate) fn value_matches_type(&self, value: WasmValue, expected: WasmType) -> bool {
+        match (value, expected) {
+            (WasmValue::Ref(RefValue::Null), WasmType::Ref(expected)) => expected.is_nullable(),
+            (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => {
+                self.funcs.get(func.addr() as usize).is_some_and(|func| match expected.type_index() {
+                    Some(expected) => func.type_addr == expected,
+                    None => matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func)),
+                })
+            }
+            (_, WasmType::Ref(expected)) if expected.is_concrete() => false,
+            _ => value.matches_type(expected),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
+        let type_addr = self.get_func(addr).type_addr;
+        Self::get(&self.canonical_types, type_addr, "canonical type")
+    }
+
+    #[inline]
+    pub(crate) fn get_type(&self, addr: TypeAddr) -> &FuncType {
+        Self::get(&self.canonical_types, addr, "canonical type")
+    }
     fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
         items.get(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
     }
@@ -156,8 +193,8 @@ impl State {
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
     pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
-        match self.funcs.get(addr as usize) {
-            Some(FunctionInstance::Wasm(wasm_func)) => wasm_func,
+        match self.funcs.get(addr as usize).map(|func| &func.kind) {
+            Some(FunctionKind::Wasm(wasm_func)) => wasm_func,
             _ => unreachable!("invalid wasm function address: {addr}"),
         }
     }
@@ -233,12 +270,12 @@ impl Store {
         self.id
     }
 
-    pub(crate) fn next_module_instance_idx(&self) -> ModuleInstanceAddr {
-        self.module_instances.len() as ModuleInstanceAddr
+    pub(crate) fn next_module_instance_id(&self) -> ModuleInstanceId {
+        self.module_instances.len() as ModuleInstanceId
     }
 
     pub(crate) fn add_instance(&mut self, instance: ModuleInstance) {
-        debug_assert!(instance.idx() == self.module_instances.len() as ModuleInstanceAddr);
+        debug_assert!(instance.id() == self.module_instances.len() as ModuleInstanceId);
         self.module_instances.push(instance);
     }
 
@@ -257,25 +294,94 @@ impl Store {
 
 // Linking related functions
 impl Store {
+    pub(crate) fn register_module_types(&mut self, types: &[FuncType]) -> Box<[TypeAddr]> {
+        let mut type_addrs = Vec::with_capacity(types.len());
+        for (local_addr, ty) in types.iter().enumerate() {
+            if let Some(addr) = self
+                .state
+                .canonical_types
+                .iter()
+                .position(|registered| ty.equivalent(types, registered, &self.state.canonical_types))
+            {
+                type_addrs.push(addr as TypeAddr);
+                continue;
+            }
+
+            let addr = self.state.canonical_types.len();
+            assert!(addr <= ((1 << 30) - 1), "too many canonical function types");
+            type_addrs.push(addr as TypeAddr);
+            let canonicalize = |ty: WasmType| match ty {
+                WasmType::Ref(ty) if ty.is_concrete() => {
+                    let module_ref = ty.type_index().unwrap() as usize;
+                    // A singleton recursive group can refer to the type currently being registered.
+                    let canonical = if module_ref == local_addr {
+                        addr as TypeAddr
+                    } else {
+                        *type_addrs
+                            .get(module_ref)
+                            .unwrap_or_else(|| unreachable!("invalid forward type reference: {module_ref}"))
+                    };
+                    WasmType::Ref(RefType::new_concrete(ty.is_nullable(), canonical).unwrap())
+                }
+                ty => ty,
+            };
+            let params = ty.params().iter().copied().map(canonicalize).collect::<Vec<_>>();
+            let results = ty.results().iter().copied().map(canonicalize).collect::<Vec<_>>();
+            self.state.canonical_types.push(FuncType::new(&params, &results));
+        }
+        type_addrs.into_boxed_slice()
+    }
+
+    pub(crate) fn register_host_type(&mut self, ty: &FuncType) -> TypeAddr {
+        if let Some(addr) = self.state.canonical_types.iter().position(|registered| ty == registered) {
+            return addr as TypeAddr;
+        }
+        let addr = self.state.canonical_types.len();
+        assert!(addr <= ((1 << 30) - 1), "too many canonical function types");
+        self.state.canonical_types.push(ty.clone());
+        addr as TypeAddr
+    }
+
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
         funcs: &[Arc<WasmFunction>],
-        idx: ModuleInstanceAddr,
+        owner: ModuleInstanceId,
+        type_addrs: &[TypeAddr],
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         let start = self.state.funcs.len() as FuncAddr;
-        self.state.funcs.extend(
-            funcs.iter().map(|func| FunctionInstance::Wasm(WasmFunctionInstance { func: func.clone(), owner: idx })),
-        );
+        debug_assert_eq!(funcs.len(), type_addrs.len());
+        self.state.funcs.extend(funcs.iter().zip(type_addrs).map(|(func, &type_addr)| FunctionInstance {
+            type_addr,
+            kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
+        }));
         start..start + funcs.len() as FuncAddr
     }
 
     /// Add tables to the store, returning their addresses in the store
-    pub(crate) fn init_tables(&mut self, tables: &[TableType]) -> Result<impl ExactSizeIterator<Item = TableAddr>> {
+    pub(crate) fn init_tables(
+        &mut self,
+        tables: &[TableDefinition],
+        global_addrs: &[GlobalAddr],
+        func_addrs: &[FuncAddr],
+        type_addrs: &[TypeAddr],
+    ) -> Result<impl ExactSizeIterator<Item = TableAddr>> {
         let start = self.state.tables.len() as TableAddr;
         self.state.tables.reserve_exact(tables.len());
-        for &table in tables {
-            self.state.tables.push(TableInstance::new(table)?);
+        for table in tables {
+            let init = match &table.init {
+                Some(expr) => match self.eval_const(expr, global_addrs, func_addrs)? {
+                    TinyWasmValue::ValueRef(value) => TableElement::from(value.addr()),
+                    _ => return Err(Error::other("table initializer is not a reference value")),
+                },
+                None => TableElement::Uninitialized,
+            };
+            let element_type = canonicalize_ref_type(table.ty.element_type, type_addrs);
+            let ty = match table.ty.arch() {
+                MemoryArch::I32 => TableType::new(element_type, table.ty.size_initial, table.ty.size_max),
+                MemoryArch::I64 => TableType::new64(element_type, table.ty.size_initial, table.ty.size_max),
+            };
+            self.state.tables.push(TableInstance::new_with_init(ty, init)?);
         }
         Ok(start..start + tables.len() as TableAddr)
     }
@@ -305,6 +411,7 @@ impl Store {
         out: &mut Vec<Addr>,
         globals: &[Global],
         func_addrs: &[FuncAddr],
+        type_addrs: &[TypeAddr],
     ) -> Result<()> {
         let start = self.state.globals.len() as Addr;
         out.extend(start..start + globals.len() as Addr);
@@ -317,7 +424,8 @@ impl Store {
                     return Err(e);
                 }
             };
-            self.state.globals.push(GlobalInstance::new(global.ty, value));
+            let ty = global.ty.with_ty(canonicalize_value_type(global.ty.ty, type_addrs));
+            self.state.globals.push(GlobalInstance::new(ty, value));
         }
 
         Ok(())
@@ -524,9 +632,11 @@ impl Store {
                 I64Const(i) => (*i).into(),
                 V128Const(i) => (*i).into(),
                 GlobalGet(addr) => resolve_global(*addr)?,
-                RefFunc(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
-                RefExtern(None) => TinyWasmValue::ValueRef(ValueRef::NULL),
-                RefFunc(Some(idx)) => TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))),
+                Ref(tinywasm_types::RefValue::Null) => TinyWasmValue::ValueRef(ValueRef::NULL),
+                Ref(tinywasm_types::RefValue::Func(func)) => {
+                    TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?))
+                }
+                Ref(_) => return Err(Error::other("unsupported reference constant")),
                 _ => {
                     cold_path();
                     return Err(Error::other("unsupported const instruction"));
@@ -545,13 +655,13 @@ impl Store {
                 F64Const(f) => stack.push(TinyWasmValue::Value64(f.to_bits())),
                 V128Const(i) => stack.push(TinyWasmValue::Value128((*i).into())),
                 GlobalGet(addr) => stack.push(resolve_global(*addr)?),
-                RefFunc(None) | RefExtern(None) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
-                RefFunc(Some(idx)) => {
-                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_addr(Some(resolve_func(*idx)?))))
+                Ref(tinywasm_types::RefValue::Null) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
+                Ref(tinywasm_types::RefValue::Func(func)) => {
+                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?)))
                 }
-                RefExtern(Some(_)) => {
+                Ref(_) => {
                     cold_path();
-                    return Err(Error::other("ref.extern constants are not supported in init expressions"));
+                    return Err(Error::other("unsupported reference constant"));
                 }
                 I32Add | I32Sub | I32Mul => {
                     let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;

@@ -1,6 +1,5 @@
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use tinywasm_types::FuncType;
@@ -27,7 +26,7 @@ pub enum Error {
     /// A host function returned an invalid value
     InvalidHostFnReturn {
         /// The expected type
-        expected: Arc<FuncType>,
+        expected: Box<FuncType>,
         /// The actual value
         actual: Vec<tinywasm_types::WasmValue>,
     },
@@ -167,12 +166,18 @@ pub enum Trap {
         index: usize,
     },
 
+    /// A null reference was used where a non-null reference was required.
+    NullReference,
+
+    /// A null function reference was called.
+    NullFunctionReference,
+
     /// Indirect call type mismatch
     IndirectCallTypeMismatch {
         /// The expected type
-        expected: Arc<FuncType>,
+        expected: Box<FuncType>,
         /// The actual type
-        actual: Arc<FuncType>,
+        actual: Box<FuncType>,
     },
 
     /// Catch-all for other messages
@@ -194,6 +199,8 @@ impl Trap {
             Self::OutOfMemory => "out of memory",
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
+            Self::NullReference => "null reference",
+            Self::NullFunctionReference => "null function reference",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
             Self::InvalidStore => "invalid store",
@@ -294,6 +301,8 @@ impl Display for Trap {
             Self::UninitializedElement { index } => {
                 write!(f, "uninitialized element: index={index}")
             }
+            Self::NullReference => write!(f, "null reference"),
+            Self::NullFunctionReference => write!(f, "null function reference"),
             Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {

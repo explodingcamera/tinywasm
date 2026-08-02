@@ -1,5 +1,5 @@
-use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValueCounts, WasmType};
-use crate::{ConstIdx, DataAddr, ElemAddr, ExternAddr, MemAddr};
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValueCounts};
+use crate::{ConstIdx, DataAddr, ElemAddr, MemAddr, RefType, RefValue};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -53,8 +53,7 @@ pub enum ConstInstruction {
     F64Const(f64),
     V128Const([u8; 16]),
     GlobalGet(GlobalAddr),
-    RefFunc(Option<FuncAddr>),
-    RefExtern(Option<ExternAddr>),
+    Ref(RefValue),
     I32Add,
     I32Sub,
     I32Mul,
@@ -195,6 +194,8 @@ pub enum Instruction {
     JumpIfNonZero32(u32),
     JumpIfZero64(u32),
     JumpIfNonZero64(u32),
+    JumpIfRefNull(u32),
+    JumpIfRefNonNull(u32),
     JumpIfLocalZero32 { target_ip: u32, local: LocalAddr },
     JumpIfLocalNonZero32 { target_ip: u32, local: LocalAddr },
     JumpIfLocalZero64 { target_ip: u32, local: LocalAddr },
@@ -215,9 +216,11 @@ pub enum Instruction {
     Call(FuncAddr),
     CallSelf,
     CallIndirect(TypeAddr, TableAddr),
+    CallRef(TypeAddr),
     ReturnCall(FuncAddr),
     ReturnCallSelf,
     ReturnCallIndirect(TypeAddr, TableAddr),
+    ReturnCallRef(TypeAddr),
 
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
@@ -265,9 +268,10 @@ pub enum Instruction {
     Const64(i64),
 
     // > Reference Types
-    RefNull(WasmType),
+    RefNull(RefType),
     RefFunc(FuncAddr),
     RefIsNull,
+    RefAsNonNull,
 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>

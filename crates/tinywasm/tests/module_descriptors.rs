@@ -113,7 +113,7 @@ fn module_descriptors_resolve_imported_and_local_table_and_memory_exports() -> R
     let itable_export = exports.iter().find(|export| export.name == "itable_export").expect("itable export not found");
     match itable_export.ty {
         ExportType::Table(ty) => {
-            assert_eq!(ty.element_type, WasmType::RefFunc);
+            assert_eq!(ty.element_type, tinywasm::types::RefType::FUNCREF);
             assert_eq!(ty.size_initial, 2);
             assert_eq!(ty.size_max, Some(4));
         }
@@ -133,7 +133,7 @@ fn module_descriptors_resolve_imported_and_local_table_and_memory_exports() -> R
     let ltable_export = exports.iter().find(|export| export.name == "ltable_export").expect("ltable export not found");
     match ltable_export.ty {
         ExportType::Table(ty) => {
-            assert_eq!(ty.element_type, WasmType::RefFunc);
+            assert_eq!(ty.element_type, tinywasm::types::RefType::FUNCREF);
             assert_eq!(ty.size_initial, 5);
             assert_eq!(ty.size_max, Some(7));
         }

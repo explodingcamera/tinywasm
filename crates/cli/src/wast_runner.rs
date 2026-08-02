@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use eyre::{Context, Result, bail, eyre};
 use log::{debug, error};
-use tinywasm::types::{ExternRef, FuncRef, MemoryType, TableType, WasmType, WasmValue};
+use tinywasm::types::{ExternRef, FuncRef, MemoryType, RefType, RefValue, TableType, WasmType, WasmValue};
 use tinywasm::{ExecProgress, Global, HostFunction, Imports, Memory, Module, ModuleInstance, Store, Table};
 use wast::{QuoteWat, core::AbstractHeapType};
 
@@ -154,16 +154,8 @@ impl WastRunner {
     fn imports(store: &mut Store, modules: &HashMap<String, ModuleInstance>) -> Result<Imports> {
         let mut imports = Imports::new();
 
-        let table = Table::new(
-            store,
-            TableType::new(WasmType::RefFunc, 10, Some(20)),
-            WasmValue::default_for(WasmType::RefFunc),
-        )?;
-        let table64 = Table::new(
-            store,
-            TableType::new64(WasmType::RefFunc, 10, Some(20)),
-            WasmValue::default_for(WasmType::RefFunc),
-        )?;
+        let table = Table::new(store, TableType::new(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
+        let table64 = Table::new(store, TableType::new64(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
         let memory = Memory::new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
         let global_i32 =
             Global::new(store, tinywasm::types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
@@ -467,7 +459,7 @@ impl WastRunner {
                             let expected = expected_alternatives
                                 .iter()
                                 .filter_map(|alts| alts.first())
-                                .find(|exp| module_global.eq_loose(exp));
+                                .find(|exp| exp.matches(&module_global));
                             if expected.is_none() {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
@@ -516,7 +508,7 @@ impl WastRunner {
                         }
                         if expected_alternatives.iter().any(|expected| {
                             expected.len() == outcomes.len()
-                                && outcomes.iter().zip(expected.iter()).all(|(outcome, exp)| outcome.eq_loose(exp))
+                                && outcomes.iter().zip(expected.iter()).all(|(outcome, exp)| exp.matches(outcome))
                         }) {
                             Ok(())
                         } else {
@@ -735,7 +727,7 @@ fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<WasmValue>> {
     args.into_iter().map(wastarg2tinywasmvalue).collect()
 }
 
-fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<Vec<Vec<WasmValue>>> {
+fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<Vec<Vec<ExpectedValue>>> {
     let mut alternatives = vec![Vec::new()];
     for arg in args {
         let choices = wastret2tinywasmvalues(arg)?;
@@ -763,14 +755,10 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         V128(i) => WasmValue::V128(i.to_le_bytes()),
-        RefExtern(v) => WasmValue::RefExtern(ExternRef::new(Some(v))),
+        RefExtern(v) => ExternRef::new(v).into(),
         RefNull(t) => match t {
-            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => {
-                WasmValue::RefFunc(FuncRef::null())
-            }
-            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern } => {
-                WasmValue::RefExtern(ExternRef::null())
-            }
+            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => RefValue::Null.into(),
+            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern } => RefValue::Null.into(),
             _ => {
                 bail!("unsupported arg type: refnull: {:?}", t);
             }
@@ -797,7 +785,26 @@ fn wast_v128_to_bytes(i: wast::core::V128Pattern) -> [u8; 16] {
     res.try_into().unwrap()
 }
 
-fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<WasmValue>> {
+#[derive(Clone, Copy)]
+enum ExpectedValue {
+    Exact(WasmValue),
+    RefNull,
+    RefFunc,
+    RefExtern,
+}
+
+impl ExpectedValue {
+    fn matches(&self, value: &WasmValue) -> bool {
+        match self {
+            Self::Exact(expected) => value.eq_loose(expected),
+            Self::RefNull => matches!(value, WasmValue::Ref(RefValue::Null)),
+            Self::RefFunc => matches!(value, WasmValue::Ref(RefValue::Func(_))),
+            Self::RefExtern => matches!(value, WasmValue::Ref(RefValue::Extern(_))),
+        }
+    }
+}
+
+fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<ExpectedValue>> {
     let wast::WastRet::Core(ret) = ret else {
         bail!("unsupported arg type");
     };
@@ -809,32 +816,22 @@ fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<WasmValue>> {
     }
 }
 
-fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<WasmValue> {
+fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedValue> {
     use wast::core::WastRetCore::{F32, F64, I32, I64, RefExtern, RefFunc, RefNull, V128};
     Ok(match ret {
-        F32(f) => nanpattern2tinywasmvalue(f)?,
-        F64(f) => nanpattern2tinywasmvalue(f)?,
-        I32(i) => WasmValue::I32(i),
-        I64(i) => WasmValue::I64(i),
-        V128(i) => WasmValue::V128(wast_v128_to_bytes(i)),
-        RefNull(t) => match t {
-            Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func }) => {
-                WasmValue::RefFunc(FuncRef::null())
-            }
-            Some(wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern }) => {
-                WasmValue::RefExtern(ExternRef::null())
-            }
-            _ => {
-                bail!("unsupported arg type: refnull: {:?}", t);
-            }
-        },
-        RefExtern(v) => WasmValue::RefExtern(ExternRef::new(v)),
-        RefFunc(v) => WasmValue::RefFunc(FuncRef::new(match v {
-            Some(wast::token::Index::Num(n, _)) => Some(n),
-            _ => {
-                bail!("unsupported arg type: reffunc: {:?}", v);
-            }
-        })),
+        F32(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
+        F64(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
+        I32(i) => ExpectedValue::Exact(WasmValue::I32(i)),
+        I64(i) => ExpectedValue::Exact(WasmValue::I64(i)),
+        V128(i) => ExpectedValue::Exact(WasmValue::V128(wast_v128_to_bytes(i))),
+        RefNull(_) => ExpectedValue::RefNull,
+        RefExtern(Some(v)) => ExpectedValue::Exact(ExternRef::new(v).into()),
+        RefExtern(None) => ExpectedValue::RefExtern,
+        RefFunc(Some(wast::token::Index::Num(n, _))) => ExpectedValue::Exact(FuncRef::new(n).into()),
+        RefFunc(None) => ExpectedValue::RefFunc,
+        RefFunc(v) => {
+            bail!("unsupported arg type: reffunc: {:?}", v);
+        }
         a => {
             bail!("unsupported arg type {:?}", a);
         }

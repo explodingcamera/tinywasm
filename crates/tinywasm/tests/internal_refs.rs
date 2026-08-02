@@ -1,5 +1,7 @@
 use eyre::Result;
-use tinywasm::types::{FuncRef, WasmValue};
+use tinywasm::types::WasmValue;
+#[cfg(feature = "guest-debug")]
+use tinywasm::types::{FuncRef, RefValue};
 use tinywasm::{ExternItem, ModuleInstance, Store};
 
 #[test]
@@ -29,8 +31,8 @@ fn private_items_are_accessible_by_index() -> Result<()> {
     assert_eq!(instance.memory_by_index(0)?.read_vec(&store, 0, 4)?, &[1, 2, 3, 4]);
 
     assert_eq!(instance.table_by_index(0)?.size(&store)?, 2);
-    assert_eq!(instance.table_by_index(0)?.get(&store, 0)?, WasmValue::RefFunc(FuncRef::new(Some(0))));
-    assert!(matches!(instance.table_by_index(0)?.get(&store, 1)?, WasmValue::RefFunc(func_ref) if func_ref.is_null()));
+    assert_eq!(instance.table_by_index(0)?.get(&store, 0)?, WasmValue::Ref(RefValue::Func(FuncRef::new(0))));
+    assert_eq!(instance.table_by_index(0)?.get(&store, 1)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
 
     assert_eq!(instance.global_by_index(0)?.get(&store)?, WasmValue::I32(11));
     instance.global_by_index(0)?.set(&mut store, WasmValue::I32(23))?;
@@ -61,9 +63,9 @@ fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<()> {
 
     let table = instance.table("t")?;
     assert_eq!(table.size(&store)?, 1);
-    assert!(matches!(table.get(&store, 0)?, WasmValue::RefFunc(func_ref) if func_ref.is_null()));
+    assert_eq!(table.get(&store, 0)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
 
-    let old_size = instance.table("t")?.grow(&mut store, 1, WasmValue::RefFunc(FuncRef::null()))?;
+    let old_size = instance.table("t")?.grow(&mut store, 1, tinywasm::types::RefValue::Null.into())?;
     assert_eq!(old_size, 1);
     assert_eq!(instance.table("t")?.size(&store)?, 2);
 
@@ -148,10 +150,11 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
 
     let export = module.exports.iter().find(|export| export.name.as_ref() == "f").expect("export f not found");
     let old_lookup_ty = module.func_types.get(export.index as usize).expect("old lookup type missing");
+    let func_ty = &module.func_types[module.func_type_idxs[export.index as usize] as usize];
 
     assert_eq!(old_lookup_ty.params(), &[tinywasm::types::WasmType::I64]);
-    assert_eq!(module.funcs[0].ty.params(), &[]);
-    assert_ne!(old_lookup_ty.params(), module.funcs[0].ty.params());
+    assert_eq!(func_ty.params(), &[]);
+    assert_ne!(old_lookup_ty.params(), func_ty.params());
 
     let mut store = Store::default();
     let mut imports = tinywasm::Imports::new();

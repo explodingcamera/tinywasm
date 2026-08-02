@@ -30,8 +30,9 @@ pub fn format_wasm_type(ty: WasmType) -> &'static str {
         WasmType::F32 => "f32",
         WasmType::F64 => "f64",
         WasmType::V128 => "v128",
-        WasmType::RefFunc => "funcref",
-        WasmType::RefExtern => "externref",
+        WasmType::Ref(ty) if ty.is_func() => "funcref",
+        WasmType::Ref(ty) if ty.is_extern() => "externref",
+        WasmType::Ref(_) => "ref",
     }
 }
 
@@ -62,7 +63,7 @@ pub fn format_table_type(ty: &TableType) -> String {
         MemoryArch::I64 => "i64",
     };
     let max = ty.size_max.map(|v| v.to_string()).unwrap_or_else(|| "unbounded".to_string());
-    format!("table[{arch} {}] initial={} max={max}", format_wasm_type(ty.element_type), ty.size_initial)
+    format!("table[{arch} {}] initial={} max={max}", format_wasm_type(WasmType::Ref(ty.element_type)), ty.size_initial)
 }
 
 pub fn format_global_type(ty: &GlobalType) -> String {

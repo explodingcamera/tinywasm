@@ -8,7 +8,14 @@ use crate::func::HostFunction;
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) enum FunctionInstance {
+pub(crate) struct FunctionInstance {
+    pub(crate) type_addr: TypeAddr,
+    pub(crate) kind: FunctionKind,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub(crate) enum FunctionKind {
     /// A host function
     Host(Rc<HostFunction>),
 
@@ -16,26 +23,9 @@ pub(crate) enum FunctionInstance {
     Wasm(WasmFunctionInstance),
 }
 
-impl FunctionInstance {
-    #[inline]
-    pub(crate) fn ty(&self) -> &Arc<FuncType> {
-        match self {
-            Self::Host(f) => &f.ty,
-            Self::Wasm(f) => f.ty(),
-        }
-    }
-}
-
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct WasmFunctionInstance {
     pub(crate) func: Arc<WasmFunction>,
-    pub(crate) owner: ModuleInstanceAddr,
-}
-
-impl WasmFunctionInstance {
-    #[inline]
-    pub(crate) fn ty(&self) -> &Arc<FuncType> {
-        &self.func.ty
-    }
+    pub(crate) owner: ModuleInstanceId,
 }

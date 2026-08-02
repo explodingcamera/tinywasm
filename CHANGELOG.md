@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added support for the WebAssembly function-references proposal
+- Added `WasmValue::ty` and `WasmValue::matches_type`
+
+### Changed
+
+- Function types are now stored separately and resolved through `Function::ty(&Store)`.
+
+### Fixed
+
+- Tail calls to host functions now return directly to the caller frame.
+
+### Breaking Changes
+
+- Renamed `ModuleInstanceAddr` to `ModuleInstanceId` for consistency.
+- Removed `HostFunction::ty` and `WasmFunction::ty`. Use `Function::ty(&Store)` for runtime function types.
+- Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
+
 ## [0.10.0] - 2026-07-24
 
 **All Commits**: https://github.com/explodingcamera/tinywasm/compare/v0.9.1...v0.10.0

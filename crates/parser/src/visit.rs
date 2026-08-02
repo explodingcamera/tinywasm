@@ -1,9 +1,8 @@
-use crate::{Result, conversion::convert_heaptype, macros::visit::*};
+use crate::{Result, conversion::convert_heap_type, macros::visit::*};
 use alloc::string::ToString;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableType, ValueCounts,
+    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, ValueCounts,
     WasmFunctionData, WasmType,
 };
 use wasmparser::{
@@ -49,7 +48,7 @@ impl From<wasmparser::ValType> for OperandSize {
 impl From<&WasmType> for OperandSize {
     fn from(ty: &WasmType) -> Self {
         match ty {
-            WasmType::I32 | WasmType::F32 | WasmType::RefFunc | WasmType::RefExtern => Self::S32,
+            WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => Self::S32,
             WasmType::I64 | WasmType::F64 => Self::S64,
             WasmType::V128 => Self::S128,
         }
@@ -151,12 +150,12 @@ struct ValidateThenVisit<'a, 'm> {
 
 impl ModuleMetadata {
     pub(crate) fn new(
-        types: &[Arc<FuncType>],
+        types: &[FuncType],
         code_type_addrs: &[u32],
         imports: &[Import],
         globals: &[Global],
         memories: &[MemoryType],
-        tables: &[TableType],
+        tables: &[TableDefinition],
     ) -> Self {
         let mut functions = Vec::with_capacity(imports.len() + code_type_addrs.len());
         let mut global_sizes = Vec::with_capacity(imports.len() + globals.len());
@@ -175,7 +174,7 @@ impl ModuleMetadata {
         functions.extend_from_slice(code_type_addrs);
         global_sizes.extend(globals.iter().map(|global| OperandSize::from(&global.ty.ty)));
         memory_sizes.extend(memories.iter().map(|ty| OperandSize::from(ty.arch())));
-        table_sizes.extend(tables.iter().map(|ty| OperandSize::from(ty.arch())));
+        table_sizes.extend(tables.iter().map(|table| OperandSize::from(table.ty.arch())));
 
         let signatures = types
             .iter()
@@ -399,6 +398,13 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&inputs, &signature.results, Instruction::CallIndirect(type_index, table_index))
     }
 
+    fn visit_call_ref(&mut self, type_index: u32) -> Self::Output {
+        let signature = self.metadata.signature(type_index)?.clone();
+        let mut inputs = signature.params;
+        inputs.push(OperandSize::S32);
+        self.emit(&inputs, &signature.results, Instruction::CallRef(type_index))
+    }
+
     fn visit_return_call(&mut self, function_index: u32) -> Self::Output {
         let signature = self.metadata.function_signature(function_index)?.clone();
         self.apply_effect(&signature.params, &[])?;
@@ -414,6 +420,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.apply_effect(&inputs, &[])?;
         self.mark_unreachable();
         self.instructions.push(Instruction::ReturnCallIndirect(type_index, table_index));
+        Ok(())
+    }
+
+    fn visit_return_call_ref(&mut self, type_index: u32) -> Self::Output {
+        let signature = self.metadata.signature(type_index)?.clone();
+        let mut inputs = signature.params;
+        inputs.push(OperandSize::S32);
+        self.apply_effect(&inputs, &[])?;
+        self.mark_unreachable();
+        self.instructions.push(Instruction::ReturnCallRef(type_index));
         Ok(())
     }
 
@@ -668,8 +684,34 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     // Reference Types
     fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        let instruction = Instruction::RefNull(convert_heaptype(ty)?);
+        let instruction = Instruction::RefNull(convert_heap_type(ty, false)?);
         self.emit(&[], &[OperandSize::S32], instruction)
+    }
+
+    fn visit_ref_as_non_null(&mut self) -> Self::Output {
+        self.emit(&[OperandSize::S32], &[OperandSize::S32], Instruction::RefAsNonNull)
+    }
+
+    fn visit_br_on_null(&mut self, relative_depth: u32) -> Self::Output {
+        self.pop_expect(OperandSize::S32)?;
+        let fallthrough_jump = self.instructions.len();
+        self.instructions.push(Instruction::JumpIfRefNonNull(0));
+        self.emit_dropkeep_to_label(relative_depth)?;
+        self.emit_branch_jump_or_return(relative_depth)?;
+        self.patch_jump(fallthrough_jump, self.instructions.len());
+        self.push_sizes(&[OperandSize::S32])
+    }
+
+    fn visit_br_on_non_null(&mut self, relative_depth: u32) -> Self::Output {
+        self.pop_expect(OperandSize::S32)?;
+        let fallthrough_jump = self.instructions.len();
+        self.instructions.push(Instruction::JumpIfRefNull(0));
+        self.push_sizes(&[OperandSize::S32])?;
+        self.emit_dropkeep_to_label(relative_depth)?;
+        self.pop_expect(OperandSize::S32)?;
+        self.emit_branch_jump_or_return(relative_depth)?;
+        self.patch_jump(fallthrough_jump, self.instructions.len());
+        Ok(())
     }
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
@@ -1026,7 +1068,11 @@ impl FunctionBuilder<'_> {
 
     fn patch_jump(&mut self, jump_ip: usize, target: usize) {
         match &mut self.instructions[jump_ip] {
-            Instruction::Jump(ip) | Instruction::JumpIfZero32(ip) | Instruction::JumpIfNonZero32(ip) => {
+            Instruction::Jump(ip)
+            | Instruction::JumpIfZero32(ip)
+            | Instruction::JumpIfNonZero32(ip)
+            | Instruction::JumpIfRefNull(ip)
+            | Instruction::JumpIfRefNonNull(ip) => {
                 *ip = target as u32;
             }
             _ => {}

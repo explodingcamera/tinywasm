@@ -81,7 +81,7 @@ fn table_grow_rejects_wrong_store_with_invalid_store_error() -> Result<()> {
     let table = instance.table("t")?;
 
     let mut other_store = Store::default();
-    let err = table.grow(&mut other_store, 1, tinywasm::types::FuncRef::null().into()).unwrap_err();
+    let err = table.grow(&mut other_store, 1, tinywasm::types::RefValue::Null.into()).unwrap_err();
     assert_eq!(err, tinywasm::Error::Trap(tinywasm::Trap::InvalidStore));
 
     Ok(())

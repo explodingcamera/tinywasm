@@ -84,10 +84,10 @@ pub struct ModuleInner {
     /// A vector of type definitions, indexed by `TypeAddr`
     ///
     /// Corresponds to the `type` section of the original WebAssembly module.
-    pub func_types: Arc<[Arc<FuncType>]>,
+    pub func_types: Box<[FuncType]>,
 
     /// Function index to type index mapping in module index space, including imports.
-    pub func_type_idxs: Arc<[u32]>,
+    pub func_type_idxs: Box<[TypeAddr]>,
 
     /// Exported items of the WebAssembly module.
     ///
@@ -102,7 +102,7 @@ pub struct ModuleInner {
     /// Table components of the WebAssembly module used to initialize tables.
     ///
     /// Corresponds to the `table` section of the original WebAssembly module.
-    pub table_types: Box<[TableType]>,
+    pub tables: Box<[TableDefinition]>,
 
     /// Memory components of the WebAssembly module used to initialize memories.
     ///
@@ -193,7 +193,8 @@ impl Module {
                     if idx < imported_funcs {
                         imported_type(&self.0, ExternalKind::Func, idx)?
                     } else {
-                        ExportType::Func(&self.0.funcs.get(idx - imported_funcs)?.ty)
+                        let type_idx = *self.0.func_type_idxs.get(idx)?;
+                        ExportType::Func(self.0.func_types.get(type_idx as usize)?)
                     }
                 }
                 ExternalKind::Table => {
@@ -201,7 +202,7 @@ impl Module {
                     if idx < imported_tables {
                         imported_type(&self.0, ExternalKind::Table, idx)?
                     } else {
-                        ExportType::Table(self.0.table_types.get(idx - imported_tables)?)
+                        ExportType::Table(&self.0.tables.get(idx - imported_tables)?.ty)
                     }
                 }
                 ExternalKind::Memory => {
@@ -318,9 +319,12 @@ pub type ExternAddr = Addr;
 pub type ConstIdx = Addr;
 
 // additional internal addresses
+/// An address in the current type space.
+///
+/// Parsed modules use module-local addresses; instantiated types use their store's canonical addresses.
 pub type TypeAddr = Addr;
 pub type LocalAddr = u16; // there can't be more than 50.000 locals in a function
-pub type ModuleInstanceAddr = Addr;
+pub type ModuleInstanceId = Addr;
 
 /// A WebAssembly External Value.
 ///
@@ -383,6 +387,61 @@ impl FuncType {
     pub fn results(&self) -> &[WasmType] {
         &self.data[self.param_count as usize..]
     }
+
+    /// Compare function types while resolving concrete references in their respective type spaces.
+    pub fn equivalent(&self, types: &[FuncType], other: &Self, other_types: &[FuncType]) -> bool {
+        fn refs_equal(
+            left_types: &[FuncType],
+            left: RefType,
+            right_types: &[FuncType],
+            right: RefType,
+            visited: &mut alloc::vec::Vec<(u32, u32)>,
+        ) -> bool {
+            if left.is_nullable() != right.is_nullable() {
+                return false;
+            }
+            match (left.type_index(), right.type_index()) {
+                (Some(left_idx), Some(right_idx)) => {
+                    if visited.contains(&(left_idx, right_idx)) {
+                        return true;
+                    }
+                    let (Some(left), Some(right)) =
+                        (left_types.get(left_idx as usize), right_types.get(right_idx as usize))
+                    else {
+                        return false;
+                    };
+                    visited.push((left_idx, right_idx));
+                    funcs_equal(left, left_types, right, right_types, visited)
+                }
+                (None, None) => left.abstract_heap_type() == right.abstract_heap_type(),
+                _ => false,
+            }
+        }
+
+        fn funcs_equal(
+            left: &FuncType,
+            left_types: &[FuncType],
+            right: &FuncType,
+            right_types: &[FuncType],
+            visited: &mut alloc::vec::Vec<(u32, u32)>,
+        ) -> bool {
+            left.params().len() == right.params().len()
+                && left.results().len() == right.results().len()
+                && left.params().iter().chain(left.results()).zip(right.params().iter().chain(right.results())).all(
+                    |(&left, &right)| match (left, right) {
+                        (WasmType::Ref(left), WasmType::Ref(right)) => {
+                            refs_equal(left_types, left, right_types, right, visited)
+                        }
+                        _ => left == right,
+                    },
+                )
+        }
+
+        if core::ptr::eq(types, other_types) && self == other {
+            return true;
+        }
+        funcs_equal(self, types, other, other_types, &mut alloc::vec::Vec::new())
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -408,7 +467,7 @@ impl<'a> FromIterator<&'a WasmType> for ValueCounts {
 
         for ty in iter {
             match ty {
-                WasmType::I32 | WasmType::F32 | WasmType::RefExtern | WasmType::RefFunc => counts.c32 += 1,
+                WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => counts.c32 += 1,
                 WasmType::I64 | WasmType::F64 => counts.c64 += 1,
                 WasmType::V128 => counts.c128 += 1,
             }
@@ -426,7 +485,6 @@ pub struct WasmFunction {
     pub locals: ValueCounts,
     pub params: ValueCounts,
     pub results: ValueCounts,
-    pub ty: Arc<FuncType>,
 }
 
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -504,23 +562,31 @@ impl Default for GlobalType {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct TableType {
     arch: MemoryArch,
-    pub element_type: WasmType,
+    pub element_type: RefType,
     pub size_initial: u64,
     pub size_max: Option<u64>,
 }
 
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct TableDefinition {
+    pub ty: TableType,
+    pub init: Option<Box<[ConstInstruction]>>,
+}
+
 impl TableType {
     pub const fn empty() -> Self {
-        Self::new(WasmType::RefFunc, 0, None)
+        Self::new(RefType::FUNCREF, 0, None)
     }
 
     /// Create a table with 32-bit indices.
-    pub const fn new(element_type: WasmType, size_initial: u64, size_max: Option<u64>) -> Self {
+    pub const fn new(element_type: RefType, size_initial: u64, size_max: Option<u64>) -> Self {
         Self { arch: MemoryArch::I32, element_type, size_initial, size_max }
     }
 
     /// Create a table with 64-bit indices.
-    pub const fn new64(element_type: WasmType, size_initial: u64, size_max: Option<u64>) -> Self {
+    pub const fn new64(element_type: RefType, size_initial: u64, size_max: Option<u64>) -> Self {
         Self { arch: MemoryArch::I64, element_type, size_initial, size_max }
     }
 
@@ -675,7 +741,7 @@ pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
     pub range: Range<usize>,
-    pub ty: WasmType,
+    pub ty: RefType,
 }
 
 #[derive(Clone, PartialEq)]
