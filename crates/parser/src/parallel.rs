@@ -1,10 +1,11 @@
 use crate::module::{FunctionCode, optimize_function_code};
+use crate::validation::{FuncToValidate, FuncValidatorAllocations, ValidatorResources};
 use crate::{ParseError, ParserOptions, Result, conversion};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Range;
 use tinywasm_types::ValueCounts;
-use wasmparser::{FuncValidatorAllocations, OperatorsReaderAllocations, ValidatorResources};
+use wasmparser::OperatorsReaderAllocations;
 
 pub(crate) enum FunctionBodyInput<'a> {
     Borrowed(wasmparser::FunctionBody<'a>),
@@ -22,7 +23,7 @@ pub(crate) struct OwnedFunctionBody {
 pub(crate) struct PendingFunction<'a> {
     pub ordinal: usize,
     pub results: ValueCounts,
-    pub func_to_validate: Option<wasmparser::FuncToValidate<ValidatorResources>>,
+    pub func_to_validate: Option<FuncToValidate<ValidatorResources>>,
     pub ty_idx: u32,
     pub body: FunctionBodyInput<'a>,
 }
@@ -64,7 +65,13 @@ fn process_function_job(
     validator_allocs: Option<FuncValidatorAllocations>,
     reader_allocs: OperatorsReaderAllocations,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+    #[cfg(feature = "validate")]
     let validator = job.func_to_validate.map(|func| func.into_validator(validator_allocs.unwrap_or_default()));
+    #[cfg(not(feature = "validate"))]
+    let validator = {
+        let _ = (job.func_to_validate, validator_allocs);
+        None
+    };
     let (code, validator_allocs, reader_allocs) = match job.body {
         FunctionBodyInput::Borrowed(func) => {
             conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx)?

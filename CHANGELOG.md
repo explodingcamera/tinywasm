@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added support for the WebAssembly function-references proposal
 - Added `WasmValue::ty` and `WasmValue::matches_type`
+- Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 
 ### Changed
 

@@ -13,6 +13,7 @@ categories.workspace = true
 [package.metadata.docs.rs]
 features = [
   "std",
+  "validate",
   "parser",
   "archive",
   "log",
@@ -160,7 +161,8 @@ default = [
   "log",
   "parallel-parser",
   "parser",
-  "std"
+  "std",
+  "validate"
 ]
 
 log = ["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
@@ -168,6 +170,9 @@ std = ["tinywasm-parser?/std", "tinywasm-types/std"]
 
 # support for parsing WebAssembly
 parser = ["dep:tinywasm-parser"]
+
+# validate WebAssembly while parsing
+validate = ["parser", "tinywasm-parser/validate"]
 
 # parallelize function parsing/validation across threads (requires std)
 parallel-parser = ["parser", "tinywasm-parser?/parallel"]

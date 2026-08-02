@@ -34,6 +34,7 @@ mod error;
 mod macros;
 mod module;
 mod optimize;
+mod validation;
 mod visit;
 
 #[cfg(parallel_parser)]
@@ -41,7 +42,10 @@ mod parallel;
 
 pub use error::*;
 use module::ModuleReader;
-use wasmparser::{Validator, WasmFeatures};
+use validation::Validator;
+
+#[cfg(feature = "validate")]
+use wasmparser::WasmFeatures;
 
 pub use tinywasm_types::Module;
 
@@ -49,7 +53,10 @@ pub use tinywasm_types::Module;
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ParserOptions {
-    /// Whether to validate modules while parsing. Enabled by default.
+    /// Whether to validate modules while parsing. Enabled by default when the
+    /// `validate` feature is enabled.
+    ///
+    /// Requires the `validate` feature to have any effect.
     ///
     /// Disable this only for trusted input. Parsing without validation may produce
     /// a module that violates runtime assumptions.
@@ -73,7 +80,7 @@ pub struct ParserOptions {
 impl Default for ParserOptions {
     fn default() -> Self {
         Self {
-            validation: true,
+            validation: cfg!(feature = "validate"),
             optimize_local_memory_allocation: true,
             optimize_rewrite: true,
             #[cfg(parallel_parser)]
@@ -85,9 +92,12 @@ impl Default for ParserOptions {
 impl ParserOptions {
     /// Enable or disable WebAssembly validation.
     ///
+    /// Requires the `validate` feature to have any effect.
+    ///
     /// Disable this only for trusted input. Parsing without validation may produce
     /// a module that violates runtime assumptions.
     pub const fn with_validation(mut self, enabled: bool) -> Self {
+        assert!(!enabled || cfg!(feature = "validate"), "validation requires the `validate` feature");
         self.validation = enabled;
         self
     }
@@ -157,27 +167,35 @@ impl Parser {
         &self.options
     }
 
-    fn create_validator(_options: ParserOptions) -> Validator {
-        let features = WasmFeatures::CALL_INDIRECT_OVERLONG
-            | WasmFeatures::BULK_MEMORY_OPT
-            | WasmFeatures::RELAXED_SIMD
-            | WasmFeatures::GC_TYPES
-            | WasmFeatures::REFERENCE_TYPES
-            | WasmFeatures::MUTABLE_GLOBAL
-            | WasmFeatures::MULTI_VALUE
-            | WasmFeatures::FLOATS
-            | WasmFeatures::BULK_MEMORY
-            | WasmFeatures::SATURATING_FLOAT_TO_INT
-            | WasmFeatures::SIGN_EXTENSION
-            | WasmFeatures::EXTENDED_CONST
-            | WasmFeatures::FUNCTION_REFERENCES
-            | WasmFeatures::TAIL_CALL
-            | WasmFeatures::MULTI_MEMORY
-            | WasmFeatures::SIMD
-            | WasmFeatures::MEMORY64
-            | WasmFeatures::CUSTOM_PAGE_SIZES
-            | WasmFeatures::WIDE_ARITHMETIC;
-        Validator::new_with_features(features)
+    fn validator(&self) -> Option<Validator> {
+        #[cfg(feature = "validate")]
+        {
+            let features = WasmFeatures::CALL_INDIRECT_OVERLONG
+                | WasmFeatures::BULK_MEMORY_OPT
+                | WasmFeatures::RELAXED_SIMD
+                | WasmFeatures::GC_TYPES
+                | WasmFeatures::REFERENCE_TYPES
+                | WasmFeatures::MUTABLE_GLOBAL
+                | WasmFeatures::MULTI_VALUE
+                | WasmFeatures::FLOATS
+                | WasmFeatures::BULK_MEMORY
+                | WasmFeatures::SATURATING_FLOAT_TO_INT
+                | WasmFeatures::SIGN_EXTENSION
+                | WasmFeatures::EXTENDED_CONST
+                | WasmFeatures::FUNCTION_REFERENCES
+                | WasmFeatures::TAIL_CALL
+                | WasmFeatures::MULTI_MEMORY
+                | WasmFeatures::SIMD
+                | WasmFeatures::MEMORY64
+                | WasmFeatures::CUSTOM_PAGE_SIZES
+                | WasmFeatures::WIDE_ARITHMETIC;
+            self.options.validation().then(|| Validator::new_with_features(features))
+        }
+        #[cfg(not(feature = "validate"))]
+        {
+            assert!(!self.options.validation(), "validation requires the `validate` feature");
+            None
+        }
     }
 
     #[cfg(feature = "std")]
@@ -194,7 +212,7 @@ impl Parser {
     /// Parse a [`Module`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<Module> {
         let wasm = wasm.as_ref();
-        let mut validator = self.options.validation().then(|| Self::create_validator(self.options.clone()));
+        let mut validator = self.validator();
         let mut reader = ModuleReader::default();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
@@ -228,7 +246,7 @@ impl Parser {
     #[cfg(feature = "std")]
     /// Parse a [`Module`] from a stream. Requires `std` feature.
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<Module> {
-        let mut validator = self.options.validation().then(|| Self::create_validator(self.options.clone()));
+        let mut validator = self.validator();
         let mut reader = ModuleReader::default();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);

@@ -37,6 +37,7 @@ tinywasm = { workspace = true, features = [
   "parallel-parser",
   "parser",
   "std",
+  "validate",
 ] }
 wast = { workspace = true, optional = true }
 wat = { workspace = true, optional = true }

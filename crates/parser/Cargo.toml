@@ -13,10 +13,11 @@ categories.workspace = true
 [dependencies]
 log = { workspace = true, optional = true }
 tinywasm-types = { workspace = true }
-wasmparser = { workspace = true, features = ["features", "simd", "validate"] }
+wasmparser = { workspace = true, features = ["simd"] }
 
 [features]
-default = ["log", "parallel", "std"]
+default = ["log", "parallel", "std", "validate"]
 log = ["dep:log"]
 parallel = ["std"]
 std = ["tinywasm-types/std", "wasmparser/std"]
+validate = ["wasmparser/features", "wasmparser/validate"]

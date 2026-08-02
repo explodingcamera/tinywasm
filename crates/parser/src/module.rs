@@ -1,10 +1,13 @@
 use crate::log::debug;
+#[cfg(parallel_parser)]
+use crate::validation::{FuncToValidate, ValidatorResources};
+use crate::validation::{FuncValidatorAllocations, Validator};
 use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
-use wasmparser::{FuncValidatorAllocations, OperatorsReaderAllocations, Payload, Validator};
+use wasmparser::{OperatorsReaderAllocations, Payload};
 
 pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
@@ -79,11 +82,11 @@ impl<'a> ModuleReader<'a> {
         self.translation_metadata.as_deref().unwrap()
     }
 
-    pub(crate) fn process_payload(
-        &mut self,
-        payload: Payload<'_>,
-        mut validator: Option<&mut Validator>,
-    ) -> Result<()> {
+    pub(crate) fn process_payload(&mut self, payload: Payload<'_>, validator: Option<&mut Validator>) -> Result<()> {
+        #[cfg(feature = "validate")]
+        let mut validator = validator;
+        #[cfg(not(feature = "validate"))]
+        let _ = validator;
         fn check_section(section: &str, duplicate: bool) -> Result<()> {
             debug!("found {section} section");
             if duplicate {
@@ -94,9 +97,12 @@ impl<'a> ModuleReader<'a> {
 
         match payload {
             Payload::Version { num, encoding, range } => {
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.version(num, encoding, &range)?;
                 }
+                #[cfg(not(feature = "validate"))]
+                let _ = range;
                 self.version = Some(num);
                 if let wasmparser::Encoding::Component = encoding {
                     return Err(ParseError::InvalidEncoding(encoding));
@@ -104,13 +110,17 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::StartSection { func, range } => {
                 check_section("start", self.start_func.is_some())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.start_section(func, &range)?;
                 }
+                #[cfg(not(feature = "validate"))]
+                let _ = range;
                 self.start_func = Some(func);
             }
             Payload::TypeSection(reader) => {
                 check_section("type", !self.func_types.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.type_section(&reader)?;
                 }
@@ -118,6 +128,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::GlobalSection(reader) => {
                 check_section("global", !self.globals.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.global_section(&reader)?;
                 }
@@ -125,6 +136,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::TableSection(reader) => {
                 check_section("table", !self.tables.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.table_section(&reader)?;
                 }
@@ -149,6 +161,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::MemorySection(reader) => {
                 check_section("memory", !self.memory_types.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.memory_section(&reader)?;
                 }
@@ -157,6 +170,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ElementSection(reader) => {
                 debug!("Found element section");
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.element_section(&reader)?;
                 }
@@ -165,6 +179,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::DataSection(reader) => {
                 check_section("data", !self.data.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.data_section(&reader)?;
                 }
@@ -175,12 +190,16 @@ impl<'a> ModuleReader<'a> {
                 if !self.data.is_empty() {
                     return Err(ParseError::UnsupportedSection("Data count section after data section".into()));
                 }
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.data_count_section(count, &range)?;
                 }
+                #[cfg(not(feature = "validate"))]
+                let _ = (count, range);
             }
             Payload::FunctionSection(reader) => {
                 check_section("function", !self.code_type_addrs.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.function_section(&reader)?;
                 }
@@ -200,6 +219,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ImportSection(reader) => {
                 check_section("import", !self.imports.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.import_section(&reader)?;
                 }
@@ -217,6 +237,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ExportSection(reader) => {
                 check_section("export", !self.exports.is_empty())?;
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.export_section(&reader)?;
                 }
@@ -228,9 +249,12 @@ impl<'a> ModuleReader<'a> {
                     return Err(ParseError::DuplicateSection("End section".into()));
                 }
 
+                #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.end(offset)?;
                 }
+                #[cfg(not(feature = "validate"))]
+                let _ = offset;
                 self.end_reached = true;
             }
             Payload::CustomSection(_reader) => {
@@ -262,9 +286,12 @@ impl<'a> ModuleReader<'a> {
 
         self.has_code_section = true;
         self.code.reserve(count as usize);
+        #[cfg(feature = "validate")]
         if let Some(validator) = validator {
             validator.code_section_start(&range)?;
         }
+        #[cfg(not(feature = "validate"))]
+        let _ = (range, validator);
 
         #[cfg(parallel_parser)]
         {
@@ -294,10 +321,16 @@ impl<'a> ModuleReader<'a> {
         let func_validator_allocs = self.func_validator_allocations.take();
         let operators_reader_allocs = self.operators_reader_allocations.take().unwrap_or_default();
 
+        #[cfg(feature = "validate")]
         let func_validator = validator
             .map(|validator| validator.code_section_entry(&function))
             .transpose()?
             .map(|func| func.into_validator(func_validator_allocs.unwrap_or_default()));
+        #[cfg(not(feature = "validate"))]
+        let func_validator = {
+            let _ = (validator, func_validator_allocs);
+            None
+        };
 
         let ordinal = self.code.len();
         let ty_idx = *self
@@ -332,7 +365,10 @@ impl<'a> ModuleReader<'a> {
 
         #[cfg(parallel_parser)]
         if self.pending_functions.is_some() {
+            #[cfg(feature = "validate")]
             let func_to_validate = validator.map(|validator| validator.code_section_entry(&function)).transpose()?;
+            #[cfg(not(feature = "validate"))]
+            let func_to_validate = None;
             return self.queue_function(crate::parallel::FunctionBodyInput::Borrowed(function), func_to_validate);
         }
 
@@ -345,15 +381,23 @@ impl<'a> ModuleReader<'a> {
         count: u32,
         body_offset: usize,
         section_bytes: Arc<[u8]>,
-        mut validator: Option<&mut Validator>,
+        validator: Option<&mut Validator>,
     ) -> Result<()> {
+        #[cfg(feature = "validate")]
+        let mut validator = validator;
+        #[cfg(not(feature = "validate"))]
+        let _ = validator;
         let mut reader = wasmparser::BinaryReader::new(&section_bytes, body_offset);
         for _ in 0..count {
             let body_reader = reader.read_reader()?;
             let body_range = body_reader.range();
-            let function = wasmparser::FunctionBody::new(body_reader);
-            let func_to_validate =
-                validator.as_mut().map(|validator| validator.code_section_entry(&function)).transpose()?;
+            #[cfg(feature = "validate")]
+            let func_to_validate = {
+                let function = wasmparser::FunctionBody::new(body_reader);
+                validator.as_mut().map(|validator| validator.code_section_entry(&function)).transpose()?
+            };
+            #[cfg(not(feature = "validate"))]
+            let func_to_validate = None;
             self.queue_function(
                 crate::parallel::FunctionBodyInput::Owned(crate::parallel::OwnedFunctionBody {
                     section_bytes: section_bytes.clone(),
@@ -378,7 +422,7 @@ impl<'a> ModuleReader<'a> {
     fn queue_function(
         &mut self,
         body: crate::parallel::FunctionBodyInput<'a>,
-        func_to_validate: Option<wasmparser::FuncToValidate<wasmparser::ValidatorResources>>,
+        func_to_validate: Option<FuncToValidate<ValidatorResources>>,
     ) -> Result<()> {
         let ordinal = self.code.len() + self.pending_functions.as_ref().map_or(0, Vec::len);
         let results = *self

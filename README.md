@@ -44,10 +44,11 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
 - **`log`:** Enables integration with the `log` crate. Enabled by default.
 - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
+- **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
 - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
 - **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
-- **`parallel-parser`:** Parallelizes function parsing and validation when `std` is enabled. Enabled by default.
+- **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
 - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 
@@ -65,7 +66,7 @@ TinyWasm also has its own internal bytecode format, `twasm`. WebAssembly modules
 
 ## Safety
 
-TinyWasm only uses safe Rust by default. The optional `simd-x86` feature enables x86-specific SIMD intrinsics and uses `unsafe` internally. WebAssembly input is validated by default and runs inside a sandbox: untrusted Wasm should not be able to access host memory, escape the sandbox, or cause undefined behavior in the runtime. Validation should only be disabled for trusted input.
+TinyWasm only uses safe Rust by default. The optional `simd-x86` feature enables x86-specific SIMD intrinsics and uses `unsafe` internally. WebAssembly input is validated by default through the `validate` feature. Disabling validation should not let Wasm access host memory or escape the sandbox, but malformed input may panic or otherwise crash the process, so only disable it for trusted input.
 
 The internal `twasm` bytecode format is not currently validated as an untrusted input format. Malformed `twasm` may panic, but should not compromise memory safety or allow sandbox escape. Only run trusted `twasm` bytecode, or generate it through TinyWasm from Wasm input.
 

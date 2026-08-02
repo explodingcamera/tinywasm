@@ -1,10 +1,10 @@
-use crate::{Result, module::FunctionCode, visit::process_operators_and_validate};
+use crate::validation::{FuncValidator, FuncValidatorAllocations, ValidatorResources};
+#[cfg(feature = "validate")]
+use crate::visit::process_operators_and_validate;
+use crate::{Result, module::FunctionCode, visit::process_operators};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{
-    CompositeInnerType, FuncValidator, FuncValidatorAllocations, OperatorsReader, OperatorsReaderAllocations,
-    ValidatorResources,
-};
+use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations};
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
@@ -116,28 +116,48 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
     Ok(Export { index: export.index, name: Box::from(export.name), kind })
 }
 
+fn extend_local_types(
+    local_types: &mut Vec<crate::visit::OperandSize>,
+    count: u32,
+    ty: wasmparser::ValType,
+) -> Result<()> {
+    let size = crate::visit::OperandSize::from(ty);
+    let count =
+        usize::try_from(count).map_err(|_| crate::ParseError::Other("local declaration count is too large".into()))?;
+    local_types.reserve(count);
+    local_types.extend(core::iter::repeat_n(size, count));
+    Ok(())
+}
+
 pub(crate) fn convert_module_code(
     func: wasmparser::FunctionBody<'_>,
-    mut validator: Option<FuncValidator<ValidatorResources>>,
+    validator: Option<FuncValidator<ValidatorResources>>,
     reader_allocs: OperatorsReaderAllocations,
     metadata: &crate::visit::ModuleMetadata,
     ty_idx: u32,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let locals_reader = func.get_locals_reader()?;
-    let pos = locals_reader.original_position();
+    #[cfg(feature = "validate")]
+    let locals_position = locals_reader.original_position();
     let signature = metadata.signature(ty_idx)?.clone();
     let mut local_types = signature.params.clone();
 
-    for (i, local) in locals_reader.into_iter().enumerate() {
+    #[cfg(feature = "validate")]
+    let mut validator = validator;
+
+    #[cfg(feature = "validate")]
+    for (local_index, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
         if let Some(validator) = validator.as_mut() {
-            validator.define_locals(pos + i, local.0, local.1)?;
+            validator.define_locals(locals_position + local_index, local.0, local.1)?;
         }
-        let size = crate::visit::OperandSize::from(local.1);
-        let count = usize::try_from(local.0)
-            .map_err(|_| crate::ParseError::Other("local declaration count is too large".into()))?;
-        local_types.reserve(count);
-        local_types.extend(core::iter::repeat_n(size, count));
+        extend_local_types(&mut local_types, local.0, local.1)?;
+    }
+
+    #[cfg(not(feature = "validate"))]
+    for local in locals_reader {
+        let local = local?;
+        extend_local_types(&mut local_types, local.0, local.1)?;
     }
 
     // maps a local's address to the index in the type's locals array
@@ -154,8 +174,33 @@ pub(crate) fn convert_module_code(
         *count = count.checked_add(1).ok_or_else(|| crate::ParseError::Other(error.into()))?;
     }
 
-    let (body, data, validator_allocs, reader_allocs) =
-        process_operators_and_validate(validator, func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
+    #[cfg(feature = "validate")]
+    let (body, data, validator_allocs, reader_allocs) = match validator {
+        Some(validator) => {
+            let (body, data, validator_allocs, reader_allocs) = process_operators_and_validate(
+                validator,
+                func,
+                local_types,
+                local_addr_map,
+                metadata,
+                ty_idx,
+                reader_allocs,
+            )?;
+            (body, data, Some(validator_allocs), reader_allocs)
+        }
+        None => {
+            let (body, data, reader_allocs) =
+                process_operators(func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
+            (body, data, None, reader_allocs)
+        }
+    };
+    #[cfg(not(feature = "validate"))]
+    let (body, data, validator_allocs, reader_allocs) = {
+        let _ = validator;
+        let (body, data, reader_allocs) =
+            process_operators(func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
+        (body, data, None, reader_allocs)
+    };
     Ok((
         FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false },
         validator_allocs,

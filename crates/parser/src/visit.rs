@@ -5,10 +5,10 @@ use tinywasm_types::{
     FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, ValueCounts,
     WasmFunctionData, WasmType,
 };
-use wasmparser::{
-    FuncValidator, FuncValidatorAllocations, FunctionBody, OperatorsReader, OperatorsReaderAllocations,
-    ValidatorResources, VisitOperator, VisitSimdOperator,
-};
+use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
+
+#[cfg(feature = "validate")]
+use wasmparser::{FuncValidator, FuncValidatorAllocations, ValidatorResources, VisitOperator};
 
 #[derive(Debug, Clone, Copy)]
 enum BlockKind {
@@ -142,8 +142,9 @@ impl<'a> FunctionBuilder<'a> {
     }
 }
 
+#[cfg(feature = "validate")]
 struct ValidateThenVisit<'a, 'm> {
-    validator: Option<&'a mut FuncValidator<ValidatorResources>>,
+    validator: &'a mut FuncValidator<ValidatorResources>,
     builder: &'a mut FunctionBuilder<'m>,
     position: usize,
 }
@@ -220,6 +221,7 @@ impl ModuleMetadata {
     }
 }
 
+#[cfg(feature = "validate")]
 impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
     type Output = Result<()>;
 
@@ -230,19 +232,19 @@ impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
     }
 }
 
+#[cfg(feature = "validate")]
 impl VisitSimdOperator<'_> for ValidateThenVisit<'_, '_> {
     wasmparser::for_each_visit_simd_operator!(validate_then_visit_simd);
 }
 
-pub(crate) fn process_operators_and_validate(
-    mut validator: Option<FuncValidator<ValidatorResources>>,
+pub(crate) fn process_operators(
     body: FunctionBody<'_>,
     local_types: Vec<OperandSize>,
     local_addr_map: Vec<u16>,
     metadata: &ModuleMetadata,
     ty_idx: u32,
     allocs: OperatorsReaderAllocations,
-) -> Result<(Vec<Instruction>, WasmFunctionData, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+) -> Result<(Vec<Instruction>, WasmFunctionData, OperatorsReaderAllocations)> {
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
@@ -252,7 +254,7 @@ pub(crate) fn process_operators_and_validate(
     while !reader.eof() {
         let position = reader.original_position();
         let res = reader
-            .visit_operator(&mut ValidateThenVisit { validator: validator.as_mut(), builder: &mut builder, position })
+            .visit_operator(&mut builder)
             .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position });
 
         if let Err(e) = res.flatten() {
@@ -262,13 +264,47 @@ pub(crate) fn process_operators_and_validate(
     }
 
     reader.finish()?;
-
-    let validator_allocations = validator.map(FuncValidator::into_allocations);
     let data = WasmFunctionData {
         v128_constants: builder.data.v128_constants.into_boxed_slice(),
         branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
     };
-    Ok((builder.instructions, data, validator_allocations, reader.into_allocations()))
+    Ok((builder.instructions, data, reader.into_allocations()))
+}
+
+#[cfg(feature = "validate")]
+pub(crate) fn process_operators_and_validate(
+    mut validator: FuncValidator<ValidatorResources>,
+    body: FunctionBody<'_>,
+    local_types: Vec<OperandSize>,
+    local_addr_map: Vec<u16>,
+    metadata: &ModuleMetadata,
+    ty_idx: u32,
+    allocs: OperatorsReaderAllocations,
+) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+    let body_size = body.as_bytes().len();
+    let reader = body.get_binary_reader_for_operators()?;
+    let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
+    let signature = metadata.signature(ty_idx)?.clone();
+    let mut builder = FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size);
+
+    while !reader.eof() {
+        let position = reader.original_position();
+        let res = reader
+            .visit_operator(&mut ValidateThenVisit { validator: &mut validator, builder: &mut builder, position })
+            .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position });
+
+        if let Err(e) = res.flatten() {
+            core::hint::cold_path();
+            return Err(e);
+        }
+    }
+
+    reader.finish()?;
+    let data = WasmFunctionData {
+        v128_constants: builder.data.v128_constants.into_boxed_slice(),
+        branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
+    };
+    Ok((builder.instructions, data, validator.into_allocations(), reader.into_allocations()))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {

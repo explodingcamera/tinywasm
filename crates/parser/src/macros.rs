@@ -1,26 +1,24 @@
 pub(crate) mod visit {
+    #[cfg(feature = "validate")]
     macro_rules! validate_then_visit {
         ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-                if let Some(validator) = self.validator.as_mut() {
-                    if let Err(e) = validator.visitor(self.position).$visit($($($arg.clone()),*)?) {
-                        core::hint::cold_path();
-                        return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
-                    }
+                if let Err(e) = self.validator.visitor(self.position).$visit($($($arg.clone()),*)?) {
+                    core::hint::cold_path();
+                    return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
                 }
                 self.builder.$visit($($($arg),*)?)
             }
         )*};
     }
 
+    #[cfg(feature = "validate")]
     macro_rules! validate_then_visit_simd {
         ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
-                if let Some(validator) = self.validator.as_mut() {
-                    if let Err(e) = validator.simd_visitor(self.position).$visit($($($arg.clone()),*)?) {
-                        core::hint::cold_path();
-                        return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
-                    }
+                if let Err(e) = self.validator.simd_visitor(self.position).$visit($($($arg.clone()),*)?) {
+                    core::hint::cold_path();
+                    return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
                 }
                 self.builder.$visit($($($arg),*)?)
             }
@@ -138,7 +136,9 @@ pub(crate) mod visit {
         };
     }
 
-    pub(crate) use {impl_visit_operator, lowering_ops, validate_then_visit, validate_then_visit_simd};
+    pub(crate) use {impl_visit_operator, lowering_ops};
+    #[cfg(feature = "validate")]
+    pub(crate) use {validate_then_visit, validate_then_visit_simd};
 }
 
 pub(crate) mod optimize {

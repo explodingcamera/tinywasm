@@ -6,7 +6,8 @@ This crate provides the parser and lowering pipeline that converts WebAssembly b
 
 - `std`: Enables the use of `std` and `std::io` for parsing from files and streams.
 - `log`: Enables logging of the parsing process using the `log` crate.
-- `parallel`: Enables multithreaded parsing and validation when `std` is available.
+- `parallel`: Enables multithreaded function parsing. Requires `std`.
+- `validate`: Enables `wasmparser` validation. Enabled by default and configurable through `ParserOptions`.
 
 ## Usage
 

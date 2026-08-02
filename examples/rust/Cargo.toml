@@ -39,7 +39,8 @@ argon2 = { version = "0.5" }
 dlmalloc = { version = "0.2", features = ["global"] }
 tinywasm = { path = "../../crates/tinywasm", default-features = false, features = [
   "archive",
-  "parser"
+  "parser",
+  "validate"
 ] }
 
 [features]
