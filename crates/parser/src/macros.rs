@@ -129,6 +129,7 @@ pub(crate) mod visit {
         (@@wide_arithmetic $($rest:tt)* ) => {};
         (@@relaxed_simd $($rest:tt)* ) => {};
         (@@tail_call $($rest:tt)* ) => {};
+        (@@function_references $($rest:tt)* ) => {};
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {

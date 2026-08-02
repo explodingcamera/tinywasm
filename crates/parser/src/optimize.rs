@@ -856,6 +856,8 @@ fn instruction_target_mut(instr: &mut Instruction) -> Option<&mut u32> {
         | Instruction::JumpIfNonZero32(ip)
         | Instruction::JumpIfZero64(ip)
         | Instruction::JumpIfNonZero64(ip)
+        | Instruction::JumpIfRefNull(ip)
+        | Instruction::JumpIfRefNonNull(ip)
         | Instruction::JumpCmpStackConst32 { target_ip: ip, .. }
         | Instruction::JumpCmpStackConst64 { target_ip: ip, .. }
         | Instruction::JumpIfLocalZero32 { target_ip: ip, .. }
@@ -906,6 +908,7 @@ fn is_unconditional_terminator(instr: Instruction) -> bool {
             | Instruction::ReturnCall(_)
             | Instruction::ReturnCallSelf
             | Instruction::ReturnCallIndirect(..)
+            | Instruction::ReturnCallRef(_)
     )
 }
 

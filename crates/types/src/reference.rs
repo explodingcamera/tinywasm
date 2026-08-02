@@ -2,7 +2,8 @@
 ///
 /// This contains exactly the abstract heap types in core Wasm 3.0.
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum AbstractHeapType {
     Any,
@@ -52,17 +53,17 @@ impl RefType {
     const CONCRETE: u32 = 1 << 30;
     const PAYLOAD_MASK: u32 = Self::CONCRETE - 1;
 
-    pub const FUNCREF: Self = Self::abstract_(true, AbstractHeapType::Func);
-    pub const EXTERNREF: Self = Self::abstract_(true, AbstractHeapType::Extern);
-    pub const EXNREF: Self = Self::abstract_(true, AbstractHeapType::Exn);
+    pub const FUNCREF: Self = Self::new_abstract(true, AbstractHeapType::Func);
+    pub const EXTERNREF: Self = Self::new_abstract(true, AbstractHeapType::Extern);
+    pub const EXNREF: Self = Self::new_abstract(true, AbstractHeapType::Exn);
 
     #[inline]
-    pub const fn abstract_(nullable: bool, heap_type: AbstractHeapType) -> Self {
+    pub const fn new_abstract(nullable: bool, heap_type: AbstractHeapType) -> Self {
         Self((nullable as u32) << 31 | heap_type as u32)
     }
 
     #[inline]
-    pub const fn concrete(nullable: bool, type_index: u32) -> Option<Self> {
+    pub const fn new_concrete(nullable: bool, type_index: u32) -> Option<Self> {
         if type_index <= Self::PAYLOAD_MASK {
             Some(Self(((nullable as u32) << 31) | Self::CONCRETE | type_index))
         } else {
@@ -115,6 +116,7 @@ impl RefType {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum RefValue {
     Null,
@@ -124,32 +126,35 @@ pub enum RefValue {
     Exn(ExnRef),
 }
 
-#[cfg(feature = "debug")]
-impl core::fmt::Debug for RefValue {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Null => write!(f, "null"),
-            Self::Func(_i) => write!(f, "func()"),
-            Self::Extern(_i) => write!(f, "extern()"),
-            Self::Any(_i) => write!(f, "any()"),
-            Self::Exn(_i) => write!(f, "exn()"),
-        }
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct FuncRef(u32);
+
+impl FuncRef {
+    #[inline]
+    pub const fn new(addr: u32) -> Self {
+        Self(addr)
+    }
+
+    #[inline]
+    pub const fn addr(self) -> u32 {
+        self.0
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct FuncRef(u32);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExternRef(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExnRef(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnyRef(u32);
 
