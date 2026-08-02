@@ -87,8 +87,8 @@ The internal `twasm` bytecode format is not currently validated as an untrusted 
 | [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                                     | 🟢     | 0.9.0              |
 | [**Relaxed SIMD**](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)                            | 🟢     | 0.9.0              |
 | [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)                   | 🟢     | 0.9.0              |
+| [**Typed Function References**](https://github.com/WebAssembly/function-references/blob/main/proposals/function-references/Overview.md) | 🚧     | `next`             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md)        | 🌑     | -                  |
-| [**Typed Function References**](https://github.com/WebAssembly/function-references/blob/main/proposals/function-references/Overview.md) | 🌑     | -                  |
 | [**Garbage Collection**](https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md)                                          | 🌑     | -                  |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching/blob/main/proposals/stack-switching/Explainer.md)                  | 🌑     | -                  |
 | [**Threads**](https://github.com/WebAssembly/threads/blob/main-legacy/proposals/threads/Overview.md)                                    | 🌑     | -                  |
