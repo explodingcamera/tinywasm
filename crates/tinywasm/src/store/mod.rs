@@ -11,6 +11,8 @@ use crate::{Engine, Error, ModuleInstance, Result, Trap};
 mod data;
 mod element;
 mod function;
+#[allow(dead_code, unused_imports)]
+mod gc;
 mod global;
 mod memory;
 mod table;
