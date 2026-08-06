@@ -988,7 +988,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         host_func: Rc<HostFunction>,
         type_addr: TypeAddr,
     ) -> Result<bool, Trap> {
-        let ty = self.store.state.get_type(type_addr);
+        let ty = self.store.state.get_canonical_func_type(type_addr);
         let mut params = self.store.value_stack.pop_types(ty.params().iter().rev()).collect::<Vec<_>>();
         params.reverse();
         let result = host_func.call(FuncContext { store: self.store, module_id: self.module.id() }, &params);
@@ -1095,8 +1095,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         if func.type_addr != expected_type_addr {
             cold_path();
             return Err(Trap::IndirectCallTypeMismatch {
-                actual: Box::new(self.store.state.get_type(func.type_addr).clone()),
-                expected: Box::new(self.store.state.get_type(expected_type_addr).clone()),
+                actual: Box::new(self.store.state.get_canonical_func_type(func.type_addr).clone()),
+                expected: Box::new(self.store.state.get_canonical_func_type(expected_type_addr).clone()),
             });
         }
         match func.kind {

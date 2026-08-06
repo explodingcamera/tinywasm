@@ -44,11 +44,12 @@ pub(crate) struct ModuleReader<'a> {
     translation_metadata: Option<Arc<crate::visit::ModuleMetadata>>,
 
     has_code_section: bool,
+    has_type_section: bool,
     marker: PhantomData<&'a [u8]>,
 
     pub(crate) version: Option<u16>,
     pub(crate) start_func: Option<u32>,
-    pub(crate) func_types: Box<[FuncType]>,
+    pub(crate) types: TypeSection,
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
     pub(crate) exports: Arc<[Export]>,
@@ -71,7 +72,7 @@ impl<'a> ModuleReader<'a> {
     fn translation_metadata(&mut self) -> &crate::visit::ModuleMetadata {
         if self.translation_metadata.is_none() {
             self.translation_metadata = Some(Arc::new(crate::visit::ModuleMetadata::new(
-                &self.func_types,
+                &self.types,
                 &self.code_type_addrs,
                 &self.imports,
                 &self.globals,
@@ -119,12 +120,25 @@ impl<'a> ModuleReader<'a> {
                 self.start_func = Some(func);
             }
             Payload::TypeSection(reader) => {
-                check_section("type", !self.func_types.is_empty())?;
+                check_section("type", self.has_type_section)?;
+                self.has_type_section = true;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.type_section(&reader)?;
                 }
-                self.func_types = reader.into_iter().map(|t| convert_module_type(t?)).collect::<Result<_>>()?;
+                let mut types = Vec::with_capacity(reader.count() as usize);
+                let mut rec_group_lengths = Vec::with_capacity(reader.count() as usize);
+                for group in reader {
+                    let group = group?;
+                    let group_start = u32::try_from(types.len())
+                        .map_err(|_| ParseError::Other("type section is too large".into()))?;
+                    let group_len = convert_rec_group(group, group_start, &mut types)?;
+                    rec_group_lengths.push(group_len);
+                }
+                self.types = TypeSection {
+                    types: types.into_boxed_slice(),
+                    rec_group_lengths: rec_group_lengths.into_boxed_slice(),
+                };
             }
             Payload::GlobalSection(reader) => {
                 check_section("global", !self.globals.is_empty())?;
@@ -207,10 +221,9 @@ impl<'a> ModuleReader<'a> {
                 let mut results = Vec::with_capacity(reader.count() as usize);
                 for ty_idx in reader {
                     let ty_idx = ty_idx?;
-                    let ty = self
-                        .func_types
-                        .get(ty_idx as usize)
-                        .ok_or_else(|| ParseError::Other(format!("function type index out of bounds: {ty_idx}")))?;
+                    let ty = self.types.get(ty_idx).and_then(SubType::as_func).ok_or_else(|| {
+                        ParseError::Other(format!("function type index does not reference a function: {ty_idx}"))
+                    })?;
                     type_addrs.push(ty_idx);
                     results.push(ValueCounts::from_iter(ty.results()));
                 }
@@ -227,7 +240,14 @@ impl<'a> ModuleReader<'a> {
                 for import in reader.into_imports() {
                     let import = convert_module_import(import?)?;
                     match import.kind {
-                        ImportKind::Function(_) => self.imported_func_count += 1,
+                        ImportKind::Function(type_idx) => {
+                            if self.types.get(type_idx).and_then(SubType::as_func).is_none() {
+                                return Err(ParseError::Other(format!(
+                                    "function import type index does not reference a function: {type_idx}"
+                                )));
+                            }
+                            self.imported_func_count += 1;
+                        }
                         ImportKind::Memory(_) => self.imported_memory_count += 1,
                         _ => {}
                     }
@@ -504,7 +524,8 @@ impl<'a> ModuleReader<'a> {
             .zip(self.code_type_addrs)
             .zip(self.code_results)
             .map(|((code, ty_idx), results)| {
-                let ty = self.func_types.get(ty_idx as usize).expect("function type was checked while parsing").clone();
+                let ty =
+                    self.types.get(ty_idx).and_then(SubType::as_func).expect("function type was checked while parsing");
                 let params = ValueCounts::from_iter(ty.params());
                 if code.uses_local_memory {
                     local_memory_allocation = LocalMemoryAllocation::Eager;
@@ -522,7 +543,7 @@ impl<'a> ModuleReader<'a> {
 
         Ok(ModuleInner {
             funcs,
-            func_types: self.func_types,
+            types: self.types,
             func_type_idxs,
             globals: self.globals,
             tables: self.tables,

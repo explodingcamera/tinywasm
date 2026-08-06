@@ -2,8 +2,8 @@ use crate::{Result, conversion::convert_heap_type, macros::visit::*};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, ValueCounts,
-    WasmFunctionData, WasmType,
+    Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, TypeSection,
+    ValueCounts, WasmFunctionData, WasmType,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -85,7 +85,7 @@ pub(crate) struct Signature {
 }
 
 pub(crate) struct ModuleMetadata {
-    signatures: Vec<Signature>,
+    signatures: Vec<Option<Signature>>,
     functions: Vec<u32>,
     globals: Vec<OperandSize>,
     memories: Vec<OperandSize>,
@@ -151,7 +151,7 @@ struct ValidateThenVisit<'a, 'm> {
 
 impl ModuleMetadata {
     pub(crate) fn new(
-        types: &[FuncType],
+        types: &TypeSection,
         code_type_addrs: &[u32],
         imports: &[Import],
         globals: &[Global],
@@ -178,10 +178,13 @@ impl ModuleMetadata {
         table_sizes.extend(tables.iter().map(|table| OperandSize::from(table.ty.arch())));
 
         let signatures = types
+            .types
             .iter()
-            .map(|ty| Signature {
-                params: ty.params().iter().map(OperandSize::from).collect(),
-                results: ty.results().iter().map(OperandSize::from).collect(),
+            .map(|ty| {
+                ty.as_func().map(|ty| Signature {
+                    params: ty.params().iter().map(OperandSize::from).collect(),
+                    results: ty.results().iter().map(OperandSize::from).collect(),
+                })
             })
             .collect();
         Self { signatures, functions, globals: global_sizes, memories: memory_sizes, tables: table_sizes }
@@ -190,7 +193,8 @@ impl ModuleMetadata {
     pub(crate) fn signature(&self, idx: u32) -> Result<&Signature> {
         self.signatures
             .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index out of bounds: {idx}")))
+            .and_then(Option::as_ref)
+            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a function type: {idx}")))
     }
 
     fn function_signature(&self, idx: u32) -> Result<&Signature> {

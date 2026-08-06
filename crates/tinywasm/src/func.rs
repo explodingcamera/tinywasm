@@ -44,7 +44,7 @@ impl Function {
 
             // Execute until completion and then collect result values from the stack.
             InterpreterRuntime::exec(store, callframe, 0)?;
-            collect_call_results(&mut store.value_stack, store.state.get_type(func_instance.type_addr))
+            collect_call_results(&mut store.value_stack, store.state.get_canonical_func_type(func_instance.type_addr))
         }
 
         self.item.validate_store(store)?;
@@ -354,7 +354,10 @@ impl FuncContext<'_> {
                     self.store.value_stack.truncate_to_base(value_stack_base);
                 })?;
 
-                collect_call_results(&mut self.store.value_stack, self.store.state.get_type(func_instance.type_addr))
+                collect_call_results(
+                    &mut self.store.value_stack,
+                    self.store.state.get_canonical_func_type(func_instance.type_addr),
+                )
             }
         }
     }
@@ -445,7 +448,7 @@ impl<'store> FuncExecution<'store> {
                 self.state = FuncExecutionState::Completed { result: None };
                 Ok(ExecProgress::Completed(collect_call_results(
                     &mut self.store.value_stack,
-                    self.store.state.get_type(result_ty),
+                    self.store.state.get_canonical_func_type(result_ty),
                 )?))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
@@ -517,7 +520,7 @@ pub(crate) fn validate_host_results(
     type_addr: TypeAddr,
     result: Vec<WasmValue>,
 ) -> Result<Vec<WasmValue>> {
-    let expected = store.state.get_type(type_addr);
+    let expected = store.state.get_canonical_func_type(type_addr);
     if result.len() == expected.results().len()
         && result.iter().zip(expected.results()).all(|(&value, &ty)| store.state.value_matches_type(value, ty))
     {

@@ -151,7 +151,7 @@ impl ModuleInstance {
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
-        let type_addrs = store.register_module_types(&module.func_types);
+        let type_addrs = store.register_module_types(&module.types);
         let id = store.next_module_instance_id();
         let mut addrs = imports.unwrap_or_default().link(store, module, &type_addrs)?;
         let local_type_addrs = module.func_type_idxs[addrs.funcs.len()..]

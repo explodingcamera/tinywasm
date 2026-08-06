@@ -10,12 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added support for the WebAssembly function-references proposal
+- Added support for the WebAssembly garbage-collection proposal
 - Added `WasmValue::ty` and `WasmValue::matches_type`
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 
 ### Changed
 
-- Function types are now stored separately and resolved through `Function::ty(&Store)`.
+- Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
 
 ### Fixed
 

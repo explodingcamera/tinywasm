@@ -1,2 +1,3 @@
 0.9.0,357,262,[{"name":"atomic.wast","passed":48,"failed":249},{"name":"exports.wast","passed":82,"failed":6},{"name":"imports.wast","passed":147,"failed":5},{"name":"memory.wast","passed":80,"failed":2}]
 0.10.0,357,262,[{"name":"atomic.wast","passed":48,"failed":249},{"name":"exports.wast","passed":82,"failed":6},{"name":"imports.wast","passed":147,"failed":5},{"name":"memory.wast","passed":80,"failed":2}]
+0.11.0-pre.0,357,262,[{"name":"atomic.wast","passed":48,"failed":249},{"name":"exports.wast","passed":82,"failed":6},{"name":"imports.wast","passed":147,"failed":5},{"name":"memory.wast","passed":80,"failed":2}]
