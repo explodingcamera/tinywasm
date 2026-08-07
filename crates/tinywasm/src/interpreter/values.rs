@@ -8,8 +8,6 @@ pub(crate) type Value64 = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ValueRef(u32);
 
-// TODO(wasm3): GC references need a tagged representation; this raw address is only sufficient for current refs.
-
 impl Default for ValueRef {
     fn default() -> Self {
         Self::NULL
@@ -17,7 +15,7 @@ impl Default for ValueRef {
 }
 
 impl ValueRef {
-    pub(crate) const NULL: Self = Self(u32::MAX);
+    pub(crate) const NULL: Self = Self(0);
 
     #[inline]
     pub(crate) const fn from_raw(raw: u32) -> Self {
@@ -25,21 +23,40 @@ impl ValueRef {
     }
 
     #[inline]
-    pub(crate) const fn from_addr(addr: Option<u32>) -> Self {
-        match addr {
-            Some(addr) => Self(addr),
-            None => Self::NULL,
-        }
+    pub(crate) const fn from_category_addr(addr: u32) -> Self {
+        let Some(raw) = addr.checked_add(1) else { panic!("reference address does not fit in the runtime encoding") };
+        let Some(raw) = raw.checked_mul(2) else { panic!("reference address does not fit in the runtime encoding") };
+        Self(raw)
+    }
+
+    #[inline]
+    pub(crate) const fn from_i31(value: i32) -> Self {
+        Self(((value as u32) << 1) | 1)
     }
 
     #[inline]
     pub(crate) const fn addr(self) -> Option<u32> {
-        if self.is_null() { None } else { Some(self.0) }
+        if self.is_null() || self.is_i31() { None } else { Some(self.0 / 2 - 1) }
     }
 
     #[inline]
     pub(crate) const fn is_null(self) -> bool {
         self.0 == Self::NULL.0
+    }
+
+    #[inline]
+    pub(crate) const fn is_i31(self) -> bool {
+        self.0 & 1 != 0
+    }
+
+    #[inline]
+    pub(crate) const fn i31_s(self) -> Option<i32> {
+        if self.is_i31() { Some((self.0 as i32) >> 1) } else { None }
+    }
+
+    #[inline]
+    pub(crate) const fn i31_u(self) -> Option<u32> {
+        if self.is_i31() { Some(self.0 >> 1) } else { None }
     }
 
     #[inline]
@@ -105,13 +122,13 @@ impl TinyWasmValue {
             (Self::Value64(v), WasmType::F64) => Some(WasmValue::F64(f64::from_bits(v))),
             (Self::ValueRef(v), WasmType::Ref(_)) if v.is_null() => Some(RefValue::Null.into()),
             (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_func() => {
-                Some(WasmValue::Ref(RefValue::Func(FuncRef::new(v.raw()))))
+                Some(WasmValue::Ref(RefValue::Func(FuncRef::new(v.addr()?))))
             }
             (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_extern() => {
-                Some(WasmValue::Ref(RefValue::Extern(ExternRef::new(v.raw()))))
+                Some(WasmValue::Ref(RefValue::Extern(ExternRef::from_raw(v.raw()))))
             }
             (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_exn() => {
-                Some(WasmValue::Ref(RefValue::Exn(ExnRef::new(v.raw()))))
+                Some(WasmValue::Ref(RefValue::Exn(ExnRef::new(v.addr()?))))
             }
             (Self::ValueRef(v), WasmType::Ref(_)) => Some(WasmValue::Ref(RefValue::Any(AnyRef::from_raw(v.raw())))),
             (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128(v.0)),
@@ -130,7 +147,11 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::I64(v) => Self::Value64(*v as u64),
             WasmValue::F32(v) => Self::Value32(v.to_bits()),
             WasmValue::F64(v) => Self::Value64(v.to_bits()),
-            WasmValue::Ref(value) => Self::ValueRef(ValueRef::from_addr(value.raw())),
+            WasmValue::Ref(RefValue::Null) => Self::ValueRef(ValueRef::NULL),
+            WasmValue::Ref(RefValue::Func(value)) => Self::ValueRef(ValueRef::from_category_addr(value.addr())),
+            WasmValue::Ref(RefValue::Extern(value)) => Self::ValueRef(ValueRef::from_raw(value.raw())),
+            WasmValue::Ref(RefValue::Exn(value)) => Self::ValueRef(ValueRef::from_category_addr(value.addr())),
+            WasmValue::Ref(RefValue::Any(value)) => Self::ValueRef(ValueRef::from_raw(value.raw())),
             WasmValue::V128(v) => Self::Value128((*v).into()),
         }
     }

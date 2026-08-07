@@ -791,6 +791,9 @@ enum ExpectedValue {
     RefNull,
     RefFunc,
     RefExtern,
+    RefAny,
+    RefEq,
+    RefI31,
 }
 
 impl ExpectedValue {
@@ -800,6 +803,9 @@ impl ExpectedValue {
             Self::RefNull => matches!(value, WasmValue::Ref(RefValue::Null)),
             Self::RefFunc => matches!(value, WasmValue::Ref(RefValue::Func(_))),
             Self::RefExtern => matches!(value, WasmValue::Ref(RefValue::Extern(_))),
+            Self::RefAny => matches!(value, WasmValue::Ref(RefValue::Any(_))),
+            Self::RefEq => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_i31().is_some()),
+            Self::RefI31 => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_i31().is_some()),
         }
     }
 }
@@ -817,7 +823,9 @@ fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<ExpectedValue>> {
 }
 
 fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedValue> {
-    use wast::core::WastRetCore::{F32, F64, I32, I64, RefExtern, RefFunc, RefNull, V128};
+    use wast::core::WastRetCore::{
+        F32, F64, I32, I64, RefAny, RefEq, RefExtern, RefFunc, RefI31, RefI31Shared, RefNull, V128,
+    };
     Ok(match ret {
         F32(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
         F64(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
@@ -832,6 +840,9 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         RefFunc(v) => {
             bail!("unsupported arg type: reffunc: {:?}", v);
         }
+        RefAny => ExpectedValue::RefAny,
+        RefEq => ExpectedValue::RefEq,
+        RefI31 | RefI31Shared => ExpectedValue::RefI31,
         a => {
             bail!("unsupported arg type {:?}", a);
         }

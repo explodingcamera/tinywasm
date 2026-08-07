@@ -37,6 +37,27 @@ pub(crate) mod visit {
             $(lowering_ops!(@effect $inputs => $outputs $visit);)*
             lowering_ops!($($rest)*);
         };
+        (unsupported $args:tt { $($visit:ident),* $(,)? } $($rest:tt)*) => {
+            $(lowering_ops!(@unsupported $args $visit);)*
+            lowering_ops!($($rest)*);
+        };
+        (heap $nullable:literal $inputs:tt => $outputs:tt {
+            $($visit:ident => $instr:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self, heap_type: wasmparser::HeapType) -> Self::Output {
+                    let ty = convert_heap_type(heap_type, $nullable)?;
+                    lowering_ops!(@emit self fixed $inputs => $outputs Instruction::$instr(ty))
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+
+        (@unsupported [$($argty:ty),*] $visit:ident) => {
+            fn $visit(&mut self $(, _: $argty)*) -> Self::Output {
+                Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
+            }
+        };
 
         (@fixed [$($input:ident),*] => [$($output:ident),*]
             $visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident
@@ -128,6 +149,7 @@ pub(crate) mod visit {
         (@@relaxed_simd $($rest:tt)* ) => {};
         (@@tail_call $($rest:tt)* ) => {};
         (@@function_references $($rest:tt)* ) => {};
+        (@@gc $($rest:tt)* ) => {};
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {

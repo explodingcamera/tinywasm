@@ -54,6 +54,9 @@ pub enum ConstInstruction {
     V128Const([u8; 16]),
     GlobalGet(GlobalAddr),
     Ref(RefValue),
+    RefI31,
+    AnyConvertExtern,
+    ExternConvertAny,
     I32Add,
     I32Sub,
     I32Mul,
@@ -272,6 +275,15 @@ pub enum Instruction {
     RefFunc(FuncAddr),
     RefIsNull,
     RefAsNonNull,
+    RefI31,
+    I31GetS,
+    I31GetU,
+    RefEq,
+    RefTest(RefType),
+    RefCast(RefType),
+    BrOnCast(u32, RefType, bool),
+    AnyConvertExtern,
+    ExternConvertAny,
 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>

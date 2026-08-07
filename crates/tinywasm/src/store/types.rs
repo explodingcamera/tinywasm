@@ -52,10 +52,22 @@ fn map_subtype(ty: &SubType, mut resolve: impl FnMut(TypeAddr) -> TypeAddr) -> S
     SubType { is_final: ty.is_final, supertype, composite }
 }
 
-fn subtypes_equal(ty: &SubType, registered: &SubType, resolve: impl Fn(TypeAddr) -> TypeAddr + Copy) -> bool {
+fn subtypes_equal(
+    ty: &SubType,
+    registered: &SubType,
+    module_group: core::ops::Range<usize>,
+    canonical_group: core::ops::Range<usize>,
+    resolve: impl Fn(TypeAddr) -> TypeAddr + Copy,
+) -> bool {
+    let type_addrs_equal = |ty: TypeAddr, registered: TypeAddr| {
+        module_group.contains(&(ty as usize)) == canonical_group.contains(&(registered as usize))
+            && resolve(ty) == registered
+    };
     let values_equal = |ty: WasmType, registered: WasmType| match (ty, registered) {
         (WasmType::Ref(ty), WasmType::Ref(registered)) if ty.is_concrete() => {
-            ty.is_nullable() == registered.is_nullable() && ty.type_index().map(resolve) == registered.type_index()
+            let ty_addr = ty.type_index().expect("concrete reference");
+            let Some(registered_addr) = registered.type_index() else { return false };
+            ty.is_nullable() == registered.is_nullable() && type_addrs_equal(ty_addr, registered_addr)
         }
         _ => ty == registered,
     };
@@ -67,8 +79,13 @@ fn subtypes_equal(ty: &SubType, registered: &SubType, resolve: impl Fn(TypeAddr)
             }
     };
 
+    let supertypes_equal = match (ty.supertype, registered.supertype) {
+        (Some(ty), Some(registered)) => type_addrs_equal(ty, registered),
+        (None, None) => true,
+        _ => false,
+    };
     ty.is_final == registered.is_final
-        && ty.supertype.map(resolve) == registered.supertype
+        && supertypes_equal
         && match (&ty.composite, &registered.composite) {
             (CompositeType::Func(ty), CompositeType::Func(registered)) => {
                 ty.params().len() == registered.params().len()
@@ -125,7 +142,13 @@ impl Store {
                 let canonical_group_len = canonical_group_len as usize;
                 if canonical_group_len == group_len
                     && group.iter().zip(&self.state.canonical_types[canonical_group_start..]).all(|(ty, registered)| {
-                        subtypes_equal(ty, registered, |addr| resolve(addr, canonical_group_start))
+                        subtypes_equal(
+                            ty,
+                            registered,
+                            module_group_start..module_group_end,
+                            canonical_group_start..canonical_group_start + canonical_group_len,
+                            |addr| resolve(addr, canonical_group_start),
+                        )
                     })
                 {
                     matching_group = Some(canonical_group_start);

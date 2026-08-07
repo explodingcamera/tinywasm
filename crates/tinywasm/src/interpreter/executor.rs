@@ -237,6 +237,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             JumpIfNonZero64(ip) => if self.exec_jump_non_zero_64(*ip) { return Ok(None) },
             JumpIfRefNull(ip) => if self.exec_jump_ref_null(*ip) { return Ok(None) },
             JumpIfRefNonNull(ip) => if self.exec_jump_ref_non_null(*ip) { return Ok(None) },
+            BrOnCast(ip, ty, on_fail) => if self.exec_ref_matches(*ty) == *on_fail { self.cf.instr_ptr = *ip as usize; return Ok(None); },
             JumpIfLocalZero32 { target_ip, local } => if self.exec_jump_local_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalNonZero32 { target_ip, local } => if self.exec_jump_local_non_zero_32(*target_ip, *local) { return Ok(None) },
             JumpIfLocalZero64 { target_ip, local } => if self.exec_jump_local_zero_64(*target_ip, *local) { return Ok(None) },
@@ -444,10 +445,30 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I64Popcnt => stack_op!(unary i64, |v| i64::from(v.count_ones())),
 
             // Reference types
-            RefFunc(func_idx) => self.exec_const(ValueRef::from_addr(Some(self.module.resolve_func_addr(*func_idx))))?,
+            RefFunc(func_idx) => self.exec_const(ValueRef::from_category_addr(self.module.resolve_func_addr(*func_idx)))?,
             RefNull(_) => self.exec_const(ValueRef::NULL)?,
             RefIsNull => self.exec_ref_is_null()?,
             RefAsNonNull => self.exec_ref_as_non_null()?,
+            RefI31 => stack_op!(unary i32 => ValueRef, |v| ValueRef::from_i31(v)),
+            I31GetS => self.exec_i31_get(true)?,
+            I31GetU => self.exec_i31_get(false)?,
+            RefEq => stack_op!(binary ValueRef => i32, |a, b| i32::from(a == b)),
+            RefTest(ty) => {
+                let value = ValueRef::stack_pop(&mut self.store.value_stack);
+                let ty = self.canonical_ref_type(*ty);
+                self.store.value_stack.push(i32::from(self.store.state.value_ref_matches(value, ty)))?;
+            }
+            RefCast(ty) => {
+                if !self.exec_ref_matches(*ty) {
+                    cold_path();
+                    return Err(if ValueRef::stack_peek(&self.store.value_stack).is_null() && !ty.is_nullable() {
+                        Trap::NullReference
+                    } else {
+                        Trap::CastFailure
+                    });
+                }
+            }
+            AnyConvertExtern | ExternConvertAny => {}
             MemorySize(addr) => self.exec_memory_size(*addr)?,
             MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
 
@@ -1092,7 +1113,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         expected_type_addr: TypeAddr,
     ) -> Result<bool, Trap> {
         let func = self.store.state.get_func(func_addr).clone();
-        if func.type_addr != expected_type_addr {
+        if !self.store.state.type_addr_is_subtype(func.type_addr, expected_type_addr) {
             cold_path();
             return Err(Trap::IndirectCallTypeMismatch {
                 actual: Box::new(self.store.state.get_canonical_func_type(func.type_addr).clone()),
@@ -1327,6 +1348,31 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
+    fn canonical_ref_type(&self, ty: RefType) -> RefType {
+        let Some(type_index) = ty.type_index() else { return ty };
+        RefType::new_concrete(ty.is_nullable(), self.module.resolve_type_addr(type_index))
+            .expect("canonical type address fits in a reference")
+    }
+
+    fn exec_ref_matches(&self, ty: RefType) -> bool {
+        let value = ValueRef::stack_peek(&self.store.value_stack);
+        self.store.state.value_ref_matches(value, self.canonical_ref_type(ty))
+    }
+
+    fn exec_i31_get(&mut self, signed: bool) -> Result<(), Trap> {
+        let value = ValueRef::stack_pop(&mut self.store.value_stack);
+        if value.is_null() {
+            cold_path();
+            return Err(Trap::NullI31Reference);
+        }
+        let value = if signed {
+            value.i31_s().expect("validated i31.get operand")
+        } else {
+            value.i31_u().expect("validated i31.get operand") as i32
+        };
+        self.store.value_stack.push(value)
+    }
+
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {
         let mem = self.store.state.get_mem(self.module.resolve_mem_addr(addr));
         match mem.is_64bit() {
@@ -1531,8 +1577,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_table_get(&mut self, table_index: u32) -> Result<(), Trap> {
         let table_addr = self.module.resolve_table_addr(table_index);
         let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
-        let v = self.store.state.get_table(table_addr).get_wasm_val(idx)?;
-        self.store.value_stack.push_dyn(v.into())
+        let value = *self.store.state.get_table(table_addr).get(idx)?;
+        self.store.value_stack.push(value)
     }
 
     fn exec_table_set(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -1540,7 +1586,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let table_addr = self.module.resolve_table_addr(table_index);
         let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
         let table = self.store.state.get_table_mut(table_addr);
-        table.set(idx, val.addr().into())
+        table.set(idx, val)
     }
 
     fn exec_table_size(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -1580,7 +1626,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
         let table = self.store.state.get_table_mut(table_addr);
         let sz = table.size();
-        let result = table.grow(n, val.addr().into());
+        let result = table.grow(n, val);
         match (arch, result) {
             (MemoryArch::I32, Ok(())) => self.store.value_stack.push(sz as i32),
             (MemoryArch::I32, Err(_)) => self.store.value_stack.push(-1_i32),
@@ -1595,7 +1641,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let n = self.pop_table_operand(arch)?;
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
         let i = self.pop_table_operand(arch)?;
-        self.store.state.get_table_mut(table_addr).fill(i, n, val.addr().into())
+        self.store.state.get_table_mut(table_addr).fill(i, n, val)
     }
 
     fn pop_table_operand(&mut self, arch: MemoryArch) -> Result<usize, Trap> {

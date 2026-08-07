@@ -20,6 +20,102 @@ pub(crate) struct State {
 }
 
 impl State {
+    /// Returns whether one canonical type is a subtype of another.
+    pub(crate) fn type_addr_is_subtype(&self, mut actual: TypeAddr, expected: TypeAddr) -> bool {
+        loop {
+            if actual == expected {
+                return true;
+            }
+            let Some(supertype) = self.get_type(actual).supertype else { return false };
+            actual = supertype;
+        }
+    }
+
+    /// Returns whether one reference type is a subtype of another.
+    pub(crate) fn ref_type_is_subtype(&self, actual: RefType, expected: RefType) -> bool {
+        if actual.is_nullable() && !expected.is_nullable() {
+            return false;
+        }
+        self.heap_type_is_subtype(actual, expected)
+    }
+
+    /// Returns whether one value type is a subtype of another.
+    pub(crate) fn value_type_is_subtype(&self, actual: WasmType, expected: WasmType) -> bool {
+        match (actual, expected) {
+            (WasmType::Ref(actual), WasmType::Ref(expected)) => self.ref_type_is_subtype(actual, expected),
+            _ => actual == expected,
+        }
+    }
+
+    fn heap_type_is_subtype(&self, actual: RefType, expected: RefType) -> bool {
+        if let Some(expected_addr) = expected.type_index() {
+            let Some(actual_addr) = actual.type_index() else {
+                return matches!(
+                    (actual.abstract_heap_type(), &self.get_type(expected_addr).composite),
+                    (Some(AbstractHeapType::NoFunc), CompositeType::Func(_))
+                        | (Some(AbstractHeapType::None), CompositeType::Struct(_) | CompositeType::Array(_))
+                );
+            };
+            return self.type_addr_is_subtype(actual_addr, expected_addr);
+        }
+
+        let expected = expected.abstract_heap_type().expect("abstract reference type");
+        if let Some(actual_addr) = actual.type_index() {
+            return match &self.get_type(actual_addr).composite {
+                CompositeType::Func(_) => expected == AbstractHeapType::Func,
+                CompositeType::Struct(_) => {
+                    matches!(expected, AbstractHeapType::Struct | AbstractHeapType::Eq | AbstractHeapType::Any)
+                }
+                CompositeType::Array(_) => {
+                    matches!(expected, AbstractHeapType::Array | AbstractHeapType::Eq | AbstractHeapType::Any)
+                }
+            };
+        }
+
+        let actual = actual.abstract_heap_type().expect("abstract reference type");
+        actual == expected
+            || match actual {
+                AbstractHeapType::None => matches!(
+                    expected,
+                    AbstractHeapType::I31
+                        | AbstractHeapType::Struct
+                        | AbstractHeapType::Array
+                        | AbstractHeapType::Eq
+                        | AbstractHeapType::Any
+                ),
+                AbstractHeapType::I31 | AbstractHeapType::Struct | AbstractHeapType::Array => {
+                    matches!(expected, AbstractHeapType::Eq | AbstractHeapType::Any)
+                }
+                AbstractHeapType::Eq => expected == AbstractHeapType::Any,
+                AbstractHeapType::NoFunc => expected == AbstractHeapType::Func,
+                AbstractHeapType::NoExtern => expected == AbstractHeapType::Extern,
+                AbstractHeapType::NoExn => expected == AbstractHeapType::Exn,
+                _ => false,
+            }
+    }
+
+    /// Returns whether a runtime reference has the expected type.
+    pub(crate) fn value_ref_matches(&self, value: ValueRef, expected: RefType) -> bool {
+        if value.is_null() {
+            return expected.is_nullable();
+        }
+        let expected_func = expected.type_index().is_some_and(|addr| self.get_type(addr).as_func().is_some())
+            || expected.abstract_heap_type() == Some(AbstractHeapType::Func);
+        if expected_func {
+            let Some(func_addr) = value.addr() else { return false };
+            let Some(func) = self.funcs.get(func_addr as usize) else { return false };
+            let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
+            return self.ref_type_is_subtype(actual, expected);
+        }
+        if value.is_i31() {
+            let actual = RefType::new_abstract(false, AbstractHeapType::I31);
+            return self.ref_type_is_subtype(actual, expected);
+        }
+
+        // Step 3 will resolve nonzero even values to their GC object's canonical type.
+        false
+    }
+
     #[inline]
     pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
         self.get_canonical_func_type(self.get_func(addr).type_addr)
@@ -39,10 +135,18 @@ impl State {
         match (value, expected) {
             (WasmValue::Ref(RefValue::Null), WasmType::Ref(expected)) => expected.is_nullable(),
             (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => {
-                self.funcs.get(func.addr() as usize).is_some_and(|func| match expected.type_index() {
-                    Some(expected) => func.type_addr == expected,
-                    None => matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func)),
+                self.funcs.get(func.addr() as usize).is_some_and(|func| {
+                    let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
+                    self.ref_type_is_subtype(actual, expected)
                 })
+            }
+            (WasmValue::Ref(RefValue::Any(_)), WasmType::Ref(expected))
+                if expected.is_func() || expected.is_extern() || expected.is_exn() =>
+            {
+                false
+            }
+            (WasmValue::Ref(RefValue::Any(value)), WasmType::Ref(expected)) => {
+                self.value_ref_matches(ValueRef::from_raw(value.raw()), expected)
             }
             (_, WasmType::Ref(expected)) if expected.is_concrete() => false,
             _ => value.matches_type(expected),

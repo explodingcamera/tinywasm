@@ -179,10 +179,10 @@ impl Store {
         for table in tables {
             let init = match &table.init {
                 Some(expr) => match self.eval_const(expr, global_addrs, func_addrs)? {
-                    TinyWasmValue::ValueRef(value) => TableElement::from(value.addr()),
+                    TinyWasmValue::ValueRef(value) => value,
                     _ => return Err(Error::other("table initializer is not a reference value")),
                 },
-                None => TableElement::Uninitialized,
+                None => ValueRef::NULL,
             };
             let element_type = canonicalize_ref_type(table.ty.element_type, type_addrs);
             let ty = match table.ty.arch() {
@@ -239,17 +239,17 @@ impl Store {
         Ok(())
     }
 
-    fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
+    fn elem_value(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<ValueRef> {
         match item {
             ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs)? {
-                TinyWasmValue::ValueRef(v) => Ok(v.addr()),
+                TinyWasmValue::ValueRef(value) => Ok(value),
                 other => {
                     cold_path();
                     Err(Error::Other(format!("expected ref type, got {other:?}")))
                 }
             },
             ElementItem::Func(addr) => match funcs.get(*addr as usize) {
-                Some(func_addr) => Ok(Some(*func_addr)),
+                Some(func_addr) => Ok(ValueRef::from_category_addr(*func_addr)),
                 None => {
                     cold_path();
                     Err(Error::Other(format!(
@@ -275,7 +275,7 @@ impl Store {
             let init = element
                 .items
                 .iter()
-                .map(|item| Ok(TableElement::from(self.elem_addr(item, global_addrs, func_addrs)?)))
+                .map(|item| self.elem_value(item, global_addrs, func_addrs))
                 .collect::<Result<Vec<_>>>()?;
 
             let items = match &element.kind {
@@ -442,7 +442,7 @@ impl Store {
                 GlobalGet(addr) => resolve_global(*addr)?,
                 Ref(tinywasm_types::RefValue::Null) => TinyWasmValue::ValueRef(ValueRef::NULL),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?))
+                    TinyWasmValue::ValueRef(ValueRef::from_category_addr(resolve_func(func.addr())?))
                 }
                 Ref(_) => return Err(Error::other("unsupported reference constant")),
                 _ => {
@@ -465,11 +465,25 @@ impl Store {
                 GlobalGet(addr) => stack.push(resolve_global(*addr)?),
                 Ref(tinywasm_types::RefValue::Null) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?)))
+                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_category_addr(resolve_func(func.addr())?)))
                 }
                 Ref(_) => {
                     cold_path();
                     return Err(Error::other("unsupported reference constant"));
+                }
+                RefI31 => {
+                    let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+                    let TinyWasmValue::Value32(value) = value else {
+                        return Err(Error::other("type mismatch in const ref.i31"));
+                    };
+                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_i31(value as i32)));
+                }
+                AnyConvertExtern | ExternConvertAny => {
+                    let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+                    if !matches!(value, TinyWasmValue::ValueRef(_)) {
+                        return Err(Error::other("type mismatch in const reference conversion"));
+                    }
+                    stack.push(value);
                 }
                 I32Add | I32Sub | I32Mul => {
                     let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;

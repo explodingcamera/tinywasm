@@ -343,8 +343,18 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         fixed [] => [] { visit_data_drop(segment: u32) => DataDrop, visit_elem_drop(segment: u32) => ElemDrop }
         fixed [] => [S32] { visit_i32_const(value: i32) => Const32, visit_ref_func(function: u32) => RefFunc }
         fixed [] => [S64] { visit_i64_const(value: i64) => Const64 }
+        heap false [] => [S32] { visit_ref_null => RefNull }
+        heap false [S32] => [S32] {
+            visit_ref_test_non_null => RefTest, visit_ref_cast_non_null => RefCast,
+        }
+        heap true [S32] => [S32] {
+            visit_ref_test_nullable => RefTest, visit_ref_cast_nullable => RefCast,
+        }
         fixed [S32] => [S32] {
-            visit_i32_eqz => I32Eqz, visit_ref_is_null => RefIsNull, visit_i32_clz => I32Clz,
+            visit_ref_is_null => RefIsNull, visit_ref_as_non_null => RefAsNonNull, visit_ref_i31 => RefI31,
+            visit_i31_get_s => I31GetS, visit_i31_get_u => I31GetU,
+            visit_any_convert_extern => AnyConvertExtern, visit_extern_convert_any => ExternConvertAny,
+            visit_i32_eqz => I32Eqz, visit_i32_clz => I32Clz,
             visit_i32_ctz => I32Ctz, visit_i32_popcnt => I32Popcnt, visit_i32_extend8_s => I32Extend8S,
             visit_i32_extend16_s => I32Extend16S, visit_i32_trunc_f32_s => I32TruncF32S,
             visit_i32_trunc_f32_u => I32TruncF32U, visit_f32_convert_i32_s => F32ConvertI32S,
@@ -377,7 +387,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i64_trunc_sat_f32_u => I64TruncSatF32U,
         }
         fixed [S32, S32] => [S32] {
-            visit_i32_eq => I32Eq, visit_i32_ne => I32Ne, visit_i32_lt_s => I32LtS, visit_i32_lt_u => I32LtU,
+            visit_ref_eq => RefEq, visit_i32_eq => I32Eq, visit_i32_ne => I32Ne,
+            visit_i32_lt_s => I32LtS, visit_i32_lt_u => I32LtU,
             visit_i32_gt_s => I32GtS, visit_i32_gt_u => I32GtU, visit_i32_le_s => I32LeS,
             visit_i32_le_u => I32LeU, visit_i32_ge_s => I32GeS, visit_i32_ge_u => I32GeU,
             visit_f32_eq => F32Eq, visit_f32_ne => F32Ne, visit_f32_lt => F32Lt, visit_f32_gt => F32Gt,
@@ -424,6 +435,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         table [S32, Addr] => [Addr] { visit_table_grow(table: u32) => TableGrow }
         table [Addr, S32, Addr] => [] { visit_table_fill(table: u32) => TableFill }
         table [Addr, S32, S32] => [] { visit_table_init(elem_index: u32, table: u32) => TableInit }
+        unsupported [] { visit_array_len }
+        unsupported [u32] {
+            visit_struct_new, visit_struct_new_default, visit_array_new, visit_array_new_default,
+            visit_array_get, visit_array_get_s, visit_array_get_u, visit_array_set, visit_array_fill,
+        }
+        unsupported [u32, u32] {
+            visit_struct_get, visit_struct_get_s, visit_struct_get_u, visit_struct_set,
+            visit_array_new_fixed, visit_array_new_data, visit_array_new_elem, visit_array_copy,
+            visit_array_init_data, visit_array_init_elem,
+        }
     }
 
     fn visit_call(&mut self, function_index: u32) -> Self::Output {
@@ -722,14 +743,22 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy { dst_mem, src_mem })
     }
 
-    // Reference Types
-    fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        let instruction = Instruction::RefNull(convert_heap_type(ty, false)?);
-        self.emit(&[], &[OperandSize::S32], instruction)
+    fn visit_br_on_cast(
+        &mut self,
+        relative_depth: u32,
+        _from_ref_type: wasmparser::RefType,
+        to_ref_type: wasmparser::RefType,
+    ) -> Self::Output {
+        self.emit_cast_branch(relative_depth, to_ref_type, false)
     }
 
-    fn visit_ref_as_non_null(&mut self) -> Self::Output {
-        self.emit(&[OperandSize::S32], &[OperandSize::S32], Instruction::RefAsNonNull)
+    fn visit_br_on_cast_fail(
+        &mut self,
+        relative_depth: u32,
+        _from_ref_type: wasmparser::RefType,
+        to_ref_type: wasmparser::RefType,
+    ) -> Self::Output {
+        self.emit_cast_branch(relative_depth, to_ref_type, true)
     }
 
     fn visit_br_on_null(&mut self, relative_depth: u32) -> Self::Output {
@@ -975,6 +1004,23 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
 }
 
 impl FunctionBuilder<'_> {
+    fn emit_cast_branch(
+        &mut self,
+        relative_depth: u32,
+        target: wasmparser::RefType,
+        branch_on_fail: bool,
+    ) -> Result<()> {
+        self.pop_expect(OperandSize::S32)?;
+        let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
+        let conditional_ip = self.instructions.len();
+        self.instructions.push(Instruction::BrOnCast(0, target, branch_on_fail));
+        self.push_sizes(&[OperandSize::S32])?;
+        self.emit_dropkeep_to_label(relative_depth)?;
+        self.emit_branch_jump_or_return(relative_depth)?;
+        self.patch_jump(conditional_ip, self.instructions.len());
+        Ok(())
+    }
+
     fn is_unreachable(&self) -> bool {
         self.control_stack.last().is_none_or(|frame| frame.unreachable)
     }
@@ -1112,7 +1158,8 @@ impl FunctionBuilder<'_> {
             | Instruction::JumpIfZero32(ip)
             | Instruction::JumpIfNonZero32(ip)
             | Instruction::JumpIfRefNull(ip)
-            | Instruction::JumpIfRefNonNull(ip) => {
+            | Instruction::JumpIfRefNonNull(ip)
+            | Instruction::BrOnCast(ip, _, _) => {
                 *ip = target as u32;
             }
             _ => {}

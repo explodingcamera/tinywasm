@@ -157,45 +157,9 @@ impl Imports {
         Ok(())
     }
 
-    fn ref_subtype(state: &crate::store::State, actual: RefType, expected: RefType) -> bool {
-        if actual.is_nullable() && !expected.is_nullable() {
-            return false;
-        }
-        match (actual.type_index(), expected.type_index()) {
-            (Some(actual), Some(expected)) => actual == expected,
-            (Some(actual), None) => match expected.abstract_heap_type() {
-                Some(AbstractHeapType::Func) => state.get_type(actual).as_func().is_some(),
-                Some(AbstractHeapType::Struct) => state.get_type(actual).as_struct().is_some(),
-                Some(AbstractHeapType::Array) => state.get_type(actual).as_array().is_some(),
-                _ => false,
-            },
-            (None, Some(_)) => matches!(actual.abstract_heap_type(), Some(AbstractHeapType::NoFunc)),
-            (None, None) => {
-                actual.abstract_heap_type() == expected.abstract_heap_type()
-                    || actual.is_func() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func))
-                    || actual.is_extern() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Extern))
-                    || actual.is_exn() && matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Exn))
-            }
-        }
-    }
-
-    fn value_subtype(state: &crate::store::State, actual: WasmType, expected: WasmType) -> bool {
-        match (actual, expected) {
-            (WasmType::Ref(actual), WasmType::Ref(expected)) => Self::ref_subtype(state, actual, expected),
-            _ => actual == expected,
-        }
-    }
-
-    fn compare_table_types(
-        state: &crate::store::State,
-        import: &Import,
-        actual: &TableType,
-        expected: &TableType,
-    ) -> Result<()> {
+    fn compare_table_types(import: &Import, actual: &TableType, expected: &TableType) -> Result<()> {
         Self::compare_types(import, &actual.arch(), &expected.arch())?;
-        if !Self::ref_subtype(state, actual.element_type, expected.element_type)
-            || !Self::ref_subtype(state, expected.element_type, actual.element_type)
-        {
+        if actual.element_type != expected.element_type {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
         if actual.size_initial < expected.size_initial {
@@ -285,8 +249,8 @@ impl Imports {
                     let global = store.state.get_global(global_addr);
                     let expected = ty.with_ty(crate::store::canonicalize_value_type(ty.ty, type_addrs));
                     let compatible = global.ty.mutable == ty.mutable
-                        && Self::value_subtype(&store.state, global.ty.ty, expected.ty)
-                        && (!ty.mutable || Self::value_subtype(&store.state, expected.ty, global.ty.ty));
+                        && store.state.value_type_is_subtype(global.ty.ty, expected.ty)
+                        && (!ty.mutable || store.state.value_type_is_subtype(expected.ty, global.ty.ty));
                     if !compatible {
                         cold_path();
                         return Err(LinkingError::incompatible_import_type(import).into());
@@ -302,7 +266,7 @@ impl Imports {
                         MemoryArch::I32 => TableType::new(element_type, ty.size_initial, ty.size_max),
                         MemoryArch::I64 => TableType::new64(element_type, ty.size_initial, ty.size_max),
                     };
-                    Self::compare_table_types(&store.state, import, &kind, &expected)?;
+                    Self::compare_table_types(import, &kind, &expected)?;
                     imports.tables.push(table_addr);
                 }
                 (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
@@ -316,7 +280,8 @@ impl Imports {
                     if let Some(func) = &func_handle {
                         func.item.validate_store(store)?;
                     }
-                    if store.state.get_func(func_addr).type_addr != *expected_type_addr {
+                    if !store.state.type_addr_is_subtype(store.state.get_func(func_addr).type_addr, *expected_type_addr)
+                    {
                         cold_path();
                         return Err(LinkingError::incompatible_import_type(import).into());
                     }

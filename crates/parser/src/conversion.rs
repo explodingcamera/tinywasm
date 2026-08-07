@@ -324,6 +324,9 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             wasmparser::Operator::RefFunc { function_index } => {
                 ConstInstruction::Ref(RefValue::Func(FuncRef::new(function_index)))
             }
+            wasmparser::Operator::RefI31 => ConstInstruction::RefI31,
+            wasmparser::Operator::AnyConvertExtern => ConstInstruction::AnyConvertExtern,
+            wasmparser::Operator::ExternConvertAny => ConstInstruction::ExternConvertAny,
             wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(value),
             wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(value),
             wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),

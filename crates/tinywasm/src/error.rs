@@ -172,6 +172,12 @@ pub enum Trap {
     /// A null function reference was called.
     NullFunctionReference,
 
+    /// A null i31 reference was unwrapped.
+    NullI31Reference,
+
+    /// A reference cast failed.
+    CastFailure,
+
     /// Indirect call type mismatch
     IndirectCallTypeMismatch {
         /// The expected type
@@ -201,6 +207,8 @@ impl Trap {
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::NullReference => "null reference",
             Self::NullFunctionReference => "null function reference",
+            Self::NullI31Reference => "null i31 reference",
+            Self::CastFailure => "cast failure",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
             Self::InvalidStore => "invalid store",
@@ -303,6 +311,8 @@ impl Display for Trap {
             }
             Self::NullReference => write!(f, "null reference"),
             Self::NullFunctionReference => write!(f, "null function reference"),
+            Self::NullI31Reference => write!(f, "null i31 reference"),
+            Self::CastFailure => write!(f, "cast failure"),
             Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {

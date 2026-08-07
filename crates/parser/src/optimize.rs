@@ -858,6 +858,7 @@ fn instruction_target_mut(instr: &mut Instruction) -> Option<&mut u32> {
         | Instruction::JumpIfNonZero64(ip)
         | Instruction::JumpIfRefNull(ip)
         | Instruction::JumpIfRefNonNull(ip)
+        | Instruction::BrOnCast(ip, _, _)
         | Instruction::JumpCmpStackConst32 { target_ip: ip, .. }
         | Instruction::JumpCmpStackConst64 { target_ip: ip, .. }
         | Instruction::JumpIfLocalZero32 { target_ip: ip, .. }

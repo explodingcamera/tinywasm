@@ -5,7 +5,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::store::{GlobalInstance, TableElement, TableInstance};
+use crate::interpreter::TinyWasmValue;
+use crate::store::{GlobalInstance, TableInstance};
 use crate::{Error, MemoryInstance, Result, Store, Trap};
 use tinywasm_types::{Addr, GlobalAddr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
 
@@ -346,12 +347,13 @@ fn table_value_to_element(
     state: &crate::store::State,
     element_type: tinywasm_types::RefType,
     value: WasmValue,
-) -> Result<TableElement, Trap> {
+) -> Result<crate::interpreter::ValueRef, Trap> {
     if !state.value_matches_type(value, WasmType::Ref(element_type)) {
         return Err(Trap::Other("invalid table value type"));
     }
     let WasmValue::Ref(value) = value else { unreachable!() };
-    Ok(TableElement::from(value.raw()))
+    let TinyWasmValue::ValueRef(value) = TinyWasmValue::from(WasmValue::Ref(value)) else { unreachable!() };
+    Ok(value)
 }
 
 impl Table {
@@ -394,16 +396,20 @@ impl Table {
     }
 
     /// Load a range of table elements and iterate over wasm reference values.
-    pub fn load(&self, store: &Store, offset: usize, len: usize) -> Result<alloc::vec::IntoIter<WasmValue>> {
+    pub fn load<'a>(
+        &self,
+        store: &'a Store,
+        offset: usize,
+        len: usize,
+    ) -> Result<impl Iterator<Item = WasmValue> + 'a> {
         let table = self.instance(store)?;
         let element_type = table.kind.element_type;
         let elements = table.load(offset, len)?;
-        Ok(elements
-            .iter()
-            .copied()
-            .map(move |element| element.to_wasm_value(element_type))
-            .collect::<alloc::vec::Vec<_>>()
-            .into_iter())
+        Ok(elements.iter().copied().map(move |value| {
+            TinyWasmValue::ValueRef(value)
+                .attach_type(WasmType::Ref(element_type))
+                .expect("table value matches its element type")
+        }))
     }
 
     /// Set a table element.
