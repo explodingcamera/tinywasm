@@ -362,6 +362,39 @@ impl ExternVal {
     }
 }
 
+/// The physical storage lane used by a [`WasmType`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub enum ValueLane {
+    /// A 32-bit value or reference.
+    S32,
+    /// A 64-bit value.
+    S64,
+    /// A 128-bit SIMD value.
+    S128,
+}
+
+impl ValueLane {
+    /// Selects one of three values based on this lane.
+    pub fn select<T>(self, s32: T, s64: T, s128: T) -> T {
+        match self {
+            Self::S32 => s32,
+            Self::S64 => s64,
+            Self::S128 => s128,
+        }
+    }
+}
+
+impl From<&WasmType> for ValueLane {
+    fn from(ty: &WasmType) -> Self {
+        match ty {
+            WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => Self::S32,
+            WasmType::I64 | WasmType::F64 => Self::S64,
+            WasmType::V128 => Self::S128,
+        }
+    }
+}
+
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -384,10 +417,10 @@ impl<'a> FromIterator<&'a WasmType> for ValueCounts {
         let mut counts = Self::default();
 
         for ty in iter {
-            match ty {
-                WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => counts.c32 += 1,
-                WasmType::I64 | WasmType::F64 => counts.c64 += 1,
-                WasmType::V128 => counts.c128 += 1,
+            match ValueLane::from(ty) {
+                ValueLane::S32 => counts.c32 += 1,
+                ValueLane::S64 => counts.c64 += 1,
+                ValueLane::S128 => counts.c128 += 1,
             }
         }
         counts

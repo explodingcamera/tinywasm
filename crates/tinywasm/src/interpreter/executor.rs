@@ -123,6 +123,16 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 let val = <$ty>::stack_peek(&self.store.value_stack);
                 <$ty>::local_set(&mut self.store.value_stack, &self.cf, *$local_index, val);
             }};
+            (global_get $ty:ty, $global_index:expr) => {{
+                let addr = self.module.resolve_global_addr(*$global_index);
+                let value = <$ty>::global_get(&self.store.state.globals, addr);
+                <$ty>::stack_push(&mut self.store.value_stack, value)?;
+            }};
+            (global_set $ty:ty, $global_index:expr) => {{
+                let addr = self.module.resolve_global_addr(*$global_index);
+                let value = <$ty>::stack_pop(&mut self.store.value_stack);
+                <$ty>::global_set(&mut self.store.state.globals, addr, value);
+            }};
         }
 
         macro_rules! exec_binop {
@@ -200,12 +210,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 <$vt>::local_set(&mut self.store.value_stack, &self.cf, *$dst, value);
                 self.store.value_stack.push(value)?;
             }};
-            (stack_global $vt:ident, $width:tt, $op:ident, $global:ident) => {{
-                let TinyWasmValue::$vt(global_val) =
-                    self.store.state.get_global_val(self.module.resolve_global_addr(*$global))
-                else {
-                    unreachable!("expected global to be Value32")
-                };
+            (stack_global $vt:ty, $width:tt, $op:ident, $global:ident) => {{
+                let global_val =
+                    <$vt>::global_get(&self.store.state.globals, self.module.resolve_global_addr(*$global));
                 let stack_val = <$vt>::stack_pop(&mut self.store.value_stack);
                 self.store.value_stack.push(exec_binop!($width, *$op, stack_val, global_val))?;
             }};
@@ -339,10 +346,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             LocalTee32(local_index) => stack_op!(local_tee Value32, local_index),
             LocalTee64(local_index) => stack_op!(local_tee Value64, local_index),
             LocalTee128(local_index) => stack_op!(local_tee Value128, local_index),
-            GlobalGet(global_index) => self.exec_global_get(*global_index)?,
-            GlobalSet32(global_index) => self.exec_global_set_32(*global_index),
-            GlobalSet64(global_index) => self.exec_global_set::<Value64>(*global_index),
-            GlobalSet128(global_index) => self.exec_global_set::<Value128>(*global_index),
+            GlobalGet32(global_index) => stack_op!(global_get Value32, global_index),
+            GlobalGet64(global_index) => stack_op!(global_get Value64, global_index),
+            GlobalGet128(global_index) => stack_op!(global_get Value128, global_index),
+            GlobalSet32(global_index) => stack_op!(global_set Value32, global_index),
+            GlobalSet64(global_index) => stack_op!(global_set Value64, global_index),
+            GlobalSet128(global_index) => stack_op!(global_set Value128, global_index),
             Const32(val) => self.exec_const(*val)?,
             Const64(val) => self.exec_const(*val)?,
             I64Eqz => stack_op!(unary i64 => i32, |v| i32::from(v == 0)),
@@ -1334,27 +1343,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let value = cast(self.exec_load_local_value::<LOAD, N>(memarg, addr_local)?);
         TARGET::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
         Ok(())
-    }
-
-    fn exec_global_get(&mut self, global_index: u32) -> Result<(), Trap> {
-        self.store.value_stack.push_dyn(self.store.state.get_global_val(self.module.resolve_global_addr(global_index)))
-    }
-
-    fn exec_global_set<T: InternalValue>(&mut self, global_index: u32) {
-        let global_addr = self.module.resolve_global_addr(global_index);
-        let value = <T>::stack_pop(&mut self.store.value_stack).into();
-        self.store.state.set_global_val(global_addr, value);
-    }
-
-    fn exec_global_set_32(&mut self, global_index: u32) {
-        let global_addr = self.module.resolve_global_addr(global_index);
-        let raw = <Value32>::stack_pop(&mut self.store.value_stack);
-        let value = match self.store.state.get_global(global_addr).ty.ty {
-            WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(raw),
-            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::from_raw(raw)),
-            WasmType::I64 | WasmType::F64 | WasmType::V128 => unreachable!("invalid global.set.32 target type"),
-        };
-        self.store.state.set_global_val(global_addr, value);
     }
 
     fn exec_const<T: InternalValue>(&mut self, val: T) -> Result<(), Trap> {

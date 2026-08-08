@@ -141,7 +141,7 @@ pub(crate) mod visit {
 
         (@size Addr, $address:ident) => { $address };
         (@size Field, $address:ident) => { $address };
-        (@size $size:ident $(, $address:ident)?) => { OperandSize::$size };
+        (@size $size:ident $(, $address:ident)?) => { ValueLane::$size };
     }
 
     macro_rules! impl_visit_operator {

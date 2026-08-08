@@ -6,6 +6,14 @@ use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations, UnpackedIndex};
 
+pub(crate) fn value_lane(ty: wasmparser::ValType) -> ValueLane {
+    match ty {
+        wasmparser::ValType::I32 | wasmparser::ValType::F32 | wasmparser::ValType::Ref(_) => ValueLane::S32,
+        wasmparser::ValType::I64 | wasmparser::ValType::F64 => ValueLane::S64,
+        wasmparser::ValType::V128 => ValueLane::S128,
+    }
+}
+
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
         wasmparser::ElementKind::Active { table_index, offset_expr } => tinywasm_types::ElementKind::Active {
@@ -116,12 +124,8 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
     Ok(Export { index: export.index, name: Box::from(export.name), kind })
 }
 
-fn extend_local_types(
-    local_types: &mut Vec<crate::visit::OperandSize>,
-    count: u32,
-    ty: wasmparser::ValType,
-) -> Result<()> {
-    let size = crate::visit::OperandSize::from(ty);
+fn extend_local_types(local_types: &mut Vec<ValueLane>, count: u32, ty: wasmparser::ValType) -> Result<()> {
+    let size = value_lane(ty);
     let count =
         usize::try_from(count).map_err(|_| crate::ParseError::Other("local declaration count is too large".into()))?;
     local_types.reserve(count);
@@ -166,9 +170,9 @@ pub(crate) fn convert_module_code(
 
     for ty in &local_types {
         let (count, error) = match ty {
-            crate::visit::OperandSize::S32 => (&mut local_counts.c32, "too many 32-bit locals"),
-            crate::visit::OperandSize::S64 => (&mut local_counts.c64, "too many 64-bit locals"),
-            crate::visit::OperandSize::S128 => (&mut local_counts.c128, "too many 128-bit locals"),
+            ValueLane::S32 => (&mut local_counts.c32, "too many 32-bit locals"),
+            ValueLane::S64 => (&mut local_counts.c64, "too many 64-bit locals"),
+            ValueLane::S128 => (&mut local_counts.c128, "too many 128-bit locals"),
         };
         local_addr_map.push(*count);
         *count = count.checked_add(1).ok_or_else(|| crate::ParseError::Other(error.into()))?;

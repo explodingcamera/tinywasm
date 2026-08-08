@@ -224,9 +224,18 @@ impl Imports {
         for import in &*module.imports {
             let (val, func_handle) = if let Some(defined) = self.take_defined(import) {
                 match defined {
-                    Extern::Global(global) => (ExternVal::Global(global.0.addr), None),
-                    Extern::Table(table) => (ExternVal::Table(table.0.addr), None),
-                    Extern::Memory(memory) => (ExternVal::Memory(memory.0.addr), None),
+                    Extern::Global(global) => {
+                        global.0.validate_store(store)?;
+                        (ExternVal::Global(global.0.addr), None)
+                    }
+                    Extern::Table(table) => {
+                        table.0.validate_store(store)?;
+                        (ExternVal::Table(table.0.addr), None)
+                    }
+                    Extern::Memory(memory) => {
+                        memory.0.validate_store(store)?;
+                        (ExternVal::Memory(memory.0.addr), None)
+                    }
                     Extern::Function(func) => (ExternVal::Func(func.addr()), Some(func)),
                 }
             } else {
@@ -246,11 +255,11 @@ impl Imports {
 
             match (val, &import.kind) {
                 (ExternVal::Global(global_addr), ImportKind::Global(ty)) => {
-                    let global = store.state.get_global(global_addr);
+                    let global_ty = store.state.globals.ty(global_addr);
                     let expected = ty.with_ty(crate::store::canonicalize_value_type(ty.ty, type_addrs));
-                    let compatible = global.ty.mutable == ty.mutable
-                        && store.state.value_type_is_subtype(global.ty.ty, expected.ty)
-                        && (!ty.mutable || store.state.value_type_is_subtype(expected.ty, global.ty.ty));
+                    let compatible = global_ty.mutable == ty.mutable
+                        && store.state.value_type_is_subtype(global_ty.ty, expected.ty)
+                        && (!ty.mutable || store.state.value_type_is_subtype(expected.ty, global_ty.ty));
                     if !compatible {
                         cold_path();
                         return Err(LinkingError::incompatible_import_type(import).into());

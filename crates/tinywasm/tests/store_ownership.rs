@@ -1,5 +1,6 @@
 use eyre::Result;
-use tinywasm::{ModuleInstance, Store};
+use tinywasm::types::{GlobalType, WasmType};
+use tinywasm::{Global, Imports, ModuleInstance, Store};
 
 const MODULE_WAT: &str = r#"
     (module
@@ -84,5 +85,20 @@ fn table_grow_rejects_wrong_store_with_invalid_store_error() -> Result<()> {
     let err = table.grow(&mut other_store, 1, tinywasm::types::RefValue::Null.into()).unwrap_err();
     assert_eq!(err, tinywasm::Error::Trap(tinywasm::Trap::InvalidStore));
 
+    Ok(())
+}
+
+#[test]
+fn global_import_rejects_wrong_store() -> Result<()> {
+    let wasm = wat::parse_str(r#"(module (import "env" "g" (global i32)))"#)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let mut owner_store = Store::default();
+    let global = Global::new(&mut owner_store, GlobalType::new(WasmType::I32, false), 1.into())?;
+    let mut imports = Imports::default();
+    imports.define("env", "g", global);
+
+    let mut other_store = Store::default();
+    let err = ModuleInstance::instantiate(&mut other_store, &module, Some(imports)).unwrap_err();
+    assert_eq!(err, tinywasm::Error::Trap(tinywasm::Trap::InvalidStore));
     Ok(())
 }

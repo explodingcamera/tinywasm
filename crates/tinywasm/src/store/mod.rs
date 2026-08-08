@@ -72,7 +72,8 @@ impl Store {
     /// Create a new store
     pub fn new(engine: Engine) -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
-        let state = State { gc: gc::GcHeap::new(engine.config().gc_collection_threshold), ..State::default() };
+        let state =
+            State { gc: Box::new(gc::GcHeap::new(engine.config().gc_collection_threshold)), ..State::default() };
         Self {
             id,
             module_instances: Vec::new(),
@@ -138,16 +139,16 @@ impl Store {
         self.module_instances.push(instance);
     }
 
-    /// Get the global at the actual index in the store
+    /// Gets a global by its opaque store address.
     #[doc(hidden)]
     pub fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        self.state.get_global_val(addr)
+        self.state.globals.get(addr)
     }
 
-    /// Set the global at the actual index in the store
+    /// Sets a global by its opaque store address.
     #[doc(hidden)]
     pub fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        self.state.set_global_val(addr, value);
+        self.state.globals.set(addr, value);
     }
 
     /// Returns whether a public value has the requested runtime type.
@@ -232,9 +233,6 @@ impl Store {
         func_addrs: &[FuncAddr],
         type_addrs: &[TypeAddr],
     ) -> Result<()> {
-        let start = self.state.globals.len() as Addr;
-        out.extend(start..start + globals.len() as Addr);
-
         for global in globals {
             let value = match self.eval_const(&global.init, out, func_addrs, type_addrs) {
                 Ok(val) => val,
@@ -244,7 +242,7 @@ impl Store {
                 }
             };
             let ty = global.ty.with_ty(canonicalize_value_type(global.ty.ty, type_addrs));
-            self.state.globals.push(GlobalInstance::new(ty, value));
+            out.push(self.state.globals.push(ty, value));
         }
 
         Ok(())
@@ -439,7 +437,7 @@ impl Store {
             let addr = *module_global_addrs
                 .get(index as usize)
                 .ok_or_else(|| Error::Other(format!("global {index} not found")))?;
-            Ok(state.globals.get(addr as usize).ok_or_else(|| Error::Other(format!("global {addr} not found")))?.value)
+            Ok(state.globals.get(addr))
         };
         let func_ref = |index: u32| -> Result<ValueRef> {
             let addr = *module_func_addrs

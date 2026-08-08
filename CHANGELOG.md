@@ -10,16 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added support for the WebAssembly function-references proposal
-- Added support for the WebAssembly garbage-collection proposal
+- Added basic support for the WebAssembly garbage-collection proposal
 - Added `WasmValue::ty` and `WasmValue::matches_type`
+- Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 
 ### Changed
 
 - Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
+- Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
 
 ### Fixed
 
+- Directly defined imports now reject handles from a different `Store`.
 - Tail calls to host functions now return directly to the caller frame.
 
 ### Breaking Changes

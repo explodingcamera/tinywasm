@@ -1,6 +1,7 @@
 use super::stack::{CallFrame, ValueStack};
+use crate::store::Globals;
 use crate::{Result, interpreter::simd::Value128};
-use tinywasm_types::{AnyRef, ExnRef, ExternRef, FuncRef, LocalAddr, RefValue, WasmType, WasmValue};
+use tinywasm_types::{AnyRef, ExnRef, ExternRef, FuncRef, GlobalAddr, LocalAddr, RefValue, WasmType, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -179,7 +180,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + Default {
+/// Typed access to values in their physical [`ValueStack`] and [`Globals`] lanes.
+pub(crate) trait InternalValue: sealed::Sealed + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
@@ -188,12 +190,16 @@ pub(crate) trait InternalValue: sealed::Sealed + Into<TinyWasmValue> + Copy + De
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self);
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
+    /// Gets a value from its physical global lane.
+    fn global_get(globals: &Globals, addr: GlobalAddr) -> Self;
+    /// Sets a value in its physical global lane.
+    fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self);
 }
 
 macro_rules! impl_internalvalue {
     (
         $(
-            $variant:ident, $stack:ident, $stack_base:ident, $outer:ty,
+            $variant:ident, $stack:ident, $stack_base:ident, $global_get:ident, $global_set:ident, $outer:ty,
             |$to_value_v:ident| $to_value:expr,
             |$to_stack_v:ident| $to_stack:expr,
             |$from_stack_v:ident| $from_stack:expr
@@ -249,6 +255,18 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
+                fn global_get(globals: &Globals, addr: GlobalAddr) -> Self {
+                    let $from_stack_v = globals.$global_get(addr);
+                    $from_stack
+                }
+
+                #[inline(always)]
+                fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self) {
+                    let $to_stack_v = value;
+                    globals.$global_set(addr, $to_stack);
+                }
+
+                #[inline(always)]
                 fn stack_pop(stack: &mut ValueStack) -> Self {
                     let $from_stack_v = stack.$stack.pop();
                     $from_stack
@@ -278,12 +296,12 @@ macro_rules! impl_internalvalue {
 }
 
 impl_internalvalue! {
-    Value32,  stack_32,  s32,  u32,      |v| v,               |v| v,               |v| v
-    Value64,  stack_64,  s64,  u64,      |v| v,               |v| v,               |v| v
-    Value32,  stack_32,  s32,  i32,      |v| v as u32,        |v| v as u32,        |v| v as i32
-    Value64,  stack_64,  s64,  i64,      |v| v as u64,        |v| v as u64,        |v| v as i64
-    Value32,  stack_32,  s32,  f32,      |v| f32::to_bits(v), |v| f32::to_bits(v), |v| f32::from_bits(v)
-    Value64,  stack_64,  s64,  f64,      |v| f64::to_bits(v), |v| f64::to_bits(v), |v| f64::from_bits(v)
-    ValueRef, stack_32,  s32,  ValueRef, |v| v,               |v| v.raw(),         |v| ValueRef(v)
-    Value128, stack_128, s128, Value128, |v| v,               |v| v,               |v| v
+    Value32,  stack_32,  s32,  get_32,  set_32,  u32,      |v| v,               |v| v,               |v| v
+    Value64,  stack_64,  s64,  get_64,  set_64,  u64,      |v| v,               |v| v,               |v| v
+    Value32,  stack_32,  s32,  get_32,  set_32,  i32,      |v| v as u32,        |v| v as u32,        |v| v as i32
+    Value64,  stack_64,  s64,  get_64,  set_64,  i64,      |v| v as u64,        |v| v as u64,        |v| v as i64
+    Value32,  stack_32,  s32,  get_32,  set_32,  f32,      |v| f32::to_bits(v), |v| f32::to_bits(v), |v| f32::from_bits(v)
+    Value64,  stack_64,  s64,  get_64,  set_64,  f64,      |v| f64::to_bits(v), |v| f64::to_bits(v), |v| f64::from_bits(v)
+    ValueRef, stack_32,  s32,  get_32,  set_32,  ValueRef, |v| v,               |v| v.raw(),         |v| ValueRef(v)
+    Value128, stack_128, s128, get_128, set_128, Value128, |v| v,               |v| v,               |v| v
 }

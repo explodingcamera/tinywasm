@@ -14,10 +14,10 @@ pub(crate) struct State {
     pub(crate) funcs: Vec<FunctionInstance>,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
-    pub(crate) globals: Vec<GlobalInstance>,
+    pub(crate) globals: Globals,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) data: Vec<DataInstance>,
-    pub(crate) gc: gc::GcHeap,
+    pub(crate) gc: Box<gc::GcHeap>,
 }
 
 impl State {
@@ -73,9 +73,9 @@ impl State {
                 .map(ValueRef::from_raw)
                 .chain(
                     self.globals
-                        .iter()
-                        .filter(|global| Self::type_may_contain_gc_in(canonical_types, global.ty.ty))
-                        .filter_map(|global| global.value.as_ref()),
+                        .globals_32()
+                        .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, ty.ty))
+                        .map(|(value, _)| ValueRef::from_raw(value)),
                 )
                 .chain(
                     self.tables
@@ -363,23 +363,45 @@ impl State {
         Self::get_mut(&mut self.elements, addr, "element")
     }
 
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
-        Self::get(&self.globals, addr, "global")
+    /// Converts a global directly to its public value representation.
+    pub(crate) fn global_wasm_value(&self, addr: GlobalAddr) -> WasmValue {
+        let ty = self.globals.ty(addr).ty;
+        match ty {
+            WasmType::I32 => WasmValue::I32(self.globals.get_32(addr) as i32),
+            WasmType::I64 => WasmValue::I64(self.globals.get_64(addr) as i64),
+            WasmType::F32 => WasmValue::F32(f32::from_bits(self.globals.get_32(addr))),
+            WasmType::F64 => WasmValue::F64(f64::from_bits(self.globals.get_64(addr))),
+            WasmType::Ref(_) => self
+                .attach_value(TinyWasmValue::ValueRef(ValueRef::from_raw(self.globals.get_32(addr))), ty)
+                .unwrap_or_else(|| unreachable!("global value does not match its type")),
+            WasmType::V128 => WasmValue::V128(self.globals.get_128(addr).to_le_bytes()),
+        }
     }
 
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global_mut(&mut self, addr: GlobalAddr) -> &mut GlobalInstance {
-        Self::get_mut(&mut self.globals, addr, "global")
-    }
-
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        self.get_global(addr).value
-    }
-
-    /// Set the global at the actual index in the store
-    pub(crate) fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        self.get_global_mut(addr).value = value;
+    /// Validates and sets a global from its public value representation.
+    pub(crate) fn set_global_wasm_value(&mut self, addr: GlobalAddr, value: WasmValue) -> Result<()> {
+        let ty = self.globals.ty(addr);
+        if !ty.mutable {
+            cold_path();
+            return Err(Error::other("global is immutable"));
+        }
+        if !self.value_matches_type(value, ty.ty) {
+            cold_path();
+            return Err(Error::other("invalid global value type"));
+        }
+        match value {
+            WasmValue::I32(value) => self.globals.set_32(addr, value as u32),
+            WasmValue::I64(value) => self.globals.set_64(addr, value as u64),
+            WasmValue::F32(value) => self.globals.set_32(addr, value.to_bits()),
+            WasmValue::F64(value) => self.globals.set_64(addr, value.to_bits()),
+            WasmValue::Ref(value) => {
+                let TinyWasmValue::ValueRef(value) = TinyWasmValue::from(WasmValue::Ref(value)) else {
+                    unreachable!("reference value did not convert to an internal reference")
+                };
+                self.globals.set_32(addr, value.raw());
+            }
+            WasmValue::V128(value) => self.globals.set_128(addr, value.into()),
+        }
+        Ok(())
     }
 }

@@ -93,7 +93,7 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
-                rewrite!(instrs, i, [GlobalGet(global)] => BinOpStackGlobal32(op, global));
+                rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const32(c)] => AddConst32(c));
                     rewrite!(instrs, i, [I32Add] => I32Add3);
@@ -103,7 +103,7 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
-                rewrite!(instrs, i, [GlobalGet(global)] => BinOpStackGlobal32(op, global));
+                rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
                 if matches!(op, BinOp::IShrS) {
                     rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 8), Const32(8)] => [LocalGet32(local), I32Extend8S]);
                     rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 16), Const32(16)] => [LocalGet32(local), I32Extend16S]);
@@ -114,7 +114,7 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
-                rewrite!(instrs, i, [GlobalGet(global)] => BinOpStackGlobal64(op, global));
+                rewrite!(instrs, i, [GlobalGet64(global)] => BinOpStackGlobal64(op, global));
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const64(c)] => AddConst64(c));
                     rewrite!(instrs, i, [I64Add] => I64Add3);
@@ -124,7 +124,7 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
-                rewrite!(instrs, i, [GlobalGet(global)] => BinOpStackGlobal64(op, global));
+                rewrite!(instrs, i, [GlobalGet64(global)] => BinOpStackGlobal64(op, global));
                 if matches!(op, BinOp::IShrS) {
                     rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 8), Const64(8)] => [LocalGet64(local), I64Extend8S]);
                     rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 16), Const64(16)] => [LocalGet64(local), I64Extend16S]);

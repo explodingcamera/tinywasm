@@ -239,10 +239,9 @@ pub enum Instruction {
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    GlobalGet(GlobalAddr),
-    LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr), GlobalSet32(GlobalAddr),
-    LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr), GlobalSet64(GlobalAddr),
-    LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr), GlobalSet128(GlobalAddr),
+    GlobalGet32(GlobalAddr), LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr), GlobalSet32(GlobalAddr),
+    GlobalGet64(GlobalAddr), LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr), GlobalSet64(GlobalAddr),
+    GlobalGet128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr), GlobalSet128(GlobalAddr),
 
     // > Memory Instructions
     I32Load(MemoryArg),

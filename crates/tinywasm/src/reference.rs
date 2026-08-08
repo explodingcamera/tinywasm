@@ -6,9 +6,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::interpreter::TinyWasmValue;
-use crate::store::{GlobalInstance, TableInstance};
+use crate::store::TableInstance;
 use crate::{Error, MemoryInstance, Result, Store, Trap};
-use tinywasm_types::{Addr, GlobalAddr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
+use tinywasm_types::{Addr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -460,28 +460,20 @@ impl Global {
             cold_path();
             return Err(Error::Other("invalid global value type".to_string()));
         }
-        let addr = store.state.globals.len() as GlobalAddr;
-        store.state.globals.push(GlobalInstance::new(ty, value.into()));
+        let addr = store.state.globals.push(ty, value.into());
         Ok(Self(StoreItem::new(store.id(), addr)))
-    }
-
-    #[inline]
-    fn instance<'a>(&self, store: &'a Store) -> Result<&'a GlobalInstance> {
-        self.0.validate_store(store)?;
-        Ok(store.state.get_global(self.0.addr))
     }
 
     /// Get the type of the global.
     pub fn ty(&self, store: &Store) -> Result<GlobalType> {
-        Ok(self.instance(store)?.ty)
+        self.0.validate_store(store)?;
+        Ok(store.state.globals.ty(self.0.addr))
     }
 
     /// Get the current value of the global.
     pub fn get(&self, store: &Store) -> Result<WasmValue> {
-        let global = self.instance(store)?;
-        let value = store.state.attach_value(global.value, global.ty.ty);
-        let value =
-            value.unwrap_or_else(|| unreachable!("Global value type does not match global type, this is a bug"));
+        self.0.validate_store(store)?;
+        let value = store.state.global_wasm_value(self.0.addr);
         if let WasmValue::Ref(value) = value {
             store.state.pin_host_ref(value);
         }
@@ -491,16 +483,6 @@ impl Global {
     /// Set the current value of the global.
     pub fn set(&self, store: &mut Store, value: WasmValue) -> Result<()> {
         self.0.validate_store(store)?;
-        let global = store.state.get_global(self.0.addr);
-        if !global.ty.mutable {
-            cold_path();
-            return Err(Error::Other("global is immutable".to_string()));
-        }
-        if !store.state.value_matches_type(value, global.ty.ty) {
-            cold_path();
-            return Err(Error::Other("invalid global value type".to_string()));
-        }
-        store.state.get_global_mut(self.0.addr).value = value.into();
-        Ok(())
+        store.state.set_global_wasm_value(self.0.addr, value)
     }
 }

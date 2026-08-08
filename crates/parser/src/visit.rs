@@ -1,9 +1,13 @@
-use crate::{Result, conversion::convert_heap_type, macros::visit::*};
+use crate::{
+    Result,
+    conversion::{convert_heap_type, value_lane},
+    macros::visit::*,
+};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, StorageType, SubType, TableDefinition,
-    TypeSection, ValueCounts, WasmFunctionData, WasmType,
+    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, SubType, TableDefinition, TypeSection,
+    ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -18,52 +22,6 @@ enum BlockKind {
     If,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OperandSize {
-    S32,
-    S64,
-    S128,
-}
-
-impl OperandSize {
-    fn choose<T>(self, s32: T, s64: T, s128: T) -> T {
-        match self {
-            Self::S32 => s32,
-            Self::S64 => s64,
-            Self::S128 => s128,
-        }
-    }
-}
-
-impl From<wasmparser::ValType> for OperandSize {
-    fn from(ty: wasmparser::ValType) -> Self {
-        match ty {
-            wasmparser::ValType::I32 | wasmparser::ValType::F32 | wasmparser::ValType::Ref(_) => Self::S32,
-            wasmparser::ValType::I64 | wasmparser::ValType::F64 => Self::S64,
-            wasmparser::ValType::V128 => Self::S128,
-        }
-    }
-}
-
-impl From<&WasmType> for OperandSize {
-    fn from(ty: &WasmType) -> Self {
-        match ty {
-            WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => Self::S32,
-            WasmType::I64 | WasmType::F64 => Self::S64,
-            WasmType::V128 => Self::S128,
-        }
-    }
-}
-
-impl From<MemoryArch> for OperandSize {
-    fn from(arch: MemoryArch) -> Self {
-        match arch {
-            MemoryArch::I32 => Self::S32,
-            MemoryArch::I64 => Self::S64,
-        }
-    }
-}
-
 struct ControlFrame {
     kind: BlockKind,
     has_else: bool,
@@ -71,8 +29,8 @@ struct ControlFrame {
     branch_jumps: Vec<usize>,
     height: usize,
     base: ValueCounts,
-    params: Vec<OperandSize>,
-    results: Vec<OperandSize>,
+    params: Vec<ValueLane>,
+    results: Vec<ValueLane>,
     unreachable: bool,
     entry_unreachable: bool,
     end_reachable: bool,
@@ -80,16 +38,16 @@ struct ControlFrame {
 
 #[derive(Clone)]
 pub(crate) struct Signature {
-    pub params: Vec<OperandSize>,
-    results: Vec<OperandSize>,
+    pub params: Vec<ValueLane>,
+    results: Vec<ValueLane>,
 }
 
 pub(crate) struct ModuleMetadata {
     signatures: Vec<Option<Signature>>,
     functions: Vec<u32>,
-    globals: Vec<OperandSize>,
-    memories: Vec<OperandSize>,
-    tables: Vec<OperandSize>,
+    globals: Vec<ValueLane>,
+    memories: Vec<ValueLane>,
+    tables: Vec<ValueLane>,
     types: Vec<SubType>,
 }
 
@@ -103,10 +61,10 @@ pub(crate) struct FunctionBuilder<'a> {
     instructions: Vec<Instruction>,
     data: FunctionDataBuilder,
     control_stack: Vec<ControlFrame>,
-    operand_stack: Vec<OperandSize>,
+    operand_stack: Vec<ValueLane>,
     lane_counts: ValueCounts,
     metadata: &'a ModuleMetadata,
-    local_types: Vec<OperandSize>,
+    local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
 }
 
@@ -114,7 +72,7 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn new(
         metadata: &'a ModuleMetadata,
         signature: Signature,
-        local_types: Vec<OperandSize>,
+        local_types: Vec<ValueLane>,
         local_addr_map: Vec<u16>,
         body_size: usize,
     ) -> Self {
@@ -149,7 +107,7 @@ impl<'a> FunctionBuilder<'a> {
         instruction: fn(u32, u32) -> Instruction,
     ) -> Result<()> {
         let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
-        self.emit(&[OperandSize::S32], &[size], instruction(type_index, field_index))
+        self.emit(&[ValueLane::S32], &[size], instruction(type_index, field_index))
     }
 }
 
@@ -161,6 +119,13 @@ struct ValidateThenVisit<'a, 'm> {
 }
 
 impl ModuleMetadata {
+    fn address_lane(arch: tinywasm_types::MemoryArch) -> ValueLane {
+        match arch {
+            tinywasm_types::MemoryArch::I32 => ValueLane::S32,
+            tinywasm_types::MemoryArch::I64 => ValueLane::S64,
+        }
+    }
+
     pub(crate) fn new(
         types: &TypeSection,
         code_type_addrs: &[u32],
@@ -177,24 +142,24 @@ impl ModuleMetadata {
         for import in imports {
             match &import.kind {
                 ImportKind::Function(ty) => functions.push(*ty),
-                ImportKind::Global(ty) => global_sizes.push(OperandSize::from(&ty.ty)),
-                ImportKind::Memory(ty) => memory_sizes.push(OperandSize::from(ty.arch())),
-                ImportKind::Table(ty) => table_sizes.push(OperandSize::from(ty.arch())),
+                ImportKind::Global(ty) => global_sizes.push(ValueLane::from(&ty.ty)),
+                ImportKind::Memory(ty) => memory_sizes.push(Self::address_lane(ty.arch())),
+                ImportKind::Table(ty) => table_sizes.push(Self::address_lane(ty.arch())),
             }
         }
 
         functions.extend_from_slice(code_type_addrs);
-        global_sizes.extend(globals.iter().map(|global| OperandSize::from(&global.ty.ty)));
-        memory_sizes.extend(memories.iter().map(|ty| OperandSize::from(ty.arch())));
-        table_sizes.extend(tables.iter().map(|table| OperandSize::from(table.ty.arch())));
+        global_sizes.extend(globals.iter().map(|global| ValueLane::from(&global.ty.ty)));
+        memory_sizes.extend(memories.iter().map(|ty| Self::address_lane(ty.arch())));
+        table_sizes.extend(tables.iter().map(|table| Self::address_lane(table.ty.arch())));
 
         let signatures = types
             .types
             .iter()
             .map(|ty| {
                 ty.as_func().map(|ty| Signature {
-                    params: ty.params().iter().map(OperandSize::from).collect(),
-                    results: ty.results().iter().map(OperandSize::from).collect(),
+                    params: ty.params().iter().map(ValueLane::from).collect(),
+                    results: ty.results().iter().map(ValueLane::from).collect(),
                 })
             })
             .collect();
@@ -223,29 +188,29 @@ impl ModuleMetadata {
         self.signature(ty)
     }
 
-    fn global_size(&self, idx: u32) -> Result<OperandSize> {
+    fn global_size(&self, idx: u32) -> Result<ValueLane> {
         Self::indexed_size(&self.globals, "global", idx)
     }
 
-    fn memory_size(&self, idx: u32) -> Result<OperandSize> {
+    fn memory_size(&self, idx: u32) -> Result<ValueLane> {
         Self::indexed_size(&self.memories, "memory", idx)
     }
 
-    fn table_size(&self, idx: u32) -> Result<OperandSize> {
+    fn table_size(&self, idx: u32) -> Result<ValueLane> {
         Self::indexed_size(&self.tables, "table", idx)
     }
 
-    fn indexed_size(sizes: &[OperandSize], entity: &str, idx: u32) -> Result<OperandSize> {
+    fn indexed_size(sizes: &[ValueLane], entity: &str, idx: u32) -> Result<ValueLane> {
         sizes
             .get(idx as usize)
             .copied()
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("{entity} index out of bounds: {idx}")))
     }
 
-    fn storage_size(storage: StorageType) -> OperandSize {
+    fn storage_size(storage: StorageType) -> ValueLane {
         match storage {
-            StorageType::I8 | StorageType::I16 => OperandSize::S32,
-            StorageType::Value(ref ty) => OperandSize::from(ty),
+            StorageType::I8 | StorageType::I16 => ValueLane::S32,
+            StorageType::Value(ref ty) => ValueLane::from(ty),
         }
     }
 
@@ -291,7 +256,7 @@ impl VisitSimdOperator<'_> for ValidateThenVisit<'_, '_> {
 
 pub(crate) fn process_operators(
     body: FunctionBody<'_>,
-    local_types: Vec<OperandSize>,
+    local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
     metadata: &ModuleMetadata,
     ty_idx: u32,
@@ -327,7 +292,7 @@ pub(crate) fn process_operators(
 pub(crate) fn process_operators_and_validate(
     mut validator: FuncValidator<ValidatorResources>,
     body: FunctionBody<'_>,
-    local_types: Vec<OperandSize>,
+    local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
     metadata: &ModuleMetadata,
     ty_idx: u32,
@@ -470,7 +435,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         effect [S32] => [S32] { visit_f32_reinterpret_i32, visit_i32_reinterpret_f32 }
         effect [S64] => [S64] { visit_f64_reinterpret_i64, visit_i64_reinterpret_f64 }
         terminating [] => [] { visit_unreachable => Unreachable, visit_return => Return }
-        global [] => [Addr] { visit_global_get(global_index: u32) => GlobalGet }
         memory_index [] => [Addr] { visit_memory_size(memory: u32) => MemorySize }
         memory_index [Addr] => [Addr] { visit_memory_grow(memory: u32) => MemoryGrow }
         memory_index [Addr, S32, Addr] => [] {
@@ -514,7 +478,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             .iter()
             .map(|field| ModuleMetadata::storage_size(field.storage))
             .collect::<Vec<_>>();
-        self.emit(&inputs, &[OperandSize::S32], Instruction::StructNew(type_index))
+        self.emit(&inputs, &[ValueLane::S32], Instruction::StructNew(type_index))
     }
 
     fn visit_struct_get(&mut self, type_index: u32, field_index: u32) -> Self::Output {
@@ -531,7 +495,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
         let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
-        self.emit(&[OperandSize::S32, size], &[], Instruction::StructSet(type_index, field_index))
+        self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(type_index, field_index))
     }
 
     fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Self::Output {
@@ -539,7 +503,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         for _ in 0..array_size {
             self.pop_expect(size)?;
         }
-        self.push_sizes(&[OperandSize::S32])?;
+        self.push_sizes(&[ValueLane::S32])?;
         self.instructions.push(Instruction::ArrayNewFixed(type_index, array_size));
         Ok(())
     }
@@ -559,7 +523,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     fn visit_call_ref(&mut self, type_index: u32) -> Self::Output {
         let signature = self.metadata.signature(type_index)?.clone();
         let mut inputs = signature.params;
-        inputs.push(OperandSize::S32);
+        inputs.push(ValueLane::S32);
         self.emit(&inputs, &signature.results, Instruction::CallRef(type_index))
     }
 
@@ -584,7 +548,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     fn visit_return_call_ref(&mut self, type_index: u32) -> Self::Output {
         let signature = self.metadata.signature(type_index)?.clone();
         let mut inputs = signature.params;
-        inputs.push(OperandSize::S32);
+        inputs.push(ValueLane::S32);
         self.apply_effect(&inputs, &[])?;
         self.mark_unreachable();
         self.instructions.push(Instruction::ReturnCallRef(type_index));
@@ -593,7 +557,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
         let size = self.metadata.global_size(global_index)?;
-        let instruction = size.choose(
+        let instruction = size.select(
             Instruction::GlobalSet32(global_index),
             Instruction::GlobalSet64(global_index),
             Instruction::GlobalSet128(global_index),
@@ -601,21 +565,31 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&[size], &[], instruction)
     }
 
+    fn visit_global_get(&mut self, global_index: u32) -> Self::Output {
+        let size = self.metadata.global_size(global_index)?;
+        let instruction = size.select(
+            Instruction::GlobalGet32(global_index),
+            Instruction::GlobalGet64(global_index),
+            Instruction::GlobalGet128(global_index),
+        );
+        self.emit(&[], &[size], instruction)
+    }
+
     fn visit_drop(&mut self) -> Self::Output {
-        let size = self.operand_stack.last().copied().unwrap_or(OperandSize::S32);
-        let instruction = size.choose(Instruction::Drop32, Instruction::Drop64, Instruction::Drop128);
+        let size = self.operand_stack.last().copied().unwrap_or(ValueLane::S32);
+        let instruction = size.select(Instruction::Drop32, Instruction::Drop64, Instruction::Drop128);
         self.emit(&[size], &[], instruction)
     }
 
     fn visit_select(&mut self) -> Self::Output {
-        let size = self.operand_stack.iter().rev().nth(1).copied().unwrap_or(OperandSize::S32);
-        let instruction = size.choose(Instruction::Select32, Instruction::Select64, Instruction::Select128);
-        self.emit(&[size, size, OperandSize::S32], &[size], instruction)
+        let size = self.operand_stack.iter().rev().nth(1).copied().unwrap_or(ValueLane::S32);
+        let instruction = size.select(Instruction::Select32, Instruction::Select64, Instruction::Select128);
+        self.emit(&[size, size, ValueLane::S32], &[size], instruction)
     }
 
     fn visit_local_get(&mut self, idx: u32) -> Self::Output {
         let (size, local_idx) = self.local(idx)?;
-        let instruction = size.choose(
+        let instruction = size.select(
             Instruction::LocalGet32(local_idx),
             Instruction::LocalGet64(local_idx),
             Instruction::LocalGet128(local_idx),
@@ -625,7 +599,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_local_set(&mut self, idx: u32) -> Self::Output {
         let (size, local_idx) = self.local(idx)?;
-        let instruction = size.choose(
+        let instruction = size.select(
             Instruction::LocalSet32(local_idx),
             Instruction::LocalSet64(local_idx),
             Instruction::LocalSet128(local_idx),
@@ -637,21 +611,21 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let (size, local_idx) = self.local(idx)?;
         self.apply_effect(&[size], &[size])?;
         let src = match (size, self.instructions.last()) {
-            (OperandSize::S32, Some(Instruction::LocalGet32(src))) => Some(*src),
-            (OperandSize::S64, Some(Instruction::LocalGet64(src))) => Some(*src),
-            (OperandSize::S128, Some(Instruction::LocalGet128(src))) => Some(*src),
+            (ValueLane::S32, Some(Instruction::LocalGet32(src))) => Some(*src),
+            (ValueLane::S64, Some(Instruction::LocalGet64(src))) => Some(*src),
+            (ValueLane::S128, Some(Instruction::LocalGet128(src))) => Some(*src),
             _ => None,
         };
         if let Some(src) = src {
             self.instructions.pop();
             let instructions = match size {
-                OperandSize::S32 => [Instruction::LocalCopy32(src, local_idx), Instruction::LocalGet32(local_idx)],
-                OperandSize::S64 => [Instruction::LocalCopy64(src, local_idx), Instruction::LocalGet64(local_idx)],
-                OperandSize::S128 => [Instruction::LocalCopy128(src, local_idx), Instruction::LocalGet128(local_idx)],
+                ValueLane::S32 => [Instruction::LocalCopy32(src, local_idx), Instruction::LocalGet32(local_idx)],
+                ValueLane::S64 => [Instruction::LocalCopy64(src, local_idx), Instruction::LocalGet64(local_idx)],
+                ValueLane::S128 => [Instruction::LocalCopy128(src, local_idx), Instruction::LocalGet128(local_idx)],
             };
             self.instructions.extend(instructions);
         } else {
-            self.instructions.push(size.choose(
+            self.instructions.push(size.select(
                 Instruction::LocalTee32(local_idx),
                 Instruction::LocalTee64(local_idx),
                 Instruction::LocalTee128(local_idx),
@@ -669,7 +643,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         self.instructions.push(Instruction::JumpIfZero32(0));
         self.push_control(BlockKind::If, ty, Some(self.instructions.len() - 1))
     }
@@ -721,7 +695,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_br_if(&mut self, depth: u32) -> Self::Output {
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         let cond_jump_ip = self.instructions.len();
         self.instructions.push(Instruction::JumpIfZero32(0));
 
@@ -745,7 +719,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Self::Output {
         let ts = targets.targets().collect::<Result<Vec<_>, wasmparser::Error>>()?;
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
 
         let default_depth = targets.default();
         let len = ts.len() as u32;
@@ -819,24 +793,24 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
-        self.emit(&[], &[OperandSize::S32], Instruction::Const32(val.bits() as i32))
+        self.emit(&[], &[ValueLane::S32], Instruction::Const32(val.bits() as i32))
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        self.emit(&[], &[OperandSize::S64], Instruction::Const64(val.bits() as i64))
+        self.emit(&[], &[ValueLane::S64], Instruction::Const64(val.bits() as i64))
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
         let dst = self.metadata.table_size(dst_table)?;
         let src = self.metadata.table_size(src_table)?;
-        let len = if dst == OperandSize::S32 || src == OperandSize::S32 { OperandSize::S32 } else { OperandSize::S64 };
+        let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
         self.emit(&[dst, src, len], &[], Instruction::TableCopy { dst_table, src_table })
     }
 
     fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
         let dst = self.metadata.memory_size(dst_mem)?;
         let src = self.metadata.memory_size(src_mem)?;
-        let len = if dst == OperandSize::S32 || src == OperandSize::S32 { OperandSize::S32 } else { OperandSize::S64 };
+        let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy { dst_mem, src_mem })
     }
 
@@ -859,41 +833,41 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_br_on_null(&mut self, relative_depth: u32) -> Self::Output {
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         let fallthrough_jump = self.instructions.len();
         self.instructions.push(Instruction::JumpIfRefNonNull(0));
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
         self.patch_jump(fallthrough_jump, self.instructions.len());
-        self.push_sizes(&[OperandSize::S32])
+        self.push_sizes(&[ValueLane::S32])
     }
 
     fn visit_br_on_non_null(&mut self, relative_depth: u32) -> Self::Output {
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         let fallthrough_jump = self.instructions.len();
         self.instructions.push(Instruction::JumpIfRefNull(0));
-        self.push_sizes(&[OperandSize::S32])?;
+        self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         self.emit_branch_jump_or_return(relative_depth)?;
         self.patch_jump(fallthrough_jump, self.instructions.len());
         Ok(())
     }
 
     fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
-        let sizes: Vec<_> = tys.into_iter().map(OperandSize::from).collect();
+        let sizes: Vec<_> = tys.into_iter().map(value_lane).collect();
         let counts = Self::value_counts(&sizes);
         self.emit(
-            &[sizes.as_slice(), sizes.as_slice(), &[OperandSize::S32]].concat(),
+            &[sizes.as_slice(), sizes.as_slice(), &[ValueLane::S32]].concat(),
             &sizes,
             Instruction::SelectMulti(counts),
         )
     }
 
     fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
-        let size = OperandSize::from(ty);
-        let instruction = size.choose(Instruction::Select32, Instruction::Select64, Instruction::Select128);
-        self.emit(&[size, size, OperandSize::S32], &[size], instruction)
+        let size = value_lane(ty);
+        let instruction = size.select(Instruction::Select32, Instruction::Select64, Instruction::Select128);
+        self.emit(&[size, size, ValueLane::S32], &[size], instruction)
     }
 }
 
@@ -1085,8 +1059,8 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
         self.emit(
-            &[OperandSize::S128, OperandSize::S128],
-            &[OperandSize::S128],
+            &[ValueLane::S128, ValueLane::S128],
+            &[ValueLane::S128],
             Instruction::I8x16Shuffle(self.data.v128_constants.len() as u32),
         )?;
         self.data.v128_constants.push(lanes);
@@ -1094,7 +1068,7 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        self.emit(&[], &[OperandSize::S128], Instruction::Const128(self.data.v128_constants.len() as u32))?;
+        self.emit(&[], &[ValueLane::S128], Instruction::Const128(self.data.v128_constants.len() as u32))?;
         self.data.v128_constants.push(*value.bytes());
         Ok(())
     }
@@ -1107,11 +1081,11 @@ impl FunctionBuilder<'_> {
         target: wasmparser::RefType,
         branch_on_fail: bool,
     ) -> Result<()> {
-        self.pop_expect(OperandSize::S32)?;
+        self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
         let conditional_ip = self.instructions.len();
         self.instructions.push(Instruction::BrOnCast(0, target, branch_on_fail));
-        self.push_sizes(&[OperandSize::S32])?;
+        self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
         self.patch_jump(conditional_ip, self.instructions.len());
@@ -1129,7 +1103,7 @@ impl FunctionBuilder<'_> {
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("branch depth out of bounds: {depth}")))
     }
 
-    fn local(&self, idx: u32) -> Result<(OperandSize, u16)> {
+    fn local(&self, idx: u32) -> Result<(ValueLane, u16)> {
         let size = *self
             .local_types
             .get(idx as usize)
@@ -1142,12 +1116,12 @@ impl FunctionBuilder<'_> {
     }
 
     /// Pushes logical operands while maintaining the lane counts used by `DropKeep`.
-    fn push_sizes(&mut self, sizes: &[OperandSize]) -> Result<()> {
+    fn push_sizes(&mut self, sizes: &[ValueLane]) -> Result<()> {
         for &size in sizes {
             let count = match size {
-                OperandSize::S32 => &mut self.lane_counts.c32,
-                OperandSize::S64 => &mut self.lane_counts.c64,
-                OperandSize::S128 => &mut self.lane_counts.c128,
+                ValueLane::S32 => &mut self.lane_counts.c32,
+                ValueLane::S64 => &mut self.lane_counts.c64,
+                ValueLane::S128 => &mut self.lane_counts.c128,
             };
             *count = count
                 .checked_add(1)
@@ -1158,7 +1132,7 @@ impl FunctionBuilder<'_> {
     }
 
     /// Pops an operand, allowing a polymorphic value at an unreachable frame base.
-    fn pop_expect(&mut self, expected: OperandSize) -> Result<()> {
+    fn pop_expect(&mut self, expected: ValueLane) -> Result<()> {
         let frame_height = self.control_stack.last().map_or(0, |frame| frame.height);
         if self.operand_stack.len() == frame_height && self.is_unreachable() {
             return Ok(());
@@ -1171,22 +1145,22 @@ impl FunctionBuilder<'_> {
             return Err(crate::ParseError::Other("logical operand width mismatch".into()));
         }
         match actual {
-            OperandSize::S32 => self.lane_counts.c32 -= 1,
-            OperandSize::S64 => self.lane_counts.c64 -= 1,
-            OperandSize::S128 => self.lane_counts.c128 -= 1,
+            ValueLane::S32 => self.lane_counts.c32 -= 1,
+            ValueLane::S64 => self.lane_counts.c64 -= 1,
+            ValueLane::S128 => self.lane_counts.c128 -= 1,
         }
         Ok(())
     }
 
     /// Applies a declared logical stack effect in WebAssembly operand order.
-    fn apply_effect(&mut self, inputs: &[OperandSize], outputs: &[OperandSize]) -> Result<()> {
+    fn apply_effect(&mut self, inputs: &[ValueLane], outputs: &[ValueLane]) -> Result<()> {
         inputs.iter().rev().try_for_each(|&size| self.pop_expect(size))?;
         self.push_sizes(outputs)?;
         Ok(())
     }
 
     /// Applies an instruction's stack effect before adding it to the bytecode.
-    fn emit(&mut self, inputs: &[OperandSize], outputs: &[OperandSize], instruction: Instruction) -> Result<()> {
+    fn emit(&mut self, inputs: &[ValueLane], outputs: &[ValueLane], instruction: Instruction) -> Result<()> {
         self.apply_effect(inputs, outputs)?;
         self.instructions.push(instruction);
         Ok(())
@@ -1212,9 +1186,7 @@ impl FunctionBuilder<'_> {
     fn push_control(&mut self, kind: BlockKind, ty: wasmparser::BlockType, initial_jump: Option<usize>) -> Result<()> {
         let signature = match ty {
             wasmparser::BlockType::Empty => Signature { params: Vec::new(), results: Vec::new() },
-            wasmparser::BlockType::Type(ty) => {
-                Signature { params: Vec::new(), results: alloc::vec![OperandSize::from(ty)] }
-            }
+            wasmparser::BlockType::Type(ty) => Signature { params: Vec::new(), results: alloc::vec![value_lane(ty)] },
             wasmparser::BlockType::FuncType(idx) => self.metadata.signature(idx)?.clone(),
         };
         for &size in signature.params.iter().rev() {
@@ -1263,13 +1235,13 @@ impl FunctionBuilder<'_> {
         }
     }
 
-    fn value_counts(sizes: &[OperandSize]) -> ValueCounts {
+    fn value_counts(sizes: &[ValueLane]) -> ValueCounts {
         let mut counts = ValueCounts::default();
         for size in sizes {
             match size {
-                OperandSize::S32 => counts.c32 += 1,
-                OperandSize::S64 => counts.c64 += 1,
-                OperandSize::S128 => counts.c128 += 1,
+                ValueLane::S32 => counts.c32 += 1,
+                ValueLane::S64 => counts.c64 += 1,
+                ValueLane::S128 => counts.c128 += 1,
             }
         }
         counts

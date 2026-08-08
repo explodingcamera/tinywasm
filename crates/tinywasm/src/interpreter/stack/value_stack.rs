@@ -8,6 +8,10 @@ use crate::interpreter::*;
 use crate::{Result, Trap};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
+/// Physical value lanes used by the interpreter.
+///
+/// Guest values should normally be accessed through
+/// [`InternalValue`] so their stack and global representation stays consistent.
 pub(crate) struct ValueStack {
     pub(crate) stack_32: Stack<Value32>,
     pub(crate) stack_64: Stack<Value64>,
