@@ -461,14 +461,30 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             RefCast(ty) => {
                 if !self.exec_ref_matches(*ty) {
                     cold_path();
-                    return Err(if ValueRef::stack_peek(&self.store.value_stack).is_null() && !ty.is_nullable() {
-                        Trap::NullReference
-                    } else {
-                        Trap::CastFailure
-                    });
+                    return Err(Trap::CastFailure);
                 }
             }
-            AnyConvertExtern | ExternConvertAny => {}
+            // GC objects
+            StructNew(ty) => self.exec_struct_new(*ty, false)?,
+            StructNewDefault(ty) => self.exec_struct_new(*ty, true)?,
+            StructGet(ty, field) => self.exec_struct_get(*ty, *field, None)?,
+            StructGetS(ty, field) => self.exec_struct_get(*ty, *field, Some(true))?,
+            StructGetU(ty, field) => self.exec_struct_get(*ty, *field, Some(false))?,
+            StructSet(ty, field) => self.exec_struct_set(*ty, *field)?,
+            ArrayNew(ty) => self.exec_array_new(*ty, false)?,
+            ArrayNewDefault(ty) => self.exec_array_new(*ty, true)?,
+            ArrayNewFixed(ty, len) => self.exec_array_new_fixed(*ty, *len)?,
+            ArrayNewData(ty, data) => self.exec_array_new_data(*ty, *data)?,
+            ArrayNewElem(ty, elem) => self.exec_array_new_elem(*ty, *elem)?,
+            ArrayGet(ty) => self.exec_array_get(*ty, None)?,
+            ArrayGetS(ty) => self.exec_array_get(*ty, Some(true))?,
+            ArrayGetU(ty) => self.exec_array_get(*ty, Some(false))?,
+            ArraySet(ty) => self.exec_array_set(*ty)?,
+            ArrayLen => self.exec_array_len()?,
+            ArrayFill(ty) => self.exec_array_fill(*ty)?,
+            ArrayCopy(dst, src) => self.exec_array_copy(*dst, *src)?,
+            ArrayInitData(ty, data) => self.exec_array_init_data(*ty, *data)?,
+            ArrayInitElem(ty, elem) => self.exec_array_init_elem(*ty, *elem)?,
             MemorySize(addr) => self.exec_memory_size(*addr)?,
             MemoryGrow(addr) => self.exec_memory_grow(*addr)?,
 
@@ -1008,10 +1024,19 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         &mut self,
         host_func: Rc<HostFunction>,
         type_addr: TypeAddr,
+        params_may_gc: bool,
     ) -> Result<bool, Trap> {
-        let ty = self.store.state.get_canonical_func_type(type_addr);
-        let mut params = self.store.value_stack.pop_types(ty.params().iter().rev()).collect::<Vec<_>>();
+        let param_types = self.store.state.get_canonical_func_type(type_addr).params();
+        let mut params = Vec::new();
+        params.try_reserve_exact(param_types.len()).map_err(|_| Trap::OutOfMemory)?;
+        for &ty in param_types.iter().rev() {
+            let value = self.store.value_stack.pop_tinyvalue(ty);
+            params.push(self.store.state.attach_value(value, ty).expect("validated host argument"));
+        }
         params.reverse();
+        if params_may_gc {
+            self.store.state.pin_host_values(&params);
+        }
         let result = host_func.call(FuncContext { store: self.store, module_id: self.module.id() }, &params);
         let res = match result.and_then(|result| crate::func::validate_host_results(self.store, type_addr, result)) {
             Ok(res) => res,
@@ -1037,7 +1062,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         match func.kind {
             crate::store::FunctionKind::Wasm(wasm_func) => self.exec_call(wasm_func, addr),
             crate::store::FunctionKind::Host(host_func) => {
-                self.exec_call_host::<false>(host_func, func.type_addr)?;
+                self.exec_call_host::<false>(host_func, func.type_addr, func.gc.params)?;
                 Ok(())
             }
         }
@@ -1052,7 +1077,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 self.exec_return_call(wasm_func, addr)?;
                 Ok(false)
             }
-            crate::store::FunctionKind::Host(host_func) => self.exec_call_host::<true>(host_func, func.type_addr),
+            crate::store::FunctionKind::Host(host_func) => {
+                self.exec_call_host::<true>(host_func, func.type_addr, func.gc.params)
+            }
         }
     }
 
@@ -1092,7 +1119,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let table_addr = self.module.resolve_table_addr(table_addr);
         let table_idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
         let table = self.store.state.get_table(table_addr);
-        debug_assert!(table.kind.element_type.is_func(), "table is not of type funcref");
 
         let Ok(table) = table.get(table_idx) else {
             cold_path();
@@ -1126,7 +1152,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 false => self.exec_call(wasm_func, func_addr),
             },
             crate::store::FunctionKind::Host(host_func) => {
-                return self.exec_call_host::<IS_RETURN_CALL>(host_func, func.type_addr);
+                return self.exec_call_host::<IS_RETURN_CALL>(host_func, func.type_addr, func.gc.params);
             }
         }?;
         Ok(false)
@@ -1371,6 +1397,236 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             value.i31_u().expect("validated i31.get operand") as i32
         };
         self.store.value_stack.push(value)
+    }
+
+    fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let fields = &self.store.state.get_type(type_addr).as_struct().expect("validated struct.new type").fields;
+        let mut values = Vec::new();
+        values.try_reserve_exact(fields.len()).map_err(|_| Trap::OutOfMemory)?;
+        if default {
+            values.extend(fields.iter().map(|field| default_value(field.storage)));
+        } else {
+            for field in fields.iter().rev() {
+                values.push(pop_value(&mut self.store.value_stack, field.storage));
+            }
+            values.reverse();
+        }
+        let value = self.store.state.alloc_gc_object(
+            type_addr,
+            values,
+            (&self.store.value_stack.stack_32).into_iter().copied(),
+        )?;
+        self.store.value_stack.push(value)
+    }
+
+    fn exec_struct_get(&mut self, type_index: TypeAddr, field_index: u32, signed: Option<bool>) -> Result<(), Trap> {
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_struct().expect("validated struct.get type").fields
+            [field_index as usize]
+            .storage;
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        let value = *object.values.get(field_index as usize).expect("validated struct field index");
+        push_value(&mut self.store.value_stack, value, storage, signed)
+    }
+
+    fn exec_struct_set(&mut self, type_index: TypeAddr, field_index: u32) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_struct().expect("validated struct.set type").fields
+            [field_index as usize]
+            .storage;
+        let value = pop_value(&mut self.store.value_stack, storage);
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        self.store.state.gc_object(reference, type_addr)?;
+        self.store.state.gc.set(reference, field_index as usize, value).expect("live struct field");
+        Ok(())
+    }
+
+    fn exec_array_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.new type").field.storage;
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let value = if default { default_value(storage) } else { pop_value(&mut self.store.value_stack, storage) };
+        let mut values = Vec::new();
+        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+        values.resize(len, value);
+        let reference = self.store.state.alloc_gc_object(
+            type_addr,
+            values,
+            (&self.store.value_stack.stack_32).into_iter().copied(),
+        )?;
+        self.store.value_stack.push(reference)
+    }
+
+    fn exec_array_new_fixed(&mut self, type_index: TypeAddr, len: u32) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage =
+            self.store.state.get_type(type_addr).as_array().expect("validated array.new_fixed type").field.storage;
+        let len = len as usize;
+        let mut values = Vec::new();
+        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+        for _ in 0..len {
+            values.push(pop_value(&mut self.store.value_stack, storage));
+        }
+        values.reverse();
+        let reference = self.store.state.alloc_gc_object(
+            type_addr,
+            values,
+            (&self.store.value_stack.stack_32).into_iter().copied(),
+        )?;
+        self.store.value_stack.push(reference)
+    }
+
+    fn exec_array_get(&mut self, type_index: TypeAddr, signed: Option<bool>) -> Result<(), Trap> {
+        let index = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.get type").field.storage;
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        let value = *object.values.get(index).ok_or(Trap::ArrayOutOfBounds)?;
+        push_value(&mut self.store.value_stack, value, storage, signed)
+    }
+
+    fn exec_array_set(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.set type").field.storage;
+        let value = pop_value(&mut self.store.value_stack, storage);
+        let index = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        if index >= object.values.len() {
+            return Err(Trap::ArrayOutOfBounds);
+        }
+        self.store.state.gc.set(reference, index, value).expect("live array element");
+        Ok(())
+    }
+
+    fn exec_array_len(&mut self) -> Result<(), Trap> {
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        if reference.is_null() {
+            return Err(Trap::NullArrayReference);
+        }
+        let object = self.store.state.gc.get(reference).ok_or(Trap::Other("invalid GC reference"))?;
+        if self.store.state.get_type(object.type_addr).as_array().is_none() {
+            return Err(Trap::Other("GC reference is not an array"));
+        }
+        self.store.value_stack.push(object.values.len() as i32)
+    }
+
+    fn exec_array_fill(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.fill type").field.storage;
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let value = pop_value(&mut self.store.value_stack, storage);
+        let index = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        let end = index.checked_add(len).filter(|end| *end <= object.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
+        self.store.state.gc.fill(reference, index..end, value).expect("live array range");
+        Ok(())
+    }
+
+    fn exec_array_copy(&mut self, dst_type: TypeAddr, src_type: TypeAddr) -> Result<(), Trap> {
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src_index = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src = ValueRef::stack_pop(&mut self.store.value_stack);
+        let dst_index = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let dst = ValueRef::stack_pop(&mut self.store.value_stack);
+        let dst_type = self.module.resolve_type_addr(dst_type);
+        let src_type = self.module.resolve_type_addr(src_type);
+        let dst_len = self.store.state.gc_object(dst, dst_type)?.values.len();
+        let src_object = self.store.state.gc_object(src, src_type)?;
+        let src_end =
+            src_index.checked_add(len).filter(|end| *end <= src_object.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
+        dst_index.checked_add(len).filter(|end| *end <= dst_len).ok_or(Trap::ArrayOutOfBounds)?;
+        if src == dst {
+            self.store.state.gc.copy_within(dst, src_index..src_end, dst_index).expect("live array range");
+            return Ok(());
+        }
+        let mut values = Vec::new();
+        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+        values.extend_from_slice(&src_object.values[src_index..src_end]);
+        self.store.state.gc.set_slice(dst, dst_index, &values).expect("live array range");
+        Ok(())
+    }
+
+    fn exec_array_new_data(&mut self, type_index: TypeAddr, data_index: DataAddr) -> Result<(), Trap> {
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array type").field.storage;
+        let data_addr = self.module.resolve_data_addr(data_index);
+        let data = self.store.state.data[data_addr as usize].data.as_deref().unwrap_or(&[]);
+        let values = decode_data(storage, data, src, len)?;
+        let reference = self.store.state.alloc_gc_object(
+            type_addr,
+            values,
+            (&self.store.value_stack.stack_32).into_iter().copied(),
+        )?;
+        self.store.value_stack.push(reference)
+    }
+
+    fn exec_array_new_elem(&mut self, type_index: TypeAddr, elem_index: ElemAddr) -> Result<(), Trap> {
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let elem_addr = self.module.resolve_elem_addr(elem_index);
+        let items = self.store.state.elements[elem_addr as usize].items.as_deref().unwrap_or(&[]);
+        let end = src.checked_add(len).filter(|end| *end <= items.len()).ok_or_else(|| Trap::TableOutOfBounds {
+            offset: src,
+            len,
+            max: items.len(),
+        })?;
+        let mut values = Vec::new();
+        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+        values.extend(items[src..end].iter().copied().map(TinyWasmValue::ValueRef));
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let reference = self.store.state.alloc_gc_object(
+            type_addr,
+            values,
+            (&self.store.value_stack.stack_32).into_iter().copied(),
+        )?;
+        self.store.value_stack.push(reference)
+    }
+
+    fn exec_array_init_data(&mut self, type_index: TypeAddr, data_index: DataAddr) -> Result<(), Trap> {
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let dst = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let storage = self.store.state.get_type(type_addr).as_array().expect("validated array type").field.storage;
+        let object_len = self.store.state.gc_object(reference, type_addr)?.values.len();
+        dst.checked_add(len).filter(|end| *end <= object_len).ok_or(Trap::ArrayOutOfBounds)?;
+        let data =
+            self.store.state.data[self.module.resolve_data_addr(data_index) as usize].data.as_deref().unwrap_or(&[]);
+        let values = decode_data(storage, data, src, len)?;
+        self.store.state.gc.set_slice(reference, dst, &values).expect("live array range");
+        Ok(())
+    }
+
+    fn exec_array_init_elem(&mut self, type_index: TypeAddr, elem_index: ElemAddr) -> Result<(), Trap> {
+        let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let src = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let dst = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let reference = ValueRef::stack_pop(&mut self.store.value_stack);
+        let type_addr = self.module.resolve_type_addr(type_index);
+        let object_len = self.store.state.gc_object(reference, type_addr)?.values.len();
+        dst.checked_add(len).filter(|end| *end <= object_len).ok_or(Trap::ArrayOutOfBounds)?;
+        let items = self.store.state.elements[self.module.resolve_elem_addr(elem_index) as usize]
+            .items
+            .as_deref()
+            .unwrap_or(&[]);
+        let end = src.checked_add(len).filter(|end| *end <= items.len()).ok_or_else(|| Trap::TableOutOfBounds {
+            offset: src,
+            len,
+            max: items.len(),
+        })?;
+        let mut values = Vec::new();
+        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+        values.extend(items[src..end].iter().copied().map(TinyWasmValue::ValueRef));
+        self.store.state.gc.set_slice(reference, dst, &values).expect("live array range");
+        Ok(())
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {

@@ -7,7 +7,10 @@ use std::time::Duration;
 
 use eyre::{Context, Result, bail, eyre};
 use log::{debug, error};
-use tinywasm::types::{ExternRef, FuncRef, MemoryType, RefType, RefValue, TableType, WasmType, WasmValue};
+use tinywasm::types::{
+    AbstractHeapType as TinyAbstractHeapType, AnyRef, ExternRef, FuncRef, MemoryType, RefType, RefValue, TableType,
+    WasmType, WasmValue,
+};
 use tinywasm::{ExecProgress, Global, HostFunction, Imports, Memory, Module, ModuleInstance, Store, Table};
 use wast::{QuoteWat, core::AbstractHeapType};
 
@@ -459,7 +462,7 @@ impl WastRunner {
                             let expected = expected_alternatives
                                 .iter()
                                 .filter_map(|alts| alts.first())
-                                .find(|exp| exp.matches(&module_global));
+                                .find(|exp| exp.matches(&module_global, &store));
                             if expected.is_none() {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
@@ -508,7 +511,10 @@ impl WastRunner {
                         }
                         if expected_alternatives.iter().any(|expected| {
                             expected.len() == outcomes.len()
-                                && outcomes.iter().zip(expected.iter()).all(|(outcome, exp)| exp.matches(outcome))
+                                && outcomes
+                                    .iter()
+                                    .zip(expected.iter())
+                                    .all(|(outcome, exp)| exp.matches(outcome, &store))
                         }) {
                             Ok(())
                         } else {
@@ -755,16 +761,18 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         V128(i) => WasmValue::V128(i.to_le_bytes()),
-        RefExtern(v) => ExternRef::new(v).into(),
+        RefExtern(v) => ExternRef::try_new(v).ok_or_else(|| eyre!("external reference address is too large"))?.into(),
         RefNull(t) => match t {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => RefValue::Null.into(),
-            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern } => RefValue::Null.into(),
+            wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern | AbstractHeapType::Any } => {
+                RefValue::Null.into()
+            }
             _ => {
                 bail!("unsupported arg type: refnull: {:?}", t);
             }
         },
-        RefHost(_) => {
-            bail!("unsupported arg type: RefHost");
+        RefHost(value) => {
+            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| eyre!("host reference address is too large"))?).into()
         }
     })
 }
@@ -794,18 +802,26 @@ enum ExpectedValue {
     RefAny,
     RefEq,
     RefI31,
+    RefStruct,
+    RefArray,
 }
 
 impl ExpectedValue {
-    fn matches(&self, value: &WasmValue) -> bool {
+    fn matches(&self, value: &WasmValue, store: &Store) -> bool {
         match self {
             Self::Exact(expected) => value.eq_loose(expected),
             Self::RefNull => matches!(value, WasmValue::Ref(RefValue::Null)),
             Self::RefFunc => matches!(value, WasmValue::Ref(RefValue::Func(_))),
             Self::RefExtern => matches!(value, WasmValue::Ref(RefValue::Extern(_))),
             Self::RefAny => matches!(value, WasmValue::Ref(RefValue::Any(_))),
-            Self::RefEq => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_i31().is_some()),
+            Self::RefEq => {
+                store.value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Eq)))
+            }
             Self::RefI31 => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_i31().is_some()),
+            Self::RefStruct => store
+                .value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Struct))),
+            Self::RefArray => store
+                .value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Array))),
         }
     }
 }
@@ -824,7 +840,8 @@ fn wastret2tinywasmvalues(ret: wast::WastRet) -> Result<Vec<ExpectedValue>> {
 
 fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedValue> {
     use wast::core::WastRetCore::{
-        F32, F64, I32, I64, RefAny, RefEq, RefExtern, RefFunc, RefI31, RefI31Shared, RefNull, V128,
+        F32, F64, I32, I64, RefAny, RefArray, RefEq, RefExtern, RefFunc, RefHost, RefI31, RefI31Shared, RefNull,
+        RefStruct, V128,
     };
     Ok(match ret {
         F32(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
@@ -833,7 +850,9 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         I64(i) => ExpectedValue::Exact(WasmValue::I64(i)),
         V128(i) => ExpectedValue::Exact(WasmValue::V128(wast_v128_to_bytes(i))),
         RefNull(_) => ExpectedValue::RefNull,
-        RefExtern(Some(v)) => ExpectedValue::Exact(ExternRef::new(v).into()),
+        RefExtern(Some(v)) => ExpectedValue::Exact(
+            ExternRef::try_new(v).ok_or_else(|| eyre!("external reference address is too large"))?.into(),
+        ),
         RefExtern(None) => ExpectedValue::RefExtern,
         RefFunc(Some(wast::token::Index::Num(n, _))) => ExpectedValue::Exact(FuncRef::new(n).into()),
         RefFunc(None) => ExpectedValue::RefFunc,
@@ -843,6 +862,11 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         RefAny => ExpectedValue::RefAny,
         RefEq => ExpectedValue::RefEq,
         RefI31 | RefI31Shared => ExpectedValue::RefI31,
+        RefStruct => ExpectedValue::RefStruct,
+        RefArray => ExpectedValue::RefArray,
+        RefHost(value) => ExpectedValue::Exact(
+            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| eyre!("host reference address is too large"))?).into(),
+        ),
         a => {
             bail!("unsupported arg type {:?}", a);
         }

@@ -165,6 +165,15 @@ impl<T: Copy + Default> Stack<T> {
         self.data.truncate(len - count);
     }
 }
+
+impl<'a, T: Copy + Default> IntoIterator for &'a Stack<T> {
+    type Item = &'a T;
+    type IntoIter = core::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.iter()
+    }
+}
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
@@ -207,13 +216,6 @@ impl ValueStack {
         self.stack_128.select_many(counts.c128 as usize, condition);
     }
 
-    pub(crate) fn pop_types<'a>(
-        &'a mut self,
-        val_types: impl IntoIterator<Item = &'a WasmType>,
-    ) -> impl core::iter::Iterator<Item = WasmValue> {
-        val_types.into_iter().map(|val_type| self.pop_wasmvalue(*val_type))
-    }
-
     #[inline(always)]
     pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
         let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
@@ -246,14 +248,12 @@ impl ValueStack {
         Ok(())
     }
 
-    pub(crate) fn pop_wasmvalue(&mut self, val_type: WasmType) -> WasmValue {
+    pub(crate) fn pop_tinyvalue(&mut self, val_type: WasmType) -> TinyWasmValue {
         match val_type {
-            WasmType::I32 => WasmValue::I32(i32::stack_pop(self)),
-            WasmType::I64 => WasmValue::I64(i64::stack_pop(self)),
-            WasmType::F32 => WasmValue::F32(f32::stack_pop(self)),
-            WasmType::F64 => WasmValue::F64(f64::stack_pop(self)),
-            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(self)).attach_type(val_type).unwrap(),
-            WasmType::V128 => WasmValue::V128(Value128::stack_pop(self).0),
+            WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(Value32::stack_pop(self)),
+            WasmType::I64 | WasmType::F64 => TinyWasmValue::Value64(Value64::stack_pop(self)),
+            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(self)),
+            WasmType::V128 => TinyWasmValue::Value128(Value128::stack_pop(self)),
         }
     }
 

@@ -54,7 +54,7 @@ impl WasmValue {
             | (Self::V128(_), WasmType::V128) => true,
             (Self::Ref(RefValue::Null), WasmType::Ref(ty)) => ty.is_nullable(),
             (Self::Ref(RefValue::Func(_)), WasmType::Ref(ty)) => {
-                ty.is_concrete() || matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Func))
+                matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Func))
             }
             (Self::Ref(RefValue::Extern(_)), WasmType::Ref(ty)) => {
                 matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Extern))
@@ -62,9 +62,39 @@ impl WasmValue {
             (Self::Ref(RefValue::Exn(_)), WasmType::Ref(ty)) => {
                 matches!(ty.abstract_heap_type(), Some(crate::AbstractHeapType::Exn))
             }
-            (Self::Ref(RefValue::Any(_)), WasmType::Ref(ty)) => !ty.is_func() && !ty.is_extern() && !ty.is_exn(),
+            (Self::Ref(RefValue::Any(value)), WasmType::Ref(ty)) => matches!(
+                (value.as_i31(), ty.abstract_heap_type()),
+                (
+                    Some(_),
+                    Some(crate::AbstractHeapType::I31 | crate::AbstractHeapType::Eq | crate::AbstractHeapType::Any)
+                ) | (None, Some(crate::AbstractHeapType::Any))
+            ),
             _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AbstractHeapType, AnyRef, FuncRef, RefType};
+
+    #[test]
+    fn concrete_references_require_store_type_information() {
+        let concrete = WasmType::Ref(RefType::new_concrete(false, 0).unwrap());
+
+        assert!(!WasmValue::from(FuncRef::new(0)).matches_type(concrete));
+        assert!(!WasmValue::from(AnyRef::from_host(0).unwrap()).matches_type(concrete));
+    }
+
+    #[test]
+    fn i31_only_matches_its_store_independent_supertypes() {
+        let value = WasmValue::from(AnyRef::from_i31(0).unwrap());
+
+        for ty in [AbstractHeapType::I31, AbstractHeapType::Eq, AbstractHeapType::Any] {
+            assert!(value.matches_type(WasmType::Ref(RefType::new_abstract(false, ty))));
+        }
+        assert!(!value.matches_type(WasmType::Ref(RefType::new_abstract(false, AbstractHeapType::Struct))));
     }
 }
 

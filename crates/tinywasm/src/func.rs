@@ -44,15 +44,24 @@ impl Function {
 
             // Execute until completion and then collect result values from the stack.
             InterpreterRuntime::exec(store, callframe, 0)?;
-            collect_call_results(&mut store.value_stack, store.state.get_canonical_func_type(func_instance.type_addr))
+            collect_call_results(
+                &mut store.value_stack,
+                &store.state,
+                store.state.get_canonical_func_type(func_instance.type_addr),
+            )
         }
 
         self.item.validate_store(store)?;
         validate_call_params(&store.state, store.state.get_func_type(self.addr()), params)?;
+        let results_may_gc = store.state.get_func(self.addr()).gc.results;
 
         store.enter_execution()?;
         let result = call_inner(self, store, params);
         store.exit_execution();
+
+        if results_may_gc && let Ok(values) = &result {
+            store.state.pin_host_values(values);
+        }
 
         result
     }
@@ -97,12 +106,17 @@ impl Function {
 
         self.item.validate_store(store)?;
         validate_call_params(&store.state, store.state.get_func_type(self.addr()), params)?;
+        let results_may_gc = store.state.get_func(self.addr()).gc.results;
 
         store.enter_execution()?;
         let result = call_resumable_inner(self, store, params);
         store.exit_execution();
 
-        Ok(FuncExecution { store, state: result? })
+        let state = result?;
+        if results_may_gc && let FuncExecutionState::Completed { result: Some(values) } = &state {
+            store.state.pin_host_values(values);
+        }
+        Ok(FuncExecution { store, state })
     }
 }
 
@@ -188,6 +202,7 @@ impl HostFunction {
         let type_addr = store.register_host_type(ty);
         let addr = store.add_func(FunctionInstance {
             type_addr,
+            gc: store.state.func_gc_metadata(type_addr),
             kind: crate::store::FunctionKind::Host(Rc::new(Self { func: Box::new(func) })),
         });
         Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
@@ -231,6 +246,7 @@ impl HostFunction {
         let type_addr = store.register_host_type(&ty);
         let addr = store.add_func(FunctionInstance {
             type_addr,
+            gc: store.state.func_gc_metadata(type_addr),
             kind: crate::store::FunctionKind::Host(Rc::new(Self { func: Box::new(inner_func) })),
         });
         Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
@@ -328,7 +344,7 @@ impl FuncContext<'_> {
         validate_call_params(&self.store.state, self.store.state.get_func_type(func.addr()), args)?;
 
         let func_instance = self.store.state.get_func(func.addr()).clone();
-        match func_instance.kind {
+        let result = match func_instance.kind {
             crate::store::FunctionKind::Host(host_func) => {
                 let result =
                     host_func.call(FuncContext { store: &mut *self.store, module_id: func.module_id }, args)?;
@@ -356,10 +372,17 @@ impl FuncContext<'_> {
 
                 collect_call_results(
                     &mut self.store.value_stack,
+                    &self.store.state,
                     self.store.state.get_canonical_func_type(func_instance.type_addr),
                 )
             }
+        };
+        if func_instance.gc.results
+            && let Ok(values) = &result
+        {
+            self.store.state.pin_host_values(values);
         }
+        result
     }
 
     /// Call a typed function from within the current host-function invocation.
@@ -444,12 +467,19 @@ impl<'store> FuncExecution<'store> {
 
         match result? {
             crate::interpreter::ExecState::Completed => {
-                let result_ty = self.store.state.get_func(root_func_addr).type_addr;
+                let func = self.store.state.get_func(root_func_addr);
+                let result_ty = func.type_addr;
+                let results_may_gc = func.gc.results;
                 self.state = FuncExecutionState::Completed { result: None };
-                Ok(ExecProgress::Completed(collect_call_results(
+                let values = collect_call_results(
                     &mut self.store.value_stack,
+                    &self.store.state,
                     self.store.state.get_canonical_func_type(result_ty),
-                )?))
+                )?;
+                if results_may_gc {
+                    self.store.state.pin_host_values(&values);
+                }
+                Ok(ExecProgress::Completed(values))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
                 let FuncExecutionState::Running { exec_state, .. } = &mut self.state else {
@@ -530,9 +560,18 @@ pub(crate) fn validate_host_results(
     Err(Error::InvalidHostFnReturn { expected: Box::new(expected.clone()), actual: result })
 }
 
-fn collect_call_results(value_stack: &mut ValueStack, func_ty: &FuncType) -> Result<Vec<WasmValue>> {
+fn collect_call_results(
+    value_stack: &mut ValueStack,
+    state: &crate::store::State,
+    func_ty: &FuncType,
+) -> Result<Vec<WasmValue>> {
     debug_assert!(value_stack.len() >= func_ty.results().len()); // m values are on the top of the stack (Ensured by validation)
-    let mut res: Vec<_> = value_stack.pop_types(func_ty.results().iter().rev()).collect(); // pop in reverse order since the stack is LIFO
+    let mut res: Vec<_> = func_ty
+        .results()
+        .iter()
+        .rev()
+        .map(|&ty| state.attach_value(value_stack.pop_tinyvalue(ty), ty).expect("validated function result"))
+        .collect();
     res.reverse(); // reverse to get the original order
     Ok(res)
 }

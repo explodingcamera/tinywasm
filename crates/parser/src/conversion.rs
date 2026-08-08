@@ -265,7 +265,10 @@ fn convert_type_index(index: UnpackedIndex, group_start: u32, group_len: u32) ->
         UnpackedIndex::RecGroup(index) => {
             Err(crate::ParseError::Other(format!("recursive group type index out of bounds: {index}")))
         }
-        _ => Err(crate::ParseError::UnsupportedOperator(format!("unsupported canonical type index: {index}"))),
+        #[cfg(feature = "validate")]
+        UnpackedIndex::Id(_) => {
+            Err(crate::ParseError::UnsupportedOperator(format!("unsupported canonical type index: {index}")))
+        }
     }
 }
 
@@ -327,6 +330,17 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             wasmparser::Operator::RefI31 => ConstInstruction::RefI31,
             wasmparser::Operator::AnyConvertExtern => ConstInstruction::AnyConvertExtern,
             wasmparser::Operator::ExternConvertAny => ConstInstruction::ExternConvertAny,
+            wasmparser::Operator::StructNew { struct_type_index } => ConstInstruction::StructNew(struct_type_index),
+            wasmparser::Operator::StructNewDefault { struct_type_index } => {
+                ConstInstruction::StructNewDefault(struct_type_index)
+            }
+            wasmparser::Operator::ArrayNew { array_type_index } => ConstInstruction::ArrayNew(array_type_index),
+            wasmparser::Operator::ArrayNewDefault { array_type_index } => {
+                ConstInstruction::ArrayNewDefault(array_type_index)
+            }
+            wasmparser::Operator::ArrayNewFixed { array_type_index, array_size } => {
+                ConstInstruction::ArrayNewFixed(array_type_index, array_size)
+            }
             wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(value),
             wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(value),
             wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),
@@ -396,7 +410,8 @@ fn convert_heap_type_with_group(
                     })?;
                     convert_type_index(index, group_start, group_len)?
                 }
-                index => {
+                #[cfg(feature = "validate")]
+                index @ UnpackedIndex::Id(_) => {
                     return Err(crate::ParseError::UnsupportedOperator(format!(
                         "unsupported canonical heap type index: {index}"
                     )));

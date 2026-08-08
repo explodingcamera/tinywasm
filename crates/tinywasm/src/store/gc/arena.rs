@@ -1,15 +1,15 @@
 //! Mark-and-sweep storage with stable handles for WebAssembly GC objects.
 
 use alloc::vec::Vec;
+use core::cell::Cell;
 use core::mem::size_of;
 use core::num::NonZeroU32;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 /// A stable reference to an arena slot.
 ///
 /// Reclaimed slots increment their generation so stale handles cannot access a
 /// new object allocated in the same slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Handle {
     index: u32,
     generation: NonZeroU32,
@@ -38,19 +38,16 @@ fn mark<T>(slots: &[Slot<T>], worklist: &mut Vec<u32>, handle: Handle) {
     let Some(slot) = slots.get(handle.index as usize) else {
         return;
     };
-    if slot.generation != handle.generation
-        || !matches!(slot.state, SlotState::Occupied { .. })
-        || slot.marked.load(Ordering::Relaxed)
-    {
+    if slot.generation != handle.generation || !matches!(slot.state, SlotState::Occupied { .. }) || slot.marked.get() {
         return;
     }
-    slot.marked.store(true, Ordering::Relaxed);
+    slot.marked.set(true);
     worklist.push(handle.index);
 }
 
 struct Slot<T> {
     generation: NonZeroU32,
-    marked: AtomicBool,
+    marked: Cell<bool>,
     state: SlotState<T>,
 }
 
@@ -96,7 +93,7 @@ impl<T> Arena<T> {
             let slot = &mut self.slots[index as usize];
             let SlotState::Free { next } = slot.state else { unreachable!("free list points to an occupied slot") };
             self.free_head = next;
-            *slot.marked.get_mut() = false;
+            slot.marked.set(false);
             slot.state = SlotState::Occupied { value, bytes };
             Handle { index, generation: slot.generation }
         } else {
@@ -107,7 +104,7 @@ impl<T> Arena<T> {
             self.slots.try_reserve(1).map_err(|_| AllocError)?;
             self.slots.push(Slot {
                 generation: NonZeroU32::MIN,
-                marked: AtomicBool::new(false),
+                marked: Cell::new(false),
                 state: SlotState::Occupied { value, bytes },
             });
             Handle { index, generation: NonZeroU32::MIN }
@@ -176,8 +173,7 @@ impl<T: Trace> Arena<T> {
             let SlotState::Occupied { bytes, .. } = &slot.state else {
                 continue;
             };
-            if *slot.marked.get_mut() {
-                *slot.marked.get_mut() = false;
+            if slot.marked.replace(false) {
                 live_objects += 1;
                 live_bytes += bytes;
                 continue;

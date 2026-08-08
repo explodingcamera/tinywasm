@@ -10,7 +10,6 @@ use crate::{Engine, Error, ModuleInstance, Result, Trap};
 mod data;
 mod element;
 mod function;
-#[allow(dead_code, unused_imports)]
 mod gc;
 mod global;
 mod memory;
@@ -18,6 +17,7 @@ mod state;
 mod table;
 mod types;
 
+pub(crate) use gc::{decode_data, default_value, pop_value, push_value};
 pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
@@ -29,9 +29,10 @@ static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
-/// Note that the state doesn't do any garbage collection - so it will grow
-/// indefinitely if you keep adding modules to it. When calling temporary
-/// functions, you should create a new store and then drop it when you're done (e.g. in a request handler).
+/// Managed WebAssembly GC objects are collected automatically. Other Store
+/// instances, such as modules, functions, memories, and tables, live until the
+/// Store is dropped. GC references exposed through the copyable host value API
+/// are retained for the Store's lifetime.
 ///
 /// ## Example
 /// ```rust
@@ -71,10 +72,11 @@ impl Store {
     /// Create a new store
     pub fn new(engine: Engine) -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+        let state = State { gc: gc::GcHeap::new(engine.config().gc_collection_threshold), ..State::default() };
         Self {
             id,
             module_instances: Vec::new(),
-            state: State::default(),
+            state,
             call_stack: CallStack::new(engine.config()),
             value_stack: ValueStack::new(engine.config()),
             engine,
@@ -147,6 +149,12 @@ impl Store {
     pub fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
         self.state.set_global_val(addr, value);
     }
+
+    /// Returns whether a public value has the requested runtime type.
+    #[doc(hidden)]
+    pub fn value_matches_type(&self, value: WasmValue, ty: WasmType) -> bool {
+        self.state.value_matches_type(value, ty)
+    }
 }
 
 impl Store {
@@ -159,10 +167,13 @@ impl Store {
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         let start = self.state.funcs.len() as FuncAddr;
         debug_assert_eq!(funcs.len(), type_addrs.len());
-        self.state.funcs.extend(funcs.iter().zip(type_addrs).map(|(func, &type_addr)| FunctionInstance {
-            type_addr,
-            kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
-        }));
+        for (func, &type_addr) in funcs.iter().zip(type_addrs) {
+            self.state.funcs.push(FunctionInstance {
+                type_addr,
+                gc: self.state.func_gc_metadata(type_addr),
+                kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
+            });
+        }
         start..start + funcs.len() as FuncAddr
     }
 
@@ -178,7 +189,7 @@ impl Store {
         self.state.tables.reserve_exact(tables.len());
         for table in tables {
             let init = match &table.init {
-                Some(expr) => match self.eval_const(expr, global_addrs, func_addrs)? {
+                Some(expr) => match self.eval_const(expr, global_addrs, func_addrs, type_addrs)? {
                     TinyWasmValue::ValueRef(value) => value,
                     _ => return Err(Error::other("table initializer is not a reference value")),
                 },
@@ -225,7 +236,7 @@ impl Store {
         out.extend(start..start + globals.len() as Addr);
 
         for global in globals {
-            let value = match self.eval_const(&global.init, out, func_addrs) {
+            let value = match self.eval_const(&global.init, out, func_addrs, type_addrs) {
                 Ok(val) => val,
                 Err(e) => {
                     cold_path();
@@ -239,9 +250,15 @@ impl Store {
         Ok(())
     }
 
-    fn elem_value(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<ValueRef> {
+    fn elem_value(
+        &mut self,
+        item: &ElementItem,
+        globals: &[Addr],
+        funcs: &[FuncAddr],
+        type_addrs: &[TypeAddr],
+    ) -> Result<ValueRef> {
         match item {
-            ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs)? {
+            ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs, type_addrs)? {
                 TinyWasmValue::ValueRef(value) => Ok(value),
                 other => {
                     cold_path();
@@ -268,26 +285,31 @@ impl Store {
         func_addrs: &[FuncAddr],
         global_addrs: &[Addr],
         elements: &[Element],
+        type_addrs: &[TypeAddr],
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.state.elements.len();
-        let mut elem_addrs = Vec::with_capacity(elem_count);
+        let mut elem_addrs = Vec::with_capacity(elements.len());
         for (i, element) in elements.iter().enumerate() {
-            let init = element
-                .items
-                .iter()
-                .map(|item| self.elem_value(item, global_addrs, func_addrs))
-                .collect::<Result<Vec<_>>>()?;
+            let elem_addr = self.state.elements.len();
+            self.state.elements.push(ElementInstance {
+                items: Some(Vec::with_capacity(element.items.len())),
+                ty: canonicalize_ref_type(element.ty, type_addrs),
+            });
+            for item in &element.items {
+                let value = self.elem_value(item, global_addrs, func_addrs, type_addrs)?;
+                self.state.elements[elem_addr].items.as_mut().unwrap().push(value);
+            }
 
-            let items = match &element.kind {
+            match &element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
-                ElementKind::Passive => Some(init),
+                ElementKind::Passive => {}
 
                 // this one is not available to the runtime but needs to be initialized to declare references
-                ElementKind::Declared => None, // a. Execute the instruction elm.drop i
+                ElementKind::Declared => self.state.elements[elem_addr].drop(),
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs, type_addrs)?;
                     let table_addr = table_addrs
                         .get(*table as usize)
                         .copied()
@@ -305,20 +327,26 @@ impl Store {
                     let Ok(offset) = usize::try_from(offset) else {
                         return Ok((
                             elem_addrs.into_boxed_slice(),
-                            Some(Trap::TableOutOfBounds { offset: usize::MAX, len: init.len(), max: table.size() }),
+                            Some(Trap::TableOutOfBounds {
+                                offset: usize::MAX,
+                                len: self.state.elements[elem_addr].items.as_ref().unwrap().len(),
+                                max: table.size(),
+                            }),
                         ));
                     };
 
-                    if let Err(trap) = table.init(offset, &init) {
+                    let State { elements, tables, .. } = &mut self.state;
+                    let init = elements[elem_addr].items.as_deref().unwrap();
+                    let table = &mut tables[table_addr as usize];
+                    if let Err(trap) = table.init(offset, init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 
                     // f. Execute the instruction elm.drop i
-                    None
+                    elements[elem_addr].drop();
                 }
-            };
+            }
 
-            self.state.elements.push(ElementInstance { items });
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -333,6 +361,7 @@ impl Store {
         global_addrs: &[Addr],
         func_addrs: &[FuncAddr],
         data: &[Data],
+        type_addrs: &[TypeAddr],
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.state.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
@@ -343,7 +372,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs, type_addrs)?;
                     let Some(mem) = self.state.memories.get_mut(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
@@ -381,12 +410,13 @@ impl Store {
 
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
     fn eval_size_const(
-        &self,
+        &mut self,
         const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
+        module_type_addrs: &[TypeAddr],
     ) -> Result<u64> {
-        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
+        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs, module_type_addrs)?;
         match value {
             TinyWasmValue::Value32(i) => Ok(u64::from(i)),
             TinyWasmValue::Value64(i) => Ok(i),
@@ -397,61 +427,56 @@ impl Store {
     /// Evaluate a constant expression
     #[inline]
     fn eval_const(
-        &self,
+        &mut self,
         const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
+        module_type_addrs: &[TypeAddr],
     ) -> Result<TinyWasmValue> {
         use tinywasm_types::ConstInstruction::*;
 
-        let resolve_global = |idx: u32| -> Result<TinyWasmValue> {
-            let Some(addr) = module_global_addrs.get(idx as usize) else {
-                cold_path();
-                return Err(Error::Other(format!(
-                    "global {idx} not found. This should have been caught by the validator"
-                )));
-            };
-
-            let Some(global) = self.state.globals.get(*addr as usize) else {
-                cold_path();
-                return Err(Error::Other(format!("global {addr} not found")));
-            };
-
-            Ok(global.value)
+        let global_value = |state: &State, index: u32| -> Result<TinyWasmValue> {
+            let addr = *module_global_addrs
+                .get(index as usize)
+                .ok_or_else(|| Error::Other(format!("global {index} not found")))?;
+            Ok(state.globals.get(addr as usize).ok_or_else(|| Error::Other(format!("global {addr} not found")))?.value)
         };
-
-        let resolve_func = |idx: u32| -> Result<u32> {
-            match module_func_addrs.get(idx as usize) {
-                Some(func_addr) => Ok(*func_addr),
-                None => {
-                    cold_path();
-                    Err(Error::Other(format!(
-                        "function {idx} not found. This should have been caught by the validator"
-                    )))
-                }
+        let func_ref = |index: u32| -> Result<ValueRef> {
+            let addr = *module_func_addrs
+                .get(index as usize)
+                .ok_or_else(|| Error::Other(format!("function {index} not found")))?;
+            Ok(ValueRef::from_category_addr(addr))
+        };
+        let type_addr = |index: TypeAddr| -> Result<TypeAddr> {
+            module_type_addrs.get(index as usize).copied().ok_or_else(|| Error::other("GC constant type not found"))
+        };
+        let pop_value = |stack: &mut Vec<TinyWasmValue>, storage: StorageType| -> Result<TinyWasmValue> {
+            let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+            match (storage, value) {
+                (StorageType::I8, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u8 as u32)),
+                (StorageType::I16, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u16 as u32)),
+                (StorageType::Value(WasmType::I32 | WasmType::F32), value @ TinyWasmValue::Value32(_))
+                | (StorageType::Value(WasmType::I64 | WasmType::F64), value @ TinyWasmValue::Value64(_))
+                | (StorageType::Value(WasmType::V128), value @ TinyWasmValue::Value128(_))
+                | (StorageType::Value(WasmType::Ref(_)), value @ TinyWasmValue::ValueRef(_)) => Ok(value),
+                _ => Err(Error::other("type mismatch in GC constant")),
             }
         };
 
-        if const_instrs.len() == 1 {
-            let val = match &const_instrs[0] {
-                F32Const(f) => (*f).into(),
-                F64Const(f) => (*f).into(),
-                I32Const(i) => (*i).into(),
-                I64Const(i) => (*i).into(),
-                V128Const(i) => (*i).into(),
-                GlobalGet(addr) => resolve_global(*addr)?,
-                Ref(tinywasm_types::RefValue::Null) => TinyWasmValue::ValueRef(ValueRef::NULL),
+        if let [instr] = const_instrs {
+            match instr {
+                I32Const(value) => return Ok(TinyWasmValue::Value32(*value as u32)),
+                I64Const(value) => return Ok(TinyWasmValue::Value64(*value as u64)),
+                F32Const(value) => return Ok(TinyWasmValue::Value32(value.to_bits())),
+                F64Const(value) => return Ok(TinyWasmValue::Value64(value.to_bits())),
+                V128Const(value) => return Ok(TinyWasmValue::Value128((*value).into())),
+                GlobalGet(index) => return global_value(&self.state, *index),
+                Ref(tinywasm_types::RefValue::Null) => return Ok(TinyWasmValue::ValueRef(ValueRef::NULL)),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    TinyWasmValue::ValueRef(ValueRef::from_category_addr(resolve_func(func.addr())?))
+                    return Ok(TinyWasmValue::ValueRef(func_ref(func.addr())?));
                 }
-                Ref(_) => return Err(Error::other("unsupported reference constant")),
-                _ => {
-                    cold_path();
-                    return Err(Error::other("unsupported const instruction"));
-                }
-            };
-
-            return Ok(val);
+                _ => {}
+            }
         }
 
         let mut stack = Vec::new();
@@ -462,10 +487,10 @@ impl Store {
                 F32Const(f) => stack.push(TinyWasmValue::Value32(f.to_bits())),
                 F64Const(f) => stack.push(TinyWasmValue::Value64(f.to_bits())),
                 V128Const(i) => stack.push(TinyWasmValue::Value128((*i).into())),
-                GlobalGet(addr) => stack.push(resolve_global(*addr)?),
+                GlobalGet(index) => stack.push(global_value(&self.state, *index)?),
                 Ref(tinywasm_types::RefValue::Null) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_category_addr(resolve_func(func.addr())?)))
+                    stack.push(TinyWasmValue::ValueRef(func_ref(func.addr())?))
                 }
                 Ref(_) => {
                     cold_path();
@@ -484,6 +509,73 @@ impl Store {
                         return Err(Error::other("type mismatch in const reference conversion"));
                     }
                     stack.push(value);
+                }
+                StructNew(type_index) | StructNewDefault(type_index) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let fields = self
+                        .state
+                        .get_type(type_addr)
+                        .as_struct()
+                        .ok_or_else(|| Error::other("GC constant type is not a struct"))?
+                        .fields
+                        .clone();
+                    let default = matches!(instr, StructNewDefault(_));
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(fields.len()).map_err(|_| Trap::OutOfMemory)?;
+                    if default {
+                        values.extend(fields.iter().map(|field| default_value(field.storage)));
+                    } else {
+                        for field in fields.iter().rev() {
+                            values.push(pop_value(&mut stack, field.storage)?);
+                        }
+                        values.reverse();
+                    }
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
+                }
+                ArrayNew(type_index) | ArrayNewDefault(type_index) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let storage = self
+                        .state
+                        .get_type(type_addr)
+                        .as_array()
+                        .ok_or_else(|| Error::other("GC constant type is not an array"))?
+                        .field
+                        .storage;
+                    let Some(TinyWasmValue::Value32(len)) = stack.pop() else {
+                        return Err(Error::other("type mismatch in const array length"));
+                    };
+                    let value = if matches!(instr, ArrayNewDefault(_)) {
+                        default_value(storage)
+                    } else {
+                        pop_value(&mut stack, storage)?
+                    };
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(len as usize).map_err(|_| Trap::OutOfMemory)?;
+                    values.resize(len as usize, value);
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
+                }
+                ArrayNewFixed(type_index, len) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let storage = self
+                        .state
+                        .get_type(type_addr)
+                        .as_array()
+                        .ok_or_else(|| Error::other("GC constant type is not an array"))?
+                        .field
+                        .storage;
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(*len as usize).map_err(|_| Trap::OutOfMemory)?;
+                    for _ in 0..*len {
+                        values.push(pop_value(&mut stack, storage)?);
+                    }
+                    values.reverse();
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
                 }
                 I32Add | I32Sub | I32Mul => {
                     let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;

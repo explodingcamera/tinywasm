@@ -15,6 +15,7 @@ impl Default for ValueRef {
 }
 
 impl ValueRef {
+    const HOST_ANY_TAG: u32 = 1 << 30;
     pub(crate) const NULL: Self = Self(0);
 
     #[inline]
@@ -32,6 +33,10 @@ impl ValueRef {
     #[inline]
     pub(crate) const fn from_i31(value: i32) -> Self {
         Self(((value as u32) << 1) | 1)
+    }
+
+    pub(crate) const fn is_host_any(self) -> bool {
+        matches!(self.addr(), Some(addr) if addr & Self::HOST_ANY_TAG != 0)
     }
 
     #[inline]
@@ -113,7 +118,7 @@ impl TinyWasmValue {
         }
     }
 
-    /// Attaches a type to the value (panics if the size of the value is not the same as the type)
+    /// Converts this internal value to the requested public WebAssembly type.
     pub fn attach_type(self, ty: WasmType) -> Option<WasmValue> {
         match (self, ty) {
             (Self::Value32(v), WasmType::I32) => Some(WasmValue::I32(v as i32)),

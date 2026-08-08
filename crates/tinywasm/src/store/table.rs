@@ -45,12 +45,6 @@ impl TableInstance {
         Ok(addr..end)
     }
 
-    pub(crate) fn get_wasm_val(&self, addr: usize) -> Result<WasmValue, Trap> {
-        Ok(crate::interpreter::TinyWasmValue::ValueRef(*self.get(addr)?)
-            .attach_type(WasmType::Ref(self.kind.element_type))
-            .expect("table value matches its element type"))
-    }
-
     pub(crate) fn fill(&mut self, addr: usize, len: usize, val: ValueRef) -> Result<(), Trap> {
         let range = self.checked_range(addr, len)?;
         self.elements[range].fill(val);
@@ -123,31 +117,6 @@ mod tests {
         let kind = dummy_table_type();
         let table_instance = TableInstance::new(kind).unwrap();
         assert_eq!(table_instance.size() as u64, kind.size_initial, "Table instance creation failed: size mismatch");
-    }
-
-    #[test]
-    fn test_get_wasm_val() {
-        let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind).unwrap();
-
-        let func = crate::interpreter::ValueRef::from_category_addr(0);
-        table_instance.set(0, func).expect("Setting table element failed");
-        table_instance.set(1, ValueRef::NULL).expect("Setting table element failed");
-
-        match table_instance.get_wasm_val(0) {
-            Ok(WasmValue::Ref(RefValue::Func(_))) => {}
-            _ => panic!("get_wasm_val failed to return the correct WasmValue"),
-        }
-
-        match table_instance.get_wasm_val(1) {
-            Ok(WasmValue::Ref(RefValue::Null)) => {}
-            _ => panic!("get_wasm_val failed to return the correct WasmValue"),
-        }
-
-        match table_instance.get_wasm_val(999) {
-            Err(Trap::TableOutOfBounds { .. }) => {}
-            _ => panic!("get_wasm_val failed to handle undefined element correctly"),
-        }
     }
 
     #[test]

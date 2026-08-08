@@ -1,3 +1,12 @@
+const HOST_REF_TAG: u32 = 1 << 30;
+
+const fn encode_host_ref(addr: u32) -> Option<u32> {
+    if addr >= HOST_REF_TAG - 1 {
+        return None;
+    }
+    Some((addr | HOST_REF_TAG).wrapping_add(1).wrapping_mul(2))
+}
+
 /// An abstract WebAssembly heap type.
 ///
 /// This contains exactly the abstract heap types in core Wasm 3.0.
@@ -117,9 +126,7 @@ impl RefType {
 
     #[inline]
     pub const fn is_func(self) -> bool {
-        // Concrete runtime references are functions until GC objects are added.
-        self.is_concrete()
-            || matches!(self.abstract_heap_type(), Some(AbstractHeapType::Func | AbstractHeapType::NoFunc))
+        matches!(self.abstract_heap_type(), Some(AbstractHeapType::Func | AbstractHeapType::NoFunc))
     }
 
     #[inline]
@@ -167,8 +174,9 @@ impl FuncRef {
 
 /// An opaque external reference.
 ///
-/// Packed as `[payload:31 i31:1]`. Host addresses use non-zero even values,
-/// while odd values contain an externalized i31.
+/// Packed as `[payload:31 i31:1]`. Host addresses use the upper payload
+/// category, Store-managed objects use the lower category, and odd values
+/// contain an externalized i31.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -177,9 +185,17 @@ pub struct ExternRef(u32);
 impl ExternRef {
     #[inline]
     pub const fn new(addr: u32) -> Self {
-        let Some(raw) = addr.checked_add(1) else { panic!("external reference address is too large") };
-        let Some(raw) = raw.checked_mul(2) else { panic!("external reference address is too large") };
-        Self(raw)
+        let Some(value) = Self::try_new(addr) else { panic!("external reference address is too large") };
+        value
+    }
+
+    /// Creates an external reference when `addr` fits the runtime encoding.
+    #[inline]
+    pub const fn try_new(addr: u32) -> Option<Self> {
+        match encode_host_ref(addr) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
     }
 
     #[doc(hidden)]
@@ -231,6 +247,15 @@ impl ExnRef {
 pub struct AnyRef(u32);
 
 impl AnyRef {
+    /// Creates a host reference when `addr` fits the runtime encoding.
+    #[inline]
+    pub const fn from_host(addr: u32) -> Option<Self> {
+        match encode_host_ref(addr) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
+
     #[doc(hidden)]
     #[inline]
     pub const fn from_raw(raw: u32) -> Self {
@@ -252,5 +277,18 @@ impl AnyRef {
     #[inline]
     pub const fn raw(self) -> u32 {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_reference_encoding_is_checked_and_unique() {
+        assert_ne!(AnyRef::from_host(0), AnyRef::from_host(1));
+        assert!(AnyRef::from_host(HOST_REF_TAG - 2).is_some());
+        assert!(AnyRef::from_host(HOST_REF_TAG - 1).is_none());
+        assert!(ExternRef::try_new(u32::MAX).is_none());
     }
 }
