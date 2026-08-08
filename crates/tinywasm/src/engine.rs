@@ -123,6 +123,9 @@ pub struct Config {
     /// Whether memory and stack allocation failures should trap instead of degrading into normal operation failure modes.
     /// Defaults to `false`.
     pub trap_on_oom: bool,
+    /// Initial number of GC heap bytes that triggers collection.
+    /// Defaults to 1 MiB.
+    pub gc_collection_threshold: usize,
 }
 
 impl Config {
@@ -181,6 +184,12 @@ impl Config {
         self
     }
 
+    /// Set the initial GC heap collection threshold in bytes.
+    pub fn with_gc_collection_threshold(mut self, threshold: usize) -> Self {
+        self.gc_collection_threshold = threshold;
+        self
+    }
+
     /// Get the current fuel policy
     pub fn fuel_policy(&self) -> FuelPolicy {
         self.fuel_policy
@@ -206,6 +215,7 @@ impl Default for Config {
             fuel_policy: FuelPolicy::default(),
             memory_backend: MemoryBackend::default(),
             trap_on_oom: false,
+            gc_collection_threshold: 1024 * 1024,
         }
     }
 }

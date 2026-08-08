@@ -149,8 +149,13 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
     let module = tinywasm::parse_bytes(&wasm)?;
 
     let export = module.exports.iter().find(|export| export.name.as_ref() == "f").expect("export f not found");
-    let old_lookup_ty = module.func_types.get(export.index as usize).expect("old lookup type missing");
-    let func_ty = &module.func_types[module.func_type_idxs[export.index as usize] as usize];
+    let old_lookup_ty = module.types.get(export.index).and_then(|ty| ty.as_func()).expect("old lookup type missing");
+    let func_ty = module
+        .types
+        .get(module.func_type_idxs[export.index as usize])
+        .expect("export function type index should exist")
+        .as_func()
+        .expect("export function should reference a function type");
 
     assert_eq!(old_lookup_ty.params(), &[tinywasm::types::WasmType::I64]);
     assert_eq!(func_ty.params(), &[]);

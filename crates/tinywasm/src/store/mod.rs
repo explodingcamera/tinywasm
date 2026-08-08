@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use alloc::{boxed::Box, format, vec::Vec};
 use core::hint::cold_path;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -11,36 +10,29 @@ use crate::{Engine, Error, ModuleInstance, Result, Trap};
 mod data;
 mod element;
 mod function;
+mod gc;
 mod global;
 mod memory;
+mod state;
 mod table;
+mod types;
 
+pub(crate) use gc::{decode_data, default_value, pop_value, push_value};
 pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 pub(crate) use memory::{MemValue, MemoryInstance};
+pub(crate) use state::State;
+pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
 pub(crate) use {data::*, element::*, function::*, global::*, table::*};
 
 // global store id counter
 static STORE_ID: AtomicUsize = AtomicUsize::new(0);
 
-pub(crate) fn canonicalize_ref_type(ty: RefType, type_addrs: &[TypeAddr]) -> RefType {
-    let Some(type_addr) = ty.type_index() else { return ty };
-    let canonical =
-        *type_addrs.get(type_addr as usize).unwrap_or_else(|| unreachable!("invalid type address: {type_addr}"));
-    RefType::new_concrete(ty.is_nullable(), canonical).unwrap()
-}
-
-pub(crate) fn canonicalize_value_type(ty: WasmType, type_addrs: &[TypeAddr]) -> WasmType {
-    match ty {
-        WasmType::Ref(ty) => WasmType::Ref(canonicalize_ref_type(ty, type_addrs)),
-        ty => ty,
-    }
-}
-
 /// Global state that can be manipulated by WebAssembly programs
 ///
-/// Note that the state doesn't do any garbage collection - so it will grow
-/// indefinitely if you keep adding modules to it. When calling temporary
-/// functions, you should create a new store and then drop it when you're done (e.g. in a request handler).
+/// Managed WebAssembly GC objects are collected automatically. Other Store
+/// instances, such as modules, functions, memories, and tables, live until the
+/// Store is dropped. GC references exposed through the copyable host value API
+/// are retained for the Store's lifetime.
 ///
 /// ## Example
 /// ```rust
@@ -80,10 +72,11 @@ impl Store {
     /// Create a new store
     pub fn new(engine: Engine) -> Self {
         let id = STORE_ID.fetch_add(1, Ordering::Relaxed);
+        let state = State { gc: gc::GcHeap::new(engine.config().gc_collection_threshold), ..State::default() };
         Self {
             id,
             module_instances: Vec::new(),
-            state: State::default(),
+            state,
             call_stack: CallStack::new(engine.config()),
             value_stack: ValueStack::new(engine.config()),
             engine,
@@ -130,140 +123,6 @@ impl Default for Store {
     }
 }
 
-#[derive(Default)]
-/// Global state that can be manipulated by WebAssembly programs
-///
-/// Data should only be addressable by the module that owns it
-/// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
-pub(crate) struct State {
-    // Concrete type indexes in store instances address this canonical type space.
-    canonical_types: Vec<FuncType>,
-    pub(crate) funcs: Vec<FunctionInstance>,
-    pub(crate) tables: Vec<TableInstance>,
-    pub(crate) memories: Vec<MemoryInstance>,
-    pub(crate) globals: Vec<GlobalInstance>,
-    pub(crate) elements: Vec<ElementInstance>,
-    pub(crate) data: Vec<DataInstance>,
-}
-
-impl State {
-    pub(crate) fn value_matches_type(&self, value: WasmValue, expected: WasmType) -> bool {
-        match (value, expected) {
-            (WasmValue::Ref(RefValue::Null), WasmType::Ref(expected)) => expected.is_nullable(),
-            (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => {
-                self.funcs.get(func.addr() as usize).is_some_and(|func| match expected.type_index() {
-                    Some(expected) => func.type_addr == expected,
-                    None => matches!(expected.abstract_heap_type(), Some(AbstractHeapType::Func)),
-                })
-            }
-            (_, WasmType::Ref(expected)) if expected.is_concrete() => false,
-            _ => value.matches_type(expected),
-        }
-    }
-
-    #[inline]
-    pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
-        let type_addr = self.get_func(addr).type_addr;
-        Self::get(&self.canonical_types, type_addr, "canonical type")
-    }
-
-    #[inline]
-    pub(crate) fn get_type(&self, addr: TypeAddr) -> &FuncType {
-        Self::get(&self.canonical_types, addr, "canonical type")
-    }
-    fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
-        items.get(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
-    }
-
-    fn get_mut<'a, T>(items: &'a mut [T], addr: Addr, kind: &str) -> &'a mut T {
-        items.get_mut(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
-    }
-
-    fn get_disjoint_mut<'a, T>(items: &'a mut [T], addr: Addr, addr2: Addr, kind: &str) -> (&'a mut T, &'a mut T) {
-        let [item_a, item_b] = items
-            .get_disjoint_mut([addr as usize, addr2 as usize])
-            .unwrap_or_else(|_| unreachable!("invalid {kind} addresses: {addr}, {addr2}"));
-        (item_a, item_b)
-    }
-
-    /// Get the function at the actual index in the store
-    pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
-        Self::get(&self.funcs, addr, "function")
-    }
-
-    /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
-    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
-        match self.funcs.get(addr as usize).map(|func| &func.kind) {
-            Some(FunctionKind::Wasm(wasm_func)) => wasm_func,
-            _ => unreachable!("invalid wasm function address: {addr}"),
-        }
-    }
-
-    /// Get the memory at the actual index in the store
-    pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
-        Self::get(&self.memories, addr, "memory")
-    }
-
-    /// Get the memory at the actual index in the store
-    pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
-        Self::get_mut(&mut self.memories, addr, "memory")
-    }
-
-    /// Get the memory at the actual index in the store
-    pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
-        Self::get_disjoint_mut(&mut self.memories, addr, addr2, "memory")
-    }
-
-    /// Get the table at the actual index in the store
-    pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
-        Self::get(&self.tables, addr, "table")
-    }
-
-    /// Get the table at the actual index in the store
-    pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
-        Self::get_mut(&mut self.tables, addr, "table")
-    }
-
-    /// Get two mutable tables at the actual index in the store
-    pub(crate) fn get_tables_mut(
-        &mut self,
-        addr: TableAddr,
-        addr2: TableAddr,
-    ) -> (&mut TableInstance, &mut TableInstance) {
-        Self::get_disjoint_mut(&mut self.tables, addr, addr2, "table")
-    }
-
-    /// Get the data at the actual index in the store
-    pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
-        Self::get_mut(&mut self.data, addr, "data")
-    }
-
-    /// Get the element at the actual index in the store
-    pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
-        Self::get_mut(&mut self.elements, addr, "element")
-    }
-
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global(&self, addr: GlobalAddr) -> &GlobalInstance {
-        Self::get(&self.globals, addr, "global")
-    }
-
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global_mut(&mut self, addr: GlobalAddr) -> &mut GlobalInstance {
-        Self::get_mut(&mut self.globals, addr, "global")
-    }
-
-    /// Get the global at the actual index in the store
-    pub(crate) fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        self.get_global(addr).value
-    }
-
-    /// Set the global at the actual index in the store
-    pub(crate) fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        self.get_global_mut(addr).value = value;
-    }
-}
-
 impl Store {
     /// Get the store's ID (unique per process)
     pub fn id(&self) -> usize {
@@ -290,71 +149,31 @@ impl Store {
     pub fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
         self.state.set_global_val(addr, value);
     }
+
+    /// Returns whether a public value has the requested runtime type.
+    #[doc(hidden)]
+    pub fn value_matches_type(&self, value: WasmValue, ty: WasmType) -> bool {
+        self.state.value_matches_type(value, ty)
+    }
 }
 
-// Linking related functions
 impl Store {
-    pub(crate) fn register_module_types(&mut self, types: &[FuncType]) -> Box<[TypeAddr]> {
-        let mut type_addrs = Vec::with_capacity(types.len());
-        for (local_addr, ty) in types.iter().enumerate() {
-            if let Some(addr) = self
-                .state
-                .canonical_types
-                .iter()
-                .position(|registered| ty.equivalent(types, registered, &self.state.canonical_types))
-            {
-                type_addrs.push(addr as TypeAddr);
-                continue;
-            }
-
-            let addr = self.state.canonical_types.len();
-            assert!(addr <= ((1 << 30) - 1), "too many canonical function types");
-            type_addrs.push(addr as TypeAddr);
-            let canonicalize = |ty: WasmType| match ty {
-                WasmType::Ref(ty) if ty.is_concrete() => {
-                    let module_ref = ty.type_index().unwrap() as usize;
-                    // A singleton recursive group can refer to the type currently being registered.
-                    let canonical = if module_ref == local_addr {
-                        addr as TypeAddr
-                    } else {
-                        *type_addrs
-                            .get(module_ref)
-                            .unwrap_or_else(|| unreachable!("invalid forward type reference: {module_ref}"))
-                    };
-                    WasmType::Ref(RefType::new_concrete(ty.is_nullable(), canonical).unwrap())
-                }
-                ty => ty,
-            };
-            let params = ty.params().iter().copied().map(canonicalize).collect::<Vec<_>>();
-            let results = ty.results().iter().copied().map(canonicalize).collect::<Vec<_>>();
-            self.state.canonical_types.push(FuncType::new(&params, &results));
-        }
-        type_addrs.into_boxed_slice()
-    }
-
-    pub(crate) fn register_host_type(&mut self, ty: &FuncType) -> TypeAddr {
-        if let Some(addr) = self.state.canonical_types.iter().position(|registered| ty == registered) {
-            return addr as TypeAddr;
-        }
-        let addr = self.state.canonical_types.len();
-        assert!(addr <= ((1 << 30) - 1), "too many canonical function types");
-        self.state.canonical_types.push(ty.clone());
-        addr as TypeAddr
-    }
-
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
-        funcs: &[Arc<WasmFunction>],
+        funcs: &[alloc::sync::Arc<WasmFunction>],
         owner: ModuleInstanceId,
         type_addrs: &[TypeAddr],
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         let start = self.state.funcs.len() as FuncAddr;
         debug_assert_eq!(funcs.len(), type_addrs.len());
-        self.state.funcs.extend(funcs.iter().zip(type_addrs).map(|(func, &type_addr)| FunctionInstance {
-            type_addr,
-            kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
-        }));
+        for (func, &type_addr) in funcs.iter().zip(type_addrs) {
+            self.state.funcs.push(FunctionInstance {
+                type_addr,
+                gc: self.state.func_gc_metadata(type_addr),
+                kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
+            });
+        }
         start..start + funcs.len() as FuncAddr
     }
 
@@ -370,11 +189,11 @@ impl Store {
         self.state.tables.reserve_exact(tables.len());
         for table in tables {
             let init = match &table.init {
-                Some(expr) => match self.eval_const(expr, global_addrs, func_addrs)? {
-                    TinyWasmValue::ValueRef(value) => TableElement::from(value.addr()),
+                Some(expr) => match self.eval_const(expr, global_addrs, func_addrs, type_addrs)? {
+                    TinyWasmValue::ValueRef(value) => value,
                     _ => return Err(Error::other("table initializer is not a reference value")),
                 },
-                None => TableElement::Uninitialized,
+                None => ValueRef::NULL,
             };
             let element_type = canonicalize_ref_type(table.ty.element_type, type_addrs);
             let ty = match table.ty.arch() {
@@ -417,7 +236,7 @@ impl Store {
         out.extend(start..start + globals.len() as Addr);
 
         for global in globals {
-            let value = match self.eval_const(&global.init, out, func_addrs) {
+            let value = match self.eval_const(&global.init, out, func_addrs, type_addrs) {
                 Ok(val) => val,
                 Err(e) => {
                     cold_path();
@@ -431,17 +250,23 @@ impl Store {
         Ok(())
     }
 
-    fn elem_addr(&self, item: &ElementItem, globals: &[Addr], funcs: &[FuncAddr]) -> Result<Option<u32>> {
+    fn elem_value(
+        &mut self,
+        item: &ElementItem,
+        globals: &[Addr],
+        funcs: &[FuncAddr],
+        type_addrs: &[TypeAddr],
+    ) -> Result<ValueRef> {
         match item {
-            ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs)? {
-                TinyWasmValue::ValueRef(v) => Ok(v.addr()),
+            ElementItem::Expr(expr) => match self.eval_const(expr, globals, funcs, type_addrs)? {
+                TinyWasmValue::ValueRef(value) => Ok(value),
                 other => {
                     cold_path();
                     Err(Error::Other(format!("expected ref type, got {other:?}")))
                 }
             },
             ElementItem::Func(addr) => match funcs.get(*addr as usize) {
-                Some(func_addr) => Ok(Some(*func_addr)),
+                Some(func_addr) => Ok(ValueRef::from_category_addr(*func_addr)),
                 None => {
                     cold_path();
                     Err(Error::Other(format!(
@@ -460,26 +285,31 @@ impl Store {
         func_addrs: &[FuncAddr],
         global_addrs: &[Addr],
         elements: &[Element],
+        type_addrs: &[TypeAddr],
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.state.elements.len();
-        let mut elem_addrs = Vec::with_capacity(elem_count);
+        let mut elem_addrs = Vec::with_capacity(elements.len());
         for (i, element) in elements.iter().enumerate() {
-            let init = element
-                .items
-                .iter()
-                .map(|item| Ok(TableElement::from(self.elem_addr(item, global_addrs, func_addrs)?)))
-                .collect::<Result<Vec<_>>>()?;
+            let elem_addr = self.state.elements.len();
+            self.state.elements.push(ElementInstance {
+                items: Some(Vec::with_capacity(element.items.len())),
+                ty: canonicalize_ref_type(element.ty, type_addrs),
+            });
+            for item in &element.items {
+                let value = self.elem_value(item, global_addrs, func_addrs, type_addrs)?;
+                self.state.elements[elem_addr].items.as_mut().unwrap().push(value);
+            }
 
-            let items = match &element.kind {
+            match &element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
-                ElementKind::Passive => Some(init),
+                ElementKind::Passive => {}
 
                 // this one is not available to the runtime but needs to be initialized to declare references
-                ElementKind::Declared => None, // a. Execute the instruction elm.drop i
+                ElementKind::Declared => self.state.elements[elem_addr].drop(),
 
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
-                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs, type_addrs)?;
                     let table_addr = table_addrs
                         .get(*table as usize)
                         .copied()
@@ -497,20 +327,26 @@ impl Store {
                     let Ok(offset) = usize::try_from(offset) else {
                         return Ok((
                             elem_addrs.into_boxed_slice(),
-                            Some(Trap::TableOutOfBounds { offset: usize::MAX, len: init.len(), max: table.size() }),
+                            Some(Trap::TableOutOfBounds {
+                                offset: usize::MAX,
+                                len: self.state.elements[elem_addr].items.as_ref().unwrap().len(),
+                                max: table.size(),
+                            }),
                         ));
                     };
 
-                    if let Err(trap) = table.init(offset, &init) {
+                    let State { elements, tables, .. } = &mut self.state;
+                    let init = elements[elem_addr].items.as_deref().unwrap();
+                    let table = &mut tables[table_addr as usize];
+                    if let Err(trap) = table.init(offset, init) {
                         return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
                     }
 
                     // f. Execute the instruction elm.drop i
-                    None
+                    elements[elem_addr].drop();
                 }
-            };
+            }
 
-            self.state.elements.push(ElementInstance { items });
             elem_addrs.push((i + elem_count) as Addr);
         }
 
@@ -525,6 +361,7 @@ impl Store {
         global_addrs: &[Addr],
         func_addrs: &[FuncAddr],
         data: &[Data],
+        type_addrs: &[TypeAddr],
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.state.data.len();
         let mut data_addrs = Vec::with_capacity(data_count);
@@ -535,7 +372,7 @@ impl Store {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
 
-                    let offset = self.eval_size_const(offset, global_addrs, func_addrs)?;
+                    let offset = self.eval_size_const(offset, global_addrs, func_addrs, type_addrs)?;
                     let Some(mem) = self.state.memories.get_mut(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
                     };
@@ -573,12 +410,13 @@ impl Store {
 
     /// Evaluate a constant expression that's either a i32 or a i64 as a global or a const instruction
     fn eval_size_const(
-        &self,
+        &mut self,
         const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
+        module_type_addrs: &[TypeAddr],
     ) -> Result<u64> {
-        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs)?;
+        let value = self.eval_const(const_instrs, module_global_addrs, module_func_addrs, module_type_addrs)?;
         match value {
             TinyWasmValue::Value32(i) => Ok(u64::from(i)),
             TinyWasmValue::Value64(i) => Ok(i),
@@ -589,61 +427,56 @@ impl Store {
     /// Evaluate a constant expression
     #[inline]
     fn eval_const(
-        &self,
+        &mut self,
         const_instrs: &[tinywasm_types::ConstInstruction],
         module_global_addrs: &[Addr],
         module_func_addrs: &[FuncAddr],
+        module_type_addrs: &[TypeAddr],
     ) -> Result<TinyWasmValue> {
         use tinywasm_types::ConstInstruction::*;
 
-        let resolve_global = |idx: u32| -> Result<TinyWasmValue> {
-            let Some(addr) = module_global_addrs.get(idx as usize) else {
-                cold_path();
-                return Err(Error::Other(format!(
-                    "global {idx} not found. This should have been caught by the validator"
-                )));
-            };
-
-            let Some(global) = self.state.globals.get(*addr as usize) else {
-                cold_path();
-                return Err(Error::Other(format!("global {addr} not found")));
-            };
-
-            Ok(global.value)
+        let global_value = |state: &State, index: u32| -> Result<TinyWasmValue> {
+            let addr = *module_global_addrs
+                .get(index as usize)
+                .ok_or_else(|| Error::Other(format!("global {index} not found")))?;
+            Ok(state.globals.get(addr as usize).ok_or_else(|| Error::Other(format!("global {addr} not found")))?.value)
         };
-
-        let resolve_func = |idx: u32| -> Result<u32> {
-            match module_func_addrs.get(idx as usize) {
-                Some(func_addr) => Ok(*func_addr),
-                None => {
-                    cold_path();
-                    Err(Error::Other(format!(
-                        "function {idx} not found. This should have been caught by the validator"
-                    )))
-                }
+        let func_ref = |index: u32| -> Result<ValueRef> {
+            let addr = *module_func_addrs
+                .get(index as usize)
+                .ok_or_else(|| Error::Other(format!("function {index} not found")))?;
+            Ok(ValueRef::from_category_addr(addr))
+        };
+        let type_addr = |index: TypeAddr| -> Result<TypeAddr> {
+            module_type_addrs.get(index as usize).copied().ok_or_else(|| Error::other("GC constant type not found"))
+        };
+        let pop_value = |stack: &mut Vec<TinyWasmValue>, storage: StorageType| -> Result<TinyWasmValue> {
+            let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+            match (storage, value) {
+                (StorageType::I8, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u8 as u32)),
+                (StorageType::I16, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u16 as u32)),
+                (StorageType::Value(WasmType::I32 | WasmType::F32), value @ TinyWasmValue::Value32(_))
+                | (StorageType::Value(WasmType::I64 | WasmType::F64), value @ TinyWasmValue::Value64(_))
+                | (StorageType::Value(WasmType::V128), value @ TinyWasmValue::Value128(_))
+                | (StorageType::Value(WasmType::Ref(_)), value @ TinyWasmValue::ValueRef(_)) => Ok(value),
+                _ => Err(Error::other("type mismatch in GC constant")),
             }
         };
 
-        if const_instrs.len() == 1 {
-            let val = match &const_instrs[0] {
-                F32Const(f) => (*f).into(),
-                F64Const(f) => (*f).into(),
-                I32Const(i) => (*i).into(),
-                I64Const(i) => (*i).into(),
-                V128Const(i) => (*i).into(),
-                GlobalGet(addr) => resolve_global(*addr)?,
-                Ref(tinywasm_types::RefValue::Null) => TinyWasmValue::ValueRef(ValueRef::NULL),
+        if let [instr] = const_instrs {
+            match instr {
+                I32Const(value) => return Ok(TinyWasmValue::Value32(*value as u32)),
+                I64Const(value) => return Ok(TinyWasmValue::Value64(*value as u64)),
+                F32Const(value) => return Ok(TinyWasmValue::Value32(value.to_bits())),
+                F64Const(value) => return Ok(TinyWasmValue::Value64(value.to_bits())),
+                V128Const(value) => return Ok(TinyWasmValue::Value128((*value).into())),
+                GlobalGet(index) => return global_value(&self.state, *index),
+                Ref(tinywasm_types::RefValue::Null) => return Ok(TinyWasmValue::ValueRef(ValueRef::NULL)),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?))
+                    return Ok(TinyWasmValue::ValueRef(func_ref(func.addr())?));
                 }
-                Ref(_) => return Err(Error::other("unsupported reference constant")),
-                _ => {
-                    cold_path();
-                    return Err(Error::other("unsupported const instruction"));
-                }
-            };
-
-            return Ok(val);
+                _ => {}
+            }
         }
 
         let mut stack = Vec::new();
@@ -654,14 +487,95 @@ impl Store {
                 F32Const(f) => stack.push(TinyWasmValue::Value32(f.to_bits())),
                 F64Const(f) => stack.push(TinyWasmValue::Value64(f.to_bits())),
                 V128Const(i) => stack.push(TinyWasmValue::Value128((*i).into())),
-                GlobalGet(addr) => stack.push(resolve_global(*addr)?),
+                GlobalGet(index) => stack.push(global_value(&self.state, *index)?),
                 Ref(tinywasm_types::RefValue::Null) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
                 Ref(tinywasm_types::RefValue::Func(func)) => {
-                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_raw(resolve_func(func.addr())?)))
+                    stack.push(TinyWasmValue::ValueRef(func_ref(func.addr())?))
                 }
                 Ref(_) => {
                     cold_path();
                     return Err(Error::other("unsupported reference constant"));
+                }
+                RefI31 => {
+                    let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+                    let TinyWasmValue::Value32(value) = value else {
+                        return Err(Error::other("type mismatch in const ref.i31"));
+                    };
+                    stack.push(TinyWasmValue::ValueRef(ValueRef::from_i31(value as i32)));
+                }
+                AnyConvertExtern | ExternConvertAny => {
+                    let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+                    if !matches!(value, TinyWasmValue::ValueRef(_)) {
+                        return Err(Error::other("type mismatch in const reference conversion"));
+                    }
+                    stack.push(value);
+                }
+                StructNew(type_index) | StructNewDefault(type_index) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let fields = self
+                        .state
+                        .get_type(type_addr)
+                        .as_struct()
+                        .ok_or_else(|| Error::other("GC constant type is not a struct"))?
+                        .fields
+                        .clone();
+                    let default = matches!(instr, StructNewDefault(_));
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(fields.len()).map_err(|_| Trap::OutOfMemory)?;
+                    if default {
+                        values.extend(fields.iter().map(|field| default_value(field.storage)));
+                    } else {
+                        for field in fields.iter().rev() {
+                            values.push(pop_value(&mut stack, field.storage)?);
+                        }
+                        values.reverse();
+                    }
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
+                }
+                ArrayNew(type_index) | ArrayNewDefault(type_index) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let storage = self
+                        .state
+                        .get_type(type_addr)
+                        .as_array()
+                        .ok_or_else(|| Error::other("GC constant type is not an array"))?
+                        .field
+                        .storage;
+                    let Some(TinyWasmValue::Value32(len)) = stack.pop() else {
+                        return Err(Error::other("type mismatch in const array length"));
+                    };
+                    let value = if matches!(instr, ArrayNewDefault(_)) {
+                        default_value(storage)
+                    } else {
+                        pop_value(&mut stack, storage)?
+                    };
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(len as usize).map_err(|_| Trap::OutOfMemory)?;
+                    values.resize(len as usize, value);
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
+                }
+                ArrayNewFixed(type_index, len) => {
+                    let type_addr = type_addr(*type_index)?;
+                    let storage = self
+                        .state
+                        .get_type(type_addr)
+                        .as_array()
+                        .ok_or_else(|| Error::other("GC constant type is not an array"))?
+                        .field
+                        .storage;
+                    let mut values = Vec::new();
+                    values.try_reserve_exact(*len as usize).map_err(|_| Trap::OutOfMemory)?;
+                    for _ in 0..*len {
+                        values.push(pop_value(&mut stack, storage)?);
+                    }
+                    values.reverse();
+                    let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
+                    let reference = self.state.alloc_gc_object(type_addr, values, roots)?;
+                    stack.push(TinyWasmValue::ValueRef(reference));
                 }
                 I32Add | I32Sub | I32Mul => {
                     let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;

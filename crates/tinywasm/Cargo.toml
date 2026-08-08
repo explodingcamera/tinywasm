@@ -70,7 +70,6 @@ name = "test-wasm-custom-page-sizes"
 [[test]]
 harness = false
 name = "test-wasm-function-references"
-test = false
 
 [[test]]
 harness = false
@@ -79,7 +78,6 @@ name = "test-wasm-custom"
 [[test]]
 harness = false
 name = "test-wasm-gc"
-test = false
 
 [[test]]
 harness = false

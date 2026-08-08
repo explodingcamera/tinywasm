@@ -22,9 +22,11 @@ const fn max_page_count(page_size: u64) -> u64 {
 
 mod instructions;
 mod reference;
+mod types;
 mod value;
 pub use instructions::*;
 pub use reference::*;
+pub use types::*;
 pub use value::*;
 
 #[cfg(feature = "archive")]
@@ -81,10 +83,10 @@ pub struct ModuleInner {
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
     pub funcs: Box<[Arc<WasmFunction>]>,
 
-    /// A vector of type definitions, indexed by `TypeAddr`
+    /// The dense type definitions, indexed by `TypeAddr`.
     ///
     /// Corresponds to the `type` section of the original WebAssembly module.
-    pub func_types: Box<[FuncType]>,
+    pub types: TypeSection,
 
     /// Function index to type index mapping in module index space, including imports.
     pub func_type_idxs: Box<[TypeAddr]>,
@@ -135,7 +137,7 @@ impl Module {
     pub fn imports(&self) -> impl Iterator<Item = ModuleImport<'_>> {
         self.0.imports.iter().filter_map(|import| {
             let ty = match &import.kind {
-                ImportKind::Function(type_idx) => Some(ImportType::Func(self.0.func_types.get(*type_idx as usize)?)),
+                ImportKind::Function(type_idx) => Some(ImportType::Func(self.0.types.get(*type_idx)?.as_func()?)),
                 ImportKind::Table(table_ty) => Some(ImportType::Table(table_ty)),
                 ImportKind::Memory(memory_ty) => Some(ImportType::Memory(memory_ty)),
                 ImportKind::Global(global_ty) => Some(ImportType::Global(global_ty)),
@@ -178,7 +180,7 @@ impl Module {
             let import = imports.nth(index)?;
 
             match &import.kind {
-                ImportKind::Function(type_idx) => Some(ExportType::Func(module.func_types.get(*type_idx as usize)?)),
+                ImportKind::Function(type_idx) => Some(ExportType::Func(module.types.get(*type_idx)?.as_func()?)),
                 ImportKind::Table(table_ty) => Some(ExportType::Table(table_ty)),
                 ImportKind::Memory(memory_ty) => Some(ExportType::Memory(memory_ty)),
                 ImportKind::Global(global_ty) => Some(ExportType::Global(global_ty)),
@@ -194,7 +196,7 @@ impl Module {
                         imported_type(&self.0, ExternalKind::Func, idx)?
                     } else {
                         let type_idx = *self.0.func_type_idxs.get(idx)?;
-                        ExportType::Func(self.0.func_types.get(type_idx as usize)?)
+                        ExportType::Func(self.0.types.get(type_idx)?.as_func()?)
                     }
                 }
                 ExternalKind::Table => {
@@ -357,90 +359,6 @@ impl ExternVal {
             ExternalKind::Memory => Self::Memory(addr),
             ExternalKind::Global => Self::Global(addr),
         }
-    }
-}
-
-/// The type of a WebAssembly Function.
-///
-/// See <https://webassembly.github.io/spec/core/syntax/types.html#function-types>
-#[derive(Clone, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct FuncType {
-    data: Box<[WasmType]>,
-    param_count: u16,
-}
-
-impl FuncType {
-    /// Create a new function type.
-    pub fn new(params: &[WasmType], results: &[WasmType]) -> Self {
-        let data: Box<[WasmType]> = params.iter().cloned().chain(results.iter().cloned()).collect();
-        Self { data, param_count: params.len() as u16 }
-    }
-
-    /// Get the parameter types of this function type.
-    pub fn params(&self) -> &[WasmType] {
-        &self.data[..self.param_count as usize]
-    }
-
-    /// Get the result types of this function type.
-    pub fn results(&self) -> &[WasmType] {
-        &self.data[self.param_count as usize..]
-    }
-
-    /// Compare function types while resolving concrete references in their respective type spaces.
-    pub fn equivalent(&self, types: &[FuncType], other: &Self, other_types: &[FuncType]) -> bool {
-        fn refs_equal(
-            left_types: &[FuncType],
-            left: RefType,
-            right_types: &[FuncType],
-            right: RefType,
-            visited: &mut alloc::vec::Vec<(u32, u32)>,
-        ) -> bool {
-            if left.is_nullable() != right.is_nullable() {
-                return false;
-            }
-            match (left.type_index(), right.type_index()) {
-                (Some(left_idx), Some(right_idx)) => {
-                    if visited.contains(&(left_idx, right_idx)) {
-                        return true;
-                    }
-                    let (Some(left), Some(right)) =
-                        (left_types.get(left_idx as usize), right_types.get(right_idx as usize))
-                    else {
-                        return false;
-                    };
-                    visited.push((left_idx, right_idx));
-                    funcs_equal(left, left_types, right, right_types, visited)
-                }
-                (None, None) => left.abstract_heap_type() == right.abstract_heap_type(),
-                _ => false,
-            }
-        }
-
-        fn funcs_equal(
-            left: &FuncType,
-            left_types: &[FuncType],
-            right: &FuncType,
-            right_types: &[FuncType],
-            visited: &mut alloc::vec::Vec<(u32, u32)>,
-        ) -> bool {
-            left.params().len() == right.params().len()
-                && left.results().len() == right.results().len()
-                && left.params().iter().chain(left.results()).zip(right.params().iter().chain(right.results())).all(
-                    |(&left, &right)| match (left, right) {
-                        (WasmType::Ref(left), WasmType::Ref(right)) => {
-                            refs_equal(left_types, left, right_types, right, visited)
-                        }
-                        _ => left == right,
-                    },
-                )
-        }
-
-        if core::ptr::eq(types, other_types) && self == other {
-            return true;
-        }
-        funcs_equal(self, types, other, other_types, &mut alloc::vec::Vec::new())
     }
 }
 

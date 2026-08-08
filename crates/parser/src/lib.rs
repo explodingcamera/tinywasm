@@ -174,6 +174,7 @@ impl Parser {
                 | WasmFeatures::BULK_MEMORY_OPT
                 | WasmFeatures::RELAXED_SIMD
                 | WasmFeatures::GC_TYPES
+                | WasmFeatures::GC
                 | WasmFeatures::REFERENCE_TYPES
                 | WasmFeatures::MUTABLE_GLOBAL
                 | WasmFeatures::MULTI_VALUE

@@ -21,12 +21,10 @@ categories = ["compilers", "embedded", "no-std", "virtualization", "wasm"]
 
 [workspace.dependencies]
 tinywasm = { path = "crates/tinywasm", version = "0.11.0-pre.0", default-features = false }
-tinywasm-cli = { path = "crates/cli", version = "0.11.0-pre.0", default-features = false }
 tinywasm-parser = { path = "crates/parser", version = "0.11.0-pre.0", default-features = false }
 tinywasm-types = { path = "crates/types", version = "0.11.0-pre.0", default-features = false }
 
 eyre = "0.6"
-indexmap = "2.14"
 log = "0.4"
 owo-colors = { version = "4.3" }
 pretty_env_logger = "0.5"

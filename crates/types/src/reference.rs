@@ -1,3 +1,12 @@
+const HOST_REF_TAG: u32 = 1 << 30;
+
+const fn encode_host_ref(addr: u32) -> Option<u32> {
+    if addr >= HOST_REF_TAG - 1 {
+        return None;
+    }
+    Some((addr | HOST_REF_TAG).wrapping_add(1).wrapping_mul(2))
+}
+
 /// An abstract WebAssembly heap type.
 ///
 /// This contains exactly the abstract heap types in core Wasm 3.0.
@@ -31,7 +40,8 @@ pub enum AbstractHeapType {
 /// [nullable:1 concrete:1 payload:30]
 /// ```
 ///
-/// For concrete types, `payload` is a module type index.
+/// For concrete types, `payload` is a module type index before instantiation
+/// and a canonical store type address at runtime.
 /// Otherwise, it is an [`AbstractHeapType`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -116,9 +126,7 @@ impl RefType {
 
     #[inline]
     pub const fn is_func(self) -> bool {
-        // TODO(wasm3): Classify concrete refs from the module type definition once GC types are represented.
-        self.is_concrete()
-            || matches!(self.abstract_heap_type(), Some(AbstractHeapType::Func | AbstractHeapType::NoFunc))
+        matches!(self.abstract_heap_type(), Some(AbstractHeapType::Func | AbstractHeapType::NoFunc))
     }
 
     #[inline]
@@ -132,6 +140,7 @@ impl RefType {
     }
 }
 
+/// A host-facing WebAssembly reference value.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -143,19 +152,9 @@ pub enum RefValue {
     Exn(ExnRef),
 }
 
-impl RefValue {
-    /// Return the reference's raw representation, or `None` for null.
-    pub const fn raw(self) -> Option<u32> {
-        match self {
-            Self::Null => None,
-            Self::Func(value) => Some(value.addr()),
-            Self::Extern(value) => Some(value.addr()),
-            Self::Any(value) => Some(value.raw()),
-            Self::Exn(value) => Some(value.addr()),
-        }
-    }
-}
-
+/// A reference to a function in a store.
+///
+/// The payload is the function's store-local address.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -173,6 +172,11 @@ impl FuncRef {
     }
 }
 
+/// An opaque external reference.
+///
+/// Packed as `[payload:31 i31:1]`. Host addresses use the upper payload
+/// category, Store-managed objects use the lower category, and odd values
+/// contain an externalized i31.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -181,15 +185,35 @@ pub struct ExternRef(u32);
 impl ExternRef {
     #[inline]
     pub const fn new(addr: u32) -> Self {
-        Self(addr)
+        let Some(value) = Self::try_new(addr) else { panic!("external reference address is too large") };
+        value
     }
 
+    /// Creates an external reference when `addr` fits the runtime encoding.
     #[inline]
-    pub const fn addr(self) -> u32 {
+    pub const fn try_new(addr: u32) -> Option<Self> {
+        match encode_host_ref(addr) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub const fn raw(self) -> u32 {
         self.0
     }
 }
 
+/// A reference to an exception in a store.
+///
+/// The payload is the exception's store-local address.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -207,14 +231,30 @@ impl ExnRef {
     }
 }
 
+/// A WebAssembly `anyref` value.
+///
+/// Packed as:
+///
+/// ```text
+/// [payload:31 i31:1]
+/// ```
+///
+/// Odd values contain an inline signed i31. Non-zero even values are reserved
+/// for store-managed references, and zero is reserved for null by the runtime.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnyRef(u32);
 
 impl AnyRef {
-    // Odd values are inline i31s.
-    // Even values are GC object handles.
+    /// Creates a host reference when `addr` fits the runtime encoding.
+    #[inline]
+    pub const fn from_host(addr: u32) -> Option<Self> {
+        match encode_host_ref(addr) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
 
     #[doc(hidden)]
     #[inline]
@@ -234,22 +274,21 @@ impl AnyRef {
         if self.0 & 1 == 1 { Some((self.0 as i32) >> 1) } else { None }
     }
 
-    pub const fn from_gc_addr(addr: u32) -> Option<Self> {
-        match addr.checked_add(1) {
-            Some(raw) => match raw.checked_mul(2) {
-                Some(raw) => Some(Self(raw)),
-                None => None,
-            },
-            None => None,
-        }
-    }
-
-    pub const fn gc_addr(self) -> Option<u32> {
-        if self.0 != 0 && self.0 & 1 == 0 { Some(self.0 / 2 - 1) } else { None }
-    }
-
     #[inline]
     pub const fn raw(self) -> u32 {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_reference_encoding_is_checked_and_unique() {
+        assert_ne!(AnyRef::from_host(0), AnyRef::from_host(1));
+        assert!(AnyRef::from_host(HOST_REF_TAG - 2).is_some());
+        assert!(AnyRef::from_host(HOST_REF_TAG - 1).is_none());
+        assert!(ExternRef::try_new(u32::MAX).is_none());
     }
 }

@@ -37,6 +37,27 @@ pub(crate) mod visit {
             $(lowering_ops!(@effect $inputs => $outputs $visit);)*
             lowering_ops!($($rest)*);
         };
+        (unsupported $args:tt { $($visit:ident),* $(,)? } $($rest:tt)*) => {
+            $(lowering_ops!(@unsupported $args $visit);)*
+            lowering_ops!($($rest)*);
+        };
+        (heap $nullable:literal $inputs:tt => $outputs:tt {
+            $($visit:ident => $instr:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self, heap_type: wasmparser::HeapType) -> Self::Output {
+                    let ty = convert_heap_type(heap_type, $nullable)?;
+                    lowering_ops!(@emit self fixed $inputs => $outputs Instruction::$instr(ty))
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+
+        (@unsupported [$($argty:ty),*] $visit:ident) => {
+            fn $visit(&mut self $(, _: $argty)*) -> Self::Output {
+                Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
+            }
+        };
 
         (@fixed [$($input:ident),*] => [$($output:ident),*]
             $visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident
@@ -63,6 +84,15 @@ pub(crate) mod visit {
         };
         (@table $inputs:tt => $outputs:tt $($operator:tt)*) => {
             lowering_ops!(@resolved table_size $inputs => $outputs $($operator)*);
+        };
+        (@array_field [$($input:ident),*] => [$($output:ident),*]
+            $visit:ident($type_index:ident: $type_ty:ty $(, $arg:ident: $arg_ty:ty)*) => $instr:ident
+        ) => {
+            fn $visit(&mut self, $type_index: $type_ty $(, $arg: $arg_ty)*) -> Self::Output {
+                let size = ModuleMetadata::storage_size(self.metadata.array_field($type_index)?.storage);
+                lowering_ops!(@emit self address(size) [$($input),*] => [$($output),*]
+                    Instruction::$instr($type_index $(, $arg)*).into())
+            }
         };
         (@resolved $resolver:ident [$($input:ident),*] => [$($output:ident),*]
             $visit:ident($index:ident: $ty:ty) => $instr:ident
@@ -110,6 +140,7 @@ pub(crate) mod visit {
         };
 
         (@size Addr, $address:ident) => { $address };
+        (@size Field, $address:ident) => { $address };
         (@size $size:ident $(, $address:ident)?) => { OperandSize::$size };
     }
 
@@ -128,6 +159,7 @@ pub(crate) mod visit {
         (@@relaxed_simd $($rest:tt)* ) => {};
         (@@tail_call $($rest:tt)* ) => {};
         (@@function_references $($rest:tt)* ) => {};
+        (@@gc $($rest:tt)* ) => {};
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {

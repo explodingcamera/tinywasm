@@ -2,8 +2,8 @@ use crate::{Result, conversion::convert_heap_type, macros::visit::*};
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    FuncType, Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, TableDefinition, ValueCounts,
-    WasmFunctionData, WasmType,
+    Global, Import, ImportKind, Instruction, MemoryArch, MemoryArg, MemoryType, StorageType, SubType, TableDefinition,
+    TypeSection, ValueCounts, WasmFunctionData, WasmType,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -85,11 +85,12 @@ pub(crate) struct Signature {
 }
 
 pub(crate) struct ModuleMetadata {
-    signatures: Vec<Signature>,
+    signatures: Vec<Option<Signature>>,
     functions: Vec<u32>,
     globals: Vec<OperandSize>,
     memories: Vec<OperandSize>,
     tables: Vec<OperandSize>,
+    types: Vec<SubType>,
 }
 
 #[derive(Default)]
@@ -140,6 +141,16 @@ impl<'a> FunctionBuilder<'a> {
             lane_counts: ValueCounts::default(),
         }
     }
+
+    fn visit_struct_get_impl(
+        &mut self,
+        type_index: u32,
+        field_index: u32,
+        instruction: fn(u32, u32) -> Instruction,
+    ) -> Result<()> {
+        let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
+        self.emit(&[OperandSize::S32], &[size], instruction(type_index, field_index))
+    }
 }
 
 #[cfg(feature = "validate")]
@@ -151,7 +162,7 @@ struct ValidateThenVisit<'a, 'm> {
 
 impl ModuleMetadata {
     pub(crate) fn new(
-        types: &[FuncType],
+        types: &TypeSection,
         code_type_addrs: &[u32],
         imports: &[Import],
         globals: &[Global],
@@ -178,19 +189,30 @@ impl ModuleMetadata {
         table_sizes.extend(tables.iter().map(|table| OperandSize::from(table.ty.arch())));
 
         let signatures = types
+            .types
             .iter()
-            .map(|ty| Signature {
-                params: ty.params().iter().map(OperandSize::from).collect(),
-                results: ty.results().iter().map(OperandSize::from).collect(),
+            .map(|ty| {
+                ty.as_func().map(|ty| Signature {
+                    params: ty.params().iter().map(OperandSize::from).collect(),
+                    results: ty.results().iter().map(OperandSize::from).collect(),
+                })
             })
             .collect();
-        Self { signatures, functions, globals: global_sizes, memories: memory_sizes, tables: table_sizes }
+        Self {
+            signatures,
+            functions,
+            globals: global_sizes,
+            memories: memory_sizes,
+            tables: table_sizes,
+            types: types.types.to_vec(),
+        }
     }
 
     pub(crate) fn signature(&self, idx: u32) -> Result<&Signature> {
         self.signatures
             .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index out of bounds: {idx}")))
+            .and_then(Option::as_ref)
+            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a function type: {idx}")))
     }
 
     fn function_signature(&self, idx: u32) -> Result<&Signature> {
@@ -218,6 +240,36 @@ impl ModuleMetadata {
             .get(idx as usize)
             .copied()
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("{entity} index out of bounds: {idx}")))
+    }
+
+    fn storage_size(storage: StorageType) -> OperandSize {
+        match storage {
+            StorageType::I8 | StorageType::I16 => OperandSize::S32,
+            StorageType::Value(ref ty) => OperandSize::from(ty),
+        }
+    }
+
+    fn struct_fields(&self, idx: u32) -> Result<&[tinywasm_types::FieldType]> {
+        self.types
+            .get(idx as usize)
+            .and_then(SubType::as_struct)
+            .map(|ty| ty.fields.as_ref())
+            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a struct type: {idx}")))
+    }
+
+    fn struct_field(&self, type_index: u32, field_index: u32) -> Result<tinywasm_types::FieldType> {
+        self.struct_fields(type_index)?
+            .get(field_index as usize)
+            .copied()
+            .ok_or_else(|| crate::ParseError::Other("struct field index out of bounds".into()))
+    }
+
+    fn array_field(&self, idx: u32) -> Result<tinywasm_types::FieldType> {
+        self.types
+            .get(idx as usize)
+            .and_then(SubType::as_array)
+            .map(|ty| ty.field)
+            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not an array type: {idx}")))
     }
 }
 
@@ -339,8 +391,17 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         fixed [] => [] { visit_data_drop(segment: u32) => DataDrop, visit_elem_drop(segment: u32) => ElemDrop }
         fixed [] => [S32] { visit_i32_const(value: i32) => Const32, visit_ref_func(function: u32) => RefFunc }
         fixed [] => [S64] { visit_i64_const(value: i64) => Const64 }
+        heap false [] => [S32] { visit_ref_null => RefNull }
+        heap false [S32] => [S32] {
+            visit_ref_test_non_null => RefTest, visit_ref_cast_non_null => RefCast,
+        }
+        heap true [S32] => [S32] {
+            visit_ref_test_nullable => RefTest, visit_ref_cast_nullable => RefCast,
+        }
         fixed [S32] => [S32] {
-            visit_i32_eqz => I32Eqz, visit_ref_is_null => RefIsNull, visit_i32_clz => I32Clz,
+            visit_ref_is_null => RefIsNull, visit_ref_as_non_null => RefAsNonNull, visit_ref_i31 => RefI31,
+            visit_i31_get_s => I31GetS, visit_i31_get_u => I31GetU,
+            visit_i32_eqz => I32Eqz, visit_i32_clz => I32Clz,
             visit_i32_ctz => I32Ctz, visit_i32_popcnt => I32Popcnt, visit_i32_extend8_s => I32Extend8S,
             visit_i32_extend16_s => I32Extend16S, visit_i32_trunc_f32_s => I32TruncF32S,
             visit_i32_trunc_f32_u => I32TruncF32U, visit_f32_convert_i32_s => F32ConvertI32S,
@@ -349,6 +410,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_f32_ceil => F32Ceil, visit_f32_floor => F32Floor, visit_f32_trunc => F32Trunc,
             visit_f32_nearest => F32Nearest, visit_f32_sqrt => F32Sqrt,
         }
+        effect [S32] => [S32] { visit_any_convert_extern, visit_extern_convert_any }
         fixed [S64] => [S64] {
             visit_i64_clz => I64Clz, visit_i64_ctz => I64Ctz, visit_i64_popcnt => I64Popcnt,
             visit_i64_extend8_s => I64Extend8S, visit_i64_extend16_s => I64Extend16S,
@@ -373,7 +435,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i64_trunc_sat_f32_u => I64TruncSatF32U,
         }
         fixed [S32, S32] => [S32] {
-            visit_i32_eq => I32Eq, visit_i32_ne => I32Ne, visit_i32_lt_s => I32LtS, visit_i32_lt_u => I32LtU,
+            visit_ref_eq => RefEq, visit_i32_eq => I32Eq, visit_i32_ne => I32Ne,
+            visit_i32_lt_s => I32LtS, visit_i32_lt_u => I32LtU,
             visit_i32_gt_s => I32GtS, visit_i32_gt_u => I32GtU, visit_i32_le_s => I32LeS,
             visit_i32_le_u => I32LeU, visit_i32_ge_s => I32GeS, visit_i32_ge_u => I32GeU,
             visit_f32_eq => F32Eq, visit_f32_ne => F32Ne, visit_f32_lt => F32Lt, visit_f32_gt => F32Gt,
@@ -420,6 +483,65 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         table [S32, Addr] => [Addr] { visit_table_grow(table: u32) => TableGrow }
         table [Addr, S32, Addr] => [] { visit_table_fill(table: u32) => TableFill }
         table [Addr, S32, S32] => [] { visit_table_init(elem_index: u32, table: u32) => TableInit }
+        fixed [] => [S32] { visit_struct_new_default(type_index: u32) => StructNewDefault }
+        fixed [S32] => [S32] {
+            visit_array_new_default(type_index: u32) => ArrayNewDefault, visit_array_len => ArrayLen,
+        }
+        fixed [S32, S32] => [S32] {
+            visit_array_new_data(type_index: u32, data_index: u32) => ArrayNewData,
+            visit_array_new_elem(type_index: u32, elem_index: u32) => ArrayNewElem,
+        }
+        fixed [S32, S32, S32, S32] => [] {
+            visit_array_init_data(type_index: u32, data_index: u32) => ArrayInitData,
+            visit_array_init_elem(type_index: u32, elem_index: u32) => ArrayInitElem,
+        }
+        fixed [S32, S32, S32, S32, S32] => [] {
+            visit_array_copy(type_index_dst: u32, type_index_src: u32) => ArrayCopy,
+        }
+        array_field [Field, S32] => [S32] { visit_array_new(type_index: u32) => ArrayNew }
+        array_field [S32, S32] => [Field] {
+            visit_array_get(type_index: u32) => ArrayGet, visit_array_get_s(type_index: u32) => ArrayGetS,
+            visit_array_get_u(type_index: u32) => ArrayGetU,
+        }
+        array_field [S32, S32, Field] => [] { visit_array_set(type_index: u32) => ArraySet }
+        array_field [S32, S32, Field, S32] => [] { visit_array_fill(type_index: u32) => ArrayFill }
+    }
+
+    fn visit_struct_new(&mut self, type_index: u32) -> Self::Output {
+        let inputs = self
+            .metadata
+            .struct_fields(type_index)?
+            .iter()
+            .map(|field| ModuleMetadata::storage_size(field.storage))
+            .collect::<Vec<_>>();
+        self.emit(&inputs, &[OperandSize::S32], Instruction::StructNew(type_index))
+    }
+
+    fn visit_struct_get(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+        self.visit_struct_get_impl(type_index, field_index, Instruction::StructGet)
+    }
+
+    fn visit_struct_get_s(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+        self.visit_struct_get_impl(type_index, field_index, Instruction::StructGetS)
+    }
+
+    fn visit_struct_get_u(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+        self.visit_struct_get_impl(type_index, field_index, Instruction::StructGetU)
+    }
+
+    fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+        let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
+        self.emit(&[OperandSize::S32, size], &[], Instruction::StructSet(type_index, field_index))
+    }
+
+    fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Self::Output {
+        let size = ModuleMetadata::storage_size(self.metadata.array_field(type_index)?.storage);
+        for _ in 0..array_size {
+            self.pop_expect(size)?;
+        }
+        self.push_sizes(&[OperandSize::S32])?;
+        self.instructions.push(Instruction::ArrayNewFixed(type_index, array_size));
+        Ok(())
     }
 
     fn visit_call(&mut self, function_index: u32) -> Self::Output {
@@ -718,14 +840,22 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy { dst_mem, src_mem })
     }
 
-    // Reference Types
-    fn visit_ref_null(&mut self, ty: wasmparser::HeapType) -> Self::Output {
-        let instruction = Instruction::RefNull(convert_heap_type(ty, false)?);
-        self.emit(&[], &[OperandSize::S32], instruction)
+    fn visit_br_on_cast(
+        &mut self,
+        relative_depth: u32,
+        _from_ref_type: wasmparser::RefType,
+        to_ref_type: wasmparser::RefType,
+    ) -> Self::Output {
+        self.emit_cast_branch(relative_depth, to_ref_type, false)
     }
 
-    fn visit_ref_as_non_null(&mut self) -> Self::Output {
-        self.emit(&[OperandSize::S32], &[OperandSize::S32], Instruction::RefAsNonNull)
+    fn visit_br_on_cast_fail(
+        &mut self,
+        relative_depth: u32,
+        _from_ref_type: wasmparser::RefType,
+        to_ref_type: wasmparser::RefType,
+    ) -> Self::Output {
+        self.emit_cast_branch(relative_depth, to_ref_type, true)
     }
 
     fn visit_br_on_null(&mut self, relative_depth: u32) -> Self::Output {
@@ -971,6 +1101,23 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
 }
 
 impl FunctionBuilder<'_> {
+    fn emit_cast_branch(
+        &mut self,
+        relative_depth: u32,
+        target: wasmparser::RefType,
+        branch_on_fail: bool,
+    ) -> Result<()> {
+        self.pop_expect(OperandSize::S32)?;
+        let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
+        let conditional_ip = self.instructions.len();
+        self.instructions.push(Instruction::BrOnCast(0, target, branch_on_fail));
+        self.push_sizes(&[OperandSize::S32])?;
+        self.emit_dropkeep_to_label(relative_depth)?;
+        self.emit_branch_jump_or_return(relative_depth)?;
+        self.patch_jump(conditional_ip, self.instructions.len());
+        Ok(())
+    }
+
     fn is_unreachable(&self) -> bool {
         self.control_stack.last().is_none_or(|frame| frame.unreachable)
     }
@@ -1108,7 +1255,8 @@ impl FunctionBuilder<'_> {
             | Instruction::JumpIfZero32(ip)
             | Instruction::JumpIfNonZero32(ip)
             | Instruction::JumpIfRefNull(ip)
-            | Instruction::JumpIfRefNonNull(ip) => {
+            | Instruction::JumpIfRefNonNull(ip)
+            | Instruction::BrOnCast(ip, _, _) => {
                 *ip = target as u32;
             }
             _ => {}

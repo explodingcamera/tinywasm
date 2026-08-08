@@ -2,9 +2,9 @@ use crate::validation::{FuncValidator, FuncValidatorAllocations, ValidatorResour
 #[cfg(feature = "validate")]
 use crate::visit::process_operators_and_validate;
 use crate::{Result, module::FunctionCode, visit::process_operators};
-use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::*;
-use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations};
+use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations, UnpackedIndex};
 
 pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
@@ -208,25 +208,77 @@ pub(crate) fn convert_module_code(
     ))
 }
 
-pub(crate) fn convert_module_type(ty: wasmparser::RecGroup) -> Result<FuncType> {
-    let mut types = ty.types();
-    // TODO(wasm3): Preserve recursive groups and non-function composite types instead of flattening singleton funcs.
-    if types.len() != 1 {
-        return Err(crate::ParseError::UnsupportedOperator(
-            "Expected exactly one type in the type section".to_string(),
-        ));
-    }
+pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, types: &mut Vec<SubType>) -> Result<u32> {
+    let group_len = u32::try_from(ty.types().len())
+        .map_err(|_| crate::ParseError::Other("recursive type group is too large".into()))?;
+    types.reserve(group_len as usize);
+    for ty in ty.into_types() {
+        let composite = &ty.composite_type;
+        if composite.shared {
+            return Err(crate::ParseError::UnsupportedOperator("shared composite types are unsupported".into()));
+        }
+        if composite.descriptor_idx.is_some() || composite.describes_idx.is_some() {
+            return Err(crate::ParseError::UnsupportedOperator("descriptor types are unsupported".into()));
+        }
 
-    let ty = types.next().unwrap();
-    let CompositeInnerType::Func(ty) = &ty.composite_type.inner else {
-        return Err(crate::ParseError::UnsupportedOperator(format!(
-            "Unsupported non-function type in type section: {}",
-            ty.composite_type
-        )));
+        let supertype =
+            ty.supertype_idx.map(|idx| convert_type_index(idx.unpack(), group_start, group_len)).transpose()?;
+        let composite = match &composite.inner {
+            CompositeInnerType::Func(ty) => {
+                let params = ty
+                    .params()
+                    .iter()
+                    .map(|ty| convert_valtype_in_group(ty, group_start, group_len))
+                    .collect::<Result<Vec<_>>>()?;
+                let results = ty
+                    .results()
+                    .iter()
+                    .map(|ty| convert_valtype_in_group(ty, group_start, group_len))
+                    .collect::<Result<Vec<_>>>()?;
+                CompositeType::Func(FuncType::new(&params, &results))
+            }
+            CompositeInnerType::Struct(ty) => CompositeType::Struct(StructType {
+                fields: ty
+                    .fields
+                    .iter()
+                    .map(|field| convert_field_type(field, group_start, group_len))
+                    .collect::<Result<_>>()?,
+            }),
+            CompositeInnerType::Array(ty) => {
+                CompositeType::Array(ArrayType { field: convert_field_type(&ty.0, group_start, group_len)? })
+            }
+            CompositeInnerType::Cont(_) => {
+                return Err(crate::ParseError::UnsupportedOperator("continuation types are unsupported".into()));
+            }
+        };
+        types.push(SubType { is_final: ty.is_final, supertype, composite });
+    }
+    Ok(group_len)
+}
+
+fn convert_type_index(index: UnpackedIndex, group_start: u32, group_len: u32) -> Result<TypeAddr> {
+    match index {
+        UnpackedIndex::Module(index) => Ok(index),
+        UnpackedIndex::RecGroup(index) if index < group_len => {
+            group_start.checked_add(index).ok_or_else(|| crate::ParseError::Other("type index is too large".into()))
+        }
+        UnpackedIndex::RecGroup(index) => {
+            Err(crate::ParseError::Other(format!("recursive group type index out of bounds: {index}")))
+        }
+        #[cfg(feature = "validate")]
+        UnpackedIndex::Id(_) => {
+            Err(crate::ParseError::UnsupportedOperator(format!("unsupported canonical type index: {index}")))
+        }
+    }
+}
+
+fn convert_field_type(field: &wasmparser::FieldType, group_start: u32, group_len: u32) -> Result<FieldType> {
+    let storage = match &field.element_type {
+        wasmparser::StorageType::I8 => StorageType::I8,
+        wasmparser::StorageType::I16 => StorageType::I16,
+        wasmparser::StorageType::Val(ty) => StorageType::Value(convert_valtype_in_group(ty, group_start, group_len)?),
     };
-    let params = ty.params().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
-    let results = ty.results().iter().map(convert_valtype).collect::<Result<Vec<_>>>()?;
-    Ok(FuncType::new(&params, &results))
+    Ok(FieldType { storage, mutable: field.mutable })
 }
 
 pub(crate) fn convert_ref_type(ty: wasmparser::RefType) -> Result<RefType> {
@@ -234,13 +286,23 @@ pub(crate) fn convert_ref_type(ty: wasmparser::RefType) -> Result<RefType> {
 }
 
 pub(crate) fn convert_valtype(valtype: &wasmparser::ValType) -> Result<WasmType> {
+    convert_valtype_with_group(valtype, None)
+}
+
+fn convert_valtype_in_group(valtype: &wasmparser::ValType, group_start: u32, group_len: u32) -> Result<WasmType> {
+    convert_valtype_with_group(valtype, Some((group_start, group_len)))
+}
+
+fn convert_valtype_with_group(valtype: &wasmparser::ValType, group: Option<(u32, u32)>) -> Result<WasmType> {
     match valtype {
         wasmparser::ValType::I32 => Ok(WasmType::I32),
         wasmparser::ValType::I64 => Ok(WasmType::I64),
         wasmparser::ValType::F32 => Ok(WasmType::F32),
         wasmparser::ValType::F64 => Ok(WasmType::F64),
         wasmparser::ValType::V128 => Ok(WasmType::V128),
-        wasmparser::ValType::Ref(r) => Ok(WasmType::Ref(convert_ref_type(*r)?)),
+        wasmparser::ValType::Ref(r) => {
+            Ok(WasmType::Ref(convert_heap_type_with_group(r.heap_type(), r.is_nullable(), group)?))
+        }
     }
 }
 
@@ -264,6 +326,20 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             }
             wasmparser::Operator::RefFunc { function_index } => {
                 ConstInstruction::Ref(RefValue::Func(FuncRef::new(function_index)))
+            }
+            wasmparser::Operator::RefI31 => ConstInstruction::RefI31,
+            wasmparser::Operator::AnyConvertExtern => ConstInstruction::AnyConvertExtern,
+            wasmparser::Operator::ExternConvertAny => ConstInstruction::ExternConvertAny,
+            wasmparser::Operator::StructNew { struct_type_index } => ConstInstruction::StructNew(struct_type_index),
+            wasmparser::Operator::StructNewDefault { struct_type_index } => {
+                ConstInstruction::StructNewDefault(struct_type_index)
+            }
+            wasmparser::Operator::ArrayNew { array_type_index } => ConstInstruction::ArrayNew(array_type_index),
+            wasmparser::Operator::ArrayNewDefault { array_type_index } => {
+                ConstInstruction::ArrayNewDefault(array_type_index)
+            }
+            wasmparser::Operator::ArrayNewFixed { array_type_index, array_size } => {
+                ConstInstruction::ArrayNewFixed(array_type_index, array_size)
             }
             wasmparser::Operator::I32Const { value } => ConstInstruction::I32Const(value),
             wasmparser::Operator::I64Const { value } => ConstInstruction::I64Const(value),
@@ -294,6 +370,14 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
 }
 
 pub(crate) fn convert_heap_type(heap: wasmparser::HeapType, nullable: bool) -> Result<RefType> {
+    convert_heap_type_with_group(heap, nullable, None)
+}
+
+fn convert_heap_type_with_group(
+    heap: wasmparser::HeapType,
+    nullable: bool,
+    group: Option<(u32, u32)>,
+) -> Result<RefType> {
     match heap {
         wasmparser::HeapType::Abstract { shared: false, ty } => Ok(RefType::new_abstract(
             nullable,
@@ -316,9 +400,23 @@ pub(crate) fn convert_heap_type(heap: wasmparser::HeapType, nullable: bool) -> R
             },
         )),
         wasmparser::HeapType::Concrete(index) => {
-            let index = index.as_module_index().ok_or_else(|| {
-                crate::ParseError::UnsupportedOperator(format!("Unsupported non-module heap type index: {index:?}"))
-            })?;
+            let index = match index {
+                UnpackedIndex::Module(index) => index,
+                index @ UnpackedIndex::RecGroup(_) => {
+                    let (group_start, group_len) = group.ok_or_else(|| {
+                        crate::ParseError::UnsupportedOperator(format!(
+                            "recursive-group heap type outside a type group: {index}"
+                        ))
+                    })?;
+                    convert_type_index(index, group_start, group_len)?
+                }
+                #[cfg(feature = "validate")]
+                index @ UnpackedIndex::Id(_) => {
+                    return Err(crate::ParseError::UnsupportedOperator(format!(
+                        "unsupported canonical heap type index: {index}"
+                    )));
+                }
+            };
             RefType::new_concrete(nullable, index)
                 .ok_or_else(|| crate::ParseError::Other(format!("heap type index is too large: {index}")))
         }

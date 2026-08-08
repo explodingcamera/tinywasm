@@ -57,7 +57,7 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`[^libm], making it usable in `no_std + alloc` environments.
 
-Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, memory backend selection, or trap-on-OOM behavior.
+Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, memory backend selection, the GC collection threshold, or trap-on-OOM behavior.
 
 [^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for floating-point math support in `no_std`.
 
@@ -75,27 +75,31 @@ The internal `twasm` bytecode format is not currently validated as an untrusted 
 
 ## Supported Proposals
 
-| Proposal                                                                                                                                | Status | `tinywasm` Version |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------------------ |
-| [**Multi-value**](https://github.com/WebAssembly/spec/blob/master/proposals/multi-value/Overview.md)                                    | 🟢     | 0.2.0              |
-| [**Mutable Globals**](https://github.com/WebAssembly/mutable-global/blob/master/proposals/mutable-global/Overview.md)                   | 🟢     | 0.2.0              |
-| [**Non-trapping float-to-int Conversion**](https://github.com/WebAssembly/nontrapping-float-to-int-conversions)                         | 🟢     | 0.2.0              |
-| [**Sign-extension operators**](https://github.com/WebAssembly/sign-extension-ops)                                                       | 🟢     | 0.2.0              |
-| [**Bulk Memory Operations**](https://github.com/WebAssembly/spec/blob/master/proposals/bulk-memory-operations/Overview.md)              | 🟢     | 0.4.0              |
-| [**Reference Types**](https://github.com/WebAssembly/reference-types/blob/master/proposals/reference-types/Overview.md)                 | 🟢     | 0.7.0              |
-| [**Multi-memory**](https://github.com/WebAssembly/multi-memory/blob/master/proposals/multi-memory/Overview.md)                          | 🟢     | 0.8.0              |
-| [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes/blob/main/proposals/custom-page-sizes/Overview.md)             | 🟢     | 0.9.0              |
-| [**Extended Const**](https://github.com/WebAssembly/extended-const/blob/main/proposals/extended-const/Overview.md)                      | 🟢     | 0.9.0              |
-| [**Fixed-Width SIMD**](https://github.com/WebAssembly/simd/blob/main/proposals/simd/Overview.md)                                        | 🟢     | 0.9.0              |
-| [**Memory64**](https://github.com/WebAssembly/memory64/blob/master/proposals/memory64/Overview.md)                                      | 🟢     | 0.9.0              |
-| [**Tail Call**](https://github.com/WebAssembly/tail-call/blob/main/proposals/tail-call/Overview.md)                                     | 🟢     | 0.9.0              |
-| [**Relaxed SIMD**](https://github.com/WebAssembly/relaxed-simd/blob/main/proposals/relaxed-simd/Overview.md)                            | 🟢     | 0.9.0              |
-| [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic/blob/main/proposals/wide-arithmetic/Overview.md)                   | 🟢     | 0.9.0              |
-| [**Typed Function References**](https://github.com/WebAssembly/function-references/blob/main/proposals/function-references/Overview.md) | 🚧     | `next`             |
-| [**Exception Handling**](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md)        | 🌑     | -                  |
-| [**Garbage Collection**](https://github.com/WebAssembly/gc/blob/main/proposals/gc/Overview.md)                                          | 🌑     | -                  |
-| [**Stack Switching**](https://github.com/WebAssembly/stack-switching/blob/main/proposals/stack-switching/Explainer.md)                  | 🌑     | -                  |
-| [**Threads**](https://github.com/WebAssembly/threads/blob/main-legacy/proposals/threads/Overview.md)                                    | 🌑     | -                  |
+TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.com/WebAssembly/proposals). JavaScript integrations and optional embedding or tooling APIs are not included here.
+
+| Proposal                                                                                                         | Status | `tinywasm` Version |
+| ---------------------------------------------------------------------------------------------------------------- | ------ | ------------------ |
+| [**Import/Export of Mutable Globals**](https://github.com/WebAssembly/mutable-global)                            | 🟢     | 0.2.0              |
+| [**Multi-value**](https://github.com/WebAssembly/multi-value)                                                    | 🟢     | 0.2.0              |
+| [**Non-trapping Float-to-int Conversions**](https://github.com/WebAssembly/nontrapping-float-to-int-conversions) | 🟢     | 0.2.0              |
+| [**Sign-extension Operators**](https://github.com/WebAssembly/sign-extension-ops)                                | 🟢     | 0.2.0              |
+| [**Bulk Memory Operations**](https://github.com/WebAssembly/bulk-memory-operations)                              | 🟢     | 0.4.0              |
+| [**Reference Types**](https://github.com/WebAssembly/reference-types)                                            | 🟢     | 0.7.0              |
+| [**Fixed-width SIMD**](https://github.com/WebAssembly/simd)                                                      | 🟢     | 0.9.0              |
+| [**Tail Calls**](https://github.com/WebAssembly/tail-call)                                                       | 🟢     | 0.9.0              |
+| [**Extended Constant Expressions**](https://github.com/WebAssembly/extended-const)                               | 🟢     | 0.9.0              |
+| [**Multiple Memories**](https://github.com/WebAssembly/multi-memory)                                             | 🟢     | 0.8.0              |
+| [**Relaxed SIMD**](https://github.com/WebAssembly/relaxed-simd)                                                  | 🟢     | 0.9.0              |
+| [**Custom Annotation Syntax**](https://github.com/WebAssembly/annotations)                                       | 🟢     | 0.8.0              |
+| [**Memory64**](https://github.com/WebAssembly/memory64)                                                          | 🟢     | 0.9.0              |
+| [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic)                                            | 🟢     | 0.9.0              |
+| [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes)                                        | 🟢     | 0.9.0              |
+| [**Typed Function References**](https://github.com/WebAssembly/function-references)                              | 🟢     | `next`             |
+| [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | `next`             |
+| [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🌑     | -                  |
+| [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
+| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🌑     | -                  |
+| [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |
 
 **Legend**\
 🌑 -- not available\

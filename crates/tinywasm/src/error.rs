@@ -133,6 +133,9 @@ pub enum Trap {
         max: usize,
     },
 
+    /// An out-of-bounds GC array access occurred.
+    ArrayOutOfBounds,
+
     /// A division by zero occurred
     DivisionByZero,
 
@@ -169,8 +172,20 @@ pub enum Trap {
     /// A null reference was used where a non-null reference was required.
     NullReference,
 
+    /// A null struct reference was dereferenced.
+    NullStructReference,
+
+    /// A null array reference was dereferenced.
+    NullArrayReference,
+
     /// A null function reference was called.
     NullFunctionReference,
+
+    /// A null i31 reference was unwrapped.
+    NullI31Reference,
+
+    /// A reference cast failed.
+    CastFailure,
 
     /// Indirect call type mismatch
     IndirectCallTypeMismatch {
@@ -191,6 +206,7 @@ impl Trap {
             Self::Unreachable => "unreachable",
             Self::MemoryOutOfBounds { .. } => "out of bounds memory access",
             Self::TableOutOfBounds { .. } => "out of bounds table access",
+            Self::ArrayOutOfBounds => "out of bounds array access",
             Self::DivisionByZero => "integer divide by zero",
             Self::InvalidConversionToInt => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
@@ -200,7 +216,11 @@ impl Trap {
             Self::UndefinedElement { .. } => "undefined element",
             Self::UninitializedElement { .. } => "uninitialized element",
             Self::NullReference => "null reference",
+            Self::NullStructReference => "null structure reference",
+            Self::NullArrayReference => "null array reference",
             Self::NullFunctionReference => "null function reference",
+            Self::NullI31Reference => "null i31 reference",
+            Self::CastFailure => "cast failure",
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
             Self::InvalidStore => "invalid store",
@@ -291,6 +311,7 @@ impl Display for Trap {
             Self::TableOutOfBounds { offset, len, max } => {
                 write!(f, "out of bounds table access: offset={offset}, len={len}, max={max}")
             }
+            Self::ArrayOutOfBounds => write!(f, "out of bounds array access"),
             Self::DivisionByZero => write!(f, "integer divide by zero"),
             Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
             Self::IntegerOverflow => write!(f, "integer overflow"),
@@ -302,7 +323,11 @@ impl Display for Trap {
                 write!(f, "uninitialized element: index={index}")
             }
             Self::NullReference => write!(f, "null reference"),
+            Self::NullStructReference => write!(f, "null structure reference"),
+            Self::NullArrayReference => write!(f, "null array reference"),
             Self::NullFunctionReference => write!(f, "null function reference"),
+            Self::NullI31Reference => write!(f, "null i31 reference"),
+            Self::CastFailure => write!(f, "cast failure"),
             Self::InvalidStore => write!(f, "invalid store"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {
