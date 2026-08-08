@@ -5,7 +5,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::interpreter::TinyWasmValue;
+use crate::interpreter::ValueRef;
 use crate::store::TableInstance;
 use crate::{Error, MemoryInstance, Result, Store, Trap};
 use tinywasm_types::{Addr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
@@ -347,13 +347,14 @@ fn table_value_to_element(
     state: &crate::store::State,
     element_type: tinywasm_types::RefType,
     value: WasmValue,
-) -> Result<crate::interpreter::ValueRef, Trap> {
-    if !state.value_matches_type(value, WasmType::Ref(element_type)) {
+) -> Result<ValueRef, Trap> {
+    let WasmValue::Ref(value) = value else {
+        return Err(Trap::Other("invalid table value type"));
+    };
+    if !state.value_matches_type(WasmValue::Ref(value), WasmType::Ref(element_type)) {
         return Err(Trap::Other("invalid table value type"));
     }
-    let WasmValue::Ref(value) = value else { unreachable!() };
-    let TinyWasmValue::ValueRef(value) = TinyWasmValue::from(WasmValue::Ref(value)) else { unreachable!() };
-    Ok(value)
+    Ok(value.into())
 }
 
 impl Table {
@@ -393,14 +394,9 @@ impl Table {
     /// Get a table element as a wasm reference value.
     pub fn get(&self, store: &Store, index: TableAddr) -> Result<WasmValue> {
         let table = self.instance(store)?;
-        let value = store
-            .state
-            .attach_value(TinyWasmValue::ValueRef(*table.get(index as usize)?), WasmType::Ref(table.kind.element_type))
-            .expect("table value matches its element type");
-        if let WasmValue::Ref(value) = value {
-            store.state.pin_host_ref(value);
-        }
-        Ok(value)
+        let value = store.state.to_ref_value(*table.get(index as usize)?, table.kind.element_type);
+        store.state.pin_host_ref(value);
+        Ok(WasmValue::Ref(value))
     }
 
     /// Load a range of table elements and iterate over wasm reference values.
@@ -413,15 +409,12 @@ impl Table {
         let table = self.instance(store)?;
         let element_type = table.kind.element_type;
         let elements = table.load(offset, len)?;
-        let may_contain_gc = store.state.type_may_contain_gc(WasmType::Ref(element_type));
+        let may_contain_gc = store.state.type_may_contain_gc(&WasmType::Ref(element_type));
         Ok(elements.iter().copied().map(move |value| {
             if may_contain_gc {
                 store.state.gc.pin(value);
             }
-            store
-                .state
-                .attach_value(TinyWasmValue::ValueRef(value), WasmType::Ref(element_type))
-                .expect("table value matches its element type")
+            WasmValue::Ref(store.state.to_ref_value(value, element_type))
         }))
     }
 
@@ -473,7 +466,7 @@ impl Global {
     /// Get the current value of the global.
     pub fn get(&self, store: &Store) -> Result<WasmValue> {
         self.0.validate_store(store)?;
-        let value = store.state.global_wasm_value(self.0.addr);
+        let value = store.state.get_global_wasmvalue(self.0.addr);
         if let WasmValue::Ref(value) = value {
             store.state.pin_host_ref(value);
         }
@@ -483,6 +476,6 @@ impl Global {
     /// Set the current value of the global.
     pub fn set(&self, store: &mut Store, value: WasmValue) -> Result<()> {
         self.0.validate_store(store)?;
-        store.state.set_global_wasm_value(self.0.addr, value)
+        store.state.set_global_wasmvalue(self.0.addr, value)
     }
 }

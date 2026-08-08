@@ -1,12 +1,16 @@
 use super::stack::{CallFrame, ValueStack};
 use crate::store::Globals;
 use crate::{Result, interpreter::simd::Value128};
-use tinywasm_types::{AnyRef, ExnRef, ExternRef, FuncRef, GlobalAddr, LocalAddr, RefValue, WasmType, WasmValue};
+use tinywasm_types::{GlobalAddr, LocalAddr, RefValue, WasmValue};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Packed internal representation of a WebAssembly reference.
+///
+/// Unlike the public [`RefValue`], this stores no explicit reference category.
+/// Converting it back therefore requires the value's canonical reference type.
 pub(crate) struct ValueRef(u32);
 
 impl Default for ValueRef {
@@ -71,6 +75,18 @@ impl ValueRef {
     }
 }
 
+impl From<RefValue> for ValueRef {
+    fn from(value: RefValue) -> Self {
+        match value {
+            RefValue::Null => Self::NULL,
+            RefValue::Func(value) => Self::from_category_addr(value.addr()),
+            RefValue::Extern(value) => Self::from_raw(value.raw()),
+            RefValue::Exn(value) => Self::from_category_addr(value.addr()),
+            RefValue::Any(value) => Self::from_raw(value.raw()),
+        }
+    }
+}
+
 #[allow(private_interfaces)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A untyped WebAssembly value
@@ -118,32 +134,6 @@ impl TinyWasmValue {
             _ => None,
         }
     }
-
-    /// Converts this internal value to the requested public WebAssembly type.
-    pub fn attach_type(self, ty: WasmType) -> Option<WasmValue> {
-        match (self, ty) {
-            (Self::Value32(v), WasmType::I32) => Some(WasmValue::I32(v as i32)),
-            (Self::Value64(v), WasmType::I64) => Some(WasmValue::I64(v as i64)),
-            (Self::Value32(v), WasmType::F32) => Some(WasmValue::F32(f32::from_bits(v))),
-            (Self::Value64(v), WasmType::F64) => Some(WasmValue::F64(f64::from_bits(v))),
-            (Self::ValueRef(v), WasmType::Ref(_)) if v.is_null() => Some(RefValue::Null.into()),
-            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_func() => {
-                Some(WasmValue::Ref(RefValue::Func(FuncRef::new(v.addr()?))))
-            }
-            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_extern() => {
-                Some(WasmValue::Ref(RefValue::Extern(ExternRef::from_raw(v.raw()))))
-            }
-            (Self::ValueRef(v), WasmType::Ref(ty)) if ty.is_exn() => {
-                Some(WasmValue::Ref(RefValue::Exn(ExnRef::new(v.addr()?))))
-            }
-            (Self::ValueRef(v), WasmType::Ref(_)) => Some(WasmValue::Ref(RefValue::Any(AnyRef::from_raw(v.raw())))),
-            (Self::Value128(v), WasmType::V128) => Some(WasmValue::V128(v.0)),
-            (_, WasmType::I32 | WasmType::F32) => None,
-            (_, WasmType::I64 | WasmType::F64) => None,
-            (_, WasmType::Ref(_)) => None,
-            (_, WasmType::V128) => None,
-        }
-    }
 }
 
 impl From<&WasmValue> for TinyWasmValue {
@@ -153,11 +143,7 @@ impl From<&WasmValue> for TinyWasmValue {
             WasmValue::I64(v) => Self::Value64(*v as u64),
             WasmValue::F32(v) => Self::Value32(v.to_bits()),
             WasmValue::F64(v) => Self::Value64(v.to_bits()),
-            WasmValue::Ref(RefValue::Null) => Self::ValueRef(ValueRef::NULL),
-            WasmValue::Ref(RefValue::Func(value)) => Self::ValueRef(ValueRef::from_category_addr(value.addr())),
-            WasmValue::Ref(RefValue::Extern(value)) => Self::ValueRef(ValueRef::from_raw(value.raw())),
-            WasmValue::Ref(RefValue::Exn(value)) => Self::ValueRef(ValueRef::from_category_addr(value.addr())),
-            WasmValue::Ref(RefValue::Any(value)) => Self::ValueRef(ValueRef::from_raw(value.raw())),
+            WasmValue::Ref(value) => Self::ValueRef((*value).into()),
             WasmValue::V128(v) => Self::Value128((*v).into()),
         }
     }
@@ -190,9 +176,7 @@ pub(crate) trait InternalValue: sealed::Sealed + Copy + Default {
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self);
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
-    /// Gets a value from its physical global lane.
     fn global_get(globals: &Globals, addr: GlobalAddr) -> Self;
-    /// Sets a value in its physical global lane.
     fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self);
 }
 

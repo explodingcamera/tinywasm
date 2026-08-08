@@ -278,6 +278,7 @@ impl FuncContext<'_> {
         self.store
             .get_module_instance(self.module_id)
             .unwrap_or_else(|| unreachable!("invalid module instance id in host function context: {}", self.module_id))
+            .clone()
     }
 
     /// Get a memory export.
@@ -566,13 +567,11 @@ fn collect_call_results(
     func_ty: &FuncType,
 ) -> Result<Vec<WasmValue>> {
     debug_assert!(value_stack.len() >= func_ty.results().len()); // m values are on the top of the stack (Ensured by validation)
-    let mut res: Vec<_> = func_ty
-        .results()
-        .iter()
-        .rev()
-        .map(|&ty| state.attach_value(value_stack.pop_tinyvalue(ty), ty).expect("validated function result"))
-        .collect();
-    res.reverse(); // reverse to get the original order
+    let results = func_ty.results();
+    let mut res = vec![WasmValue::I32(0); results.len()];
+    for (i, &ty) in results.iter().enumerate().rev() {
+        res[i] = value_stack.pop_wasmvalue(state, ty);
+    }
     Ok(res)
 }
 

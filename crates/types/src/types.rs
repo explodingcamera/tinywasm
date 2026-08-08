@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 
 use crate::{TypeAddr, WasmType};
 
@@ -100,7 +100,7 @@ impl CompositeType {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuncType {
-    data: Box<[WasmType]>,
+    data: Arc<[WasmType]>,
     param_count: u16,
 }
 
@@ -108,7 +108,7 @@ impl FuncType {
     /// Create a new function type.
     pub fn new(params: &[WasmType], results: &[WasmType]) -> Self {
         let data: Box<[WasmType]> = params.iter().cloned().chain(results.iter().cloned()).collect();
-        Self { data, param_count: params.len() as u16 }
+        Self { data: data.into(), param_count: params.len() as u16 }
     }
 
     /// Get the parameter types of this function type.

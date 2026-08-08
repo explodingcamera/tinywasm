@@ -87,13 +87,8 @@ impl Store {
     }
 
     /// Get a module instance by the internal id
-    pub fn get_module_instance(&self, id: ModuleInstanceId) -> Option<ModuleInstance> {
-        self.module_instances.get(id as usize).cloned()
-    }
-
-    #[inline]
-    pub(crate) fn get_module_instance_internal(&self, id: ModuleInstanceId) -> ModuleInstance {
-        self.module_instances.get(id as usize).unwrap_or_else(|| unreachable!("invalid module instance: {id}")).clone()
+    pub fn get_module_instance(&self, id: ModuleInstanceId) -> Option<&ModuleInstance> {
+        self.module_instances.get(id as usize)
     }
 
     pub(crate) fn enter_execution(&mut self) -> Result<()> {
@@ -168,11 +163,11 @@ impl Store {
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         let start = self.state.funcs.len() as FuncAddr;
         debug_assert_eq!(funcs.len(), type_addrs.len());
-        for (func, &type_addr) in funcs.iter().zip(type_addrs) {
+        for (func, &type_addr) in funcs.iter().cloned().zip(type_addrs) {
             self.state.funcs.push(FunctionInstance {
                 type_addr,
                 gc: self.state.func_gc_metadata(type_addr),
-                kind: FunctionKind::Wasm(WasmFunctionInstance { func: func.clone(), owner }),
+                kind: FunctionKind::Wasm(WasmFunctionInstance { func, owner }),
             });
         }
         start..start + funcs.len() as FuncAddr

@@ -46,7 +46,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     pub(crate) fn new(store: &'store mut Store, cf: CallFrame, call_stack_base: u32) -> Self {
         let wasm_func = store.state.get_wasm_func(cf.func_addr);
-        let module = store.get_module_instance_internal(wasm_func.owner);
+        let module = store
+            .get_module_instance(wasm_func.owner)
+            .unwrap_or_else(|| unreachable!("invalid module instance"))
+            .clone();
         Self { module, cf, func: wasm_func.func.clone(), store, call_stack_base }
     }
 
@@ -1004,7 +1007,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.store.call_stack.push(self.cf)?;
         self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
         if wasm_func.owner != self.module.id() {
-            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+            self.module = self
+                .store
+                .get_module_instance(wasm_func.owner)
+                .unwrap_or_else(|| unreachable!("invalid module instance"))
+                .clone();
         }
 
         Ok(())
@@ -1023,7 +1030,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
         self.cf = CallFrame::new(func_addr, locals_base, wasm_func.func.locals);
         if wasm_func.owner != self.module.id() {
-            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+            self.module = self
+                .store
+                .get_module_instance(wasm_func.owner)
+                .unwrap_or_else(|| unreachable!("invalid module instance"))
+                .clone();
         }
 
         Ok(())
@@ -1039,8 +1050,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let mut params = Vec::new();
         params.try_reserve_exact(param_types.len()).map_err(|_| Trap::OutOfMemory)?;
         for &ty in param_types.iter().rev() {
-            let value = self.store.value_stack.pop_tinyvalue(ty);
-            params.push(self.store.state.attach_value(value, ty).expect("validated host argument"));
+            params.push(self.store.value_stack.pop_wasmvalue(&self.store.state, ty));
         }
         params.reverse();
         if params_may_gc {
@@ -1094,13 +1104,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_call_self(&mut self) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
-
-        self.store.call_stack.push(self.cf)?;
         let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
             cold_path();
             return Err(Trap::CallStackOverflow);
         };
-        self.cf = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
+        let new = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
+        self.store.call_stack.push(core::mem::replace(&mut self.cf, new))?;
 
         Ok(())
     }
@@ -1195,7 +1204,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
         self.func = wasm_func.func.clone();
         if wasm_func.owner != self.module.id() {
-            self.module = self.store.get_module_instance_internal(wasm_func.owner);
+            self.module = self
+                .store
+                .get_module_instance(wasm_func.owner)
+                .unwrap_or_else(|| unreachable!("invalid module instance"))
+                .clone();
         }
         self.cf = caller;
         false

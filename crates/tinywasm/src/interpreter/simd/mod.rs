@@ -13,8 +13,9 @@ use core::arch::wasm32 as wasm;
 use core::arch::wasm64 as wasm;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
 /// A 128-bit SIMD value
-pub struct Value128(pub(super) [u8; 16]);
+pub struct Value128(pub(crate) [u8; 16]);
 
 impl From<[u8; 16]> for Value128 {
     fn from(bytes: [u8; 16]) -> Self {
@@ -24,12 +25,12 @@ impl From<[u8; 16]> for Value128 {
 
 impl Value128 {
     #[inline(always)]
-    pub fn from_le_bytes(bytes: [u8; 16]) -> Self {
+    pub const fn from_le_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
 
     #[inline(always)]
-    pub fn to_le_bytes(self) -> [u8; 16] {
+    pub const fn to_le_bytes(self) -> [u8; 16] {
         self.0
     }
 }

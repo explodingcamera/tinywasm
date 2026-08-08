@@ -377,13 +377,13 @@ macro_rules! impl_mem_traits {
 
                 #[inline(always)]
                 fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
-                    Ok(Self::from_le_bytes(match mem.$read(addr) {
-                        Ok(bytes) => bytes,
+                    match mem.$read(addr) {
+                        Ok(bytes) => Ok(Self::from_le_bytes(bytes)),
                         Err(trap) => {
                             cold_path();
-                            return Err(trap);
+                            Err(trap)
                         }
-                    }))
+                    }
                 }
 
                 #[inline(always)]
@@ -402,10 +402,38 @@ macro_rules! impl_mem_traits {
 impl_mem_traits!(
     u8, 1, read_8, write_8, i8, 1, read_8, write_8, u16, 2, read_16, write_16, i16, 2, read_16, write_16, u32, 4,
     read_32, write_32, i32, 4, read_32, write_32, f32, 4, read_32, write_32, u64, 8, read_64, write_64, i64, 8,
-    read_64, write_64, f64, 8, read_64, write_64, Value128, 16, read_128, write_128
+    read_64, write_64, f64, 8, read_64, write_64
 );
 
-fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
+impl MemValue<16> for Value128 {
+    #[inline(always)]
+    fn to_mem_bytes(self) -> [u8; 16] {
+        self.0
+    }
+
+    #[inline(always)]
+    fn from_mem_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
+    #[inline(always)]
+    fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
+        match mem.read_128(addr) {
+            Ok(bytes) => Ok(Self(bytes)),
+            Err(trap) => {
+                cold_path();
+                Err(trap)
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn store_at(self, mem: &mut dyn LinearMemory, addr: usize) -> core::result::Result<(), crate::Trap> {
+        mem.write_128(addr, &self.0)
+    }
+}
+
+const fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
     crate::Trap::MemoryOutOfBounds { offset, len, max }
 }
 

@@ -23,7 +23,7 @@ fn tinywasm_from_twasm(twasm: &[u8]) -> Result<Module> {
 }
 
 fn tinywasm_run(module: &Module) -> Result<()> {
-    let engine = Engine::new(Config::default().with_memory_backend(MemoryBackend::paged(64 * 1024)));
+    let engine = Engine::new(Config::default());
     let mut store = Store::new(engine);
     let mut imports = Imports::default();
     imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _: i32| Ok(())));

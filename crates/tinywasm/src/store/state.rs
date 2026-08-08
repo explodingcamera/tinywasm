@@ -22,11 +22,11 @@ pub(crate) struct State {
 
 impl State {
     /// Returns whether values of this type can contain a managed GC object.
-    pub(crate) fn type_may_contain_gc(&self, ty: WasmType) -> bool {
+    pub(crate) fn type_may_contain_gc(&self, ty: &WasmType) -> bool {
         Self::type_may_contain_gc_in(&self.canonical_types, ty)
     }
 
-    fn type_may_contain_gc_in(types: &[SubType], ty: WasmType) -> bool {
+    fn type_may_contain_gc_in(types: &[SubType], ty: &WasmType) -> bool {
         let WasmType::Ref(ty) = ty else { return false };
         if let Some(type_addr) = ty.type_index() {
             return matches!(types[type_addr as usize].composite, CompositeType::Struct(_) | CompositeType::Array(_));
@@ -47,8 +47,8 @@ impl State {
     pub(crate) fn func_gc_metadata(&self, type_addr: TypeAddr) -> FunctionGcMetadata {
         let ty = self.get_canonical_func_type(type_addr);
         FunctionGcMetadata {
-            params: ty.params().iter().copied().any(|ty| self.type_may_contain_gc(ty)),
-            results: ty.results().iter().copied().any(|ty| self.type_may_contain_gc(ty)),
+            params: ty.params().iter().any(|ty| self.type_may_contain_gc(ty)),
+            results: ty.results().iter().any(|ty| self.type_may_contain_gc(ty)),
         }
     }
 
@@ -74,21 +74,21 @@ impl State {
                 .chain(
                     self.globals
                         .globals_32()
-                        .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, ty.ty))
+                        .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, &ty.ty))
                         .map(|(value, _)| ValueRef::from_raw(value)),
                 )
                 .chain(
                     self.tables
                         .iter()
                         .filter(|table| {
-                            Self::type_may_contain_gc_in(canonical_types, WasmType::Ref(table.kind.element_type))
+                            Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(table.kind.element_type))
                         })
                         .flat_map(|table| table.elements.iter().copied()),
                 )
                 .chain(
                     self.elements
                         .iter()
-                        .filter(|element| Self::type_may_contain_gc_in(canonical_types, WasmType::Ref(element.ty)))
+                        .filter(|element| Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(element.ty)))
                         .flat_map(|element| element.items.iter().flatten().copied()),
                 )
                 .chain(values.iter().filter_map(|value| value.as_ref()));
@@ -132,22 +132,30 @@ impl State {
         Ok(object)
     }
 
-    /// Converts an internal value using canonical reference type information.
-    pub(crate) fn attach_value(&self, value: TinyWasmValue, ty: WasmType) -> Option<WasmValue> {
-        if let (TinyWasmValue::ValueRef(value), WasmType::Ref(reference_type)) = (value, ty)
-            && let Some(type_addr) = reference_type.type_index()
-        {
-            if value.is_null() {
-                return Some(RefValue::Null.into());
-            }
+    /// Converts an internal reference using canonical heap type information.
+    pub(crate) fn to_ref_value(&self, value: ValueRef, ty: RefType) -> RefValue {
+        if value.is_null() {
+            return RefValue::Null;
+        }
+
+        if let Some(type_addr) = ty.type_index() {
             return match &self.get_type(type_addr).composite {
-                CompositeType::Func(_) => Some(RefValue::Func(FuncRef::new(value.addr()?)).into()),
-                CompositeType::Struct(_) | CompositeType::Array(_) => {
-                    Some(RefValue::Any(AnyRef::from_raw(value.raw())).into())
+                CompositeType::Func(_) => {
+                    RefValue::Func(FuncRef::new(value.addr().expect("non-null reference has an address")))
                 }
+                CompositeType::Struct(_) | CompositeType::Array(_) => RefValue::Any(AnyRef::from_raw(value.raw())),
             };
         }
-        value.attach_type(ty)
+        if ty.is_func() {
+            return RefValue::Func(FuncRef::new(value.addr().expect("non-null reference has an address")));
+        }
+        if ty.is_extern() {
+            return RefValue::Extern(ExternRef::from_raw(value.raw()));
+        }
+        if ty.is_exn() {
+            return RefValue::Exn(ExnRef::new(value.addr().expect("non-null reference has an address")));
+        }
+        RefValue::Any(AnyRef::from_raw(value.raw()))
     }
 
     /// Returns whether one canonical type is a subtype of another.
@@ -364,22 +372,20 @@ impl State {
     }
 
     /// Converts a global directly to its public value representation.
-    pub(crate) fn global_wasm_value(&self, addr: GlobalAddr) -> WasmValue {
+    pub(crate) fn get_global_wasmvalue(&self, addr: GlobalAddr) -> WasmValue {
         let ty = self.globals.ty(addr).ty;
         match ty {
             WasmType::I32 => WasmValue::I32(self.globals.get_32(addr) as i32),
             WasmType::I64 => WasmValue::I64(self.globals.get_64(addr) as i64),
             WasmType::F32 => WasmValue::F32(f32::from_bits(self.globals.get_32(addr))),
             WasmType::F64 => WasmValue::F64(f64::from_bits(self.globals.get_64(addr))),
-            WasmType::Ref(_) => self
-                .attach_value(TinyWasmValue::ValueRef(ValueRef::from_raw(self.globals.get_32(addr))), ty)
-                .unwrap_or_else(|| unreachable!("global value does not match its type")),
+            WasmType::Ref(ty) => WasmValue::Ref(self.to_ref_value(ValueRef::from_raw(self.globals.get_32(addr)), ty)),
             WasmType::V128 => WasmValue::V128(self.globals.get_128(addr).to_le_bytes()),
         }
     }
 
     /// Validates and sets a global from its public value representation.
-    pub(crate) fn set_global_wasm_value(&mut self, addr: GlobalAddr, value: WasmValue) -> Result<()> {
+    pub(crate) fn set_global_wasmvalue(&mut self, addr: GlobalAddr, value: WasmValue) -> Result<()> {
         let ty = self.globals.ty(addr);
         if !ty.mutable {
             cold_path();
@@ -394,12 +400,7 @@ impl State {
             WasmValue::I64(value) => self.globals.set_64(addr, value as u64),
             WasmValue::F32(value) => self.globals.set_32(addr, value.to_bits()),
             WasmValue::F64(value) => self.globals.set_64(addr, value.to_bits()),
-            WasmValue::Ref(value) => {
-                let TinyWasmValue::ValueRef(value) = TinyWasmValue::from(WasmValue::Ref(value)) else {
-                    unreachable!("reference value did not convert to an internal reference")
-                };
-                self.globals.set_32(addr, value.raw());
-            }
+            WasmValue::Ref(value) => self.globals.set_32(addr, ValueRef::from(value).raw()),
             WasmValue::V128(value) => self.globals.set_128(addr, value.into()),
         }
         Ok(())

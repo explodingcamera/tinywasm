@@ -35,7 +35,9 @@ impl VecMemory {
     #[inline(always)]
     fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
         self.check_fixed_addr::<N>(addr)?;
-        Ok(self.data[addr..addr + N].try_into().unwrap_or_else(|_| unreachable!("slice length should be {N}")))
+        let mut bytes = [0u8; N];
+        bytes.copy_from_slice(&self.data[addr..addr + N]);
+        Ok(bytes)
     }
 
     #[inline(always)]

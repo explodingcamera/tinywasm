@@ -39,6 +39,15 @@ fn map_field_type(field: FieldType, resolve: &mut impl FnMut(TypeAddr) -> TypeAd
 fn map_subtype(ty: &SubType, mut resolve: impl FnMut(TypeAddr) -> TypeAddr) -> SubType {
     let supertype = ty.supertype.map(&mut resolve);
     let composite = match &ty.composite {
+        CompositeType::Func(ty)
+            if !ty
+                .params()
+                .iter()
+                .chain(ty.results())
+                .any(|ty| matches!(ty, WasmType::Ref(ty) if ty.is_concrete())) =>
+        {
+            CompositeType::Func(ty.clone())
+        }
         CompositeType::Func(ty) => {
             let params = ty.params().iter().copied().map(|ty| map_value_type(ty, &mut resolve)).collect::<Vec<_>>();
             let results = ty.results().iter().copied().map(|ty| map_value_type(ty, &mut resolve)).collect::<Vec<_>>();

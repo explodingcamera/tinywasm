@@ -244,20 +244,21 @@ impl ValueStack {
 
     pub(crate) fn push_dyn(&mut self, value: TinyWasmValue) -> Result<(), Trap> {
         match value {
-            TinyWasmValue::Value32(v) => self.stack_32.push(v)?,
-            TinyWasmValue::Value64(v) => self.stack_64.push(v)?,
-            TinyWasmValue::Value128(v) => self.stack_128.push(v)?,
-            TinyWasmValue::ValueRef(v) => self.stack_32.push(v.raw())?,
+            TinyWasmValue::Value32(v) => self.stack_32.push(v),
+            TinyWasmValue::Value64(v) => self.stack_64.push(v),
+            TinyWasmValue::Value128(v) => self.stack_128.push(v),
+            TinyWasmValue::ValueRef(v) => self.stack_32.push(v.raw()),
         }
-        Ok(())
     }
 
-    pub(crate) fn pop_tinyvalue(&mut self, val_type: WasmType) -> TinyWasmValue {
+    pub(crate) fn pop_wasmvalue(&mut self, state: &crate::store::State, val_type: WasmType) -> WasmValue {
         match val_type {
-            WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(Value32::stack_pop(self)),
-            WasmType::I64 | WasmType::F64 => TinyWasmValue::Value64(Value64::stack_pop(self)),
-            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(self)),
-            WasmType::V128 => TinyWasmValue::Value128(Value128::stack_pop(self)),
+            WasmType::I32 => WasmValue::I32(self.stack_32.pop() as i32),
+            WasmType::I64 => WasmValue::I64(self.stack_64.pop() as i64),
+            WasmType::F32 => WasmValue::F32(f32::from_bits(self.stack_32.pop())),
+            WasmType::F64 => WasmValue::F64(f64::from_bits(self.stack_64.pop())),
+            WasmType::Ref(ty) => WasmValue::Ref(state.to_ref_value(ValueRef::from_raw(self.stack_32.pop()), ty)),
+            WasmType::V128 => WasmValue::V128(self.stack_128.pop().0),
         }
     }
 
