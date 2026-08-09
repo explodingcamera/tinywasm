@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
-use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
+use tinywasm_types::{ExnRef, FuncType};
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
@@ -13,6 +13,9 @@ pub use tinywasm_parser::ParseError;
 pub enum Error {
     /// A WebAssembly trap occurred
     Trap(Trap),
+
+    /// An uncaught WebAssembly exception occurred.
+    Exception(ExnRef),
 
     /// A linking error occurred
     Linker(LinkingError),
@@ -50,6 +53,7 @@ impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Trap(a), Self::Trap(b)) => a == b,
+            (Self::Exception(a), Self::Exception(b)) => a == b,
             (Self::Linker(a), Self::Linker(b)) => a == b,
             (Self::UnsupportedFeature(a), Self::UnsupportedFeature(b)) => a == b,
             (Self::Other(a), Self::Other(b)) => a == b,
@@ -274,6 +278,7 @@ impl Display for Error {
 
             Self::Twasm(err) => write!(f, "serialization error: {err}"),
             Self::Trap(trap) => write!(f, "trap: {trap}"),
+            Self::Exception(_) => write!(f, "uncaught WebAssembly exception"),
             Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {message}"),

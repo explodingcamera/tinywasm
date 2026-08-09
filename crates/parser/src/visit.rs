@@ -6,8 +6,8 @@ use crate::{
 use alloc::string::ToString;
 use alloc::vec::Vec;
 use tinywasm_types::{
-    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, SubType, TableDefinition, TypeSection,
-    ValueCounts, ValueLane, WasmFunctionData,
+    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, SubType, TableDefinition, TagType,
+    TypeSection, ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -20,6 +20,7 @@ enum BlockKind {
     Block,
     Loop,
     If,
+    TryTable(usize),
 }
 
 struct ControlFrame {
@@ -48,6 +49,7 @@ pub(crate) struct ModuleMetadata {
     globals: Vec<ValueLane>,
     memories: Vec<ValueLane>,
     tables: Vec<ValueLane>,
+    tags: Vec<u32>,
     types: Vec<SubType>,
 }
 
@@ -55,6 +57,7 @@ pub(crate) struct ModuleMetadata {
 struct FunctionDataBuilder {
     v128_constants: Vec<[u8; 16]>,
     branch_table_targets: Vec<u32>,
+    exception_handlers: Vec<tinywasm_types::ExceptionHandler>,
 }
 
 pub(crate) struct FunctionBuilder<'a> {
@@ -133,11 +136,13 @@ impl ModuleMetadata {
         globals: &[Global],
         memories: &[MemoryType],
         tables: &[TableDefinition],
+        tags: &[TagType],
     ) -> Self {
         let mut functions = Vec::with_capacity(imports.len() + code_type_addrs.len());
         let mut global_sizes = Vec::with_capacity(imports.len() + globals.len());
         let mut memory_sizes = Vec::with_capacity(imports.len() + memories.len());
         let mut table_sizes = Vec::with_capacity(imports.len() + tables.len());
+        let mut tag_types = Vec::with_capacity(imports.len() + tags.len());
 
         for import in imports {
             match &import.kind {
@@ -145,6 +150,7 @@ impl ModuleMetadata {
                 ImportKind::Global(ty) => global_sizes.push(ValueLane::from(&ty.ty)),
                 ImportKind::Memory(ty) => memory_sizes.push(Self::address_lane(ty.arch())),
                 ImportKind::Table(ty) => table_sizes.push(Self::address_lane(ty.arch())),
+                ImportKind::Tag(ty) => tag_types.push(ty.type_idx),
             }
         }
 
@@ -152,6 +158,7 @@ impl ModuleMetadata {
         global_sizes.extend(globals.iter().map(|global| ValueLane::from(&global.ty.ty)));
         memory_sizes.extend(memories.iter().map(|ty| Self::address_lane(ty.arch())));
         table_sizes.extend(tables.iter().map(|table| Self::address_lane(table.ty.arch())));
+        tag_types.extend(tags.iter().map(|tag| tag.type_idx));
 
         let signatures = types
             .types
@@ -169,6 +176,7 @@ impl ModuleMetadata {
             globals: global_sizes,
             memories: memory_sizes,
             tables: table_sizes,
+            tags: tag_types,
             types: types.types.to_vec(),
         }
     }
@@ -185,6 +193,14 @@ impl ModuleMetadata {
             .functions
             .get(idx as usize)
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("function index out of bounds: {idx}")))?;
+        self.signature(ty)
+    }
+
+    fn tag_signature(&self, idx: u32) -> Result<&Signature> {
+        let ty = *self
+            .tags
+            .get(idx as usize)
+            .ok_or_else(|| crate::ParseError::Other(alloc::format!("tag index out of bounds: {idx}")))?;
         self.signature(ty)
     }
 
@@ -284,6 +300,7 @@ pub(crate) fn process_operators(
     let data = WasmFunctionData {
         v128_constants: builder.data.v128_constants.into_boxed_slice(),
         branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
+        exception_handlers: builder.data.exception_handlers.into_boxed_slice(),
     };
     Ok((builder.instructions, data, reader.into_allocations()))
 }
@@ -320,6 +337,7 @@ pub(crate) fn process_operators_and_validate(
     let data = WasmFunctionData {
         v128_constants: builder.data.v128_constants.into_boxed_slice(),
         branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
+        exception_handlers: builder.data.exception_handlers.into_boxed_slice(),
     };
     Ok((builder.instructions, data, validator.into_allocations(), reader.into_allocations()))
 }
@@ -648,6 +666,89 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.push_control(BlockKind::If, ty, Some(self.instructions.len() - 1))
     }
 
+    fn visit_try_table(&mut self, try_table: wasmparser::TryTable) -> Self::Output {
+        let signature = self.block_signature(try_table.ty)?;
+        for &size in signature.params.iter().rev() {
+            self.pop_expect(size)?;
+        }
+        let height = self.operand_stack.len();
+        let base = self.lane_counts;
+        let entry_unreachable = self.is_unreachable();
+
+        let body_jump = self.instructions.len();
+        self.instructions.push(Instruction::Jump(0));
+        let mut catches = Vec::with_capacity(try_table.catches.len());
+        for catch in try_table.catches {
+            let (tag, depth, with_ref) = match catch {
+                wasmparser::Catch::One { tag, label } => (Some(tag), label, false),
+                wasmparser::Catch::OneRef { tag, label } => (Some(tag), label, true),
+                wasmparser::Catch::All { label } => (None, label, false),
+                wasmparser::Catch::AllRef { label } => (None, label, true),
+            };
+            if let Some(tag) = tag {
+                self.metadata.tag_signature(tag)?;
+            }
+            let target_idx = self.get_ctx_idx(depth)?;
+            let target_base = self.control_stack[target_idx].base;
+            let landing_pad = u32::try_from(self.instructions.len())
+                .map_err(|_| crate::ParseError::Other("function body is too large".into()))?;
+            match self.control_stack[target_idx].kind {
+                BlockKind::Function => self.instructions.push(Instruction::Return),
+                BlockKind::Loop => {
+                    self.instructions.push(Instruction::Jump(self.control_stack[target_idx].start_ip as u32));
+                }
+                BlockKind::Block | BlockKind::If | BlockKind::TryTable(_) => {
+                    self.control_stack[target_idx].branch_jumps.push(self.instructions.len());
+                    self.control_stack[target_idx].end_reachable = true;
+                    self.instructions.push(Instruction::Jump(0));
+                }
+            }
+            catches.push(match tag {
+                Some(tag) => tinywasm_types::ExceptionCatch::Tag { tag, landing_pad, base: target_base, with_ref },
+                None => tinywasm_types::ExceptionCatch::All { landing_pad, base: target_base, with_ref },
+            });
+        }
+
+        let body_start = self.instructions.len();
+        self.patch_jump(body_jump, body_start);
+        let handler_idx = self.data.exception_handlers.len();
+        self.data.exception_handlers.push(tinywasm_types::ExceptionHandler {
+            start_ip: body_start as u32,
+            end_ip: 0,
+            catches: catches.into_boxed_slice(),
+        });
+        self.push_sizes(&signature.params)?;
+        self.control_stack.push(ControlFrame {
+            kind: BlockKind::TryTable(handler_idx),
+            has_else: false,
+            start_ip: body_start,
+            branch_jumps: Vec::new(),
+            height,
+            base,
+            params: signature.params,
+            results: signature.results,
+            unreachable: entry_unreachable,
+            entry_unreachable,
+            end_reachable: false,
+        });
+        Ok(())
+    }
+
+    fn visit_throw(&mut self, tag_index: u32) -> Self::Output {
+        let signature = self.metadata.tag_signature(tag_index)?.clone();
+        self.apply_effect(&signature.params, &[])?;
+        self.instructions.push(Instruction::Throw(tag_index));
+        self.mark_unreachable();
+        Ok(())
+    }
+
+    fn visit_throw_ref(&mut self) -> Self::Output {
+        self.apply_effect(&[ValueLane::S32], &[])?;
+        self.instructions.push(Instruction::ThrowRef);
+        self.mark_unreachable();
+        Ok(())
+    }
+
     fn visit_else(&mut self) -> Self::Output {
         let (cond_jump_ip, height, base, params, entry_unreachable) = {
             let ctx = self
@@ -672,6 +773,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     fn visit_end(&mut self) -> Self::Output {
         let ctx =
             self.control_stack.pop().ok_or_else(|| crate::ParseError::Other("end without control frame".into()))?;
+        if let BlockKind::TryTable(handler_idx) = ctx.kind {
+            self.data.exception_handlers[handler_idx].end_ip = self.instructions.len() as u32;
+        }
         if matches!(ctx.kind, BlockKind::Function) {
             self.instructions.push(Instruction::Return);
         } else {
@@ -1184,11 +1288,24 @@ impl FunctionBuilder<'_> {
 
     /// Enters a control frame with its parameters restored above the saved base.
     fn push_control(&mut self, kind: BlockKind, ty: wasmparser::BlockType, initial_jump: Option<usize>) -> Result<()> {
-        let signature = match ty {
+        let signature = self.block_signature(ty)?;
+        self.push_control_signature(kind, signature, initial_jump)
+    }
+
+    fn block_signature(&self, ty: wasmparser::BlockType) -> Result<Signature> {
+        Ok(match ty {
             wasmparser::BlockType::Empty => Signature { params: Vec::new(), results: Vec::new() },
             wasmparser::BlockType::Type(ty) => Signature { params: Vec::new(), results: alloc::vec![value_lane(ty)] },
             wasmparser::BlockType::FuncType(idx) => self.metadata.signature(idx)?.clone(),
-        };
+        })
+    }
+
+    fn push_control_signature(
+        &mut self,
+        kind: BlockKind,
+        signature: Signature,
+        initial_jump: Option<usize>,
+    ) -> Result<()> {
         for &size in signature.params.iter().rev() {
             self.pop_expect(size)?;
         }
@@ -1264,7 +1381,7 @@ impl FunctionBuilder<'_> {
         match self.control_stack[ctx_idx].kind {
             BlockKind::Function => self.instructions.push(Instruction::Return),
             BlockKind::Loop => self.instructions.push(Instruction::Jump(self.control_stack[ctx_idx].start_ip as u32)),
-            BlockKind::Block | BlockKind::If => {
+            BlockKind::Block | BlockKind::If | BlockKind::TryTable(_) => {
                 self.control_stack[ctx_idx].branch_jumps.push(self.instructions.len());
                 self.control_stack[ctx_idx].end_reachable = true;
                 self.instructions.push(Instruction::Jump(0));

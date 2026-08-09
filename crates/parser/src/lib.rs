@@ -189,6 +189,7 @@ impl Parser {
                 | WasmFeatures::SIMD
                 | WasmFeatures::MEMORY64
                 | WasmFeatures::CUSTOM_PAGE_SIZES
+                | WasmFeatures::EXCEPTIONS
                 | WasmFeatures::WIDE_ARITHMETIC;
             self.options.validation().then(|| Validator::new_with_features(features))
         }

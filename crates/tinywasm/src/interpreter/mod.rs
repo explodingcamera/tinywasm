@@ -7,7 +7,7 @@ pub(crate) mod values;
 #[cfg(not(feature = "std"))]
 mod no_std_floats;
 
-use crate::{Result, Store, Trap, interpreter::stack::CallFrame};
+use crate::{Result, Store, interpreter::stack::CallFrame};
 pub(crate) use simd::*;
 pub(crate) use values::*;
 
@@ -26,11 +26,11 @@ pub(crate) enum ExecState {
 pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {
-    pub(crate) fn exec(store: &mut Store, cf: CallFrame, call_stack_base: u32) -> Result<(), Trap> {
+    pub(crate) fn exec(store: &mut Store, cf: CallFrame, call_stack_base: u32) -> Result<()> {
         executor::Executor::<false>::new(store, cf, call_stack_base).run_to_completion()
     }
 
-    pub(crate) fn exec_with_fuel(store: &mut Store, cf: CallFrame, fuel: u32) -> Result<ExecState, Trap> {
+    pub(crate) fn exec_with_fuel(store: &mut Store, cf: CallFrame, fuel: u32) -> Result<ExecState> {
         executor::Executor::<true>::new(store, cf, 0).run_with_fuel(fuel)
     }
 
@@ -39,7 +39,7 @@ impl InterpreterRuntime {
         store: &mut Store,
         cf: CallFrame,
         time_budget: core::time::Duration,
-    ) -> Result<ExecState, Trap> {
+    ) -> Result<ExecState> {
         executor::Executor::<false>::new(store, cf, 0).run_with_time_budget(time_budget)
     }
 }

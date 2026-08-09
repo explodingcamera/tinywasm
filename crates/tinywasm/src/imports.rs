@@ -3,7 +3,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::hint::cold_path;
 
-use crate::{Function, Global, HostFunction, LinkingError, Memory, Result, Table};
+use crate::{Function, Global, HostFunction, LinkingError, Memory, Result, Table, Tag};
 use tinywasm_types::*;
 
 #[derive(Clone)]
@@ -21,6 +21,8 @@ pub enum Extern {
     Function(Function),
     /// A reusable host function definition.
     HostFunction(HostFunction),
+    /// A tag instance.
+    Tag(Tag),
 }
 
 macro_rules! impl_conv {
@@ -41,6 +43,7 @@ impl_conv! {
     Memory => Memory,
     Function => Function,
     HostFunction => HostFunction,
+    Tag => Tag,
 }
 
 /// Imports for a module instance
@@ -100,6 +103,7 @@ pub(crate) struct ResolvedImports {
     pub(crate) tables: Vec<TableAddr>,
     pub(crate) memories: Vec<MemAddr>,
     pub(crate) funcs: Vec<FuncAddr>,
+    pub(crate) tags: Vec<TagAddr>,
 }
 
 impl Imports {
@@ -127,7 +131,7 @@ impl Imports {
 
     /// Define an import value.
     ///
-    /// A [`Function`], [`Global`], [`Table`], or [`Memory`] handle belongs to
+    /// A [`Function`], [`Global`], [`Table`], [`Memory`], or [`Tag`] handle belongs to
     /// one store and can only be imported into that store. A [`HostFunction`]
     /// is a reusable definition and can be imported into multiple stores.
     ///
@@ -225,12 +229,13 @@ impl Imports {
         module: &Module,
         type_addrs: &[TypeAddr],
     ) -> Result<ResolvedImports> {
-        let (global_count, table_count, mem_count, func_count) =
-            module.imports.iter().fold((0, 0, 0, 0), |(g, t, m, f), import| match import.kind {
-                ImportKind::Global(_) => (g + 1, t, m, f),
-                ImportKind::Table(_) => (g, t + 1, m, f),
-                ImportKind::Memory(_) => (g, t, m + 1, f),
-                ImportKind::Function(_) => (g, t, m, f + 1),
+        let (global_count, table_count, mem_count, func_count, tag_count) =
+            module.imports.iter().fold((0, 0, 0, 0, 0), |(g, t, m, f, e), import| match import.kind {
+                ImportKind::Global(_) => (g + 1, t, m, f, e),
+                ImportKind::Table(_) => (g, t + 1, m, f, e),
+                ImportKind::Memory(_) => (g, t, m + 1, f, e),
+                ImportKind::Function(_) => (g, t, m, f + 1, e),
+                ImportKind::Tag(_) => (g, t, m, f, e + 1),
             });
 
         let mut imports = ResolvedImports {
@@ -238,6 +243,7 @@ impl Imports {
             tables: Vec::with_capacity(table_count + module.tables.len()),
             memories: Vec::with_capacity(mem_count + module.memory_types.len()),
             funcs: Vec::with_capacity(func_count + module.funcs.len()),
+            tags: Vec::with_capacity(tag_count + module.tags.len()),
         };
 
         for import in &*module.imports {
@@ -258,6 +264,10 @@ impl Imports {
                     Extern::Function(func) => (ExternVal::Func(func.addr()), Some(func)),
                     Extern::HostFunction(func) => {
                         (ExternVal::Func(func.instantiate_for_import(store, type_addrs)?.addr()), None)
+                    }
+                    Extern::Tag(tag) => {
+                        tag.0.validate_store(store)?;
+                        (ExternVal::Tag(tag.0.addr), None)
                     }
                 }
             } else {
@@ -316,6 +326,16 @@ impl Imports {
                         return Err(LinkingError::incompatible_import_type(import).into());
                     }
                     imports.funcs.push(func_addr);
+                }
+                (ExternVal::Tag(tag_addr), ImportKind::Tag(ty)) => {
+                    let expected_type_addr = type_addrs
+                        .get(ty.type_idx as usize)
+                        .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
+                    if store.state.get_tag(tag_addr).type_addr != *expected_type_addr {
+                        cold_path();
+                        return Err(LinkingError::incompatible_import_type(import).into());
+                    }
+                    imports.tags.push(tag_addr);
                 }
                 _ => unreachable!("import kind checked above"),
             }

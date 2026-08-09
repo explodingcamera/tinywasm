@@ -1,4 +1,6 @@
-use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TypeAddr, ValueCounts};
+use alloc::boxed::Box;
+
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
 use crate::{ConstIdx, DataAddr, ElemAddr, MemAddr, RefType, RefValue};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
@@ -18,6 +20,46 @@ pub struct MemoryArg {
 pub struct DropKeep {
     pub base: ValueCounts,
     pub keep: ValueCounts,
+}
+
+/// A catch clause attached to a lowered `try_table` instruction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum ExceptionCatch {
+    /// Catch exceptions carrying the specified module-local tag.
+    Tag { tag: TagAddr, landing_pad: u32, base: ValueCounts, with_ref: bool },
+    /// Catch any exception.
+    All { landing_pad: u32, base: ValueCounts, with_ref: bool },
+}
+
+impl ExceptionCatch {
+    /// Returns the catch landing pad instruction pointer.
+    pub const fn landing_pad(self) -> u32 {
+        match self {
+            Self::Tag { landing_pad, .. } | Self::All { landing_pad, .. } => landing_pad,
+        }
+    }
+
+    /// Returns whether this clause exposes the caught exception reference.
+    pub const fn with_ref(self) -> bool {
+        match self {
+            Self::Tag { with_ref, .. } | Self::All { with_ref, .. } => with_ref,
+        }
+    }
+}
+
+/// A statically lowered exception handler range.
+#[derive(Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct ExceptionHandler {
+    /// First protected instruction, inclusive.
+    pub start_ip: u32,
+    /// End of the protected instruction range, exclusive.
+    pub end_ip: u32,
+    /// Catch clauses in source order.
+    pub catches: Box<[ExceptionCatch]>,
 }
 
 impl From<(ValueCounts, ValueCounts)> for DropKeep {
@@ -229,6 +271,8 @@ pub enum Instruction {
     ReturnCallSelf,
     ReturnCallIndirect(TypeAddr, TableAddr),
     ReturnCallRef(TypeAddr),
+    Throw(TagAddr),
+    ThrowRef,
 
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>

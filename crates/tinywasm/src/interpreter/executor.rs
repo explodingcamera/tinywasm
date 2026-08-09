@@ -65,7 +65,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec(&mut self) -> Result<Option<()>, Trap> {
+    fn exec(&mut self) -> Result<Option<()>> {
         macro_rules! stack_op {
             (unary $ty:ty, |$v:ident| $expr:expr) => {
                 stack_op!(unary $ty => $ty, |$v| $expr)
@@ -223,7 +223,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         use tinywasm_types::Instruction::*;
         #[rustfmt::skip]
         match &self.func.instructions[self.cf.instr_ptr] {
-            Unreachable => { cold_path(); return Err(Trap::Unreachable) },
+            Unreachable => { cold_path(); return Err(Trap::Unreachable.into()) },
             Drop32 => { _ = Value32::stack_pop(&mut self.store.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut self.store.value_stack)},
             Drop128 => { _ = Value128::stack_pop(&mut self.store.value_stack)},
@@ -239,6 +239,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
             ReturnCallIndirect(ty, table) => { if self.exec_call_indirect::<true>(*ty, *table)? { return Ok(Some(())); } return Ok(None); }
             ReturnCallRef(ty) => { if self.exec_call_ref::<true>(*ty)? { return Ok(Some(())); } return Ok(None); }
+            Throw(tag) => { self.exec_throw(*tag)?; return Ok(None); }
+            ThrowRef => { self.exec_throw_ref()?; return Ok(None); }
             Jump(ip) => { self.cf.instr_ptr = *ip as usize; return Ok(None); }
             JumpIfZero32(ip) => if self.exec_jump_zero_32(*ip) { return Ok(None) },
             JumpIfNonZero32(ip) => if self.exec_jump_non_zero_32(*ip) { return Ok(None) },
@@ -472,7 +474,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             RefCast(ty) => {
                 if !self.exec_ref_matches(*ty) {
                     cold_path();
-                    return Err(Trap::CastFailure);
+                    return Err(Trap::CastFailure.into());
                 }
             }
             // GC objects
@@ -992,6 +994,135 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.store.value_stack.truncate_keep_counts(base, drop_keep.keep);
     }
 
+    fn create_exception(&mut self, tag_index: TagAddr) -> Result<ExnAddr, Trap> {
+        let tag_addr = self.module.resolve_tag_addr(tag_index);
+        let type_addr = self.store.state.get_tag(tag_addr).type_addr;
+        let addr = u32::try_from(self.store.state.exceptions.len()).map_err(|_| Trap::OutOfMemory)?;
+        self.store.state.exceptions.try_reserve(1).map_err(|_| Trap::OutOfMemory)?;
+        let params = self.store.state.get_canonical_func_type(type_addr).params();
+        let mut payload = Vec::new();
+        payload.try_reserve_exact(params.len()).map_err(|_| Trap::OutOfMemory)?;
+        for &ty in params.iter().rev() {
+            payload.push(match ty {
+                WasmType::I32 | WasmType::F32 => {
+                    TinyWasmValue::Value32(Value32::stack_pop(&mut self.store.value_stack))
+                }
+                WasmType::I64 | WasmType::F64 => {
+                    TinyWasmValue::Value64(Value64::stack_pop(&mut self.store.value_stack))
+                }
+                WasmType::V128 => TinyWasmValue::Value128(Value128::stack_pop(&mut self.store.value_stack)),
+                WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(&mut self.store.value_stack)),
+            });
+        }
+        payload.reverse();
+        self.store
+            .state
+            .exceptions
+            .push(crate::store::ExceptionInstance { tag_addr, payload: payload.into_boxed_slice() });
+        Ok(addr)
+    }
+
+    fn exec_throw(&mut self, tag_index: TagAddr) -> Result<()> {
+        let exception = self.create_exception(tag_index)?;
+        let outcome = match self.dispatch_exception(exception) {
+            Ok(outcome) => outcome,
+            Err(trap) => {
+                _ = self.store.state.exceptions.pop();
+                return Err(trap.into());
+            }
+        };
+        match outcome {
+            Some(catch) if !catch.with_ref() => {
+                debug_assert_eq!(self.store.state.exceptions.len() - 1, exception as usize);
+                _ = self.store.state.exceptions.pop();
+                Ok(())
+            }
+            Some(_) => Ok(()),
+            None => Err(Error::Exception(ExnRef::new(exception))),
+        }
+    }
+
+    fn exec_throw_ref(&mut self) -> Result<()> {
+        let exception = ValueRef::stack_pop(&mut self.store.value_stack);
+        let exception = exception
+            .addr()
+            .filter(|addr| self.store.state.exceptions.get(*addr as usize).is_some())
+            .ok_or(Trap::NullReference)?;
+        match self.dispatch_exception(exception)? {
+            Some(_) => Ok(()),
+            None => Err(Error::Exception(ExnRef::new(exception))),
+        }
+    }
+
+    fn matching_catch(&self, protected_ip: usize, tag_addr: TagAddr) -> Option<ExceptionCatch> {
+        let handlers = &self.func.data.exception_handlers;
+        let end = handlers.partition_point(|handler| handler.start_ip as usize <= protected_ip);
+        handlers[..end]
+            .iter()
+            .rev()
+            .filter(|handler| protected_ip < handler.end_ip as usize)
+            .flat_map(|handler| handler.catches.iter().copied())
+            .find(|catch| match catch {
+                ExceptionCatch::Tag { tag, .. } => self.module.resolve_tag_addr(*tag) == tag_addr,
+                ExceptionCatch::All { .. } => true,
+            })
+    }
+
+    fn switch_to_frame(&mut self, frame: CallFrame) {
+        let previous = core::mem::replace(&mut self.cf, frame);
+        if previous.func_addr == self.cf.func_addr {
+            return;
+        }
+
+        let wasm_func = self.store.state.get_wasm_func(self.cf.func_addr);
+        self.func = wasm_func.func.clone();
+        if wasm_func.owner != self.module.id() {
+            self.module = self
+                .store
+                .get_module_instance(wasm_func.owner)
+                .unwrap_or_else(|| unreachable!("invalid module instance"))
+                .clone();
+        }
+    }
+
+    fn dispatch_exception(&mut self, exception_addr: ExnAddr) -> Result<Option<ExceptionCatch>, Trap> {
+        let tag_addr = self.store.state.exceptions[exception_addr as usize].tag_addr;
+        let mut protected_ip = self.cf.instr_ptr;
+        loop {
+            if let Some(catch) = self.matching_catch(protected_ip, tag_addr) {
+                let (landing_pad, base, with_ref, include_payload) = match catch {
+                    ExceptionCatch::Tag { landing_pad, base, with_ref, .. } => (landing_pad, base, with_ref, true),
+                    ExceptionCatch::All { landing_pad, base, with_ref } => (landing_pad, base, with_ref, false),
+                };
+                let stack_base = self.cf.stack_base();
+                let target = interpreter::stack::StackBase {
+                    s32: stack_base.s32 + base.c32 as u32,
+                    s64: stack_base.s64 + base.c64 as u32,
+                    s128: stack_base.s128 + base.c128 as u32,
+                };
+                self.store.value_stack.truncate_to_base(target);
+                if include_payload {
+                    let Store { state, value_stack, .. } = self.store;
+                    for value in state.exceptions[exception_addr as usize].payload.iter().copied() {
+                        value_stack.push_dyn(value)?;
+                    }
+                }
+                if with_ref {
+                    self.store.value_stack.push(ValueRef::from_category_addr(exception_addr))?;
+                }
+                self.cf.instr_ptr = landing_pad as usize;
+                return Ok(Some(catch));
+            }
+
+            self.store.value_stack.truncate_to_base(self.cf.locals_base);
+            let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
+                return Ok(None);
+            };
+            self.switch_to_frame(caller);
+            protected_ip = self.cf.instr_ptr.checked_sub(1).unwrap_or_else(|| unreachable!("invalid caller IP"));
+        }
+    }
+
     fn exec_call(&mut self, wasm_func: WasmFunctionInstance, func_addr: FuncAddr) -> Result<(), Trap> {
         if !Arc::ptr_eq(&self.func, &wasm_func.func) {
             self.func = wasm_func.func.clone();
@@ -1207,20 +1338,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
             return true;
         };
-        if caller.func_addr == self.cf.func_addr {
-            self.cf = caller;
-            return false;
-        }
-        let wasm_func = self.store.state.get_wasm_func(caller.func_addr);
-        self.func = wasm_func.func.clone();
-        if wasm_func.owner != self.module.id() {
-            self.module = self
-                .store
-                .get_module_instance(wasm_func.owner)
-                .unwrap_or_else(|| unreachable!("invalid module instance"))
-                .clone();
-        }
-        self.cf = caller;
+        self.switch_to_frame(caller);
         false
     }
 
@@ -1922,7 +2040,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
 impl<'store> Executor<'store, false> {
     #[inline(always)]
-    pub(crate) fn run_to_completion(&mut self) -> Result<(), Trap> {
+    pub(crate) fn run_to_completion(&mut self) -> Result<()> {
         // ideally we use `loop_match` / `become` once thats stabilized
         loop {
             if self.exec()?.is_some() {
@@ -1933,7 +2051,7 @@ impl<'store> Executor<'store, false> {
 
     #[cfg(feature = "std")]
     #[inline(always)]
-    pub(crate) fn run_with_time_budget(&mut self, time_budget: core::time::Duration) -> Result<ExecState, Trap> {
+    pub(crate) fn run_with_time_budget(&mut self, time_budget: core::time::Duration) -> Result<ExecState> {
         use crate::std::time::Instant;
         let start = Instant::now();
         if time_budget.is_zero() {
@@ -1956,7 +2074,7 @@ impl<'store> Executor<'store, false> {
 
 impl<'store> Executor<'store, true> {
     #[inline(always)]
-    pub(crate) fn run_with_fuel(&mut self, fuel: u32) -> Result<ExecState, Trap> {
+    pub(crate) fn run_with_fuel(&mut self, fuel: u32) -> Result<ExecState> {
         self.store.execution_fuel = fuel;
         if self.store.execution_fuel == 0 {
             return Ok(ExecState::Suspended(self.cf));

@@ -77,6 +77,7 @@ pub fn format_export_type(ty: ExportType<'_>) -> String {
         ExportType::Memory(ty) => format_memory_type(ty),
         ExportType::Table(ty) => format_table_type(ty),
         ExportType::Global(ty) => format_global_type(ty),
+        ExportType::Tag(ty) => format!("tag {}", format_func_type(ty)),
     }
 }
 
@@ -86,5 +87,6 @@ pub fn format_import_type(ty: ImportType<'_>) -> String {
         ImportType::Memory(ty) => format_memory_type(ty),
         ImportType::Table(ty) => format_table_type(ty),
         ImportType::Global(ty) => format_global_type(ty),
+        ImportType::Tag(ty) => format!("tag {}", format_func_type(ty)),
     }
 }

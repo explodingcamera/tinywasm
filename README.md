@@ -96,7 +96,7 @@ TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.
 | [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes)                                        | 🟢     | 0.9.0              |
 | [**Typed Function References**](https://github.com/WebAssembly/function-references)                              | 🟢     | `next`             |
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | `next`             |
-| [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🌑     | -                  |
+| [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | `next`             |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
 | [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🌑     | -                  |
 | [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |

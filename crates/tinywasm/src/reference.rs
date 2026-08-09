@@ -8,7 +8,9 @@ use alloc::vec::Vec;
 use crate::interpreter::ValueRef;
 use crate::store::TableInstance;
 use crate::{Error, MemoryInstance, Result, Store, Trap};
-use tinywasm_types::{Addr, GlobalType, MemAddr, MemoryType, TableAddr, TableType, WasmType, WasmValue};
+use tinywasm_types::{
+    Addr, FuncType, GlobalType, MemAddr, MemoryType, TableAddr, TableType, TagAddr, WasmType, WasmValue,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -65,6 +67,11 @@ pub struct Table(pub(crate) StoreItem);
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Global(pub(crate) StoreItem);
+
+/// A tag instance in a store.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub struct Tag(pub(crate) StoreItem);
 
 /// A cursor over a [`Memory`] instance.
 ///
@@ -469,5 +476,24 @@ impl Global {
     pub fn set(&self, store: &mut Store, value: WasmValue) -> Result<()> {
         self.0.validate_store(store)?;
         store.state.set_global_wasmvalue(self.0.addr, value)
+    }
+}
+
+impl Tag {
+    /// Create a new exception tag in the given store.
+    pub fn new(store: &mut Store, ty: FuncType) -> Result<Self> {
+        if !ty.results().is_empty() {
+            return Err(Error::other("tag types must not have results"));
+        }
+        let type_addr = store.register_host_type(&ty);
+        let addr = store.state.tags.len() as TagAddr;
+        store.state.tags.push(crate::store::TagInstance { type_addr });
+        Ok(Self(StoreItem::new(store.id(), addr)))
+    }
+
+    /// Get the payload type of the tag.
+    pub fn ty<'a>(&self, store: &'a Store) -> Result<&'a FuncType> {
+        self.0.validate_store(store)?;
+        Ok(store.state.get_canonical_func_type(store.state.get_tag(self.0.addr).type_addr))
     }
 }

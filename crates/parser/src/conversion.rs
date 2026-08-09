@@ -76,9 +76,7 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         wasmparser::TypeRef::Global(ty) => {
             ImportKind::Global(GlobalType::new(convert_valtype(&ty.content_type)?, ty.mutable))
         }
-        wasmparser::TypeRef::Tag(ty) => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
-        }
+        wasmparser::TypeRef::Tag(ty) => ImportKind::Tag(convert_tag_type(ty)),
         _ => {
             return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", import.ty)));
         }
@@ -116,12 +114,17 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
         wasmparser::ExternalKind::Table => ExternalKind::Table,
         wasmparser::ExternalKind::Memory => ExternalKind::Memory,
         wasmparser::ExternalKind::Global => ExternalKind::Global,
-        wasmparser::ExternalKind::Tag | wasmparser::ExternalKind::FuncExact => {
+        wasmparser::ExternalKind::Tag => ExternalKind::Tag,
+        wasmparser::ExternalKind::FuncExact => {
             return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)));
         }
     };
 
     Ok(Export { index: export.index, name: Box::from(export.name), kind })
+}
+
+pub(crate) const fn convert_tag_type(ty: wasmparser::TagType) -> TagType {
+    TagType::new(ty.func_type_idx)
 }
 
 fn extend_local_types(local_types: &mut Vec<ValueLane>, count: u32, ty: wasmparser::ValType) -> Result<()> {

@@ -111,6 +111,11 @@ pub struct ModuleInner {
     /// Corresponds to the `memory` section of the original WebAssembly module.
     pub memory_types: Box<[MemoryType]>,
 
+    /// Tag components of the WebAssembly module.
+    ///
+    /// Corresponds to the `tag` section of the original WebAssembly module.
+    pub tags: Box<[TagType]>,
+
     /// Imports of the WebAssembly module.
     ///
     /// Corresponds to the `import` section of the original WebAssembly module.
@@ -141,6 +146,7 @@ impl Module {
                 ImportKind::Table(table_ty) => Some(ImportType::Table(table_ty)),
                 ImportKind::Memory(memory_ty) => Some(ImportType::Memory(memory_ty)),
                 ImportKind::Global(global_ty) => Some(ImportType::Global(global_ty)),
+                ImportKind::Tag(tag_ty) => Some(ImportType::Tag(self.0.types.get(tag_ty.type_idx)?.as_func()?)),
             }?;
 
             Some(ModuleImport { module: import.module.as_ref(), name: import.name.as_ref(), ty })
@@ -162,6 +168,7 @@ impl Module {
                             | (ExternalKind::Table, ImportKind::Table(_))
                             | (ExternalKind::Memory, ImportKind::Memory(_))
                             | (ExternalKind::Global, ImportKind::Global(_))
+                            | (ExternalKind::Tag, ImportKind::Tag(_))
                     )
                 })
                 .count()
@@ -175,6 +182,7 @@ impl Module {
                         | (ExternalKind::Table, ImportKind::Table(_))
                         | (ExternalKind::Memory, ImportKind::Memory(_))
                         | (ExternalKind::Global, ImportKind::Global(_))
+                        | (ExternalKind::Tag, ImportKind::Tag(_))
                 )
             });
             let import = imports.nth(index)?;
@@ -184,6 +192,7 @@ impl Module {
                 ImportKind::Table(table_ty) => Some(ExportType::Table(table_ty)),
                 ImportKind::Memory(memory_ty) => Some(ExportType::Memory(memory_ty)),
                 ImportKind::Global(global_ty) => Some(ExportType::Global(global_ty)),
+                ImportKind::Tag(tag_ty) => Some(ExportType::Tag(module.types.get(tag_ty.type_idx)?.as_func()?)),
             }
         }
 
@@ -223,6 +232,15 @@ impl Module {
                         ExportType::Global(&self.0.globals.get(idx - imported_globals)?.ty)
                     }
                 }
+                ExternalKind::Tag => {
+                    let imported_tags = imported_count(&self.0, ExternalKind::Tag);
+                    if idx < imported_tags {
+                        imported_type(&self.0, ExternalKind::Tag, idx)?
+                    } else {
+                        let tag_ty = self.0.tags.get(idx - imported_tags)?;
+                        ExportType::Tag(self.0.types.get(tag_ty.type_idx)?.as_func()?)
+                    }
+                }
             };
 
             Some(ModuleExport { name: export.name.as_ref(), ty })
@@ -258,6 +276,8 @@ pub enum ImportType<'a> {
     Memory(&'a MemoryType),
     /// Imported global type.
     Global(&'a GlobalType),
+    /// Imported tag type.
+    Tag(&'a FuncType),
 }
 
 /// Exported entity type.
@@ -270,6 +290,8 @@ pub enum ExportType<'a> {
     Memory(&'a MemoryType),
     /// Exported global type.
     Global(&'a GlobalType),
+    /// Exported tag type.
+    Tag(&'a FuncType),
 }
 
 /// How instantiation should prepare local memories declared by the module.
@@ -301,6 +323,8 @@ pub enum ExternalKind {
     Memory,
     /// A WebAssembly Global.
     Global,
+    /// A WebAssembly Tag.
+    Tag,
 }
 
 /// A WebAssembly Address.
@@ -315,6 +339,8 @@ pub type FuncAddr = Addr;
 pub type TableAddr = Addr;
 pub type MemAddr = Addr;
 pub type GlobalAddr = Addr;
+pub type TagAddr = Addr;
+pub type ExnAddr = Addr;
 pub type ElemAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
@@ -338,6 +364,7 @@ pub enum ExternVal {
     Table(TableAddr),
     Memory(MemAddr),
     Global(GlobalAddr),
+    Tag(TagAddr),
 }
 
 impl ExternVal {
@@ -348,6 +375,7 @@ impl ExternVal {
             Self::Table(_) => ExternalKind::Table,
             Self::Memory(_) => ExternalKind::Memory,
             Self::Global(_) => ExternalKind::Global,
+            Self::Tag(_) => ExternalKind::Tag,
         }
     }
 
@@ -358,6 +386,7 @@ impl ExternVal {
             ExternalKind::Table => Self::Table(addr),
             ExternalKind::Memory => Self::Memory(addr),
             ExternalKind::Global => Self::Global(addr),
+            ExternalKind::Tag => Self::Tag(addr),
         }
     }
 }
@@ -444,6 +473,7 @@ pub struct WasmFunction {
 pub struct WasmFunctionData {
     pub v128_constants: Box<[[u8; 16]]>,
     pub branch_table_targets: Box<[u32]>,
+    pub exception_handlers: Box<[ExceptionHandler]>,
 }
 
 impl WasmFunctionData {
@@ -638,6 +668,22 @@ pub enum MemoryArch {
     I64,
 }
 
+/// A WebAssembly tag type.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub struct TagType {
+    /// The module-local function type index used by this tag.
+    pub type_idx: TypeAddr,
+}
+
+impl TagType {
+    /// Creates a tag type from a module-local function type index.
+    pub const fn new(type_idx: TypeAddr) -> Self {
+        Self { type_idx }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -655,6 +701,7 @@ pub enum ImportKind {
     Table(TableType),
     Memory(MemoryType),
     Global(GlobalType),
+    Tag(TagType),
 }
 
 impl From<&ImportKind> for ExternalKind {
@@ -664,6 +711,7 @@ impl From<&ImportKind> for ExternalKind {
             ImportKind::Table(_) => Self::Table,
             ImportKind::Memory(_) => Self::Memory,
             ImportKind::Global(_) => Self::Global,
+            ImportKind::Tag(_) => Self::Tag,
         }
     }
 }

@@ -14,6 +14,8 @@ pub(crate) struct State {
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
     pub(crate) globals: Globals,
+    pub(crate) tags: Vec<TagInstance>,
+    pub(crate) exceptions: Vec<ExceptionInstance>,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) data: Vec<DataInstance>,
     pub(crate) gc: Box<gc::GcHeap>,
@@ -28,6 +30,8 @@ impl State {
             tables: Vec::new(),
             memories: Vec::new(),
             globals: Globals::default(),
+            tags: Vec::new(),
+            exceptions: Vec::new(),
             elements: Vec::new(),
             data: Vec::new(),
             gc: Box::new(gc::GcHeap::new(gc_collection_threshold)),
@@ -103,6 +107,11 @@ impl State {
                         .iter()
                         .filter(|element| Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(element.ty)))
                         .flat_map(|element| element.items.iter().flatten().copied()),
+                )
+                .chain(
+                    self.exceptions
+                        .iter()
+                        .flat_map(|exception| exception.payload.iter().filter_map(|value| value.as_ref())),
                 )
                 .chain(values.iter().filter_map(|value| value.as_ref()));
             self.gc.collect(roots).map_err(|_| Trap::OutOfMemory)?;
@@ -261,6 +270,9 @@ impl State {
             let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
             return self.ref_type_is_subtype(actual, expected);
         }
+        if expected.is_exn() {
+            return value.addr().is_some_and(|addr| self.exceptions.get(addr as usize).is_some());
+        }
         if value.is_i31() {
             let actual = RefType::new_abstract(false, AbstractHeapType::I31);
             return self.ref_type_is_subtype(actual, expected);
@@ -304,6 +316,9 @@ impl State {
             {
                 false
             }
+            (WasmValue::Ref(RefValue::Exn(value)), WasmType::Ref(expected)) if expected.is_exn() => {
+                self.exceptions.get(value.addr() as usize).is_some()
+            }
             (WasmValue::Ref(RefValue::Any(value)), WasmType::Ref(expected)) => {
                 self.value_ref_matches(ValueRef::from_raw(value.raw()), expected)
             }
@@ -330,6 +345,10 @@ impl State {
     /// Get the function at the actual index in the store
     pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
         Self::get(&self.funcs, addr, "function")
+    }
+
+    pub(crate) fn get_tag(&self, addr: TagAddr) -> &TagInstance {
+        Self::get(&self.tags, addr, "tag")
     }
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)

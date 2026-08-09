@@ -4,7 +4,7 @@ use tinywasm_types::*;
 
 use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};
 use crate::store::MemoryInstance;
-use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Trap};
+use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap};
 
 /// A typed view over an exported extern value.
 pub enum ExternItem {
@@ -16,6 +16,8 @@ pub enum ExternItem {
     Table(Table),
     /// Exported global reference.
     Global(Global),
+    /// Exported tag reference.
+    Tag(Tag),
 }
 
 /// An instantiated WebAssembly module
@@ -52,6 +54,7 @@ struct ModuleInstanceInner {
     table_addrs: Box<[TableAddr]>,
     mem_addrs: Box<[MemAddr]>,
     global_addrs: Box<[GlobalAddr]>,
+    tag_addrs: Box<[TagAddr]>,
     elem_addrs: Box<[ElemAddr]>,
     data_addrs: Box<[DataAddr]>,
     func_start: Option<FuncAddr>,
@@ -98,6 +101,11 @@ impl ModuleInstance {
     #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
         *self.0.global_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid global address: {addr}"))
+    }
+
+    #[inline]
+    pub(crate) fn resolve_tag_addr(&self, addr: TagAddr) -> TagAddr {
+        *self.0.tag_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid tag address: {addr}"))
     }
 
     #[inline]
@@ -157,6 +165,7 @@ impl ModuleInstance {
         let mut addrs = imports.unwrap_or(&default_imports).link(store, module, &type_addrs)?;
         let imported_funcs = addrs.funcs.len();
         addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
+        addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         match module.local_memory_allocation {
             LocalMemoryAllocation::Skip => {
                 #[cfg(feature = "guest-debug")]
@@ -185,6 +194,7 @@ impl ModuleInstance {
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
             global_addrs: addrs.globals.into_boxed_slice(),
+            tag_addrs: addrs.tags.into_boxed_slice(),
             elem_addrs,
             data_addrs,
             func_start: module.start_func,
@@ -209,6 +219,7 @@ impl ModuleInstance {
             ExternalKind::Table => self.0.table_addrs.get(export.index as usize)?,
             ExternalKind::Memory => self.0.mem_addrs.get(export.index as usize)?,
             ExternalKind::Global => self.0.global_addrs.get(export.index as usize)?,
+            ExternalKind::Tag => self.0.tag_addrs.get(export.index as usize)?,
         };
         Some(ExternVal::new(export.kind, *addr))
     }
@@ -256,6 +267,9 @@ impl ModuleInstance {
                 }
                 ExternalKind::Global => {
                     ExternItem::Global(Global(StoreItem::new(self.0.store_id, self.resolve_global_addr(export.index))))
+                }
+                ExternalKind::Tag => {
+                    ExternItem::Tag(Tag(StoreItem::new(self.0.store_id, self.resolve_tag_addr(export.index))))
                 }
             };
 
@@ -309,6 +323,7 @@ impl ModuleInstance {
             ExternVal::Memory(addr) => Ok(ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))),
             ExternVal::Table(addr) => Ok(ExternItem::Table(Table(StoreItem::new(self.0.store_id, addr)))),
             ExternVal::Global(addr) => Ok(ExternItem::Global(Global(StoreItem::new(self.0.store_id, addr)))),
+            ExternVal::Tag(addr) => Ok(ExternItem::Tag(Tag(StoreItem::new(self.0.store_id, addr)))),
         }
     }
 
@@ -485,6 +500,21 @@ impl ModuleInstance {
     #[cfg(feature = "guest-debug")]
     pub fn table_by_index(&self, table_index: TableAddr) -> Result<Table> {
         Ok(Table(StoreItem::new(self.0.store_id, Self::index_addr(&self.0.table_addrs, table_index, "table")?)))
+    }
+
+    /// Get a tag export by name.
+    pub fn tag(&self, name: &str) -> Result<Tag> {
+        match self.require_export(name)? {
+            ExternVal::Tag(tag_addr) => Ok(Tag(StoreItem::new(self.0.store_id, tag_addr))),
+            _ => Err(Error::Other(format!("Export is not a tag: {name}"))),
+        }
+    }
+
+    /// Get a tag by its module-local index.
+    #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
+    #[cfg(feature = "guest-debug")]
+    pub fn tag_by_index(&self, tag_index: TagAddr) -> Result<Tag> {
+        Ok(Tag(StoreItem::new(self.0.store_id, Self::index_addr(&self.0.tag_addrs, tag_index, "tag")?)))
     }
 
     /// Get the value of a global export by name.

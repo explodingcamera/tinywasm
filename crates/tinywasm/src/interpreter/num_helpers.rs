@@ -32,11 +32,11 @@ macro_rules! checked_conv_float {
         let (min, max) = float_min_max!($from, $intermediate);
         if v.is_nan() {
             core::hint::cold_path();
-            return Err(crate::Trap::InvalidConversionToInt);
+            return Err(crate::Trap::InvalidConversionToInt.into());
         }
         if v <= min || v >= max {
             core::hint::cold_path();
-            return Err(crate::Trap::IntegerOverflow);
+            return Err(crate::Trap::IntegerOverflow.into());
         }
         $self.store.value_stack.push::<$to>((v as $intermediate as $to).into())?;
     }};

@@ -57,6 +57,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) globals: Box<[Global]>,
     pub(crate) tables: Box<[TableDefinition]>,
     pub(crate) memory_types: Box<[MemoryType]>,
+    pub(crate) tags: Box<[TagType]>,
     pub(crate) imports: Box<[Import]>,
     pub(crate) data: Box<[Data]>,
     pub(crate) elements: Box<[Element]>,
@@ -78,6 +79,7 @@ impl<'a> ModuleReader<'a> {
                 &self.globals,
                 &self.memory_types,
                 &self.tables,
+                &self.tags,
             )));
         }
         self.translation_metadata.as_deref().unwrap()
@@ -182,6 +184,25 @@ impl<'a> ModuleReader<'a> {
                 self.memory_types =
                     reader.into_iter().map(|memory| Ok(convert_module_memory(memory?))).collect::<Result<_>>()?;
             }
+            Payload::TagSection(reader) => {
+                check_section("tag", !self.tags.is_empty())?;
+                #[cfg(feature = "validate")]
+                if let Some(validator) = validator.as_mut() {
+                    validator.tag_section(&reader)?;
+                }
+                let mut tags = Vec::with_capacity(reader.count() as usize);
+                for tag in reader {
+                    let tag = convert_tag_type(tag?);
+                    let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
+                        ParseError::Other(format!("tag type index does not reference a function: {}", tag.type_idx))
+                    })?;
+                    if !ty.results().is_empty() {
+                        return Err(ParseError::Other(format!("tag type must not have results: {}", tag.type_idx)));
+                    }
+                    tags.push(tag);
+                }
+                self.tags = tags.into_boxed_slice();
+            }
             Payload::ElementSection(reader) => {
                 debug!("Found element section");
                 #[cfg(feature = "validate")]
@@ -249,6 +270,20 @@ impl<'a> ModuleReader<'a> {
                             self.imported_func_count += 1;
                         }
                         ImportKind::Memory(_) => self.imported_memory_count += 1,
+                        ImportKind::Tag(tag) => {
+                            let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
+                                ParseError::Other(format!(
+                                    "tag import type index does not reference a function: {}",
+                                    tag.type_idx
+                                ))
+                            })?;
+                            if !ty.results().is_empty() {
+                                return Err(ParseError::Other(format!(
+                                    "tag import type must not have results: {}",
+                                    tag.type_idx
+                                )));
+                            }
+                        }
                         _ => {}
                     }
                     imports.push(import);
@@ -553,6 +588,7 @@ impl<'a> ModuleReader<'a> {
             exports: self.exports,
             elements: self.elements,
             memory_types: self.memory_types,
+            tags: self.tags,
             local_memory_allocation,
         }
         .into())

@@ -34,7 +34,6 @@ name = "test-wasm-1"
 [[test]]
 harness = false
 name = "test-wasm-3"
-test = false
 
 [[test]]
 harness = false
@@ -43,7 +42,6 @@ name = "test-wasm-2"
 [[test]]
 harness = false
 name = "test-wasm-latest"
-test = false
 
 [[test]]
 harness = false

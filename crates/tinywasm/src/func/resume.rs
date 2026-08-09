@@ -3,7 +3,7 @@ use tinywasm_types::{FuncAddr, TypeAddr, WasmValue};
 
 use super::{FromWasmValues, Function, FunctionTyped, IntoWasmValues};
 use crate::interpreter::stack::{CallFrame, StackBase};
-use crate::{Error, InterpreterRuntime, Result, Store, Trap};
+use crate::{Error, InterpreterRuntime, Result, Store};
 
 #[derive(Clone, PartialEq, Eq)]
 /// Progress for fuel-limited function execution.
@@ -93,7 +93,7 @@ impl Function {
 impl<'store> FuncExecution<'store> {
     fn resume_raw(
         &mut self,
-        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState, Trap>,
+        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<CallResult>> {
         let (callframe, root_func_addr) = match &mut self.state {
             FuncExecutionState::Running { callframe, root_func_addr } => (*callframe, *root_func_addr),
@@ -109,7 +109,17 @@ impl<'store> FuncExecution<'store> {
         let result = run(self.store, callframe);
         self.store.exit_execution();
 
-        match result? {
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.store.call_stack.clear();
+                self.store.value_stack.clear();
+                self.state = FuncExecutionState::Completed(None);
+                return Err(error);
+            }
+        };
+
+        match result {
             crate::interpreter::ExecState::Completed => {
                 let func = self.store.state.get_func(root_func_addr);
                 let result_ty = func.type_addr;
@@ -129,7 +139,7 @@ impl<'store> FuncExecution<'store> {
 
     fn resume(
         &mut self,
-        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState, Trap>,
+        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<Vec<WasmValue>>> {
         match self.resume_raw(run)? {
             ExecProgress::Completed(CallResult::Stack { type_addr, pin_refs }) => {
@@ -231,7 +241,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
 impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
     fn resume(
         &mut self,
-        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState, Trap>,
+        run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<R>> {
         match self.execution.resume_raw(run)? {
             ExecProgress::Completed(CallResult::Stack { type_addr, pin_refs }) => Ok(ExecProgress::Completed(

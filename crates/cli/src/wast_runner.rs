@@ -19,52 +19,62 @@ const TEST_MAX_SUSPENSIONS: u32 = 1000;
 
 #[derive(Default)]
 struct ModuleRegistry {
-    modules: HashMap<String, ModuleInstance>,
-    named_modules: HashMap<String, ModuleInstance>,
-    last_module: Option<ModuleInstance>,
+    definitions: HashMap<String, Module>,
+    instances: HashMap<String, ModuleInstance>,
+    registered: HashMap<String, ModuleInstance>,
+    last_definition: Option<Module>,
+    last_instance: Option<ModuleInstance>,
 }
 
 impl ModuleRegistry {
-    fn modules(&self) -> &HashMap<String, ModuleInstance> {
-        &self.modules
+    fn registered(&self) -> &HashMap<String, ModuleInstance> {
+        &self.registered
     }
 
-    fn update_last_module(&mut self, module: ModuleInstance, name: Option<String>) {
-        self.last_module = Some(module.clone());
+    fn define(&mut self, module: Module, name: Option<String>) {
+        self.last_definition = Some(module.clone());
         if let Some(name) = name {
-            self.named_modules.insert(name, module);
+            self.definitions.insert(name, module);
         }
     }
 
-    fn register(&mut self, name: String, module: ModuleInstance) {
+    fn definition(&self, id: Option<wast::token::Id<'_>>) -> Option<Module> {
+        match id {
+            Some(id) => self.definitions.get(id.name()).cloned(),
+            None => self.last_definition.clone(),
+        }
+    }
+
+    fn update_last_instance(&mut self, instance: ModuleInstance, name: Option<String>) {
+        self.last_instance = Some(instance.clone());
+        if let Some(name) = name {
+            self.instances.insert(name, instance);
+        }
+    }
+
+    fn register(&mut self, name: String, id: Option<wast::token::Id<'_>>) -> bool {
+        let Some(instance) = self.get(id) else { return false };
         debug!("registering module: {name}");
-        self.modules.insert(name.clone(), module.clone());
-        self.last_module = Some(module.clone());
-        self.named_modules.insert(name, module);
+        self.registered.insert(name, instance);
+        true
     }
 
     fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<u32> {
         match module_id {
-            Some(module) => self
-                .modules
-                .get(module.name())
-                .or_else(|| self.named_modules.get(module.name()))
-                .map(ModuleInstance::id),
-            None => self.last_module.as_ref().map(ModuleInstance::id),
+            Some(module) => {
+                self.registered.get(module.name()).or_else(|| self.instances.get(module.name())).map(ModuleInstance::id)
+            }
+            None => self.last_instance.as_ref().map(ModuleInstance::id),
         }
     }
 
     fn get(&self, module_id: Option<wast::token::Id<'_>>) -> Option<ModuleInstance> {
         match module_id {
             Some(module_id) => {
-                self.modules.get(module_id.name()).or_else(|| self.named_modules.get(module_id.name())).cloned()
+                self.registered.get(module_id.name()).or_else(|| self.instances.get(module_id.name())).cloned()
             }
-            None => self.last_module.clone(),
+            None => self.last_instance.clone(),
         }
-    }
-
-    fn last(&self) -> Option<ModuleInstance> {
-        self.last_module.clone()
     }
 }
 
@@ -200,6 +210,11 @@ impl WastRunner {
         Ok(imports)
     }
 
+    fn instantiate_module(store: &mut Store, registry: &ModuleRegistry, module: &Module) -> Result<ModuleInstance> {
+        let imports = Self::imports(store, registry.registered())?;
+        Ok(ModuleInstance::instantiate(store, module, Some(&imports))?)
+    }
+
     pub fn run_file(&mut self, file: TestFile<'_>) -> Result<()> {
         let test_group = self.test_group(file.name(), file.parent());
         let wast_raw = file.raw();
@@ -213,51 +228,72 @@ impl WastRunner {
         for (i, directive) in directives.into_iter().enumerate() {
             let span = directive.span();
             use wast::WastDirective::{
-                AssertExhaustion, AssertInvalid, AssertMalformed, AssertReturn, AssertTrap, AssertUnlinkable, Invoke,
-                Module as Wat, ModuleDefinition, Register,
+                AssertException, AssertExhaustion, AssertInvalid, AssertMalformed, AssertReturn, AssertTrap,
+                AssertUnlinkable, Invoke, Module as Wat, ModuleDefinition, ModuleInstance as Instance, Register,
             };
 
             match directive {
-                Register { span, name, .. } => {
-                    let Some(last) = module_registry.last() else {
+                Register { span, name, module } => {
+                    if !module_registry.register(name.to_string(), module) {
                         test_group.add_result(
                             &format!("Register({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("no module to register")),
+                            Err(eyre!("module instance to register was not found")),
                         );
                         continue;
-                    };
-                    module_registry.register(name.to_string(), last);
+                    }
                     test_group.add_result(&format!("Register({i})"), span.linecol_in(wast_raw), Ok(()));
                 }
                 Wat(module) => {
                     let result = catch_unwind_silent(|| {
-                        let (name, bytes) = encode_quote_wat(module);
-                        let module = parse_module_bytes(&bytes).expect("failed to parse module bytes");
-                        let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                        let module_instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))
+                        let (name, module) = parse_quote_module(module).expect("failed to parse module bytes");
+                        let instance = Self::instantiate_module(&mut store, &module_registry, &module)
                             .expect("failed to instantiate module");
-                        (name, module_instance)
+                        (name, instance)
                     })
                     .map_err(|e| eyre!("failed to parse wat module: {}", try_downcast_panic(e)));
 
                     match &result {
                         Err(err) => debug!("failed to parse module: {err:?}"),
-                        Ok((name, module)) => module_registry.update_last_module(module.clone(), name.clone()),
+                        Ok((name, instance)) => module_registry.update_last_instance(instance.clone(), name.clone()),
                     };
 
                     test_group.add_result(&format!("Wat({i})"), span.linecol_in(wast_raw), result.map(|_| ()));
                 }
                 ModuleDefinition(module) => {
-                    let result = catch_unwind_silent(|| {
-                        let (_, bytes) = encode_quote_wat(module);
-                        parse_module_bytes(&bytes)
-                    })
-                    .map_err(|err| eyre!("failed to parse module definition: {}", try_downcast_panic(err)))
-                    .and_then(|result| result)
-                    .map(|_| ());
+                    let result =
+                        catch_unwind_silent(|| parse_quote_module(module).expect("failed to parse module definition"))
+                            .map_err(|err| eyre!("failed to parse module definition: {}", try_downcast_panic(err)));
 
-                    test_group.add_result(&format!("ModuleDefinition({i})"), span.linecol_in(wast_raw), result);
+                    if let Ok((name, module)) = &result {
+                        module_registry.define(module.clone(), name.clone());
+                    }
+
+                    test_group.add_result(
+                        &format!("ModuleDefinition({i})"),
+                        span.linecol_in(wast_raw),
+                        result.map(|_| ()),
+                    );
+                }
+                Instance { span, instance, module } => {
+                    let name = instance.map(|id| id.name().to_string());
+                    let result = catch_unwind_silent(|| {
+                        let module = module_registry
+                            .definition(module)
+                            .ok_or_else(|| eyre!("module definition was not found"))?;
+                        Self::instantiate_module(&mut store, &module_registry, &module)
+                    })
+                    .map_err(|err| eyre!("failed to instantiate module definition: {}", try_downcast_panic(err)))
+                    .and_then(|result| result);
+
+                    if let Ok(instance) = &result {
+                        module_registry.update_last_instance(instance.clone(), name);
+                    }
+                    test_group.add_result(
+                        &format!("ModuleInstance({i})"),
+                        span.linecol_in(wast_raw),
+                        result.map(|_| ()),
+                    );
                 }
                 AssertMalformed { span, mut module, message } => {
                     let Ok(encoded) = module.encode() else {
@@ -330,7 +366,7 @@ impl WastRunner {
                             wast::WastExecute::Wat(mut wat) => {
                                 let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
                                     .expect("failed to parse module");
-                                let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
+                                let imports = Self::imports(&mut store, module_registry.registered()).unwrap();
                                 ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
                                 return Ok(());
                             }
@@ -371,11 +407,37 @@ impl WastRunner {
                         ),
                     }
                 }
+                AssertException { exec, span } => {
+                    let res: Result<tinywasm::Result<()>, _> = catch_unwind_silent(|| {
+                        let invoke = match exec {
+                            wast::WastExecute::Wat(mut wat) => {
+                                let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
+                                    .expect("failed to parse module");
+                                let imports = Self::imports(&mut store, module_registry.registered()).unwrap();
+                                ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+                                return Ok(());
+                            }
+                            wast::WastExecute::Get { .. } => panic!("get not supported"),
+                            wast::WastExecute::Invoke(invoke) => invoke,
+                        };
+                        let module = module_registry.get_idx(invoke.module);
+                        let args =
+                            convert_wastargs(invoke.args).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
+                    });
+                    let result = match res {
+                        Err(err) => Err(eyre!("test panicked: {}", try_downcast_panic(err))),
+                        Ok(Err(tinywasm::Error::Exception(_))) => Ok(()),
+                        Ok(Err(err)) => Err(eyre!("expected exception, got: {err:?}")),
+                        Ok(Ok(())) => Err(eyre!("expected exception, got Ok")),
+                    };
+                    test_group.add_result(&format!("AssertException({i})"), span.linecol_in(wast_raw), result);
+                }
                 AssertUnlinkable { mut module, span, message } => {
                     let res = catch_unwind_silent(|| {
                         let module = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
-                        let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
+                        let imports = Self::imports(&mut store, module_registry.registered()).unwrap();
                         ModuleInstance::instantiate(&mut store, &module, Some(&imports))
                     });
                     match res {
@@ -729,6 +791,11 @@ fn parse_module_bytes(bytes: &[u8]) -> Result<Module> {
     Ok(tinywasm::parse_bytes(bytes)?)
 }
 
+fn parse_quote_module(module: QuoteWat) -> Result<(Option<String>, Module)> {
+    let (name, bytes) = encode_quote_wat(module);
+    Ok((name, parse_module_bytes(&bytes)?))
+}
+
 fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<WasmValue>> {
     args.into_iter().map(wastarg2tinywasmvalue).collect()
 }
@@ -941,6 +1008,28 @@ mod tests {
         std::fs::write(
             &path,
             "(module (func (export \"add\") (result i32) i32.const 1))\n(assert_return (invoke \"add\") (i32.const 1))",
+        )
+        .unwrap();
+
+        let mut runner = WastRunner::new();
+        runner.run_paths(&[path]).unwrap();
+    }
+
+    #[test]
+    fn runs_module_definition_and_instance_directives() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("instance.wast");
+        std::fs::write(
+            &path,
+            r#"
+            (module definition $M (global (export "g") i32 (i32.const 42)))
+            (module instance $I $M)
+            (register "I" $I)
+            (module
+              (import "I" "g" (global $g i32))
+              (func (export "get") (result i32) global.get $g))
+            (assert_return (invoke "get") (i32.const 42))
+            "#,
         )
         .unwrap();
 

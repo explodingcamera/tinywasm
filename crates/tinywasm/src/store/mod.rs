@@ -11,12 +11,14 @@ use crate::{Engine, Error, ModuleInstance, Result, Trap};
 mod const_expr;
 mod data;
 mod element;
+mod exception;
 mod function;
 mod gc;
 mod global;
 mod memory;
 mod state;
 mod table;
+mod tag;
 mod types;
 
 use const_expr::eval_const;
@@ -25,7 +27,7 @@ pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, Vec
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
-pub(crate) use {data::*, element::*, function::*, global::*, table::*};
+pub(crate) use {data::*, element::*, exception::*, function::*, global::*, table::*, tag::*};
 
 // global store id counter
 static STORE_ID: AtomicU32 = AtomicU32::new(0);
@@ -225,6 +227,18 @@ impl Store {
             });
         }
         start..start + funcs.len() as FuncAddr
+    }
+
+    /// Add tags to the store, returning their addresses in the store.
+    pub(crate) fn init_tags(
+        &mut self,
+        tags: &[TagType],
+        type_addrs: &[TypeAddr],
+    ) -> impl ExactSizeIterator<Item = TagAddr> {
+        let start = self.state.tags.len() as TagAddr;
+        self.state.tags.reserve_exact(tags.len());
+        self.state.tags.extend(tags.iter().map(|tag| TagInstance { type_addr: type_addrs[tag.type_idx as usize] }));
+        start..start + tags.len() as TagAddr
     }
 
     /// Add tables to the store, returning their addresses in the store

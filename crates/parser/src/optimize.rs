@@ -910,11 +910,28 @@ fn is_unconditional_terminator(instr: Instruction) -> bool {
             | Instruction::ReturnCallSelf
             | Instruction::ReturnCallIndirect(..)
             | Instruction::ReturnCallRef(_)
+            | Instruction::Throw(_)
+            | Instruction::ThrowRef
     )
 }
 
 fn target_boundaries(instructions: &[Instruction], function_data: &WasmFunctionData) -> Result<Vec<bool>> {
     let mut boundaries = alloc::vec![false; instructions.len() + 1];
+    for handler in &function_data.exception_handlers {
+        for target in [handler.start_ip, handler.end_ip] {
+            let boundary = boundaries.get_mut(target as usize).ok_or_else(|| {
+                ParseError::Other(alloc::format!("exception handler boundary out of bounds: {target}"))
+            })?;
+            *boundary = true;
+        }
+        for catch in &handler.catches {
+            let target = catch.landing_pad();
+            let boundary = boundaries
+                .get_mut(target as usize)
+                .ok_or_else(|| ParseError::Other(alloc::format!("exception landing pad out of bounds: {target}")))?;
+            *boundary = true;
+        }
+    }
     for instr in instructions {
         if let Some(target) = instruction_target(instr) {
             let boundary = boundaries
@@ -948,6 +965,31 @@ fn finalize(
     imported_memory_count: u32,
 ) -> Result<bool> {
     let len = instructions.len() as u32;
+    for handler in &mut function_data.exception_handlers {
+        if let Some(old_to_new) = old_to_new {
+            handler.start_ip = *old_to_new.get(handler.start_ip as usize).ok_or_else(|| {
+                ParseError::Other(alloc::format!("exception handler boundary out of bounds: {}", handler.start_ip))
+            })?;
+            handler.end_ip = *old_to_new.get(handler.end_ip as usize).ok_or_else(|| {
+                ParseError::Other(alloc::format!("exception handler boundary out of bounds: {}", handler.end_ip))
+            })?;
+            for catch in &mut handler.catches {
+                let landing_pad = match catch {
+                    tinywasm_types::ExceptionCatch::Tag { landing_pad, .. }
+                    | tinywasm_types::ExceptionCatch::All { landing_pad, .. } => landing_pad,
+                };
+                *landing_pad = *old_to_new.get(*landing_pad as usize).ok_or_else(|| {
+                    ParseError::Other(alloc::format!("exception landing pad out of bounds: {landing_pad}"))
+                })?;
+            }
+        }
+        if handler.start_ip > handler.end_ip || handler.end_ip > len {
+            return Err(ParseError::Other("exception handler range out of bounds".into()));
+        }
+        if handler.catches.iter().any(|catch| catch.landing_pad() >= len) {
+            return Err(ParseError::Other("exception landing pad out of bounds".into()));
+        }
+    }
     for target in &mut function_data.branch_table_targets {
         if let Some(old_to_new) = old_to_new {
             *target = *old_to_new
