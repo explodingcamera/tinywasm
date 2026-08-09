@@ -90,6 +90,11 @@ impl Default for ParserOptions {
 }
 
 impl ParserOptions {
+    /// Create parser options with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Enable or disable WebAssembly validation.
     ///
     /// Requires the `validate` feature to have any effect.
@@ -152,13 +157,8 @@ pub struct Parser {
 }
 
 impl Parser {
-    /// Create a new parser instance
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Create a new parser with explicit options.
-    pub fn with_options(options: ParserOptions) -> Self {
+    /// Create a parser with the given options.
+    pub const fn new(options: ParserOptions) -> Self {
         Self { options }
     }
 
@@ -352,17 +352,17 @@ impl TryFrom<ModuleReader<'_>> for Module {
 
 /// Parse a module from bytes
 pub fn parse_bytes(wasm: &[u8]) -> Result<Module> {
-    Parser::new().parse_module_bytes(wasm)
+    Parser::default().parse_module_bytes(wasm)
 }
 
 #[cfg(feature = "std")]
 /// Parse a module from a file. Requires the `std` feature.
 pub fn parse_file(path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Module> {
-    Parser::new().parse_module_file(path)
+    Parser::default().parse_module_file(path)
 }
 
 #[cfg(feature = "std")]
 /// Parse a module from a stream. Requires the `std` feature.
 pub fn parse_stream(stream: impl crate::std::io::Read) -> Result<Module> {
-    Parser::new().parse_module_stream(stream)
+    Parser::default().parse_module_stream(stream)
 }

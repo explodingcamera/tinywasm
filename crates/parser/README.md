@@ -16,10 +16,10 @@ use tinywasm_parser::{Parser, ParserOptions};
 
 let bytes = include_bytes!("./file.wasm");
 
-let parser = Parser::new();
+let parser = Parser::default();
 let module = parser.parse_module_bytes(bytes)?;
 
-let parser = Parser::with_options(ParserOptions::default().with_rewrite_optimization(false));
+let parser = Parser::new(ParserOptions::default().with_rewrite_optimization(false));
 let module = parser.parse_module_bytes(bytes)?;
 
 let module = parser.parse_module_file("path/to/file.wasm")?;
@@ -27,4 +27,4 @@ let mut stream = std::fs::File::open("path/to/file.wasm")?;
 let module = parser.parse_module_stream(&mut stream)?;
 ```
 
-If you just want the default configuration, the top-level `parse_bytes`, `parse_file`, and `parse_stream` helpers are thin wrappers around `Parser::new()`.
+If you just want the default configuration, the top-level `parse_bytes`, `parse_file`, and `parse_stream` helpers are thin wrappers around `Parser::default()`.

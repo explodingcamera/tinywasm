@@ -105,9 +105,11 @@ pub(crate) mod log {
 
 mod error;
 pub use error::*;
+#[allow(deprecated)]
+pub use func::WasmTupleChain;
 pub use func::{
-    ExecProgress, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped, HostFunction, ToWasmTypes,
-    WasmTupleChain,
+    ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
+    HostFunction, IntoWasmValues, ToWasmType, ToWasmTypes,
 };
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};

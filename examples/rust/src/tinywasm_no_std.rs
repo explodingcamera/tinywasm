@@ -28,17 +28,17 @@ fn run() -> tinywasm::Result<()> {
     let mut store = tinywasm::Store::default();
     let mut imports = tinywasm::Imports::new();
 
-    let res = tinywasm::parser::Parser::new().parse_module_bytes(include_bytes!("./print.wasm"))?;
+    let res = tinywasm::parser::Parser::default().parse_module_bytes(include_bytes!("./print.wasm"))?;
     let twasm = res.serialize_twasm()?;
     let module = tinywasm::parse_bytes(&twasm)?;
 
-    let printi32 = HostFunction::from(&mut store, |_: FuncContext<'_>, v: i32| {
+    let printi32 = HostFunction::from(|_: FuncContext<'_>, v: i32| {
         unsafe { printi32(v) }
         Ok(())
     });
 
     imports.define("env", "printi32", printi32);
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let add_and_print = instance.func::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
     Ok(())

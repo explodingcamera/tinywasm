@@ -1,13 +1,13 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use eyre::Result;
 use tinywasm::engine::Config;
-use tinywasm::{Engine, FuncContext, HostFunction, Imports, MemoryBackend, ModuleInstance, Store, types};
+use tinywasm::{Engine, FuncContext, HostFunction, Imports, ModuleInstance, Store, types};
 use types::Module;
 
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
 
 fn tinywasm_parse() -> Result<Module> {
-    let parser = tinywasm_parser::Parser::new();
+    let parser = tinywasm_parser::Parser::default();
     let data = parser.parse_module_bytes(WASM)?;
     Ok(data)
 }
@@ -26,8 +26,8 @@ fn tinywasm_run(module: &Module) -> Result<()> {
     let engine = Engine::new(Config::default());
     let mut store = Store::new(engine);
     let mut imports = Imports::default();
-    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _: i32| Ok(())));
-    let instance = ModuleInstance::instantiate(&mut store, module, Some(imports)).expect("instantiate");
+    imports.define("env", "printi32", HostFunction::from(|_: FuncContext<'_>, _: i32| Ok(())));
+    let instance = ModuleInstance::instantiate(&mut store, module, Some(&imports)).expect("instantiate");
     let hello = instance.func::<(), ()>(&store, "hello").expect("func_typed");
     hello.call(&mut store, ()).expect("call");
     Ok(())

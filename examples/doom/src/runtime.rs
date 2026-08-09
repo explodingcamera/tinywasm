@@ -30,7 +30,7 @@ impl Runtime {
         let mut store = Store::default();
         let host_state = Rc::new(RefCell::new(HostState::new(wad_path)));
         let imports = build_imports(&mut store, host_state.clone());
-        let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+        let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
         let wad_path_buf = instance.func::<(), i32>(&store, "tinywasm_doom_wad_path_buf")?;
         let init = instance.func::<(), ()>(&store, "tinywasm_doom_init")?;
@@ -169,7 +169,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_open",
-            HostFunction::from(store, move |ctx: FuncContext<'_>, (filename_ptr, mode_ptr): (i32, i32)| {
+            HostFunction::from(move |ctx: FuncContext<'_>, (filename_ptr, mode_ptr): (i32, i32)| {
                 let memory = ctx.memory("memory")?;
                 let filename = memory.read_cstring_until_null(ctx.store(), filename_ptr as usize, 1024)?;
                 let mode = memory.read_cstring_until_null(ctx.store(), mode_ptr as usize, 16)?;
@@ -208,7 +208,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_close",
-            HostFunction::from(store, move |_ctx: FuncContext<'_>, handle: i32| {
+            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
                 state.borrow_mut().files.remove(&handle);
                 Ok(())
             }),
@@ -220,7 +220,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_read",
-            HostFunction::from(store, move |mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
+            HostFunction::from(move |mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
                 let mut state = state.borrow_mut();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(0);
@@ -238,7 +238,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_write",
-            HostFunction::from(store, move |ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
+            HostFunction::from(move |ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
                 let data = ctx.memory("memory")?.read_vec(ctx.store(), buf_ptr as usize, count.max(0) as usize)?;
                 let mut state = state.borrow_mut();
                 let Some(file) = state.files.get_mut(&handle) else {
@@ -255,7 +255,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_seek",
-            HostFunction::from(store, move |_ctx: FuncContext<'_>, (handle, offset, origin): (i32, i32, i32)| {
+            HostFunction::from(move |_ctx: FuncContext<'_>, (handle, offset, origin): (i32, i32, i32)| {
                 let seek_from = match origin {
                     0 => SeekFrom::Start(offset.max(0) as u64),
                     1 => SeekFrom::Current(offset as i64),
@@ -277,7 +277,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_tell",
-            HostFunction::from(store, move |_ctx: FuncContext<'_>, handle: i32| {
+            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
                 let mut state = state.borrow_mut();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(-1);
@@ -293,7 +293,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_eof",
-            HostFunction::from(store, move |_ctx: FuncContext<'_>, handle: i32| {
+            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
                 let mut state = state.borrow_mut();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(1);
@@ -310,7 +310,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_gettime",
-            HostFunction::from(store, move |mut ctx: FuncContext<'_>, (sec_ptr, usec_ptr): (i32, i32)| {
+            HostFunction::from(move |mut ctx: FuncContext<'_>, (sec_ptr, usec_ptr): (i32, i32)| {
                 let elapsed = state.borrow().start.elapsed();
                 let sec = elapsed.as_secs().min(i32::MAX as u64) as i32;
                 let usec = elapsed.subsec_micros() as i32;
@@ -327,7 +327,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
         imports.define(
             IMPORT_MODULE,
             "host_exit",
-            HostFunction::from(store, move |_ctx: FuncContext<'_>, code: i32| {
+            HostFunction::from(move |_ctx: FuncContext<'_>, code: i32| {
                 state.borrow_mut().exit_code = Some(code);
                 Ok(())
             }),
@@ -337,7 +337,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
     imports.define(
         IMPORT_MODULE,
         "host_print",
-        HostFunction::from(store, move |ctx: FuncContext<'_>, ptr: i32| {
+        HostFunction::from(move |ctx: FuncContext<'_>, ptr: i32| {
             let text = ctx.memory("memory")?.read_cstring_until_null(ctx.store(), ptr as usize, 4096)?;
             log::info!("guest: {}", text.to_string_lossy());
             Ok(())

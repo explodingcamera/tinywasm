@@ -85,7 +85,7 @@ fn imported_global_keeps_its_typed_store_address() -> Result<()> {
     let global = Global::new(&mut store, GlobalType::new(WasmType::I64, true), WasmValue::I64(1))?;
     let mut imports = Imports::default();
     imports.define("env", "g", global);
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     assert_eq!(instance.func::<i64, i64>(&store, "roundtrip")?.call(&mut store, 42)?, 42);
     assert_eq!(global.get(&store)?, WasmValue::I64(42));

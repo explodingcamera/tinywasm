@@ -13,13 +13,14 @@ use tinywasm_types::{Addr, GlobalType, MemAddr, MemoryType, TableAddr, TableType
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct StoreItem {
-    pub(crate) store_id: usize,
+    pub(crate) store_id: u32,
     pub(crate) addr: Addr,
 }
 
 impl StoreItem {
     #[inline]
-    pub(crate) const fn new(store_id: usize, addr: Addr) -> Self {
+    /// Creates a handle for an address owned by a store.
+    pub(crate) const fn new(store_id: u32, addr: Addr) -> Self {
         Self { store_id, addr }
     }
 
@@ -75,11 +76,7 @@ pub struct MemoryCursor<'a> {
 }
 
 #[cfg(feature = "std")]
-impl<'a> MemoryCursor<'a> {
-    fn new(memory: &'a mut MemoryInstance, position: u64) -> Self {
-        Self { memory, position }
-    }
-
+impl MemoryCursor<'_> {
     fn offset(&self) -> crate::std::io::Result<usize> {
         usize::try_from(self.position).map_err(|_| {
             crate::std::io::Error::new(crate::std::io::ErrorKind::InvalidInput, "cursor position exceeds usize")
@@ -199,7 +196,7 @@ impl Memory {
     /// Available with the `std` feature enabled.
     #[cfg(feature = "std")]
     pub fn cursor_at<'a>(&self, store: &'a mut Store, position: u64) -> Result<MemoryCursor<'a>> {
-        Ok(MemoryCursor::new(self.instance_mut(store)?, position))
+        Ok(MemoryCursor { memory: self.instance_mut(store)?, position })
     }
 
     #[inline]
@@ -375,12 +372,6 @@ impl Table {
         Ok(store.state.get_table(self.0.addr))
     }
 
-    #[inline]
-    fn instance_mut<'a>(&self, store: &'a mut Store) -> Result<&'a mut TableInstance, Trap> {
-        self.0.validate_store(store)?;
-        Ok(store.state.get_table_mut(self.0.addr))
-    }
-
     /// Get the type of the table.
     pub fn ty(&self, store: &Store) -> Result<TableType> {
         Ok(self.instance(store)?.kind)
@@ -428,7 +419,8 @@ impl Table {
 
     /// Copy elements within the same table.
     pub fn copy_within(&self, store: &mut Store, src: usize, dst: usize, len: usize) -> Result<(), Trap> {
-        self.instance_mut(store)?.copy_within(dst, src, len)
+        self.0.validate_store(store)?;
+        store.state.get_table_mut(self.0.addr).copy_within(dst, src, len)
     }
 
     /// Grow the table and return the previous size.

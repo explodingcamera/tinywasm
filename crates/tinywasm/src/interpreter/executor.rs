@@ -5,7 +5,6 @@ use core::hint::cold_path;
 use super::no_std_floats::NoStdFloatExt;
 
 use alloc::boxed::Box;
-use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use alloc::sync::Arc;
@@ -16,7 +15,7 @@ use super::ExecState;
 use super::num_helpers::*;
 use super::values::*;
 use crate::engine::FuelPolicy;
-use crate::func::{FuncContext, HostFunction};
+use crate::func::HostFunction;
 use crate::interpreter::Value128;
 use crate::*;
 
@@ -1042,10 +1041,22 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_call_host<const TAIL: bool>(
         &mut self,
-        host_func: Rc<HostFunction>,
+        host_func: HostFunction,
         type_addr: TypeAddr,
         params_may_gc: bool,
     ) -> Result<bool, Trap> {
+        if let Some(host_func) = host_func.typed_callback() {
+            if let Err(error) = host_func.call_stack(self.store, self.module.id(), type_addr) {
+                cold_path();
+                return Err(Trap::HostFunction(Box::new(error)));
+            }
+            if TAIL {
+                return Ok(self.exec_return());
+            }
+            self.cf.instr_ptr += 1;
+            return Ok(false);
+        }
+
         let param_types = self.store.state.get_canonical_func_type(type_addr).params();
         let mut params = Vec::new();
         params.try_reserve_exact(param_types.len()).map_err(|_| Trap::OutOfMemory)?;
@@ -1056,8 +1067,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         if params_may_gc {
             self.store.state.pin_host_values(&params);
         }
-        let result = host_func.call(FuncContext { store: self.store, module_id: self.module.id() }, &params);
-        let res = match result.and_then(|result| crate::func::validate_host_results(self.store, type_addr, result)) {
+        let res = match host_func.call_values(self.store, self.module.id(), type_addr, &params) {
             Ok(res) => res,
             Err(err) => {
                 cold_path();

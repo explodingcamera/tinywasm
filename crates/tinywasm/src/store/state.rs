@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 
 use super::*;
 
-#[derive(Default)]
 /// Global state that can be manipulated by WebAssembly programs
 ///
 /// Data should only be addressable by the module that owns it
@@ -21,6 +20,20 @@ pub(crate) struct State {
 }
 
 impl State {
+    pub(crate) fn new(gc_collection_threshold: usize) -> Self {
+        Self {
+            canonical_types: Vec::new(),
+            canonical_rec_group_lengths: Vec::new(),
+            funcs: Vec::new(),
+            tables: Vec::new(),
+            memories: Vec::new(),
+            globals: Globals::default(),
+            elements: Vec::new(),
+            data: Vec::new(),
+            gc: Box::new(gc::GcHeap::new(gc_collection_threshold)),
+        }
+    }
+
     /// Returns whether values of this type can contain a managed GC object.
     pub(crate) fn type_may_contain_gc(&self, ty: &WasmType) -> bool {
         Self::type_may_contain_gc_in(&self.canonical_types, ty)
@@ -404,5 +417,11 @@ impl State {
             WasmValue::V128(value) => self.globals.set_128(addr, value.into()),
         }
         Ok(())
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::new(1024 * 1024)
     }
 }

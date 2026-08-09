@@ -1,4 +1,4 @@
-use alloc::{rc::Rc, sync::Arc};
+use alloc::sync::Arc;
 use tinywasm_types::*;
 
 use crate::func::HostFunction;
@@ -25,7 +25,7 @@ pub(crate) struct FunctionGcMetadata {
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) enum FunctionKind {
     /// A host function
-    Host(Rc<HostFunction>),
+    Host(HostFunction),
 
     /// A pointer to a WebAssembly function
     Wasm(WasmFunctionInstance),

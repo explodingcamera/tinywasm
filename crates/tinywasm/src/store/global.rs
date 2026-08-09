@@ -15,6 +15,11 @@ impl<T> Default for GlobalLane<T> {
 }
 
 impl<T: Copy> GlobalLane<T> {
+    fn reserve(&mut self, additional: usize) {
+        self.values.reserve_exact(additional);
+        self.types.reserve_exact(additional);
+    }
+
     fn push(&mut self, ty: GlobalType, value: T) -> usize {
         debug_assert_eq!(self.values.len(), self.types.len());
         let index = self.values.len();
@@ -56,6 +61,20 @@ impl Globals {
     const LANE_32: u32 = 0;
     const LANE_64: u32 = 1 << Self::LANE_SHIFT;
     const LANE_128: u32 = 2 << Self::LANE_SHIFT;
+
+    pub(crate) fn reserve(&mut self, globals: &[Global]) {
+        let (mut count_32, mut count_64, mut count_128) = (0, 0, 0);
+        for global in globals {
+            match global.ty.ty {
+                WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => count_32 += 1,
+                WasmType::I64 | WasmType::F64 => count_64 += 1,
+                WasmType::V128 => count_128 += 1,
+            }
+        }
+        self.globals_32.reserve(count_32);
+        self.globals_64.reserve(count_64);
+        self.globals_128.reserve(count_128);
+    }
 
     fn addr(lane: u32, index: usize) -> GlobalAddr {
         assert!(index <= Self::INDEX_MASK as usize, "too many globals in one value lane");

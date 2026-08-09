@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
 
-    let call_add_twice = HostFunction::from(&mut store, |mut ctx: FuncContext<'_>, value: i32| {
+    let call_add_twice = HostFunction::from(|mut ctx: FuncContext<'_>, value: i32| {
         let add_one = ctx.module().func::<i32, i32>(ctx.store(), "add_one")?;
 
         // Use ctx.call for reentrant calls from host functions. Function::call
@@ -34,7 +34,7 @@ fn main() -> Result<()> {
     let mut imports = Imports::new();
     imports.define("host", "call_add_twice", call_add_twice);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let run = instance.func::<i32, i32>(&store, "run")?;
 
     assert_eq!(run.call(&mut store, 40)?, 52);

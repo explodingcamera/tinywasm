@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `HostFunction` is now a reusable definition, and module instantiation borrows `Imports` so host imports can be shared across stores.
+- Host function callbacks now require `Send + Sync` so the same definition can be used safely with multiple stores.
+- Typed function tuples now support up to 20 parameters or results. `WasmTupleChain` is deprecated. Use untyped functions for larger signatures.
 - Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
 - Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
 
@@ -27,7 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
-- Renamed `ModuleInstanceAddr` to `ModuleInstanceId` for consistency.
+- `HostFunction::from` and `HostFunction::from_untyped` no longer take a `Store` and now return reusable `HostFunction` definitions
+- `ModuleInstance::instantiate` and `instantiate_no_start` now borrow `Imports`.
+- `Store::id` now returns `u32` instead of `usize`.
+- `Parser::new` now takes `ParserOptions`, use `Parser::default()` for default settings. `Parser::with_options` was removed.
+- Renamed `ModuleInstanceAddr` to `ModuleInstanceId`.
 - Removed `HostFunction::ty` and `WasmFunction::ty`. Use `Function::ty(&Store)` for runtime function types.
 - Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
 

@@ -50,19 +50,18 @@ fn run_passed_funcref_example() -> Result<()> {
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
 
-    let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
-    let call_this =
-        HostFunction::from(&mut store, |mut ctx: FuncContext<'_>, func_ref: FuncRef| -> tinywasm::Result<()> {
-            // Host cannot call a funcref directly, so it routes through Wasm.
-            let call_by_ref = ctx.module().func::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
-            let _result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
-            Ok(())
-        });
+    let mul = HostFunction::from(|_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
+    let call_this = HostFunction::from(|mut ctx: FuncContext<'_>, func_ref: FuncRef| -> tinywasm::Result<()> {
+        // Host cannot call a funcref directly, so it routes through Wasm.
+        let call_by_ref = ctx.module().func::<(FuncRef, i32, i32), i32>(ctx.store(), "call_binop_by_ref")?;
+        let _result = call_by_ref.call(ctx.store_mut(), (func_ref, LHS, RHS))?;
+        Ok(())
+    });
 
     let mut imports = Imports::new();
     imports.define("host", "call_this", call_this).define("host", "mul", mul);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let caller = instance.func::<(), ()>(&store, "tell_host_to_call")?;
 
     caller.call(&mut store, ())?;
@@ -107,10 +106,10 @@ fn run_returned_funcref_example() -> Result<()> {
     let mut store = Store::default();
     let mut imports = Imports::new();
 
-    let mul = HostFunction::from(&mut store, |_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
+    let mul = HostFunction::from(|_, (lhs, rhs): (i32, i32)| -> tinywasm::Result<i32> { Ok(lhs * rhs) });
     imports.define("host", "mul", mul);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let (add_ref, sub_ref, mul_ref) = {
         let get_funcrefs = instance.func::<(), (FuncRef, FuncRef, FuncRef)>(&store, "what_should_host_call")?;
         get_funcrefs.call(&mut store, ())?

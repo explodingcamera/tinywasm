@@ -1,14 +1,13 @@
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::fmt::Debug;
 use core::hint::cold_path;
 
-use crate::{Function, Global, LinkingError, Memory, Result, Table};
+use crate::{Function, Global, HostFunction, LinkingError, Memory, Result, Table};
 use tinywasm_types::*;
 
 #[derive(Clone)]
-#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 #[non_exhaustive]
 /// An external import value.
 pub enum Extern {
@@ -20,43 +19,28 @@ pub enum Extern {
     Memory(Memory),
     /// A function import.
     Function(Function),
+    /// A reusable host function definition.
+    HostFunction(HostFunction),
 }
 
-impl From<Global> for Extern {
-    fn from(value: Global) -> Self {
-        Self::Global(value)
-    }
+macro_rules! impl_conv {
+    ($($ty:ty => $variant:ident),* $(,)?) => {
+        $(
+            impl From<$ty> for Extern {
+                fn from(value: $ty) -> Self {
+                    Self::$variant(value)
+                }
+            }
+        )*
+    };
 }
 
-impl From<Table> for Extern {
-    fn from(value: Table) -> Self {
-        Self::Table(value)
-    }
-}
-
-impl From<Memory> for Extern {
-    fn from(value: Memory) -> Self {
-        Self::Memory(value)
-    }
-}
-
-impl From<Function> for Extern {
-    fn from(value: Function) -> Self {
-        Self::Function(value)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-/// Name of an import
-pub struct ExternName {
-    module: String,
-    name: String,
-}
-
-impl From<&Import> for ExternName {
-    fn from(import: &Import) -> Self {
-        Self { module: import.module.to_string(), name: import.name.to_string() }
-    }
+impl_conv! {
+    Global => Global,
+    Table => Table,
+    Memory => Memory,
+    Function => Function,
+    HostFunction => HostFunction,
 }
 
 /// Imports for a module instance
@@ -75,7 +59,7 @@ impl From<&Import> for ExternName {
 /// # let my_other_instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 /// let mut imports = Imports::new();
 ///
-/// let print_i32 = HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, arg: i32| {
+/// let print_i32 = HostFunction::from(|_ctx: tinywasm::FuncContext<'_>, arg: i32| {
 ///     log::debug!("print_i32: {}", arg);
 ///     Ok(())
 /// });
@@ -101,11 +85,13 @@ impl From<&Import> for ExternName {
 /// # Ok(())
 /// # }
 /// ```
-/// Now, the imports object can be passed to [`crate::ModuleInstance::instantiate`].
+/// Host function definitions are store-independent, so the imports object can be borrowed by
+/// [`crate::ModuleInstance::instantiate`] for multiple stores.
+/// TinyWasm also matches GC reference types to each module when it links an imported host function.
 #[derive(Default, Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Imports {
-    externs: BTreeMap<ExternName, Extern>,
+    externs: BTreeMap<String, BTreeMap<String, Extern>>,
     modules: BTreeMap<String, crate::ModuleInstance>,
 }
 
@@ -124,7 +110,9 @@ impl Imports {
 
     /// Merge two import sets
     pub fn merge(mut self, other: Self) -> Self {
-        self.externs.extend(other.externs);
+        for (module, externs) in other.externs {
+            self.externs.entry(module).or_default().extend(externs);
+        }
         self.modules.extend(other.modules);
         self
     }
@@ -138,15 +126,46 @@ impl Imports {
     }
 
     /// Define an import value.
+    ///
+    /// A [`Function`], [`Global`], [`Table`], or [`Memory`] handle belongs to
+    /// one store and can only be imported into that store. A [`HostFunction`]
+    /// is a reusable definition and can be imported into multiple stores.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// use tinywasm::{HostFunction, Imports, ModuleInstance, Store};
+    ///
+    /// let wasm = wat::parse_str(
+    ///     r#"
+    ///     (module
+    ///       (import "host" "answer" (func $answer (result i32)))
+    ///       (export "answer" (func $answer)))
+    /// "#,
+    /// )
+    /// .expect("valid wat");
+    /// let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut imports = Imports::new();
+    /// imports.define("host", "answer", HostFunction::from(|_ctx, ()| Ok(42_i32)));
+    ///
+    /// let mut first_store = Store::default();
+    /// let first = ModuleInstance::instantiate(&mut first_store, &module, Some(&imports))?;
+    /// assert_eq!(first.func::<(), i32>(&first_store, "answer")?.call(&mut first_store, ())?, 42);
+    ///
+    /// let mut second_store = Store::default();
+    /// let second = ModuleInstance::instantiate(&mut second_store, &module, Some(&imports))?;
+    /// assert_eq!(second.func::<(), i32>(&second_store, "answer")?.call(&mut second_store, ())?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn define(&mut self, module: &str, name: &str, value: impl Into<Extern>) -> &mut Self {
-        let name = ExternName { module: module.to_string(), name: name.to_string() };
-        self.externs.insert(name, value.into());
+        self.externs.entry(module.to_string()).or_default().insert(name.to_string(), value.into());
         self
     }
 
     pub(crate) fn take_defined(&self, import: &Import) -> Option<Extern> {
-        let name = ExternName::from(import);
-        self.externs.get(&name).cloned()
+        self.externs.get(import.module.as_ref())?.get(import.name.as_ref()).cloned()
     }
 
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
@@ -237,10 +256,12 @@ impl Imports {
                         (ExternVal::Memory(memory.0.addr), None)
                     }
                     Extern::Function(func) => (ExternVal::Func(func.addr()), Some(func)),
+                    Extern::HostFunction(func) => {
+                        (ExternVal::Func(func.instantiate_for_import(store, type_addrs)?.addr()), None)
+                    }
                 }
             } else {
-                let name = ExternName::from(import);
-                let Some(instance) = self.modules.get(&name.module) else {
+                let Some(instance) = self.modules.get(import.module.as_ref()) else {
                     cold_path();
                     return Err(LinkingError::unknown_import(import).into());
                 };

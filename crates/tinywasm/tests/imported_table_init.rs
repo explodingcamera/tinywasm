@@ -19,11 +19,11 @@ fn imported_table_uses_provided_init_value() -> Result<()> {
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let mut imports = Imports::new();
-    let _function_at_zero = HostFunction::from(&mut store, |_, ()| Ok(()));
+    let _function_at_zero = HostFunction::from(|_, ()| Ok(())).instantiate(&mut store)?;
     let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 3, None), FuncRef::new(0).into())?;
     imports.define("host", "table", table);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let slot_is_null = instance.func::<i32, i32>(&store, "slot_is_null")?;
 
     assert_eq!(slot_is_null.call(&mut store, 0)?, 0);

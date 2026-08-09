@@ -190,7 +190,7 @@ fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> Result<
         )
         "#,
     )?;
-    let parser = Parser::with_options(ParserOptions::default().with_local_memory_allocation_optimization(false));
+    let parser = Parser::new(ParserOptions::default().with_local_memory_allocation_optimization(false));
     let module = parser.parse_module_bytes(&wasm)?;
 
     let created = instantiate_module_with_counting_backend(module)?;

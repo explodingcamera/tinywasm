@@ -6,7 +6,7 @@ use types::Module;
 const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.wasm");
 
 fn fibonacci_parse() -> Result<Module> {
-    let parser = tinywasm_parser::Parser::new();
+    let parser = tinywasm_parser::Parser::default();
     let data = parser.parse_module_bytes(WASM)?;
     Ok(data)
 }

@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::hint::cold_path;
 use tinywasm_types::{ValueCounts, WasmType, WasmValue};
 
@@ -17,6 +17,66 @@ pub(crate) struct ValueStack {
     pub(crate) stack_64: Stack<Value64>,
     pub(crate) stack_128: Stack<Value128>,
 }
+
+struct WasmValues<'a> {
+    stack: &'a ValueStack,
+    state: &'a crate::store::State,
+    types: core::slice::Iter<'a, WasmType>,
+    index: StackBase,
+    pin_refs: bool,
+}
+
+impl Iterator for WasmValues<'_> {
+    type Item = WasmValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = match *self.types.next()? {
+            WasmType::I32 => {
+                let value = *self.stack.stack_32.get(self.index.s32 as usize) as i32;
+                self.index.s32 += 1;
+                WasmValue::I32(value)
+            }
+            WasmType::I64 => {
+                let value = *self.stack.stack_64.get(self.index.s64 as usize) as i64;
+                self.index.s64 += 1;
+                WasmValue::I64(value)
+            }
+            WasmType::F32 => {
+                let value = f32::from_bits(*self.stack.stack_32.get(self.index.s32 as usize));
+                self.index.s32 += 1;
+                WasmValue::F32(value)
+            }
+            WasmType::F64 => {
+                let value = f64::from_bits(*self.stack.stack_64.get(self.index.s64 as usize));
+                self.index.s64 += 1;
+                WasmValue::F64(value)
+            }
+            WasmType::Ref(ty) => {
+                let value =
+                    self.state.to_ref_value(ValueRef::from_raw(*self.stack.stack_32.get(self.index.s32 as usize)), ty);
+                self.index.s32 += 1;
+                WasmValue::Ref(value)
+            }
+            WasmType::V128 => {
+                let value = self.stack.stack_128.get(self.index.s128 as usize).0;
+                self.index.s128 += 1;
+                WasmValue::V128(value)
+            }
+        };
+        if self.pin_refs
+            && let WasmValue::Ref(value) = value
+        {
+            self.state.pin_host_ref(value);
+        }
+        Some(value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.types.size_hint()
+    }
+}
+
+impl ExactSizeIterator for WasmValues<'_> {}
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct Stack<T: Copy + Default> {
@@ -202,6 +262,15 @@ impl ValueStack {
         }
     }
 
+    pub(crate) fn base_before(&self, counts: ValueCounts) -> StackBase {
+        let base = self.base();
+        StackBase {
+            s32: base.s32 - counts.c32 as u32,
+            s64: base.s64 - counts.c64 as u32,
+            s128: base.s128 - counts.c128 as u32,
+        }
+    }
+
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.stack_32.len() + self.stack_64.len() + self.stack_128.len()
@@ -226,6 +295,19 @@ impl ValueStack {
         let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
         let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
+    }
+
+    #[inline]
+    /// Pushes call arguments and allocates the function's local lanes.
+    pub(crate) fn enter_wasm_call(
+        &mut self,
+        values: &[WasmValue],
+        params: ValueCounts,
+        locals: ValueCounts,
+        base: StackBase,
+    ) -> Result<StackBase, Trap> {
+        self.extend_from_wasmvalues(values).inspect_err(|_| self.truncate_to_base(base))?;
+        self.enter_locals(&params, &locals).inspect_err(|_| self.truncate_to_base(base))
     }
 
     #[inline(always)]
@@ -262,17 +344,41 @@ impl ValueStack {
         }
     }
 
+    /// Pops values in their logical WebAssembly order.
+    pub(crate) fn pop_wasmvalues(&mut self, state: &crate::store::State, types: &[WasmType]) -> Vec<WasmValue> {
+        debug_assert!(self.len() >= types.len());
+        let mut values = vec![WasmValue::I32(0); types.len()];
+        for (index, &ty) in types.iter().enumerate().rev() {
+            values[index] = self.pop_wasmvalue(state, ty);
+        }
+        values
+    }
+
+    pub(crate) fn wasm_values<'a>(
+        &'a self,
+        state: &'a crate::store::State,
+        types: &'a [WasmType],
+        index: StackBase,
+        pin_refs: bool,
+    ) -> impl ExactSizeIterator<Item = WasmValue> + 'a {
+        WasmValues { stack: self, state, types: types.iter(), index, pin_refs }
+    }
+
     pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) -> Result<(), Trap> {
+        self.extend_wasmvalues(values.iter().copied())
+    }
+
+    pub(crate) fn extend_wasmvalues(&mut self, values: impl Iterator<Item = WasmValue>) -> Result<(), Trap> {
         for value in values {
             match value {
-                WasmValue::I32(v) => self.stack_32.push(*v as u32)?,
-                WasmValue::I64(v) => self.stack_64.push(*v as u64)?,
+                WasmValue::I32(v) => self.stack_32.push(v as u32)?,
+                WasmValue::I64(v) => self.stack_64.push(v as u64)?,
                 WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
                 WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
                 WasmValue::Ref(v) => {
-                    self.stack_32.push(TinyWasmValue::from(WasmValue::Ref(*v)).as_ref().unwrap().raw())?
+                    self.stack_32.push(TinyWasmValue::from(WasmValue::Ref(v)).as_ref().unwrap().raw())?
                 }
-                WasmValue::V128(v) => self.stack_128.push((*v).into())?,
+                WasmValue::V128(v) => self.stack_128.push(v.into())?,
             }
         }
         Ok(())

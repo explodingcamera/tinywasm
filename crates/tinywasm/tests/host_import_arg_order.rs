@@ -15,17 +15,16 @@ fn multi_arg_host_imports_preserve_source_order() {
     .unwrap();
 
     let module = tinywasm::parse_bytes(&wasm).unwrap();
-    let mut store = Store::default();
-
-    let pair = HostFunction::from(&mut store, |_ctx, (left, right): (i32, i32)| -> tinywasm::Result<i32> {
-        Ok(left * 1000 + right)
-    });
-
+    let pair =
+        HostFunction::from(|_ctx, (left, right): (i32, i32)| -> tinywasm::Result<i32> { Ok(left * 1000 + right) });
     let mut imports = Imports::new();
     imports.define("env", "pair", pair);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports)).unwrap();
-    let func = instance.func::<(i32, i32), i32>(&store, "call_pair").unwrap();
+    for _ in 0..2 {
+        let mut store = Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
+        let func = instance.func::<(i32, i32), i32>(&store, "call_pair").unwrap();
 
-    assert_eq!(func.call(&mut store, (12, 34)).unwrap(), 12034);
+        assert_eq!(func.call(&mut store, (12, 34)).unwrap(), 12034);
+    }
 }

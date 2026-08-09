@@ -177,20 +177,20 @@ impl WastRunner {
             .define("spectest", "global_i64", global_i64)
             .define("spectest", "global_f32", global_f32)
             .define("spectest", "global_f64", global_f64)
-            .define("spectest", "print", HostFunction::from(store, |_ctx: tinywasm::FuncContext, (): ()| Ok(())))
-            .define("spectest", "print_i32", HostFunction::from(store, |_ctx: tinywasm::FuncContext, _arg: i32| Ok(())))
-            .define("spectest", "print_i64", HostFunction::from(store, |_ctx: tinywasm::FuncContext, _arg: i64| Ok(())))
-            .define("spectest", "print_f32", HostFunction::from(store, |_ctx: tinywasm::FuncContext, _arg: f32| Ok(())))
-            .define("spectest", "print_f64", HostFunction::from(store, |_ctx: tinywasm::FuncContext, _arg: f64| Ok(())))
+            .define("spectest", "print", HostFunction::from(|_ctx: tinywasm::FuncContext, (): ()| Ok(())))
+            .define("spectest", "print_i32", HostFunction::from(|_ctx: tinywasm::FuncContext, _arg: i32| Ok(())))
+            .define("spectest", "print_i64", HostFunction::from(|_ctx: tinywasm::FuncContext, _arg: i64| Ok(())))
+            .define("spectest", "print_f32", HostFunction::from(|_ctx: tinywasm::FuncContext, _arg: f32| Ok(())))
+            .define("spectest", "print_f64", HostFunction::from(|_ctx: tinywasm::FuncContext, _arg: f64| Ok(())))
             .define(
                 "spectest",
                 "print_i32_f32",
-                HostFunction::from(store, |_ctx: tinywasm::FuncContext, _args: (i32, f32)| Ok(())),
+                HostFunction::from(|_ctx: tinywasm::FuncContext, _args: (i32, f32)| Ok(())),
             )
             .define(
                 "spectest",
                 "print_f64_f64",
-                HostFunction::from(store, |_ctx: tinywasm::FuncContext, _args: (f64, f64)| Ok(())),
+                HostFunction::from(|_ctx: tinywasm::FuncContext, _args: (f64, f64)| Ok(())),
             );
 
         for (name, module) in modules {
@@ -235,7 +235,7 @@ impl WastRunner {
                         let (name, bytes) = encode_quote_wat(module);
                         let module = parse_module_bytes(&bytes).expect("failed to parse module bytes");
                         let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                        let module_instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))
+                        let module_instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))
                             .expect("failed to instantiate module");
                         (name, module_instance)
                     })
@@ -331,7 +331,7 @@ impl WastRunner {
                                 let module = parse_module_bytes(&wat.encode().expect("failed to encode module"))
                                     .expect("failed to parse module");
                                 let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                                ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+                                ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
                                 return Ok(());
                             }
                             wast::WastExecute::Get { .. } => panic!("get not supported"),
@@ -376,7 +376,7 @@ impl WastRunner {
                         let module = parse_module_bytes(&module.encode().expect("failed to encode module"))
                             .expect("failed to parse module");
                         let imports = Self::imports(&mut store, module_registry.modules()).unwrap();
-                        ModuleInstance::instantiate(&mut store, &module, Some(imports))
+                        ModuleInstance::instantiate(&mut store, &module, Some(&imports))
                     });
                     match res {
                         Err(err) => test_group.add_result(

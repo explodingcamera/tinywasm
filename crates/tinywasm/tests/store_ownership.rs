@@ -98,7 +98,7 @@ fn global_import_rejects_wrong_store() -> Result<()> {
     imports.define("env", "g", global);
 
     let mut other_store = Store::default();
-    let err = ModuleInstance::instantiate(&mut other_store, &module, Some(imports)).unwrap_err();
+    let err = ModuleInstance::instantiate(&mut other_store, &module, Some(&imports)).unwrap_err();
     assert_eq!(err, tinywasm::Error::Trap(tinywasm::Trap::InvalidStore));
     Ok(())
 }

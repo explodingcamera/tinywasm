@@ -117,9 +117,9 @@ fn extern_item_and_exports_use_actual_function_type() -> Result<()> {
     imports.define(
         "host",
         "imported",
-        tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
+        tinywasm::HostFunction::from(|_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
     );
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
     assert_eq!(func.call(&mut store, &[])?, vec![]);
@@ -166,9 +166,9 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
     imports.define(
         "spectest",
         "print_i64",
-        tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
+        tinywasm::HostFunction::from(|_ctx: tinywasm::FuncContext<'_>, _arg: i64| Ok(())),
     );
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
     assert_eq!(func.call(&mut store, &[])?, vec![]);
@@ -192,7 +192,8 @@ fn start_resolves_module_func_index_to_store_addr() -> Result<()> {
 
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let _unused = tinywasm::HostFunction::from(&mut store, |_ctx: tinywasm::FuncContext<'_>, (): ()| Ok(()));
+    let _unused =
+        tinywasm::HostFunction::from(|_ctx: tinywasm::FuncContext<'_>, (): ()| Ok(())).instantiate(&mut store)?;
     let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
 
     instance.start(&mut store)?;

@@ -1,6 +1,6 @@
 use eyre::Result;
 use std::fmt::Write;
-use tinywasm::types::{FuncType, RefValue, WasmType, WasmValue};
+use tinywasm::types::{FuncType, RefType, RefValue, WasmType, WasmValue};
 use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
 use tinywasm_types::ExternRef;
 
@@ -34,10 +34,10 @@ fn test_return_invalid_type() -> Result<()> {
         for returned_values in VAL_LISTS {
             let mut store = Store::default();
             let mut imports = Imports::new();
-            let hfn = HostFunction::from_untyped(&mut store, &ty, |_: FuncContext<'_>, _| Ok(returned_values.to_vec()));
+            let hfn = HostFunction::from_untyped(&ty, |_: FuncContext<'_>, _| Ok(returned_values.to_vec()));
             imports.define("host", "hfn", hfn);
 
-            let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports)).unwrap();
+            let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
             let caller = instance.func_untyped(&store, "call_hfn").unwrap();
             // Return-type mismatch is only observable at call time.
             let should_succeed = returned_values.len() == ty.results().len()
@@ -56,13 +56,12 @@ fn test_linking_invalid_untyped_func() -> Result<()> {
     for (module, expected_func_ty, _) in &cases {
         for (_, ty, _) in &cases {
             let mut store = Store::default();
-            let tried_fn =
-                HostFunction::from_untyped(&mut store, ty, |_: FuncContext<'_>, _| panic!("not intended to be called"));
+            let tried_fn = HostFunction::from_untyped(ty, |_: FuncContext<'_>, _| panic!("not intended to be called"));
             let mut imports = Imports::new();
             imports.define("host", "hfn", tried_fn);
 
             let should_succeed = ty == expected_func_ty;
-            let link_res = ModuleInstance::instantiate(&mut store, module, Some(imports));
+            let link_res = ModuleInstance::instantiate(&mut store, module, Some(&imports));
             assert_eq!(link_res.is_ok(), should_succeed);
         }
     }
@@ -80,26 +79,18 @@ fn test_linking_invalid_typed_func() -> Result<()> {
     for (module, _, _) in cases {
         let mut store = Store::default();
         let matching_none = vec![
-            HostFunction::from(&mut store, |_, _: NonMatchingTuple| -> tinywasm::Result<Existing> {
+            HostFunction::from(|_, _: NonMatchingTuple| -> tinywasm::Result<Existing> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: NonMatchingTuple| -> tinywasm::Result<()> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: NonMatchingSingle| -> tinywasm::Result<Existing> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: NonMatchingSingle| -> tinywasm::Result<()> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: Existing| -> tinywasm::Result<NonMatchingTuple> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: Existing| -> tinywasm::Result<NonMatchingSingle> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: ()| -> tinywasm::Result<NonMatchingSingle> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: ()| -> tinywasm::Result<NonMatchingTuple> { panic!("{DONT_CALL}") }),
+            HostFunction::from(|_, _: NonMatchingSingle| -> tinywasm::Result<NonMatchingTuple> {
                 panic!("{DONT_CALL}")
             }),
-            HostFunction::from(&mut store, |_, _: NonMatchingTuple| -> tinywasm::Result<()> { panic!("{DONT_CALL}") }),
-            HostFunction::from(&mut store, |_, _: NonMatchingSingle| -> tinywasm::Result<Existing> {
-                panic!("{DONT_CALL}")
-            }),
-            HostFunction::from(&mut store, |_, _: NonMatchingSingle| -> tinywasm::Result<()> { panic!("{DONT_CALL}") }),
-            HostFunction::from(&mut store, |_, _: Existing| -> tinywasm::Result<NonMatchingTuple> {
-                panic!("{DONT_CALL}")
-            }),
-            HostFunction::from(&mut store, |_, _: Existing| -> tinywasm::Result<NonMatchingSingle> {
-                panic!("{DONT_CALL}")
-            }),
-            HostFunction::from(&mut store, |_, _: ()| -> tinywasm::Result<NonMatchingSingle> { panic!("{DONT_CALL}") }),
-            HostFunction::from(&mut store, |_, _: ()| -> tinywasm::Result<NonMatchingTuple> { panic!("{DONT_CALL}") }),
-            HostFunction::from(&mut store, |_, _: NonMatchingSingle| -> tinywasm::Result<NonMatchingTuple> {
-                panic!("{DONT_CALL}")
-            }),
-            HostFunction::from(&mut store, |_, _: NonMatchingSingle| -> tinywasm::Result<NonMatchingSingle> {
+            HostFunction::from(|_, _: NonMatchingSingle| -> tinywasm::Result<NonMatchingSingle> {
                 panic!("{DONT_CALL}")
             }),
         ];
@@ -107,7 +98,7 @@ fn test_linking_invalid_typed_func() -> Result<()> {
         for typed_fn in matching_none {
             let mut imports = Imports::new();
             imports.define("host", "hfn", typed_fn);
-            let link_failure = ModuleInstance::instantiate(&mut store, &module, Some(imports));
+            let link_failure = ModuleInstance::instantiate(&mut store, &module, Some(&imports));
             assert!(link_failure.is_err(), "Expected linking to fail for mismatched typed func, but it succeeded");
         }
     }
@@ -142,13 +133,42 @@ fn concrete_host_references_use_canonical_types() -> Result<()> {
     let param_ty = instance.func_untyped(&store, "takes-a")?.ty(&store)?.clone();
 
     let wrong_result = wrong_ref.clone();
-    let wrong_return = HostFunction::from_untyped(&mut store, &return_ty, move |_, _| Ok(wrong_result.clone()));
+    let wrong_return =
+        HostFunction::from_untyped(&return_ty, move |_, _| Ok(wrong_result.clone())).instantiate(&mut store)?;
     assert!(wrong_return.call(&mut store, &[]).is_err());
 
-    let accept_a = HostFunction::from_untyped(&mut store, &param_ty, |_, _| Ok(Vec::new()));
+    let accept_a = HostFunction::from_untyped(&param_ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
     assert!(accept_a.call(&mut store, &wrong_ref).is_err());
     assert!(accept_a.call(&mut store, &right_ref).is_ok());
 
+    Ok(())
+}
+
+#[test]
+fn imported_host_functions_resolve_concrete_types() -> Result<()> {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (type $object (struct))
+          (import "host" "inspect" (func $inspect (param (ref null $object))))
+          (func (export "call")
+            ref.null $object
+            call $inspect))
+        "#,
+    )?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let concrete = RefType::new_concrete(true, 0).expect("valid module-local type index");
+    let host_ty = FuncType::new(&[WasmType::Ref(concrete)], &[]);
+    let host = HostFunction::from_untyped(&host_ty, |_, args| {
+        assert_eq!(args, &[WasmValue::Ref(RefValue::Null)]);
+        Ok(Vec::new())
+    });
+    let mut imports = Imports::new();
+    imports.define("host", "inspect", host);
+    let mut store = Store::default();
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+
+    instance.func::<(), ()>(&store, "call")?.call(&mut store, ())?;
     Ok(())
 }
 
@@ -178,8 +198,8 @@ fn host_tail_calls_return_from_the_current_frame() -> Result<()> {
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let mut imports = Imports::new();
-    imports.define("host", "answer", HostFunction::from(&mut store, |_, ()| Ok(42_i32)));
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    imports.define("host", "answer", HostFunction::from(|_, ()| Ok(42_i32)));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     for name in ["direct", "indirect", "reference"] {
         assert_eq!(instance.func::<(), i32>(&store, name)?.call(&mut store, ())?, 42);
@@ -190,13 +210,14 @@ fn host_tail_calls_return_from_the_current_frame() -> Result<()> {
 }
 
 #[test]
-fn host_calls_reject_unknown_function_references() {
+fn host_calls_reject_unknown_function_references() -> Result<()> {
     let mut store = Store::default();
     let ty = FuncType::new(&[WasmType::Ref(tinywasm::types::RefType::FUNCREF)], &[]);
-    let host = HostFunction::from_untyped(&mut store, &ty, |_, _| Ok(Vec::new()));
+    let host = HostFunction::from_untyped(&ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
     let invalid = WasmValue::Ref(RefValue::Func(tinywasm::types::FuncRef::new(u32::MAX)));
 
     assert!(host.call(&mut store, &[invalid]).is_err());
+    Ok(())
 }
 
 fn to_name(ty: &WasmType) -> &str {

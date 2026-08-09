@@ -75,8 +75,8 @@ fn tinywasm() -> Result<()> {
     let mut store = Store::default();
 
     let mut imports = Imports::new();
-    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _x: i32| Ok(())));
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(black_box(imports)))?;
+    imports.define("env", "printi32", HostFunction::from(|_: FuncContext<'_>, _x: i32| Ok(())));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(black_box(&imports)))?;
 
     let hello = instance.func::<(), ()>(&store, "hello")?;
     hello.call(&mut store, black_box(()))?;
@@ -90,8 +90,8 @@ fn tinywasm_no_std() -> Result<()> {
     let mut store = Store::default();
 
     let mut imports = Imports::new();
-    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _x: i32| Ok(())));
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(black_box(imports)))?;
+    imports.define("env", "printi32", HostFunction::from(|_: FuncContext<'_>, _x: i32| Ok(())));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(black_box(&imports)))?;
 
     let hello = instance.func::<(), ()>(&store, "hello")?;
     hello.call(&mut store, black_box(()))?;
@@ -104,7 +104,7 @@ fn hello() -> Result<()> {
     let module = tinywasm::parse_file("./examples/rust/out/hello.opt.wasm")?;
     let mut store = Store::default();
 
-    let print_utf8 = HostFunction::from(&mut store, |ctx: FuncContext<'_>, (ptr, len): (i64, i32)| {
+    let print_utf8 = HostFunction::from(|ctx: FuncContext<'_>, (ptr, len): (i64, i32)| {
         let mem = ctx.memory("memory")?;
         let string = mem.read_string(ctx.store(), ptr as usize, len as usize)?;
         println!("{string}");
@@ -114,7 +114,7 @@ fn hello() -> Result<()> {
     let mut imports = Imports::new();
     imports.define("env", "print_utf8", print_utf8);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let arg_ptr = instance.func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
@@ -129,7 +129,7 @@ fn host_fn() -> Result<()> {
     let module = tinywasm::parse_file("./examples/rust/out/host_fn.opt.wasm")?;
     let mut store = Store::default();
 
-    let bar = HostFunction::from(&mut store, |_: FuncContext<'_>, (left, right): (i64, i32)| {
+    let bar = HostFunction::from(|_: FuncContext<'_>, (left, right): (i64, i32)| {
         assert_eq!(left, 1);
         assert_eq!(right, 2);
         Ok(left as i32 + right)
@@ -138,7 +138,7 @@ fn host_fn() -> Result<()> {
     let mut imports = Imports::new();
     imports.define("env", "bar", bar);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let host_fn = instance.func::<(), i32>(&store, "foo")?;
     assert_eq!(host_fn.call(&mut store, ())?, 3);
     Ok(())
@@ -148,7 +148,7 @@ fn printi32() -> Result<()> {
     let module = tinywasm::parse_file("./examples/rust/out/print.opt.wasm")?;
     let mut store = Store::default();
 
-    let printi32 = HostFunction::from(&mut store, |_: FuncContext<'_>, x: i32| {
+    let printi32 = HostFunction::from(|_: FuncContext<'_>, x: i32| {
         println!("{x}");
         Ok(())
     });
@@ -156,7 +156,7 @@ fn printi32() -> Result<()> {
     let mut imports = Imports::new();
     imports.define("env", "printi32", printi32);
 
-    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     let add_and_print = instance.func::<(i32, i32), ()>(&store, "add_and_print")?;
     add_and_print.call(&mut store, (1, 2))?;
 

@@ -34,7 +34,7 @@ fn link_module_links_same_store_instance() -> Result<()> {
     let mut imports = Imports::new();
     imports.link_module("adder", add_instance)?;
 
-    let instance = ModuleInstance::instantiate(&mut store, &import_module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, &import_module, Some(&imports))?;
     let main = instance.func::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
     Ok(())
@@ -51,7 +51,7 @@ fn link_module_rejects_cross_store_instance() -> Result<()> {
     let mut imports = Imports::new();
     imports.link_module("adder", add_instance)?;
 
-    let err = ModuleInstance::instantiate(&mut target_store, &import_module, Some(imports)).unwrap_err();
+    let err = ModuleInstance::instantiate(&mut target_store, &import_module, Some(&imports)).unwrap_err();
     assert_eq!(err, Error::from(Trap::InvalidStore));
     Ok(())
 }

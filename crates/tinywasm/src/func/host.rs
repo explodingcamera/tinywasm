@@ -1,0 +1,259 @@
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType, WasmValue};
+
+use super::{FromWasmValues, FuncContext, IntoWasmValues, ToWasmTypes};
+use crate::{Function, FunctionInstance, Result, Store};
+
+/// A reusable host function definition.
+#[derive(Clone)]
+pub struct HostFunction(Arc<HostFunctionInner>);
+
+impl HostFunction {
+    fn instantiate_canonical(&self, store: &mut Store, ty: &FuncType) -> Function {
+        let type_addr = store.register_host_type(ty);
+        let addr = store.add_func(FunctionInstance {
+            type_addr,
+            gc: store.state.func_gc_metadata(type_addr),
+            kind: crate::store::FunctionKind::Host(self.clone()),
+        });
+        Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
+    }
+
+    /// Instantiates this definition after resolving the importing module's types.
+    pub(crate) fn instantiate_for_import(&self, store: &mut Store, type_addrs: &[TypeAddr]) -> Result<Function> {
+        let resolve = |ty: WasmType| -> Result<WasmType> {
+            let WasmType::Ref(ref_ty) = ty else { return Ok(ty) };
+            let Some(module_addr) = ref_ty.type_index() else { return Ok(ty) };
+            let canonical = *type_addrs
+                .get(module_addr as usize)
+                .ok_or_else(|| crate::Error::other("host function signature contains an invalid concrete type"))?;
+            Ok(WasmType::Ref(
+                tinywasm_types::RefType::new_concrete(ref_ty.is_nullable(), canonical)
+                    .expect("canonical type addresses fit in references"),
+            ))
+        };
+        let params = self.0.ty.params().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;
+        let results = self.0.ty.results().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;
+        Ok(self.instantiate_canonical(store, &FuncType::new(&params, &results)))
+    }
+
+    /// Calls the host function through its untyped value interface.
+    pub(crate) fn call_values(
+        &self,
+        store: &mut Store,
+        module_id: ModuleInstanceId,
+        type_addr: TypeAddr,
+        args: &[WasmValue],
+    ) -> Result<Vec<WasmValue>> {
+        let result = match &self.0.callback {
+            HostCallback::Untyped(func) => func(FuncContext { store, module_id }, args),
+            HostCallback::Typed(func) => func.call(FuncContext { store, module_id }, args),
+        }?;
+        let expected = store.state.get_canonical_func_type(type_addr);
+        if result.len() == expected.results().len()
+            && result.iter().zip(expected.results()).all(|(&value, &ty)| store.state.value_matches_type(value, ty))
+        {
+            Ok(result)
+        } else {
+            Err(crate::Error::InvalidHostFnReturn { expected: Box::new(expected.clone()), actual: result })
+        }
+    }
+
+    /// Returns the allocation-free typed callback when one is available.
+    pub(crate) fn typed_callback(&self) -> Option<&dyn TypedHostCallback> {
+        match &self.0.callback {
+            HostCallback::Untyped(_) => None,
+            HostCallback::Typed(func) => Some(&**func),
+        }
+    }
+
+    /// Create a directly callable, store-owned function from this definition.
+    ///
+    /// The returned [`Function`] can only be used with `store`.
+    ///
+    /// Host functions intended as module imports usually do not need to be
+    /// instantiated manually. Pass the reusable definition to
+    /// [`crate::Imports::define`] instead. TinyWasm will then match any GC
+    /// reference types to the module that imports the function.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the signature uses a store-specific reference type
+    /// that is not registered in `store`.
+    ///
+    /// ## Example
+    ///
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// use tinywasm::types::WasmValue;
+    /// use tinywasm::{HostFunction, Store};
+    ///
+    /// let mut store = Store::default();
+    /// let add_one = HostFunction::from(|_ctx, value: i32| Ok(value + 1));
+    /// let function = add_one.instantiate(&mut store)?;
+    ///
+    /// assert_eq!(function.call(&mut store, &[WasmValue::I32(41)])?, [WasmValue::I32(42)]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn instantiate(&self, store: &mut Store) -> Result<Function> {
+        if self
+            .0
+            .ty
+            .params()
+            .iter()
+            .chain(self.0.ty.results())
+            .filter_map(|ty| match ty {
+                WasmType::Ref(ty) => ty.type_index(),
+                _ => None,
+            })
+            .any(|type_addr| type_addr as usize >= store.state.canonical_types.len())
+        {
+            return Err(crate::Error::other("host function signature contains a concrete type from another store"));
+        }
+        Ok(self.instantiate_canonical(store, &self.0.ty))
+    }
+
+    /// Create a new untyped host function.
+    ///
+    /// To call Wasm from inside the callback, use [`FuncContext::call`] or
+    /// [`FuncContext::call_untyped`].
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
+    /// # use tinywasm::types::{FuncType, WasmType, WasmValue};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (import "host" "add_one" (func $add_one (param i32) (result i32)))
+    /// #       (func (export "call") (param i32) (result i32)
+    /// #         local.get 0
+    /// #         call $add_one))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let ty = FuncType::new(&[WasmType::I32], &[WasmType::I32]);
+    /// let add_one = HostFunction::from_untyped(&ty, |_ctx: FuncContext<'_>, args| {
+    ///     let WasmValue::I32(value) = args[0] else {
+    ///         return Err(tinywasm::Error::Other("expected i32".into()));
+    ///     };
+    ///     Ok(vec![WasmValue::I32(value + 1)])
+    /// });
+    ///
+    /// let mut imports = Imports::new();
+    /// imports.define("host", "add_one", add_one);
+    /// # let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    /// # let call = instance.func::<i32, i32>(&store, "call")?;
+    /// # assert_eq!(call.call(&mut store, 41)?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn from_untyped(
+        ty: &FuncType,
+        func: impl Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(HostFunctionInner { ty: ty.clone(), callback: HostCallback::Untyped(Box::new(func)) }))
+    }
+
+    /// Create a new typed host function.
+    ///
+    /// To call Wasm from inside the callback, use [`FuncContext::call`] or
+    /// [`FuncContext::call_untyped`].
+    ///
+    /// ## Example
+    /// ```rust
+    /// # fn main() -> tinywasm::Result<()> {
+    /// # use tinywasm::{HostFunction, Imports, ModuleInstance, Store};
+    /// # let wasm = wat::parse_str(r#"
+    /// #     (module
+    /// #       (import "host" "add_one" (func $add_one (param i32) (result i32)))
+    /// #       (func (export "call") (param i32) (result i32)
+    /// #         local.get 0
+    /// #         call $add_one))
+    /// # "#).expect("valid wat");
+    /// # let module = tinywasm::parse_bytes(&wasm)?;
+    /// let mut store = Store::default();
+    /// let add_one = HostFunction::from(|_ctx, value: i32| Ok(value + 1));
+    ///
+    /// let mut imports = Imports::new();
+    /// imports.define("host", "add_one", add_one);
+    /// # let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    /// # let call = instance.func::<i32, i32>(&store, "call")?;
+    /// # assert_eq!(call.call(&mut store, 41)?, 42);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn from<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + Send + Sync + 'static) -> Self
+    where
+        P: FromWasmValues + ToWasmTypes + 'static,
+        R: IntoWasmValues + ToWasmTypes + 'static,
+    {
+        let ty = FuncType::new(&P::wasm_types(), &R::wasm_types());
+        let func = TypedHostCallbackImpl { func, marker: core::marker::PhantomData };
+        Self(Arc::new(HostFunctionInner { ty, callback: HostCallback::Typed(Box::new(func)) }))
+    }
+}
+
+struct HostFunctionInner {
+    ty: FuncType,
+    callback: HostCallback,
+}
+
+enum HostCallback {
+    Untyped(Box<UntypedHostCallback>),
+    Typed(Box<dyn TypedHostCallback>),
+}
+
+type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue]) -> Result<Vec<WasmValue>> + Send + Sync;
+
+pub(crate) trait TypedHostCallback: Send + Sync {
+    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>>;
+    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
+}
+
+struct TypedHostCallbackImpl<F, P, R> {
+    func: F,
+    marker: core::marker::PhantomData<fn(P) -> R>,
+}
+
+impl<F, P, R> TypedHostCallback for TypedHostCallbackImpl<F, P, R>
+where
+    F: Fn(FuncContext<'_>, P) -> Result<R> + Send + Sync,
+    P: FromWasmValues,
+    R: IntoWasmValues,
+{
+    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        let mut values = args.iter().copied();
+        let params = P::from_wasm_values(&mut values)?;
+        if values.next().is_some() {
+            return Err(crate::Error::other("typed conversion did not consume all WebAssembly values"));
+        }
+        Ok((self.func)(ctx, params)?.into_wasm_values().collect())
+    }
+
+    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
+        let params = store.state.get_canonical_func_type(type_addr).params();
+        let base = store.value_stack.base_before(params.iter().collect());
+        let mut values = store.value_stack.wasm_values(&store.state, params, base, true);
+        let params = P::from_wasm_values(&mut values).and_then(|params| {
+            if values.next().is_some() {
+                Err(crate::Error::other("typed conversion did not consume all WebAssembly values"))
+            } else {
+                Ok(params)
+            }
+        });
+        drop(values);
+        store.value_stack.truncate_to_base(base);
+        let params = params?;
+        let result = (self.func)(FuncContext { store, module_id }, params)?;
+        store.push_typed_values::<true>(type_addr, result.into_wasm_values(), base)
+    }
+}
+
+#[cfg(feature = "debug")]
+impl core::fmt::Debug for HostFunction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostFunction").field("ty", &self.0.ty).finish_non_exhaustive()
+    }
+}

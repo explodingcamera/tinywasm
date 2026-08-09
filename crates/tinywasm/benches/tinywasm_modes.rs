@@ -10,7 +10,7 @@ const TIME_BUDGET_PER_ROUND: core::time::Duration = core::time::Duration::from_m
 const BENCH_MEASUREMENT_TIME: core::time::Duration = core::time::Duration::from_secs(10);
 
 fn tinywasm_parse() -> Result<Module> {
-    let parser = tinywasm_parser::Parser::new();
+    let parser = tinywasm_parser::Parser::default();
     Ok(parser.parse_module_bytes(WASM)?)
 }
 
@@ -21,9 +21,9 @@ fn setup_typed_func(module: &Module, engine: Option<Engine>) -> Result<(Store, F
     };
 
     let mut imports = Imports::default();
-    imports.define("env", "printi32", HostFunction::from(&mut store, |_: FuncContext<'_>, _: i32| Ok(())));
+    imports.define("env", "printi32", HostFunction::from(|_: FuncContext<'_>, _: i32| Ok(())));
 
-    let instance = ModuleInstance::instantiate(&mut store, module, Some(imports))?;
+    let instance = ModuleInstance::instantiate(&mut store, module, Some(&imports))?;
     let func = instance.func::<(), ()>(&store, "hello")?;
     Ok((store, func))
 }

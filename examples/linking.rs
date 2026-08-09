@@ -40,7 +40,7 @@ fn main() -> Result<()> {
     imports.link_module("adder", add_instance)?;
 
     // Instantiate the `import` module with the linked imports.
-    let import_instance = ModuleInstance::instantiate(&mut store, &import_module, Some(imports))?;
+    let import_instance = ModuleInstance::instantiate(&mut store, &import_module, Some(&imports))?;
 
     // Call the `main` function, which uses the imported `add` function.
     let main = import_instance.func::<(), i32>(&store, "main")?;

@@ -45,7 +45,7 @@ pub struct ModuleInstance(Rc<ModuleInstanceInner>);
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 struct ModuleInstanceInner {
-    store_id: usize,
+    store_id: u32,
     id: ModuleInstanceId,
     type_addrs: Box<[TypeAddr]>,
     func_addrs: Box<[FuncAddr]>,
@@ -117,7 +117,7 @@ impl ModuleInstance {
     /// Instantiate the module in the given store
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
-    pub fn instantiate(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
+    pub fn instantiate(store: &mut Store, module: &Module, imports: Option<&Imports>) -> Result<Self> {
         let instance = ModuleInstance::instantiate_no_start(store, module, imports)?;
         let _ = instance.start(store)?;
         Ok(instance)
@@ -150,15 +150,13 @@ impl ModuleInstance {
     /// ```
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
-    pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<Imports>) -> Result<Self> {
+    pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<&Imports>) -> Result<Self> {
         let type_addrs = store.register_module_types(&module.types);
         let id = store.next_module_instance_id();
-        let mut addrs = imports.unwrap_or_default().link(store, module, &type_addrs)?;
-        let local_type_addrs = module.func_type_idxs[addrs.funcs.len()..]
-            .iter()
-            .map(|&addr| type_addrs[addr as usize])
-            .collect::<Box<[_]>>();
-        addrs.funcs.extend(store.init_funcs(&module.funcs, id, &local_type_addrs));
+        let default_imports = Imports::default();
+        let mut addrs = imports.unwrap_or(&default_imports).link(store, module, &type_addrs)?;
+        let imported_funcs = addrs.funcs.len();
+        addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
         match module.local_memory_allocation {
             LocalMemoryAllocation::Skip => {
                 #[cfg(feature = "guest-debug")]
@@ -246,13 +244,10 @@ impl ModuleInstance {
     pub fn exports(&self) -> impl Iterator<Item = (&str, ExternItem)> + '_ {
         self.0.exports.iter().map(move |export| {
             let item = match export.kind {
-                ExternalKind::Func => {
-                    let func_addr = self.resolve_func_addr(export.index);
-                    ExternItem::Func(Function {
-                        item: StoreItem::new(self.0.store_id, func_addr),
-                        module_id: self.id(),
-                    })
-                }
+                ExternalKind::Func => ExternItem::Func(Function {
+                    item: StoreItem::new(self.0.store_id, self.resolve_func_addr(export.index)),
+                    module_id: self.id(),
+                }),
                 ExternalKind::Table => {
                     ExternItem::Table(Table(StoreItem::new(self.0.store_id, self.resolve_table_addr(export.index))))
                 }
@@ -364,7 +359,6 @@ impl ModuleInstance {
     pub fn func_by_index(&self, store: &Store, func_index: FuncAddr) -> Result<Function> {
         self.validate_store(store)?;
         let func_addr = Self::index_addr(&self.0.func_addrs, func_index, "function")?;
-
         Ok(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() })
     }
 
@@ -392,8 +386,7 @@ impl ModuleInstance {
     ///
     /// For untyped access, see [`Self::func_untyped`] and [`Self::extern_item`].
     ///
-    /// For signatures that exceed tuple arity 12, see [`crate::WasmTupleChain`], which can be used
-    /// directly as `instance.func::<crate::WasmTupleChain<_, _>, _>(...)`.
+    /// Tuples are supported up to arity 20. Use [`Self::func_untyped`] for larger signatures.
     pub fn func<P: IntoWasmValues + ToWasmTypes, R: FromWasmValues + ToWasmTypes>(
         &self,
         store: &Store,
