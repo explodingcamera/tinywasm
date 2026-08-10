@@ -23,12 +23,14 @@ path = "src/bin.rs"
 
 [dependencies]
 anstream = { version = "1.0" }
+anyhow.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 clap_complete = "4.6"
-eyre.workspace = true
 log.workspace = true
 owo-colors = { workspace = true }
 pretty_env_logger.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tinywasm = { workspace = true, features = [
   "archive",
   "canonicalize-nans",
@@ -39,6 +41,7 @@ tinywasm = { workspace = true, features = [
   "std",
   "validate",
 ] }
+wasm-testsuite = { workspace = true, optional = true }
 wast = { workspace = true, optional = true }
 wat = { workspace = true, optional = true }
 
@@ -49,5 +52,6 @@ tempfile = "3.27"
 
 [features]
 default = ["wast", "wat"]
+tests = ["dep:serde", "dep:serde_json", "dep:wasm-testsuite", "wast"]
 wast = ["dep:wast"]
 wat = ["dep:wat"]

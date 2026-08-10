@@ -1,4 +1,3 @@
-use eyre::Result;
 use tinywasm::types::{GlobalType, WasmType};
 use tinywasm::{Global, Imports, ModuleInstance, Store};
 
@@ -13,7 +12,7 @@ const MODULE_WAT: &str = r#"
 "#;
 
 #[test]
-fn func_handle_rejects_wrong_store() -> Result<()> {
+fn func_handle_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(MODULE_WAT)?;
     let module = tinywasm::parse_bytes(&wasm)?;
 
@@ -29,7 +28,7 @@ fn func_handle_rejects_wrong_store() -> Result<()> {
 }
 
 #[test]
-fn memory_access_rejects_wrong_store() -> Result<()> {
+fn memory_access_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(MODULE_WAT)?;
     let module = tinywasm::parse_bytes(&wasm)?;
 
@@ -45,7 +44,7 @@ fn memory_access_rejects_wrong_store() -> Result<()> {
 }
 
 #[test]
-fn global_access_rejects_wrong_store() -> Result<()> {
+fn global_access_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -67,7 +66,7 @@ fn global_access_rejects_wrong_store() -> Result<()> {
 }
 
 #[test]
-fn table_grow_rejects_wrong_store_with_invalid_store_error() -> Result<()> {
+fn table_grow_rejects_wrong_store_with_invalid_store_error() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -89,7 +88,7 @@ fn table_grow_rejects_wrong_store_with_invalid_store_error() -> Result<()> {
 }
 
 #[test]
-fn global_import_rejects_wrong_store() -> Result<()> {
+fn global_import_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(r#"(module (import "env" "g" (global i32)))"#)?;
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut owner_store = Store::default();

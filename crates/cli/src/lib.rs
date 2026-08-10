@@ -3,12 +3,14 @@ pub mod cmd;
 pub mod engine_flags;
 pub mod load;
 pub mod output;
+#[cfg(feature = "tests")]
+pub mod testsuite;
 pub mod value_parse;
 #[cfg(feature = "wast")]
 pub mod wast_runner;
 
+use anyhow::Result;
 use clap::CommandFactory;
-use eyre::Result;
 
 pub use cli::{Cli, Commands};
 

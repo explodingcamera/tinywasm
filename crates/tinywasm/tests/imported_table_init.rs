@@ -1,9 +1,8 @@
-use eyre::Result;
 use tinywasm::types::{FuncRef, RefType, TableType};
 use tinywasm::{HostFunction, Imports, ModuleInstance, Store, Table};
 
 #[test]
-fn imported_table_uses_provided_init_value() -> Result<()> {
+fn imported_table_uses_provided_init_value() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

@@ -1,10 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use eyre::Result;
 use tinywasm::engine::Config;
-use tinywasm::{Engine, FuncContext, HostFunction, Imports, ModuleInstance, Store, types};
+use tinywasm::{Engine, FuncContext, HostFunction, Imports, ModuleInstance, Result, Store, types};
 use types::Module;
 
-const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
+const WASM: &[u8] = include_bytes!("../examples/rust/out/tinywasm.wasm");
 
 fn tinywasm_parse() -> Result<Module> {
     let parser = tinywasm_parser::Parser::default();

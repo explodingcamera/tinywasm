@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use eyre::{Result, eyre};
+use anyhow::{Result, anyhow};
 use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
 
 /// Examples of using WebAssembly compiled from Rust with tinywasm.
@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     pretty_env_logger::init();
 
     if !std::path::Path::new("./examples/rust/out/").exists() {
-        return Err(eyre!("No WebAssembly files found. See examples/wasm-rust.rs for instructions."));
+        return Err(anyhow!("No WebAssembly files found. See examples/wasm-rust.rs for instructions."));
     }
 
     let args = std::env::args().collect::<Vec<_>>();

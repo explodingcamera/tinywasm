@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 use tinywasm::{Module, ModuleInstance, Store, parser::Parser};
 
 const WASM: &str = r#"

@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use eyre::{ContextCompat, Result, bail, eyre};
+use anyhow::{Context, Result, anyhow, bail};
 use runtime::{Runtime, SCREEN_HEIGHT, SCREEN_WIDTH};
 use softbuffer::{Context as SoftbufferContext, Surface};
 use winit::application::ApplicationHandler;
@@ -60,10 +60,10 @@ impl DoomApp {
 
         surface
             .resize(NonZeroU32::new(SCREEN_WIDTH as u32).unwrap(), NonZeroU32::new(SCREEN_HEIGHT as u32).unwrap())
-            .map_err(|err| eyre!(err.to_string()))?;
-        let mut buffer = surface.buffer_mut().map_err(|err| eyre!(err.to_string()))?;
+            .map_err(|err| anyhow!(err.to_string()))?;
+        let mut buffer = surface.buffer_mut().map_err(|err| anyhow!(err.to_string()))?;
         self.runtime.write_framebuffer(&mut buffer)?;
-        buffer.present().map_err(|err| eyre!(err.to_string()))?;
+        buffer.present().map_err(|err| anyhow!(err.to_string()))?;
         Ok(())
     }
 }
@@ -129,7 +129,7 @@ impl ApplicationHandler for DoomApp {
             window.request_redraw();
         }
 
-        if self.runtime.host_state.borrow().exit_code.is_some() {
+        if self.runtime.host_state.lock().unwrap().exit_code.is_some() {
             event_loop.exit();
         }
     }

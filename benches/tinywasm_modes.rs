@@ -1,10 +1,11 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use eyre::Result;
 use tinywasm::engine::{Config, FuelPolicy};
 use tinywasm::types::Module;
-use tinywasm::{Engine, ExecProgress, FuncContext, FunctionTyped, HostFunction, Imports, ModuleInstance, Store};
+use tinywasm::{
+    Engine, ExecProgress, FuncContext, FunctionTyped, HostFunction, Imports, ModuleInstance, Result, Store,
+};
 
-const WASM: &[u8] = include_bytes!("../../../examples/rust/out/tinywasm.wasm");
+const WASM: &[u8] = include_bytes!("../examples/rust/out/tinywasm.wasm");
 const FUEL_PER_ROUND: u32 = 512;
 const TIME_BUDGET_PER_ROUND: core::time::Duration = core::time::Duration::from_micros(50);
 const BENCH_MEASUREMENT_TIME: core::time::Duration = core::time::Duration::from_secs(10);

@@ -1,4 +1,3 @@
-use eyre::Result;
 use tinywasm::types::WasmValue;
 #[cfg(feature = "guest-debug")]
 use tinywasm::types::{FuncRef, RefValue};
@@ -6,7 +5,7 @@ use tinywasm::{ExternItem, ModuleInstance, Store};
 
 #[test]
 #[cfg(feature = "guest-debug")]
-fn private_items_are_accessible_by_index() -> Result<()> {
+fn private_items_are_accessible_by_index() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -42,7 +41,7 @@ fn private_items_are_accessible_by_index() -> Result<()> {
 }
 
 #[test]
-fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<()> {
+fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -73,7 +72,7 @@ fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<()> {
 }
 
 #[test]
-fn extern_item_lookup_returns_expected_kinds() -> Result<()> {
+fn extern_item_lookup_returns_expected_kinds() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -98,7 +97,7 @@ fn extern_item_lookup_returns_expected_kinds() -> Result<()> {
 }
 
 #[test]
-fn extern_item_and_exports_use_actual_function_type() -> Result<()> {
+fn extern_item_and_exports_use_actual_function_type() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -134,7 +133,7 @@ fn extern_item_and_exports_use_actual_function_type() -> Result<()> {
 }
 
 #[test]
-fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()> {
+fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -177,7 +176,7 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
 }
 
 #[test]
-fn start_resolves_module_func_index_to_store_addr() -> Result<()> {
+fn start_resolves_module_func_index_to_store_addr() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

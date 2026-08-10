@@ -1,9 +1,7 @@
-use eyre::Result;
-use tinywasm::types::WasmType;
-use tinywasm_types::{ExportType, ImportType};
+use tinywasm::types::{ExportType, ImportType, WasmType};
 
 #[test]
-fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
+fn module_descriptors_resolve_imported_and_local_export_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -91,7 +89,7 @@ fn module_descriptors_resolve_imported_and_local_export_types() -> Result<()> {
 }
 
 #[test]
-fn module_descriptors_resolve_imported_and_local_table_and_memory_exports() -> Result<()> {
+fn module_descriptors_resolve_imported_and_local_table_and_memory_exports() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

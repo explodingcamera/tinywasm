@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 use tinywasm::{ExecProgress, ModuleInstance, Store};
 
 const WASM: &str = r#"

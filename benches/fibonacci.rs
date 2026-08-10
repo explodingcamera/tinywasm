@@ -1,9 +1,8 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use eyre::Result;
-use tinywasm::{ModuleInstance, Store, types};
+use tinywasm::{ModuleInstance, Result, Store, types};
 use types::Module;
 
-const WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.wasm");
+const WASM: &[u8] = include_bytes!("../examples/rust/out/fibonacci.wasm");
 
 fn fibonacci_parse() -> Result<Module> {
     let parser = tinywasm_parser::Parser::default();

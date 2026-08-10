@@ -1,12 +1,11 @@
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use eyre::Result;
+use anyhow::Result;
 use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
 
 const IMPORT_MODULE: &str = "env";
@@ -21,15 +20,15 @@ pub struct Runtime {
     key_up: tinywasm::FunctionTyped<i32, ()>,
     memory: tinywasm::Memory,
     framebuffer_bytes: Vec<u8>,
-    pub host_state: Rc<RefCell<HostState>>,
+    pub host_state: Arc<Mutex<HostState>>,
 }
 
 impl Runtime {
     pub fn new(wad_path: PathBuf, guest_path: PathBuf) -> Result<Self> {
         let module = tinywasm::parse_file(&guest_path)?;
         let mut store = Store::default();
-        let host_state = Rc::new(RefCell::new(HostState::new(wad_path)));
-        let imports = build_imports(&mut store, host_state.clone());
+        let host_state = Arc::new(Mutex::new(HostState::new(wad_path)));
+        let imports = build_imports(host_state.clone());
         let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
         let wad_path_buf = instance.func::<(), i32>(&store, "tinywasm_doom_wad_path_buf")?;
@@ -41,7 +40,7 @@ impl Runtime {
         let memory = instance.memory("memory")?;
 
         let buf_ptr = wad_path_buf.call(&mut store, ())? as usize;
-        let wad_path_string = host_state.borrow().wad_path.to_string_lossy().into_owned();
+        let wad_path_string = host_state.lock().unwrap().wad_path.to_string_lossy().into_owned();
         memory.write_cstring_bytes(&mut store, buf_ptr, &wad_path_string)?;
         init.call(&mut store, ())?;
 
@@ -161,7 +160,7 @@ impl HostState {
     }
 }
 
-fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
+fn build_imports(state: Arc<Mutex<HostState>>) -> Imports {
     let mut imports = Imports::new();
 
     {
@@ -175,7 +174,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
                 let mode = memory.read_cstring_until_null(ctx.store(), mode_ptr as usize, 16)?;
                 let filename = filename.to_string_lossy();
                 let mode = mode.to_string_lossy();
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let path = if filename == state.wad_path.to_string_lossy() || state.should_redirect_to_wad(&filename) {
                     state.wad_path.clone()
                 } else {
@@ -209,7 +208,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_close",
             HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                state.borrow_mut().files.remove(&handle);
+                state.lock().unwrap().files.remove(&handle);
                 Ok(())
             }),
         );
@@ -221,7 +220,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_read",
             HostFunction::from(move |mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(0);
                 };
@@ -240,7 +239,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             "host_write",
             HostFunction::from(move |ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
                 let data = ctx.memory("memory")?.read_vec(ctx.store(), buf_ptr as usize, count.max(0) as usize)?;
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(-1);
                 };
@@ -262,7 +261,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
                     2 => SeekFrom::End(offset as i64),
                     _ => return Err(tinywasm::Error::Other(format!("invalid seek origin: {origin}"))),
                 };
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(-1);
                 };
@@ -278,7 +277,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_tell",
             HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(-1);
                 };
@@ -294,7 +293,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_eof",
             HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                let mut state = state.borrow_mut();
+                let mut state = state.lock().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(1);
                 };
@@ -311,7 +310,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_gettime",
             HostFunction::from(move |mut ctx: FuncContext<'_>, (sec_ptr, usec_ptr): (i32, i32)| {
-                let elapsed = state.borrow().start.elapsed();
+                let elapsed = state.lock().unwrap().start.elapsed() + Duration::from_secs(1);
                 let sec = elapsed.as_secs().min(i32::MAX as u64) as i32;
                 let usec = elapsed.subsec_micros() as i32;
                 let memory = ctx.memory("memory")?;
@@ -328,7 +327,7 @@ fn build_imports(store: &mut Store, state: Rc<RefCell<HostState>>) -> Imports {
             IMPORT_MODULE,
             "host_exit",
             HostFunction::from(move |_ctx: FuncContext<'_>, code: i32| {
-                state.borrow_mut().exit_code = Some(code);
+                state.lock().unwrap().exit_code = Some(code);
                 Ok(())
             }),
         );

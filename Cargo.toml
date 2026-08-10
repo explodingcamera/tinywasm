@@ -24,7 +24,7 @@ tinywasm = { path = "crates/tinywasm", version = "0.11.0-pre.0", default-feature
 tinywasm-parser = { path = "crates/parser", version = "0.11.0-pre.0", default-features = false }
 tinywasm-types = { path = "crates/types", version = "0.11.0-pre.0", default-features = false }
 
-eyre = "0.6"
+anyhow = "1.0"
 log = "0.4"
 owo-colors = { version = "4.3" }
 pretty_env_logger = "0.5"
@@ -44,10 +44,32 @@ criterion = { version = "0.8", default-features = false, features = [
 name = "wasm-rust"
 test = false
 
+[[bench]]
+harness = false
+name = "argon2id"
+
+[[bench]]
+harness = false
+name = "fibonacci"
+
+[[bench]]
+harness = false
+name = "tinywasm"
+
+[[bench]]
+harness = false
+name = "tinywasm_modes"
+
+[[bench]]
+harness = false
+name = "memory_backends"
+
 [dev-dependencies]
-eyre.workspace = true
+anyhow.workspace = true
+criterion.workspace = true
 pretty_env_logger.workspace = true
 tinywasm = { path = "crates/tinywasm" }
+tinywasm-parser.workspace = true
 wat.workspace = true
 
 [profile.bench]

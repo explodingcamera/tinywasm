@@ -1,8 +1,6 @@
-mod testsuite;
-use eyre::Result;
-use testsuite::TestSuite;
+use tinywasm_cli::testsuite::TestSuite;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn core::error::Error>> {
     TestSuite::set_log_level(log::LevelFilter::Off);
 
     let custom_dir = std::path::Path::new("./tests/wasm-custom");

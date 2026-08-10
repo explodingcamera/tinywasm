@@ -1,5 +1,5 @@
+use anyhow::Result;
 use clap::Parser;
-use eyre::Result;
 use tinywasm_cli::{Cli, run_cli};
 
 fn main() -> Result<()> {

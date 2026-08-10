@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store, types::FuncRef};
 
 const LHS: i32 = 5;

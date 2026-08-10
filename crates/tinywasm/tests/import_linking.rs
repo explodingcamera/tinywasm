@@ -1,4 +1,3 @@
-use eyre::Result;
 use tinywasm::{Error, Imports, Module, ModuleInstance, Store, Trap};
 
 const WASM_ADD: &str = r#"
@@ -19,14 +18,14 @@ const WASM_IMPORT: &str = r#"
         call $add))
 "#;
 
-fn parse_modules() -> Result<(Module, Module)> {
+fn parse_modules() -> Result<(Module, Module), Box<dyn core::error::Error>> {
     let add = tinywasm::parse_bytes(&wat::parse_str(WASM_ADD)?)?;
     let import = tinywasm::parse_bytes(&wat::parse_str(WASM_IMPORT)?)?;
     Ok((add, import))
 }
 
 #[test]
-fn link_module_links_same_store_instance() -> Result<()> {
+fn link_module_links_same_store_instance() -> Result<(), Box<dyn core::error::Error>> {
     let (add_module, import_module) = parse_modules()?;
     let mut store = Store::default();
 
@@ -41,7 +40,7 @@ fn link_module_links_same_store_instance() -> Result<()> {
 }
 
 #[test]
-fn link_module_rejects_cross_store_instance() -> Result<()> {
+fn link_module_rejects_cross_store_instance() -> Result<(), Box<dyn core::error::Error>> {
     let (add_module, import_module) = parse_modules()?;
 
     let mut source_store = Store::default();

@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 
 use crate::cli::CompileArgs;
 use crate::load::{default_twasm_output_path, load_compilable_module, write_output_bytes};

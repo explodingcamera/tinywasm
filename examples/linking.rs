@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 use tinywasm::{ModuleInstance, Store};
 
 // WebAssembly module defining and exporting an `add` function.

@@ -1,8 +1,7 @@
-use eyre::Result;
 use tinywasm::{ModuleInstance, Store};
 
 #[test]
-fn memory_ref_mut_copy_within_uses_src_then_dst_order() -> Result<()> {
+fn memory_ref_mut_copy_within_uses_src_then_dst_order() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

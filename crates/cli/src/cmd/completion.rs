@@ -1,7 +1,7 @@
 use std::io;
 
+use anyhow::Result;
 use clap::CommandFactory;
-use eyre::Result;
 
 use crate::cli::{Cli, CompletionArgs};
 

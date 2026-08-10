@@ -1,8 +1,7 @@
-use eyre::Result;
 use tinywasm::ModuleInstance;
 
 #[test]
-fn func_typed_rejects_wrong_param_or_result_types() -> Result<()> {
+fn func_typed_rejects_wrong_param_or_result_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -26,7 +25,7 @@ fn func_typed_rejects_wrong_param_or_result_types() -> Result<()> {
 }
 
 #[test]
-fn func_typed_rejects_partial_multi_value_results() -> Result<()> {
+fn func_typed_rejects_partial_multi_value_results() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

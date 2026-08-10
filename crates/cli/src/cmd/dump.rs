@@ -1,5 +1,5 @@
 use anstream::println;
-use eyre::Result;
+use anyhow::Result;
 use owo_colors::OwoColorize;
 use tinywasm::types::{ExternalKind, ImportKind};
 

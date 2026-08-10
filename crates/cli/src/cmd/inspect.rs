@@ -1,4 +1,4 @@
-use eyre::Result;
+use anyhow::Result;
 
 use crate::cli::ModuleInputArgs;
 use crate::load::load_module;

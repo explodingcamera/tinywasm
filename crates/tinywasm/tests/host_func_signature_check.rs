@@ -1,8 +1,6 @@
-use eyre::Result;
 use std::fmt::Write;
-use tinywasm::types::{FuncType, RefType, RefValue, WasmType, WasmValue};
+use tinywasm::types::{ExternRef, FuncType, RefType, RefValue, WasmType, WasmValue};
 use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
-use tinywasm_types::ExternRef;
 
 const VAL_LISTS: &[&[WasmValue]] = &[
     &[],
@@ -27,7 +25,7 @@ fn module_cases() -> Vec<(Module, FuncType, Vec<WasmValue>)> {
 }
 
 #[test]
-fn test_return_invalid_type() -> Result<()> {
+fn test_return_invalid_type() -> Result<(), Box<dyn core::error::Error>> {
     let cases = module_cases();
 
     for (module, ty, args) in cases {
@@ -51,7 +49,7 @@ fn test_return_invalid_type() -> Result<()> {
 }
 
 #[test]
-fn test_linking_invalid_untyped_func() -> Result<()> {
+fn test_linking_invalid_untyped_func() -> Result<(), Box<dyn core::error::Error>> {
     let cases = module_cases();
     for (module, expected_func_ty, _) in &cases {
         for (_, ty, _) in &cases {
@@ -69,7 +67,7 @@ fn test_linking_invalid_untyped_func() -> Result<()> {
 }
 
 #[test]
-fn test_linking_invalid_typed_func() -> Result<()> {
+fn test_linking_invalid_typed_func() -> Result<(), Box<dyn core::error::Error>> {
     type Existing = (i32, i32, f64);
     type NonMatchingSingle = f64;
     type NonMatchingTuple = (f64, i32, i32);
@@ -107,7 +105,7 @@ fn test_linking_invalid_typed_func() -> Result<()> {
 }
 
 #[test]
-fn concrete_host_references_use_canonical_types() -> Result<()> {
+fn concrete_host_references_use_canonical_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -145,7 +143,7 @@ fn concrete_host_references_use_canonical_types() -> Result<()> {
 }
 
 #[test]
-fn imported_host_functions_resolve_concrete_types() -> Result<()> {
+fn imported_host_functions_resolve_concrete_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -173,7 +171,7 @@ fn imported_host_functions_resolve_concrete_types() -> Result<()> {
 }
 
 #[test]
-fn host_tail_calls_return_from_the_current_frame() -> Result<()> {
+fn host_tail_calls_return_from_the_current_frame() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -210,7 +208,7 @@ fn host_tail_calls_return_from_the_current_frame() -> Result<()> {
 }
 
 #[test]
-fn host_calls_reject_unknown_function_references() -> Result<()> {
+fn host_calls_reject_unknown_function_references() -> Result<(), Box<dyn core::error::Error>> {
     let mut store = Store::default();
     let ty = FuncType::new(&[WasmType::Ref(tinywasm::types::RefType::FUNCREF)], &[]);
     let host = HostFunction::from_untyped(&ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;

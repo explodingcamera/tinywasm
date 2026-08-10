@@ -6,13 +6,14 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "std")]
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use eyre::Result;
 use tinywasm::engine::Config;
 use tinywasm::types::{MemoryArch, MemoryType};
 use tinywasm::{Engine, Memory, MemoryBackend, Module, ModuleInstance, PagedMemory, Store};
 use tinywasm_parser::{Parser, ParserOptions};
 
-fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
+type TestResult<T = ()> = Result<T, Box<dyn core::error::Error>>;
+
+fn instantiate_module_with_counting_backend(module: Module) -> TestResult<usize> {
     let created = Arc::new(AtomicUsize::new(0));
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
@@ -27,7 +28,7 @@ fn instantiate_module_with_counting_backend(module: Module) -> Result<usize> {
     Ok(created.load(Ordering::Relaxed))
 }
 
-fn instantiate_with_counting_backend(wat: &str) -> Result<usize> {
+fn instantiate_with_counting_backend(wat: &str) -> TestResult<usize> {
     let wasm = wat::parse_str(wat)?;
     let module = tinywasm::parse_bytes(&wasm)?;
     instantiate_module_with_counting_backend(module)
@@ -35,7 +36,7 @@ fn instantiate_with_counting_backend(wat: &str) -> Result<usize> {
 
 fn instantiate_exported_memory_with_counting_backend(
     wat: &str,
-) -> Result<(Store, tinywasm::ModuleInstance, Arc<AtomicUsize>)> {
+) -> TestResult<(Store, tinywasm::ModuleInstance, Arc<AtomicUsize>)> {
     let wasm = wat::parse_str(wat)?;
     let module = tinywasm::parse_bytes(&wasm)?;
     let created = Arc::new(AtomicUsize::new(0));
@@ -51,7 +52,7 @@ fn instantiate_exported_memory_with_counting_backend(
 }
 
 #[test]
-fn paged_backend_works_for_module_memories() -> Result<()> {
+fn paged_backend_works_for_module_memories() -> TestResult {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -73,7 +74,7 @@ fn paged_backend_works_for_module_memories() -> Result<()> {
 }
 
 #[test]
-fn custom_backend_factory_is_used_for_host_memories() -> Result<()> {
+fn custom_backend_factory_is_used_for_host_memories() -> TestResult {
     let created = Arc::new(AtomicUsize::new(0));
     let seen_page_size = Arc::new(AtomicUsize::new(0));
     let factory_calls = created.clone();
@@ -100,7 +101,7 @@ fn custom_backend_factory_is_used_for_host_memories() -> Result<()> {
 }
 
 #[test]
-fn local_memory_without_observable_use_is_not_allocated() -> Result<()> {
+fn local_memory_without_observable_use_is_not_allocated() -> TestResult {
     let created = instantiate_with_counting_backend(
         r#"
         (module
@@ -115,7 +116,7 @@ fn local_memory_without_observable_use_is_not_allocated() -> Result<()> {
 }
 
 #[test]
-fn exported_local_memory_is_not_eagerly_allocated() -> Result<()> {
+fn exported_local_memory_is_not_eagerly_allocated() -> TestResult {
     let created = instantiate_with_counting_backend(
         r#"
         (module
@@ -129,7 +130,7 @@ fn exported_local_memory_is_not_eagerly_allocated() -> Result<()> {
 }
 
 #[test]
-fn exported_local_memory_reads_zeroes_without_materializing() -> Result<()> {
+fn exported_local_memory_reads_zeroes_without_materializing() -> TestResult {
     let (mut store, instance, created) = instantiate_exported_memory_with_counting_backend(
         r#"
         (module
@@ -151,7 +152,7 @@ fn exported_local_memory_reads_zeroes_without_materializing() -> Result<()> {
 }
 
 #[test]
-fn active_data_segment_on_local_memory_is_allocated() -> Result<()> {
+fn active_data_segment_on_local_memory_is_allocated() -> TestResult {
     let created = instantiate_with_counting_backend(
         r#"
         (module
@@ -166,7 +167,7 @@ fn active_data_segment_on_local_memory_is_allocated() -> Result<()> {
 }
 
 #[test]
-fn local_memory_instruction_is_allocated() -> Result<()> {
+fn local_memory_instruction_is_allocated() -> TestResult {
     let created = instantiate_with_counting_backend(
         r#"
         (module
@@ -181,7 +182,7 @@ fn local_memory_instruction_is_allocated() -> Result<()> {
 }
 
 #[test]
-fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> Result<()> {
+fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> TestResult {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -200,7 +201,7 @@ fn disabled_local_memory_allocation_optimization_keeps_old_behavior() -> Result<
 }
 
 #[test]
-fn read_returns_short_count_at_end_of_memory() -> Result<()> {
+fn read_returns_short_count_at_end_of_memory() -> TestResult {
     let mut store = Store::default();
     let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, Some(1), Some(4)))?;
     memory.copy_from_slice(&mut store, 0, &[1, 2, 3, 4])?;
@@ -214,7 +215,7 @@ fn read_returns_short_count_at_end_of_memory() -> Result<()> {
 }
 
 #[test]
-fn paged_read_and_write_stop_at_chunk_boundaries() -> Result<()> {
+fn paged_read_and_write_stop_at_chunk_boundaries() -> TestResult {
     let engine = Engine::new(Config::new().with_memory_backend(MemoryBackend::paged(4)));
     let mut store = Store::new(engine);
     let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, Some(1), Some(16)))?;
@@ -241,7 +242,7 @@ fn paged_read_and_write_stop_at_chunk_boundaries() -> Result<()> {
 
 #[cfg(feature = "std")]
 #[test]
-fn memory_cursor_supports_read_write_and_seek() -> Result<()> {
+fn memory_cursor_supports_read_write_and_seek() -> TestResult {
     let mut store = Store::default();
     let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, Some(1), Some(8)))?;
 

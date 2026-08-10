@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use eyre::{Context, Result, bail};
+use anyhow::{Context, Result, bail};
 use tinywasm::Module;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

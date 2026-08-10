@@ -1,5 +1,5 @@
+use anyhow::{Result, bail};
 use clap::{Args, ValueEnum};
-use eyre::{Result, bail};
 use tinywasm::{Engine, StackConfig, engine::FuelPolicy};
 
 #[derive(Args, Clone, Default)]

@@ -1,9 +1,8 @@
-use eyre::Result;
 use tinywasm::types::{GlobalType, Instruction, RefValue, WasmType, WasmValue};
 use tinywasm::{Global, Imports, ModuleInstance, Store};
 
 #[test]
-fn globals_use_typed_instructions_and_roundtrip_values() -> Result<()> {
+fn globals_use_typed_instructions_and_roundtrip_values() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -70,7 +69,7 @@ fn globals_use_typed_instructions_and_roundtrip_values() -> Result<()> {
 }
 
 #[test]
-fn imported_global_keeps_its_typed_store_address() -> Result<()> {
+fn imported_global_keeps_its_typed_store_address() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

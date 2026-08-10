@@ -1,6 +1,5 @@
-use eyre::Result;
 use tinywasm::engine::{Config, FuelPolicy};
-use tinywasm::{ExecProgress, ModuleInstance, types::WasmValue};
+use tinywasm::{ExecProgress, ModuleInstance, Result, types::WasmValue};
 
 #[cfg(feature = "std")]
 use std::time::Duration;

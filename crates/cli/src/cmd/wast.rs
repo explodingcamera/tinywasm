@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use eyre::Result;
+use anyhow::Result;
 
 use crate::cli::WastArgs;
 use crate::wast_runner::WastRunner;

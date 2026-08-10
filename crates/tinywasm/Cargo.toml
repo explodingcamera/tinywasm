@@ -85,26 +85,6 @@ name = "test-wasm-simd"
 harness = false
 name = "test-wasm-wide-arithmetic"
 
-[[bench]]
-harness = false
-name = "argon2id"
-
-[[bench]]
-harness = false
-name = "fibonacci"
-
-[[bench]]
-harness = false
-name = "tinywasm"
-
-[[bench]]
-harness = false
-name = "tinywasm_modes"
-
-[[bench]]
-harness = false
-name = "memory_backends"
-
 [dependencies]
 libm = { version = "0.2", default-features = false }
 log = { workspace = true, optional = true }
@@ -112,12 +92,7 @@ tinywasm-parser = { workspace = true, optional = true }
 tinywasm-types = { workspace = true }
 
 [dev-dependencies]
-criterion.workspace = true
-eyre.workspace = true
-owo-colors.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-tinywasm-cli = { path = "../cli", features = ["wast", "wat"] }
+tinywasm-cli = { path = "../cli", features = ["tests", "wat"] }
 wasm-testsuite.workspace = true
 wat.workspace = true
 

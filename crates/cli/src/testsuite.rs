@@ -1,11 +1,22 @@
-#![allow(dead_code)]
-
-use eyre::{Result, eyre};
+use crate::wast_runner::{GroupResult, TestFile as RunnerTestFile, WastRunner};
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
-use tinywasm_cli::wast_runner::{GroupResult, TestFile as RunnerTestFile, WastRunner};
+
+/// Result type used by the WAST test utilities.
+pub type TestResult<T> = core::result::Result<T, Box<dyn core::error::Error>>;
+
+#[derive(Debug)]
+struct TestFailure(String);
+
+impl Display for TestFailure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl core::error::Error for TestFailure {}
 
 #[derive(Serialize, Deserialize)]
 pub struct TestGroupResult {
@@ -27,7 +38,7 @@ impl TestSuite {
         Self { runner: WastRunner::new() }
     }
 
-    pub fn run_paths(&mut self, tests: &[std::path::PathBuf]) -> Result<()> {
+    pub fn run_paths(&mut self, tests: &[std::path::PathBuf]) -> TestResult<()> {
         let mut files = Vec::new();
         for path in tests {
             if path.is_dir() {
@@ -51,38 +62,43 @@ impl TestSuite {
                 let name = path.to_string_lossy().into_owned();
                 Ok((name, contents))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<TestResult<Vec<_>>>()?;
 
         self.runner.run_files(runner_files.iter().map(|(name, contents)| RunnerTestFile {
             name: name.clone(),
             parent: name.clone(),
             contents,
-        }))
+        }))?;
+        Ok(())
     }
 
-    pub fn run_files<'a>(&mut self, tests: impl IntoIterator<Item = wasm_testsuite::data::TestFile<'a>>) -> Result<()> {
+    pub fn run_files<'a>(
+        &mut self,
+        tests: impl IntoIterator<Item = wasm_testsuite::data::TestFile<'a>>,
+    ) -> TestResult<()> {
         self.runner.run_files(tests.into_iter().map(|file| RunnerTestFile {
             name: file.name().to_string(),
             parent: file.parent().to_string(),
             contents: file.raw(),
-        }))
+        }))?;
+        Ok(())
     }
 
     pub fn print_errors(&self) {
         self.runner.print_errors();
     }
 
-    pub fn report_status(&self) -> Result<()> {
+    pub fn report_status(&self) -> TestResult<()> {
         if self.runner.failed() {
             println!();
-            Err(eyre!(format!("{}:\n{self}", "failed one or more tests".red().bold())))
+            Err(TestFailure(format!("{}:\n{self}", "failed one or more tests".red().bold())).into())
         } else {
             println!("{self}");
             Ok(())
         }
     }
 
-    pub fn save_csv(&self, path: &str, version: &str) -> Result<()> {
+    pub fn save_csv(&self, path: &str, version: &str) -> TestResult<()> {
         use std::fs::OpenOptions;
         use std::io::Write;
 

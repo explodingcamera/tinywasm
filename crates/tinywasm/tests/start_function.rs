@@ -1,8 +1,7 @@
-use eyre::Result;
 use tinywasm::{ModuleInstance, Store};
 
 #[test]
-fn exported_wasi_start_is_not_run_during_instantiation() -> Result<()> {
+fn exported_wasi_start_is_not_run_during_instantiation() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module

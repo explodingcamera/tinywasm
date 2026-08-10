@@ -1,4 +1,4 @@
-use eyre::{Result, bail};
+use anyhow::{Result, bail};
 use tinywasm::types::{FuncType, WasmType, WasmValue};
 
 use crate::output::format_wasm_type;
@@ -33,8 +33,8 @@ fn parse_arg(index: usize, ty: WasmType, value: &str) -> Result<WasmValue> {
     Ok(parsed)
 }
 
-fn format_error(index: usize, ty: WasmType, value: &str, error: impl core::fmt::Display) -> eyre::Report {
-    eyre::eyre!("failed to parse argument {} as {} from `{value}`: {error}", index + 1, format_wasm_type(ty))
+fn format_error(index: usize, ty: WasmType, value: &str, error: impl core::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!("failed to parse argument {} as {} from `{value}`: {error}", index + 1, format_wasm_type(ty))
 }
 
 #[cfg(test)]

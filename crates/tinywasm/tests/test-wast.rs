@@ -1,12 +1,9 @@
-use std::path::PathBuf;
-
-use eyre::{Result, bail};
 use tinywasm_cli::wast_runner::WastRunner;
 
-fn main() -> Result<()> {
-    let args = std::env::args().collect::<Vec<_>>();
-    if args.len() < 2 {
-        bail!("usage: cargo test-wast <wast-file>");
+fn main() -> Result<(), Box<dyn core::error::Error>> {
+    let Some(input) = std::env::args().nth(1) else {
+        eprintln!("usage: cargo test-wast <wast-file>");
+        std::process::exit(2);
     };
 
     let mut cwd = std::env::current_dir()?;
@@ -15,8 +12,7 @@ fn main() -> Result<()> {
         cwd.pop();
     }
 
-    // if its a folder, run all the wast files in the folder
-    let arg = PathBuf::from(cwd.clone()).join(&args[1]);
+    let arg = cwd.join(input);
     println!("running tests in {:?}", arg);
 
     let files = if arg.is_dir() {
@@ -26,5 +22,6 @@ fn main() -> Result<()> {
     };
 
     let mut test_suite = WastRunner::new();
-    test_suite.run_paths(&files)
+    test_suite.run_paths(&files)?;
+    Ok(())
 }

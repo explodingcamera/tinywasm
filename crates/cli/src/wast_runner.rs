@@ -5,7 +5,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use eyre::{Context, Result, bail, eyre};
+use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error};
 use tinywasm::types::{
     AbstractHeapType as TinyAbstractHeapType, AnyRef, ExternRef, FuncRef, MemoryType, RefType, RefValue, TableType,
@@ -111,7 +111,7 @@ impl WastRunner {
         self.print_errors();
         if self.failed() {
             anstream::println!("{self}");
-            Err(eyre!("failed one or more tests"))
+            Err(anyhow!("failed one or more tests"))
         } else {
             anstream::println!("{self}");
             Ok(())
@@ -238,7 +238,7 @@ impl WastRunner {
                         test_group.add_result(
                             &format!("Register({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("module instance to register was not found")),
+                            Err(anyhow!("module instance to register was not found")),
                         );
                         continue;
                     }
@@ -251,7 +251,7 @@ impl WastRunner {
                             .expect("failed to instantiate module");
                         (name, instance)
                     })
-                    .map_err(|e| eyre!("failed to parse wat module: {}", try_downcast_panic(e)));
+                    .map_err(|e| anyhow!("failed to parse wat module: {}", try_downcast_panic(e)));
 
                     match &result {
                         Err(err) => debug!("failed to parse module: {err:?}"),
@@ -263,7 +263,7 @@ impl WastRunner {
                 ModuleDefinition(module) => {
                     let result =
                         catch_unwind_silent(|| parse_quote_module(module).expect("failed to parse module definition"))
-                            .map_err(|err| eyre!("failed to parse module definition: {}", try_downcast_panic(err)));
+                            .map_err(|err| anyhow!("failed to parse module definition: {}", try_downcast_panic(err)));
 
                     if let Ok((name, module)) = &result {
                         module_registry.define(module.clone(), name.clone());
@@ -280,10 +280,10 @@ impl WastRunner {
                     let result = catch_unwind_silent(|| {
                         let module = module_registry
                             .definition(module)
-                            .ok_or_else(|| eyre!("module definition was not found"))?;
+                            .ok_or_else(|| anyhow!("module definition was not found"))?;
                         Self::instantiate_module(&mut store, &module_registry, &module)
                     })
-                    .map_err(|err| eyre!("failed to instantiate module definition: {}", try_downcast_panic(err)))
+                    .map_err(|err| anyhow!("failed to instantiate module definition: {}", try_downcast_panic(err)))
                     .and_then(|result| result);
 
                     if let Ok(instance) = &result {
@@ -301,7 +301,7 @@ impl WastRunner {
                         continue;
                     };
                     let res = catch_unwind_silent(|| parse_module_bytes(&encoded))
-                        .map_err(|e| eyre!("failed to parse module (expected): {}", try_downcast_panic(e)))
+                        .map_err(|e| anyhow!("failed to parse module (expected): {}", try_downcast_panic(e)))
                         .and_then(|res| res);
                     test_group.add_result(
                         &format!("AssertMalformed({i})"),
@@ -314,7 +314,7 @@ impl WastRunner {
                                 {
                                     continue;
                                 }
-                                Err(eyre!("expected module to be malformed: {message}"))
+                                Err(anyhow!("expected module to be malformed: {message}"))
                             }
                             Err(_) => Ok(()),
                         },
@@ -326,13 +326,13 @@ impl WastRunner {
                         continue;
                     }
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
-                        .map_err(|e| eyre!("failed to parse module (invalid): {}", try_downcast_panic(e)))
+                        .map_err(|e| anyhow!("failed to parse module (invalid): {}", try_downcast_panic(e)))
                         .and_then(|res| res);
                     test_group.add_result(
                         &format!("AssertInvalid({i})"),
                         span.linecol_in(wast_raw),
                         match res {
-                            Ok(_) => Err(eyre!("expected module to be invalid")),
+                            Ok(_) => Err(anyhow!("expected module to be invalid")),
                             Err(_) => Ok(()),
                         },
                     );
@@ -346,7 +346,7 @@ impl WastRunner {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected trap")),
+                            Err(anyhow!("expected trap")),
                         );
                         continue;
                     };
@@ -354,7 +354,7 @@ impl WastRunner {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected trap: {}, got: {}", message, trap.message())),
+                            Err(anyhow!("expected trap: {}, got: {}", message, trap.message())),
                         );
                         continue;
                     }
@@ -382,14 +382,14 @@ impl WastRunner {
                         Err(err) => test_group.add_result(
                             &format!("AssertTrap({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("test panicked: {}", try_downcast_panic(err))),
+                            Err(anyhow!("test panicked: {}", try_downcast_panic(err))),
                         ),
                         Ok(Err(tinywasm::Error::Trap(trap))) => {
                             if !message.starts_with(trap.message()) && !trap.message().starts_with(message) {
                                 test_group.add_result(
                                     &format!("AssertTrap({i})"),
                                     span.linecol_in(wast_raw),
-                                    Err(eyre!("expected trap: {}, got: {}", message, trap.message())),
+                                    Err(anyhow!("expected trap: {}, got: {}", message, trap.message())),
                                 );
                                 continue;
                             }
@@ -398,12 +398,12 @@ impl WastRunner {
                         Ok(Err(err)) => test_group.add_result(
                             &format!("AssertTrap({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected trap, {}, got: {:?}", message, err)),
+                            Err(anyhow!("expected trap, {}, got: {:?}", message, err)),
                         ),
                         Ok(Ok(())) => test_group.add_result(
                             &format!("AssertTrap({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected trap {}, got Ok", message)),
+                            Err(anyhow!("expected trap {}, got Ok", message)),
                         ),
                     }
                 }
@@ -426,10 +426,10 @@ impl WastRunner {
                         exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
                     });
                     let result = match res {
-                        Err(err) => Err(eyre!("test panicked: {}", try_downcast_panic(err))),
+                        Err(err) => Err(anyhow!("test panicked: {}", try_downcast_panic(err))),
                         Ok(Err(tinywasm::Error::Exception(_))) => Ok(()),
-                        Ok(Err(err)) => Err(eyre!("expected exception, got: {err:?}")),
-                        Ok(Ok(())) => Err(eyre!("expected exception, got Ok")),
+                        Ok(Err(err)) => Err(anyhow!("expected exception, got: {err:?}")),
+                        Ok(Ok(())) => Err(anyhow!("expected exception, got Ok")),
                     };
                     test_group.add_result(&format!("AssertException({i})"), span.linecol_in(wast_raw), result);
                 }
@@ -444,7 +444,7 @@ impl WastRunner {
                         Err(err) => test_group.add_result(
                             &format!("AssertUnlinkable({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("test panicked: {}", try_downcast_panic(err))),
+                            Err(anyhow!("test panicked: {}", try_downcast_panic(err))),
                         ),
                         Ok(Err(tinywasm::Error::Linker(err))) => {
                             if err.message() != message
@@ -454,7 +454,7 @@ impl WastRunner {
                                 test_group.add_result(
                                     &format!("AssertUnlinkable({i})"),
                                     span.linecol_in(wast_raw),
-                                    Err(eyre!("expected linker error: {}, got: {}", message, err.message())),
+                                    Err(anyhow!("expected linker error: {}, got: {}", message, err.message())),
                                 );
                                 continue;
                             }
@@ -463,12 +463,12 @@ impl WastRunner {
                         Ok(Err(err)) => test_group.add_result(
                             &format!("AssertUnlinkable({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected linker error, {}, got: {:?}", message, err)),
+                            Err(anyhow!("expected linker error, {}, got: {:?}", message, err)),
                         ),
                         Ok(Ok(_)) => test_group.add_result(
                             &format!("AssertUnlinkable({i})"),
                             span.linecol_in(wast_raw),
-                            Err(eyre!("expected linker error {}, got Ok", message)),
+                            Err(anyhow!("expected linker error {}, got Ok", message)),
                         ),
                     }
                 }
@@ -483,7 +483,7 @@ impl WastRunner {
                         })?;
                         Ok(())
                     });
-                    let res = res.map_err(|e| eyre!("test panicked: {}", try_downcast_panic(e))).and_then(|r| r);
+                    let res = res.map_err(|e| anyhow!("test panicked: {}", try_downcast_panic(e))).and_then(|r| r);
                     test_group.add_result(&format!("Invoke({name}-{i})"), span.linecol_in(wast_raw), res);
                 }
                 AssertReturn { span, exec, results } => {
@@ -492,7 +492,7 @@ impl WastRunner {
                             test_group.add_result(
                                 &format!("AssertReturn(unsupported-{i})"),
                                 span.linecol_in(wast_raw),
-                                Err(eyre!("failed to convert expected results: {err:?}")),
+                                Err(anyhow!("failed to convert expected results: {err:?}")),
                             );
                             continue;
                         }
@@ -500,13 +500,13 @@ impl WastRunner {
                     };
 
                     let invoke = match match exec {
-                        wast::WastExecute::Wat(_) => Err(eyre!("wat not supported")),
+                        wast::WastExecute::Wat(_) => Err(anyhow!("wat not supported")),
                         wast::WastExecute::Get { module: module_id, global, .. } => {
                             let Some(module) = module_registry.get(module_id) else {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
                                     span.linecol_in(wast_raw),
-                                    Err(eyre!("no module to get global from")),
+                                    Err(anyhow!("no module to get global from")),
                                 );
                                 continue;
                             };
@@ -516,7 +516,7 @@ impl WastRunner {
                                     test_group.add_result(
                                         &format!("AssertReturn(unsupported-{i})"),
                                         span.linecol_in(wast_raw),
-                                        Err(eyre!("failed to get global: {err:?}")),
+                                        Err(anyhow!("failed to get global: {err:?}")),
                                     );
                                     continue;
                                 }
@@ -529,7 +529,7 @@ impl WastRunner {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
                                     span.linecol_in(wast_raw),
-                                    Err(eyre!(
+                                    Err(anyhow!(
                                         "global value did not match any expected alternative: {:?}",
                                         module_global
                                     )),
@@ -550,7 +550,7 @@ impl WastRunner {
                             test_group.add_result(
                                 &format!("AssertReturn(unsupported-{i})"),
                                 span.linecol_in(wast_raw),
-                                Err(eyre!("unsupported directive: {err:?}")),
+                                Err(anyhow!("unsupported directive: {err:?}")),
                             );
                             continue;
                         }
@@ -565,7 +565,7 @@ impl WastRunner {
                             e
                         })?;
                         if !expected_alternatives.iter().any(|expected| expected.len() == outcomes.len()) {
-                            return Err(eyre!(
+                            return Err(anyhow!(
                                 "expected {} results, got {}",
                                 expected_alternatives.first().map_or(0, |v| v.len()),
                                 outcomes.len()
@@ -580,17 +580,17 @@ impl WastRunner {
                         }) {
                             Ok(())
                         } else {
-                            Err(eyre!("results did not match any expected alternative"))
+                            Err(anyhow!("results did not match any expected alternative"))
                         }
                     });
 
-                    let res = res.map_err(|e| eyre!("test panicked: {}", try_downcast_panic(e))).and_then(|r| r);
+                    let res = res.map_err(|e| anyhow!("test panicked: {}", try_downcast_panic(e))).and_then(|r| r);
                     test_group.add_result(&format!("AssertReturn({invoke_name}-{i})"), span.linecol_in(wast_raw), res);
                 }
                 _ => test_group.add_result(
                     &format!("Unknown({i})"),
                     span.linecol_in(wast_raw),
-                    Err(eyre!("unsupported directive")),
+                    Err(anyhow!("unsupported directive")),
                 ),
             }
         }
@@ -828,7 +828,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         V128(i) => WasmValue::V128(i.to_le_bytes()),
-        RefExtern(v) => ExternRef::try_new(v).ok_or_else(|| eyre!("external reference address is too large"))?.into(),
+        RefExtern(v) => ExternRef::try_new(v).ok_or_else(|| anyhow!("external reference address is too large"))?.into(),
         RefNull(t) => match t {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => RefValue::Null.into(),
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern | AbstractHeapType::Any } => {
@@ -839,7 +839,8 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
             }
         },
         RefHost(value) => {
-            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| eyre!("host reference address is too large"))?).into()
+            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| anyhow!("host reference address is too large"))?)
+                .into()
         }
     })
 }
@@ -918,7 +919,7 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         V128(i) => ExpectedValue::Exact(WasmValue::V128(wast_v128_to_bytes(i))),
         RefNull(_) => ExpectedValue::RefNull,
         RefExtern(Some(v)) => ExpectedValue::Exact(
-            ExternRef::try_new(v).ok_or_else(|| eyre!("external reference address is too large"))?.into(),
+            ExternRef::try_new(v).ok_or_else(|| anyhow!("external reference address is too large"))?.into(),
         ),
         RefExtern(None) => ExpectedValue::RefExtern,
         RefFunc(Some(wast::token::Index::Num(n, _))) => ExpectedValue::Exact(FuncRef::new(n).into()),
@@ -932,7 +933,8 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         RefStruct => ExpectedValue::RefStruct,
         RefArray => ExpectedValue::RefArray,
         RefHost(value) => ExpectedValue::Exact(
-            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| eyre!("host reference address is too large"))?).into(),
+            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| anyhow!("host reference address is too large"))?)
+                .into(),
         ),
         a => {
             bail!("unsupported arg type {:?}", a);
