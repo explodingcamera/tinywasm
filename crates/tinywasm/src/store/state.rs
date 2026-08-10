@@ -92,7 +92,7 @@ impl State {
                     self.globals
                         .globals_32()
                         .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, &ty.ty))
-                        .map(|(value, _)| ValueRef::from_raw(value)),
+                        .map(|(value, _)| ValueRef::from_raw(*value)),
                 )
                 .chain(
                     self.tables
@@ -108,12 +108,16 @@ impl State {
                         .filter(|element| Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(element.ty)))
                         .flat_map(|element| element.items.iter().flatten().copied()),
                 )
-                .chain(
-                    self.exceptions
-                        .iter()
-                        .flat_map(|exception| exception.payload.iter().filter_map(|value| value.as_ref())),
-                )
-                .chain(values.iter().filter_map(|value| value.as_ref()));
+                .chain(self.exceptions.iter().flat_map(|exception| {
+                    exception.payload.iter().filter_map(|value| match value {
+                        TinyWasmValue::ValueRef(value) => Some(*value),
+                        _ => None,
+                    })
+                }))
+                .chain(values.iter().filter_map(|value| match value {
+                    TinyWasmValue::ValueRef(value) => Some(*value),
+                    _ => None,
+                }));
             self.gc.collect(roots).map_err(|_| Trap::OutOfMemory)?;
         }
         self.gc.alloc(type_addr, values, trace_references).map_err(|_| Trap::OutOfMemory)
@@ -270,7 +274,7 @@ impl State {
             let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
             return self.ref_type_is_subtype(actual, expected);
         }
-        if expected.is_exn() {
+        if expected.abstract_heap_type() == Some(AbstractHeapType::Exn) {
             return value.addr().is_some_and(|addr| self.exceptions.get(addr as usize).is_some());
         }
         if value.is_i31() {
@@ -316,8 +320,9 @@ impl State {
             {
                 false
             }
-            (WasmValue::Ref(RefValue::Exn(value)), WasmType::Ref(expected)) if expected.is_exn() => {
-                self.exceptions.get(value.addr() as usize).is_some()
+            (WasmValue::Ref(RefValue::Exn(value)), WasmType::Ref(expected)) => {
+                expected.abstract_heap_type() == Some(AbstractHeapType::Exn)
+                    && self.exceptions.get(value.addr() as usize).is_some()
             }
             (WasmValue::Ref(RefValue::Any(value)), WasmType::Ref(expected)) => {
                 self.value_ref_matches(ValueRef::from_raw(value.raw()), expected)

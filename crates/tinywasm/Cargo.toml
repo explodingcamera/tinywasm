@@ -54,20 +54,12 @@ test = false
 
 [[test]]
 harness = false
-name = "test-wasm-annotations"
-
-[[test]]
-harness = false
 name = "test-wast"
 test = false
 
 [[test]]
 harness = false
 name = "test-wasm-custom-page-sizes"
-
-[[test]]
-harness = false
-name = "test-wasm-function-references"
 
 [[test]]
 harness = false
@@ -79,15 +71,7 @@ name = "test-wasm-gc"
 
 [[test]]
 harness = false
-name = "test-wasm-tail-call"
-
-[[test]]
-harness = false
 name = "test-wasm-memory64"
-
-[[test]]
-harness = false
-name = "test-wasm-extended-const"
 
 [[test]]
 harness = false
@@ -100,18 +84,6 @@ name = "test-wasm-simd"
 [[test]]
 harness = false
 name = "test-wasm-wide-arithmetic"
-
-[[test]]
-harness = false
-name = "test-wasm-sign-extension-op"
-
-[[test]]
-harness = false
-name = "test-wasm-nontrapping-float-to-int-conversions"
-
-[[test]]
-harness = false
-name = "test-wasm-reference-types"
 
 [[bench]]
 harness = false

@@ -87,53 +87,17 @@ impl From<RefValue> for ValueRef {
     }
 }
 
-#[allow(private_interfaces)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A untyped WebAssembly value
-pub enum TinyWasmValue {
-    /// A 32-bit value
+/// An untyped internal WebAssembly value.
+pub(crate) enum TinyWasmValue {
+    /// A 32-bit value.
     Value32(Value32),
-    /// A 64-bit value
+    /// A 64-bit value.
     Value64(Value64),
-    /// A 128-bit value
+    /// A 128-bit value.
     Value128(Value128),
-    /// A reference value
+    /// A reference value.
     ValueRef(ValueRef),
-}
-
-impl TinyWasmValue {
-    /// Converts the value to a 32-bit value (returns None if the value is not a 32-bit value)
-    pub fn as_32(self) -> Option<Value32> {
-        match self {
-            Self::Value32(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Converts the value to a 64-bit value (returns None if the value is not a 64-bit value)
-    pub fn as_64(self) -> Option<Value64> {
-        match self {
-            Self::Value64(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Converts the value to a 128-bit value (returns None if the value is not a 128-bit value)
-    pub fn as_128(self) -> Option<Value128> {
-        match self {
-            Self::Value128(v) => Some(v),
-            _ => None,
-        }
-    }
-
-    /// Converts the value to a reference value (returns None if the value is not a reference value)
-    #[allow(private_interfaces, dead_code)]
-    pub fn as_ref(self) -> Option<ValueRef> {
-        match self {
-            Self::ValueRef(v) => Some(v),
-            _ => None,
-        }
-    }
 }
 
 impl From<&WasmValue> for TinyWasmValue {

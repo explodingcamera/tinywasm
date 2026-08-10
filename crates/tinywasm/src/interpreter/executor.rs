@@ -1673,10 +1673,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             self.store.state.gc.copy_within(dst, src_index..src_end, dst_index).expect("live array range");
             return Ok(());
         }
-        let mut values = Vec::new();
-        values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
-        values.extend_from_slice(&src_object.values[src_index..src_end]);
-        self.store.state.gc.set_slice(dst, dst_index, &values).expect("live array range");
+        self.store.state.gc.copy_between(src, src_index..src_end, dst, dst_index).expect("live array ranges");
         Ok(())
     }
 

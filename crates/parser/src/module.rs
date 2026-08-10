@@ -64,6 +64,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) end_reached: bool,
     imported_func_count: usize,
     imported_memory_count: u32,
+    global_types: Vec<WasmType>,
 
     #[cfg(parallel_parser)]
     pending_functions: Option<Vec<crate::parallel::PendingFunction<'a>>>,
@@ -148,7 +149,7 @@ impl<'a> ModuleReader<'a> {
                 if let Some(validator) = validator.as_mut() {
                     validator.global_section(&reader)?;
                 }
-                self.globals = convert_module_globals(reader)?;
+                self.globals = convert_module_globals(reader, &mut self.global_types)?;
             }
             Payload::TableSection(reader) => {
                 check_section("table", !self.tables.is_empty())?;
@@ -168,7 +169,7 @@ impl<'a> ModuleReader<'a> {
                     let init = match table.init {
                         wasmparser::TableInit::RefNull => None,
                         wasmparser::TableInit::Expr(expr) => {
-                            Some(process_const_operators(expr.get_operators_reader())?)
+                            Some(process_const_operators(expr.get_operators_reader(), &self.global_types)?)
                         }
                     };
                     tables.push(TableDefinition { ty, init });
@@ -209,8 +210,10 @@ impl<'a> ModuleReader<'a> {
                 if let Some(validator) = validator.as_mut() {
                     validator.element_section(&reader)?;
                 }
-                self.elements =
-                    reader.into_iter().map(|element| convert_module_element(element?)).collect::<Result<_>>()?;
+                self.elements = reader
+                    .into_iter()
+                    .map(|element| convert_module_element(element?, &self.global_types))
+                    .collect::<Result<_>>()?;
             }
             Payload::DataSection(reader) => {
                 check_section("data", !self.data.is_empty())?;
@@ -218,7 +221,10 @@ impl<'a> ModuleReader<'a> {
                 if let Some(validator) = validator.as_mut() {
                     validator.data_section(&reader)?;
                 }
-                self.data = reader.into_iter().map(|data| convert_module_data(data?)).collect::<Result<_>>()?;
+                self.data = reader
+                    .into_iter()
+                    .map(|data| convert_module_data(data?, &self.global_types))
+                    .collect::<Result<_>>()?;
             }
             Payload::DataCountSection { count, range } => {
                 debug!("Found data count section");
@@ -270,6 +276,7 @@ impl<'a> ModuleReader<'a> {
                             self.imported_func_count += 1;
                         }
                         ImportKind::Memory(_) => self.imported_memory_count += 1,
+                        ImportKind::Global(ty) => self.global_types.push(ty.ty),
                         ImportKind::Tag(tag) => {
                             let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
                                 ParseError::Other(format!(

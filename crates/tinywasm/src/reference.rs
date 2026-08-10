@@ -369,7 +369,7 @@ impl Table {
         }
         let init = table_value_to_element(&store.state, ty.element_type, init).map_err(Error::from)?;
         let addr = store.state.tables.len() as TableAddr;
-        store.state.tables.push(TableInstance::new_with_init(ty, init)?);
+        store.state.tables.push(TableInstance::new(ty, init)?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 

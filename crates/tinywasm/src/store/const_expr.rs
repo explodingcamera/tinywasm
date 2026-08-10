@@ -6,6 +6,42 @@ use super::{State, default_value};
 use crate::interpreter::{TinyWasmValue, ValueRef};
 use crate::{Error, Result, Trap};
 
+fn resolve<T: Copy>(items: &[T], index: u32, kind: &str) -> Result<T> {
+    items.get(index as usize).copied().ok_or_else(|| Error::Other(format!("{kind} {index} not found")))
+}
+
+fn pop_value(stack: &mut Vec<TinyWasmValue>, storage: StorageType) -> Result<TinyWasmValue> {
+    let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
+    match (storage, value) {
+        (StorageType::I8, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u8 as u32)),
+        (StorageType::I16, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u16 as u32)),
+        (StorageType::Value(WasmType::I32 | WasmType::F32), value @ TinyWasmValue::Value32(_))
+        | (StorageType::Value(WasmType::I64 | WasmType::F64), value @ TinyWasmValue::Value64(_))
+        | (StorageType::Value(WasmType::V128), value @ TinyWasmValue::Value128(_))
+        | (StorageType::Value(WasmType::Ref(_)), value @ TinyWasmValue::ValueRef(_)) => Ok(value),
+        _ => Err(Error::other("type mismatch in GC constant")),
+    }
+}
+
+fn value_ref(value: &TinyWasmValue) -> Option<ValueRef> {
+    match value {
+        TinyWasmValue::ValueRef(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn alloc_object(
+    state: &mut State,
+    stack: &mut Vec<TinyWasmValue>,
+    type_addr: TypeAddr,
+    values: Vec<TinyWasmValue>,
+) -> Result<()> {
+    let roots = stack.iter().filter_map(value_ref).map(ValueRef::raw);
+    let reference = state.alloc_gc_object(type_addr, values, roots)?;
+    stack.push(TinyWasmValue::ValueRef(reference));
+    Ok(())
+}
+
 #[inline]
 pub(super) fn eval_const(
     state: &mut State,
@@ -16,32 +52,6 @@ pub(super) fn eval_const(
 ) -> Result<TinyWasmValue> {
     use ConstInstruction::*;
 
-    let global_value = |state: &State, index: u32| -> Result<TinyWasmValue> {
-        let addr =
-            *global_addrs.get(index as usize).ok_or_else(|| Error::Other(format!("global {index} not found")))?;
-        Ok(state.globals.get(addr))
-    };
-    let func_ref = |index: u32| -> Result<ValueRef> {
-        let addr =
-            *func_addrs.get(index as usize).ok_or_else(|| Error::Other(format!("function {index} not found")))?;
-        Ok(ValueRef::from_category_addr(addr))
-    };
-    let type_addr = |index: TypeAddr| -> Result<TypeAddr> {
-        type_addrs.get(index as usize).copied().ok_or_else(|| Error::other("GC constant type not found"))
-    };
-    let pop_value = |stack: &mut Vec<TinyWasmValue>, storage: StorageType| -> Result<TinyWasmValue> {
-        let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
-        match (storage, value) {
-            (StorageType::I8, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u8 as u32)),
-            (StorageType::I16, TinyWasmValue::Value32(value)) => Ok(TinyWasmValue::Value32(value as u16 as u32)),
-            (StorageType::Value(WasmType::I32 | WasmType::F32), value @ TinyWasmValue::Value32(_))
-            | (StorageType::Value(WasmType::I64 | WasmType::F64), value @ TinyWasmValue::Value64(_))
-            | (StorageType::Value(WasmType::V128), value @ TinyWasmValue::Value128(_))
-            | (StorageType::Value(WasmType::Ref(_)), value @ TinyWasmValue::ValueRef(_)) => Ok(value),
-            _ => Err(Error::other("type mismatch in GC constant")),
-        }
-    };
-
     if let [instruction] = instructions {
         match instruction {
             I32Const(value) => return Ok(TinyWasmValue::Value32(*value as u32)),
@@ -49,9 +59,24 @@ pub(super) fn eval_const(
             F32Const(value) => return Ok(TinyWasmValue::Value32(value.to_bits())),
             F64Const(value) => return Ok(TinyWasmValue::Value64(value.to_bits())),
             V128Const(value) => return Ok(TinyWasmValue::Value128((*value).into())),
-            GlobalGet(index) => return global_value(state, *index),
+            GlobalGet32(index) => {
+                return Ok(TinyWasmValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGet64(index) => {
+                return Ok(TinyWasmValue::Value64(state.globals.get_64(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGet128(index) => {
+                return Ok(TinyWasmValue::Value128(state.globals.get_128(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGetRef(index) => {
+                let value = state.globals.get_32(resolve(global_addrs, *index, "global")?);
+                return Ok(TinyWasmValue::ValueRef(ValueRef::from_raw(value)));
+            }
             Ref(RefValue::Null) => return Ok(TinyWasmValue::ValueRef(ValueRef::NULL)),
-            Ref(RefValue::Func(func)) => return Ok(TinyWasmValue::ValueRef(func_ref(func.addr())?)),
+            Ref(RefValue::Func(func)) => {
+                let addr = resolve(func_addrs, func.addr(), "function")?;
+                return Ok(TinyWasmValue::ValueRef(ValueRef::from_category_addr(addr)));
+            }
             _ => {}
         }
     }
@@ -64,9 +89,24 @@ pub(super) fn eval_const(
             F32Const(value) => stack.push(TinyWasmValue::Value32(value.to_bits())),
             F64Const(value) => stack.push(TinyWasmValue::Value64(value.to_bits())),
             V128Const(value) => stack.push(TinyWasmValue::Value128((*value).into())),
-            GlobalGet(index) => stack.push(global_value(state, *index)?),
+            GlobalGet32(index) => {
+                stack.push(TinyWasmValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGet64(index) => {
+                stack.push(TinyWasmValue::Value64(state.globals.get_64(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGet128(index) => {
+                stack.push(TinyWasmValue::Value128(state.globals.get_128(resolve(global_addrs, *index, "global")?)));
+            }
+            GlobalGetRef(index) => {
+                let value = state.globals.get_32(resolve(global_addrs, *index, "global")?);
+                stack.push(TinyWasmValue::ValueRef(ValueRef::from_raw(value)));
+            }
             Ref(RefValue::Null) => stack.push(TinyWasmValue::ValueRef(ValueRef::NULL)),
-            Ref(RefValue::Func(func)) => stack.push(TinyWasmValue::ValueRef(func_ref(func.addr())?)),
+            Ref(RefValue::Func(func)) => {
+                let addr = resolve(func_addrs, func.addr(), "function")?;
+                stack.push(TinyWasmValue::ValueRef(ValueRef::from_category_addr(addr)));
+            }
             Ref(_) => {
                 cold_path();
                 return Err(Error::other("unsupported reference constant"));
@@ -86,13 +126,13 @@ pub(super) fn eval_const(
                 stack.push(value);
             }
             StructNew(type_index) | StructNewDefault(type_index) => {
-                let type_addr = type_addr(*type_index)?;
+                let type_addr = resolve(type_addrs, *type_index, "type")?;
                 let fields = state
                     .get_type(type_addr)
                     .as_struct()
                     .ok_or_else(|| Error::other("GC constant type is not a struct"))?
                     .fields
-                    .clone();
+                    .as_ref();
                 let default = matches!(instruction, StructNewDefault(_));
                 let mut values = Vec::new();
                 values.try_reserve_exact(fields.len()).map_err(|_| Trap::OutOfMemory)?;
@@ -104,12 +144,10 @@ pub(super) fn eval_const(
                     }
                     values.reverse();
                 }
-                let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
-                let reference = state.alloc_gc_object(type_addr, values, roots)?;
-                stack.push(TinyWasmValue::ValueRef(reference));
+                alloc_object(state, &mut stack, type_addr, values)?;
             }
             ArrayNew(type_index) | ArrayNewDefault(type_index) => {
-                let type_addr = type_addr(*type_index)?;
+                let type_addr = resolve(type_addrs, *type_index, "type")?;
                 let storage = state
                     .get_type(type_addr)
                     .as_array()
@@ -127,12 +165,10 @@ pub(super) fn eval_const(
                 let mut values = Vec::new();
                 values.try_reserve_exact(len as usize).map_err(|_| Trap::OutOfMemory)?;
                 values.resize(len as usize, value);
-                let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
-                let reference = state.alloc_gc_object(type_addr, values, roots)?;
-                stack.push(TinyWasmValue::ValueRef(reference));
+                alloc_object(state, &mut stack, type_addr, values)?;
             }
             ArrayNewFixed(type_index, len) => {
-                let type_addr = type_addr(*type_index)?;
+                let type_addr = resolve(type_addrs, *type_index, "type")?;
                 let storage = state
                     .get_type(type_addr)
                     .as_array()
@@ -145,9 +181,7 @@ pub(super) fn eval_const(
                     values.push(pop_value(&mut stack, storage)?);
                 }
                 values.reverse();
-                let roots = stack.iter().filter_map(|value| value.as_ref()).map(ValueRef::raw);
-                let reference = state.alloc_gc_object(type_addr, values, roots)?;
-                stack.push(TinyWasmValue::ValueRef(reference));
+                alloc_object(state, &mut stack, type_addr, values)?;
             }
             I32Add | I32Sub | I32Mul => {
                 let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;

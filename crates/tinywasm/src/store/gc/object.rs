@@ -94,7 +94,10 @@ impl GcHeap {
     }
 
     pub(crate) fn set(&mut self, object: ValueRef, index: usize, value: TinyWasmValue) -> Option<()> {
-        let reference = value.as_ref().and_then(|value| self.handle(value));
+        let reference = match value {
+            TinyWasmValue::ValueRef(value) => self.handle(value),
+            _ => None,
+        };
         let object = self.get_mut(object)?;
         *object.values.get_mut(index)? = value;
         if let Some(references) = &mut object.references {
@@ -112,11 +115,14 @@ impl GcHeap {
         object.values.get_mut(index..end)?.copy_from_slice(values);
         if let Some(references) = &mut object.references {
             for (reference, value) in references[index..end].iter_mut().zip(values) {
-                *reference = value.as_ref().and_then(|value| {
-                    let key = value.addr()?;
-                    let index = directory.binary_search_by_key(&key, |entry| entry.0).ok()?;
-                    Some(directory[index].1)
-                });
+                *reference = match value {
+                    TinyWasmValue::ValueRef(value) => {
+                        let key = value.addr();
+                        key.and_then(|key| directory.binary_search_by_key(&key, |entry| entry.0).ok())
+                            .map(|index| directory[index].1)
+                    }
+                    _ => None,
+                };
             }
         }
         Some(())
@@ -129,7 +135,10 @@ impl GcHeap {
         range: core::ops::Range<usize>,
         value: TinyWasmValue,
     ) -> Option<()> {
-        let reference = value.as_ref().and_then(|value| self.handle(value));
+        let reference = match value {
+            TinyWasmValue::ValueRef(value) => self.handle(value),
+            _ => None,
+        };
         let object = self.get_mut(object)?;
         object.values.get_mut(range.clone())?.fill(value);
         if let Some(references) = &mut object.references {
@@ -173,6 +182,30 @@ impl GcHeap {
         object.values.copy_within(src.clone(), dst);
         if let Some(references) = &mut object.references {
             references.copy_within(src, dst);
+        }
+        Some(())
+    }
+
+    /// Copies values and tracing metadata between two distinct objects.
+    pub(crate) fn copy_between(
+        &mut self,
+        src: ValueRef,
+        src_range: core::ops::Range<usize>,
+        dst: ValueRef,
+        dst_index: usize,
+    ) -> Option<()> {
+        let src = self.handle(src)?;
+        let dst = self.handle(dst)?;
+        let (src, dst) = self.objects.get_disjoint_mut(src, dst)?;
+        let src_values = src.values.get(src_range.clone())?;
+        let dst_end = dst_index.checked_add(src_values.len())?;
+        dst.values.get_mut(dst_index..dst_end)?.copy_from_slice(src_values);
+        if let Some(dst_refs) = &mut dst.references {
+            if let Some(src_refs) = &src.references {
+                dst_refs[dst_index..dst_end].copy_from_slice(&src_refs[src_range]);
+            } else {
+                dst_refs[dst_index..dst_end].fill(None);
+            }
         }
         Some(())
     }

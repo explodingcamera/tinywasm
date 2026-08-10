@@ -14,11 +14,14 @@ pub(crate) fn value_lane(ty: wasmparser::ValType) -> ValueLane {
     }
 }
 
-pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result<tinywasm_types::Element> {
+pub(crate) fn convert_module_element(
+    element: wasmparser::Element<'_>,
+    global_types: &[WasmType],
+) -> Result<tinywasm_types::Element> {
     let kind = match element.kind {
         wasmparser::ElementKind::Active { table_index, offset_expr } => tinywasm_types::ElementKind::Active {
             table: table_index.unwrap_or(0),
-            offset: process_const_operators(offset_expr.get_operators_reader())?,
+            offset: process_const_operators(offset_expr.get_operators_reader(), global_types)?,
         },
         wasmparser::ElementKind::Passive => tinywasm_types::ElementKind::Passive,
         wasmparser::ElementKind::Declared => tinywasm_types::ElementKind::Declared,
@@ -38,7 +41,7 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
         wasmparser::ElementItems::Expressions(ty, exprs) => {
             let items = exprs
                 .into_iter()
-                .map(|expr| Ok(ElementItem::Expr(process_const_operators(expr?.get_operators_reader())?)))
+                .map(|expr| Ok(ElementItem::Expr(process_const_operators(expr?.get_operators_reader(), global_types)?)))
                 .collect::<Result<Vec<_>>>()?
                 .into_boxed_slice();
 
@@ -47,13 +50,16 @@ pub(crate) fn convert_module_element(element: wasmparser::Element<'_>) -> Result
     }
 }
 
-pub(crate) fn convert_module_data(data: wasmparser::Data<'_>) -> Result<tinywasm_types::Data> {
+pub(crate) fn convert_module_data(
+    data: wasmparser::Data<'_>,
+    global_types: &[WasmType],
+) -> Result<tinywasm_types::Data> {
     Ok(tinywasm_types::Data {
         data: data.data.to_vec().into_boxed_slice(),
         range: data.range,
         kind: match data.kind {
             wasmparser::DataKind::Active { memory_index, offset_expr } => {
-                let offset = process_const_operators(offset_expr.get_operators_reader())?;
+                let offset = process_const_operators(offset_expr.get_operators_reader(), global_types)?;
                 tinywasm_types::DataKind::Active { mem: memory_index, offset }
             }
             wasmparser::DataKind::Passive => tinywasm_types::DataKind::Passive,
@@ -96,16 +102,17 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryTyp
 
 pub(crate) fn convert_module_globals(
     globals: wasmparser::SectionLimited<'_, wasmparser::Global<'_>>,
+    global_types: &mut Vec<WasmType>,
 ) -> Result<Box<[Global]>> {
-    globals
-        .into_iter()
-        .map(|global| {
-            let global = global?;
-            let ty = convert_valtype(&global.ty.content_type)?;
-            let ops = global.init_expr.get_operators_reader();
-            Ok(Global { init: process_const_operators(ops)?, ty: GlobalType::new(ty, global.ty.mutable) })
-        })
-        .collect::<Result<Box<_>>>()
+    let mut out = Vec::with_capacity(globals.count() as usize);
+    for global in globals {
+        let global = global?;
+        let ty = convert_valtype(&global.ty.content_type)?;
+        let init = process_const_operators(global.init_expr.get_operators_reader(), global_types)?;
+        global_types.push(ty);
+        out.push(Global { init, ty: GlobalType::new(ty, global.ty.mutable) });
+    }
+    Ok(out.into_boxed_slice())
 }
 
 pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Export> {
@@ -313,7 +320,10 @@ fn convert_valtype_with_group(valtype: &wasmparser::ValType, group: Option<(u32,
     }
 }
 
-pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[ConstInstruction]>> {
+pub(crate) fn process_const_operators(
+    ops: OperatorsReader<'_>,
+    global_types: &[WasmType],
+) -> Result<Box<[ConstInstruction]>> {
     let mut out = Vec::new();
     let mut operator_count = 0;
     let mut end_reached = false;
@@ -353,7 +363,13 @@ pub(crate) fn process_const_operators(ops: OperatorsReader<'_>) -> Result<Box<[C
             wasmparser::Operator::F32Const { value } => ConstInstruction::F32Const(f32::from_bits(value.bits())),
             wasmparser::Operator::F64Const { value } => ConstInstruction::F64Const(f64::from_bits(value.bits())),
             wasmparser::Operator::V128Const { value } => ConstInstruction::V128Const(*value.bytes()),
-            wasmparser::Operator::GlobalGet { global_index } => ConstInstruction::GlobalGet(global_index),
+            wasmparser::Operator::GlobalGet { global_index } => match global_types.get(global_index as usize) {
+                Some(WasmType::I32 | WasmType::F32) => ConstInstruction::GlobalGet32(global_index),
+                Some(WasmType::I64 | WasmType::F64) => ConstInstruction::GlobalGet64(global_index),
+                Some(WasmType::V128) => ConstInstruction::GlobalGet128(global_index),
+                Some(WasmType::Ref(_)) => ConstInstruction::GlobalGetRef(global_index),
+                None => return Err(crate::ParseError::Other(format!("global index out of bounds: {global_index}"))),
+            },
             wasmparser::Operator::I32Add => ConstInstruction::I32Add,
             wasmparser::Operator::I32Sub => ConstInstruction::I32Sub,
             wasmparser::Operator::I32Mul => ConstInstruction::I32Mul,

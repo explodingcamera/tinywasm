@@ -3,11 +3,10 @@ use crate::{
     conversion::{convert_heap_type, value_lane},
     macros::visit::*,
 };
-use alloc::string::ToString;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 use tinywasm_types::{
-    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, SubType, TableDefinition, TagType,
-    TypeSection, ValueCounts, ValueLane, WasmFunctionData,
+    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, TableDefinition, TagType, TypeSection,
+    ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -50,7 +49,13 @@ pub(crate) struct ModuleMetadata {
     memories: Vec<ValueLane>,
     tables: Vec<ValueLane>,
     tags: Vec<u32>,
-    types: Vec<SubType>,
+    aggregate_fields: Vec<AggregateFields>,
+}
+
+enum AggregateFields {
+    Other,
+    Struct(Box<[ValueLane]>),
+    Array(ValueLane),
 }
 
 #[derive(Default)]
@@ -109,7 +114,7 @@ impl<'a> FunctionBuilder<'a> {
         field_index: u32,
         instruction: fn(u32, u32) -> Instruction,
     ) -> Result<()> {
-        let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
+        let size = self.metadata.struct_field(type_index, field_index)?;
         self.emit(&[ValueLane::S32], &[size], instruction(type_index, field_index))
     }
 }
@@ -170,6 +175,19 @@ impl ModuleMetadata {
                 })
             })
             .collect();
+        let aggregate_fields = types
+            .types
+            .iter()
+            .map(|ty| {
+                if let Some(ty) = ty.as_struct() {
+                    AggregateFields::Struct(ty.fields.iter().map(|field| Self::storage_size(field.storage)).collect())
+                } else if let Some(ty) = ty.as_array() {
+                    AggregateFields::Array(Self::storage_size(ty.field.storage))
+                } else {
+                    AggregateFields::Other
+                }
+            })
+            .collect();
         Self {
             signatures,
             functions,
@@ -177,7 +195,7 @@ impl ModuleMetadata {
             memories: memory_sizes,
             tables: table_sizes,
             tags: tag_types,
-            types: types.types.to_vec(),
+            aggregate_fields,
         }
     }
 
@@ -230,26 +248,30 @@ impl ModuleMetadata {
         }
     }
 
-    fn struct_fields(&self, idx: u32) -> Result<&[tinywasm_types::FieldType]> {
-        self.types
+    fn struct_fields(&self, idx: u32) -> Result<&[ValueLane]> {
+        self.aggregate_fields
             .get(idx as usize)
-            .and_then(SubType::as_struct)
-            .map(|ty| ty.fields.as_ref())
+            .and_then(|fields| match fields {
+                AggregateFields::Struct(fields) => Some(fields.as_ref()),
+                AggregateFields::Other | AggregateFields::Array(_) => None,
+            })
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a struct type: {idx}")))
     }
 
-    fn struct_field(&self, type_index: u32, field_index: u32) -> Result<tinywasm_types::FieldType> {
+    fn struct_field(&self, type_index: u32, field_index: u32) -> Result<ValueLane> {
         self.struct_fields(type_index)?
             .get(field_index as usize)
             .copied()
             .ok_or_else(|| crate::ParseError::Other("struct field index out of bounds".into()))
     }
 
-    fn array_field(&self, idx: u32) -> Result<tinywasm_types::FieldType> {
-        self.types
+    fn array_field(&self, idx: u32) -> Result<ValueLane> {
+        self.aggregate_fields
             .get(idx as usize)
-            .and_then(SubType::as_array)
-            .map(|ty| ty.field)
+            .and_then(|fields| match fields {
+                AggregateFields::Array(field) => Some(*field),
+                AggregateFields::Other | AggregateFields::Struct(_) => None,
+            })
             .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not an array type: {idx}")))
     }
 }
@@ -490,13 +512,14 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_struct_new(&mut self, type_index: u32) -> Self::Output {
-        let inputs = self
-            .metadata
-            .struct_fields(type_index)?
-            .iter()
-            .map(|field| ModuleMetadata::storage_size(field.storage))
-            .collect::<Vec<_>>();
-        self.emit(&inputs, &[ValueLane::S32], Instruction::StructNew(type_index))
+        let field_count = self.metadata.struct_fields(type_index)?.len();
+        for field_index in (0..field_count).rev() {
+            let size = self.metadata.struct_field(type_index, field_index as u32)?;
+            self.pop_expect(size)?;
+        }
+        self.push_sizes(&[ValueLane::S32])?;
+        self.instructions.push(Instruction::StructNew(type_index));
+        Ok(())
     }
 
     fn visit_struct_get(&mut self, type_index: u32, field_index: u32) -> Self::Output {
@@ -512,12 +535,12 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
-        let size = ModuleMetadata::storage_size(self.metadata.struct_field(type_index, field_index)?.storage);
+        let size = self.metadata.struct_field(type_index, field_index)?;
         self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(type_index, field_index))
     }
 
     fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Self::Output {
-        let size = ModuleMetadata::storage_size(self.metadata.array_field(type_index)?.storage);
+        let size = self.metadata.array_field(type_index)?;
         for _ in 0..array_size {
             self.pop_expect(size)?;
         }

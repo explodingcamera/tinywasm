@@ -375,9 +375,7 @@ impl ValueStack {
                 WasmValue::I64(v) => self.stack_64.push(v as u64)?,
                 WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
                 WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
-                WasmValue::Ref(v) => {
-                    self.stack_32.push(TinyWasmValue::from(WasmValue::Ref(v)).as_ref().unwrap().raw())?
-                }
+                WasmValue::Ref(v) => self.stack_32.push(ValueRef::from(v).raw())?,
                 WasmValue::V128(v) => self.stack_128.push(v.into())?,
             }
         }

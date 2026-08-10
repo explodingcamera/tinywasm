@@ -9,8 +9,8 @@ use crate::{Function, FunctionInstance, Result, Store};
 pub struct HostFunction(Arc<HostFunctionInner>);
 
 impl HostFunction {
-    fn instantiate_canonical(&self, store: &mut Store, ty: &FuncType) -> Function {
-        let type_addr = store.register_host_type(ty);
+    /// Instantiates the function with an already registered canonical type.
+    pub(crate) fn instantiate_registered(&self, store: &mut Store, type_addr: TypeAddr) -> Function {
         let addr = store.add_func(FunctionInstance {
             type_addr,
             gc: store.state.func_gc_metadata(type_addr),
@@ -19,8 +19,12 @@ impl HostFunction {
         Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
     }
 
-    /// Instantiates this definition after resolving the importing module's types.
-    pub(crate) fn instantiate_for_import(&self, store: &mut Store, type_addrs: &[TypeAddr]) -> Result<Function> {
+    /// Resolves the importing module's types without allocating a function instance.
+    pub(crate) fn resolve_import_type(&self, type_addrs: &[TypeAddr]) -> Result<FuncType> {
+        let mut types = self.0.ty.params().iter().chain(self.0.ty.results());
+        if types.all(|ty| !matches!(ty, WasmType::Ref(ty) if ty.is_concrete())) {
+            return Ok(self.0.ty.clone());
+        }
         let resolve = |ty: WasmType| -> Result<WasmType> {
             let WasmType::Ref(ref_ty) = ty else { return Ok(ty) };
             let Some(module_addr) = ref_ty.type_index() else { return Ok(ty) };
@@ -34,7 +38,7 @@ impl HostFunction {
         };
         let params = self.0.ty.params().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;
         let results = self.0.ty.results().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;
-        Ok(self.instantiate_canonical(store, &FuncType::new(&params, &results)))
+        Ok(FuncType::new(&params, &results))
     }
 
     /// Calls the host function through its untyped value interface.
@@ -111,7 +115,8 @@ impl HostFunction {
         {
             return Err(crate::Error::other("host function signature contains a concrete type from another store"));
         }
-        Ok(self.instantiate_canonical(store, &self.0.ty))
+        let type_addr = store.register_host_type(&self.0.ty);
+        Ok(self.instantiate_registered(store, type_addr))
     }
 
     /// Create a new untyped host function.

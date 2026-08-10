@@ -89,7 +89,7 @@ pub(crate) mod visit {
             $visit:ident($type_index:ident: $type_ty:ty $(, $arg:ident: $arg_ty:ty)*) => $instr:ident
         ) => {
             fn $visit(&mut self, $type_index: $type_ty $(, $arg: $arg_ty)*) -> Self::Output {
-                let size = ModuleMetadata::storage_size(self.metadata.array_field($type_index)?.storage);
+                let size = self.metadata.array_field($type_index)?;
                 lowering_ops!(@emit self address(size) [$($input),*] => [$($output),*]
                     Instruction::$instr($type_index $(, $arg)*).into())
             }

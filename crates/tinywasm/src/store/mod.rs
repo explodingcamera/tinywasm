@@ -122,18 +122,6 @@ impl Store {
         self.module_instances.push(instance);
     }
 
-    /// Gets a global by its opaque store address.
-    #[doc(hidden)]
-    pub fn get_global_val(&self, addr: GlobalAddr) -> TinyWasmValue {
-        self.state.globals.get(addr)
-    }
-
-    /// Sets a global by its opaque store address.
-    #[doc(hidden)]
-    pub fn set_global_val(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        self.state.globals.set(addr, value);
-    }
-
     /// Returns whether a public value has the requested runtime type.
     #[doc(hidden)]
     pub fn value_matches_type(&self, value: WasmValue, ty: WasmType) -> bool {
@@ -264,7 +252,7 @@ impl Store {
                 MemoryArch::I32 => TableType::new(element_type, table.ty.size_initial, table.ty.size_max),
                 MemoryArch::I64 => TableType::new64(element_type, table.ty.size_initial, table.ty.size_max),
             };
-            self.state.tables.push(TableInstance::new_with_init(ty, init)?);
+            self.state.tables.push(TableInstance::new(ty, init)?);
         }
         Ok(start..start + tables.len() as TableAddr)
     }

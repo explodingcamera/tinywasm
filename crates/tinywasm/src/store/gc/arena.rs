@@ -139,6 +139,21 @@ impl<T> Arena<T> {
         }
     }
 
+    /// Returns exclusive references for two distinct live handles.
+    pub(crate) fn get_disjoint_mut(&mut self, first: Handle, second: Handle) -> Option<(&mut T, &mut T)> {
+        let [first_slot, second_slot] =
+            self.slots.get_disjoint_mut([first.index as usize, second.index as usize]).ok()?;
+        if first_slot.generation != first.generation || second_slot.generation != second.generation {
+            return None;
+        }
+        match (&mut first_slot.state, &mut second_slot.state) {
+            (SlotState::Occupied { value: first, .. }, SlotState::Occupied { value: second, .. }) => {
+                Some((first, second))
+            }
+            _ => None,
+        }
+    }
+
     /// Returns whether an allocation of this size should trigger collection.
     pub(crate) fn should_collect(&self, out_of_line_bytes: usize) -> bool {
         size_of::<Slot<T>>()

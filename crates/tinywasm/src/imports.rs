@@ -168,8 +168,9 @@ impl Imports {
         self
     }
 
-    pub(crate) fn take_defined(&self, import: &Import) -> Option<Extern> {
-        self.externs.get(import.module.as_ref())?.get(import.name.as_ref()).cloned()
+    /// Returns an explicitly defined import without cloning its handle.
+    pub(crate) fn defined(&self, import: &Import) -> Option<&Extern> {
+        self.externs.get(import.module.as_ref())?.get(import.name.as_ref())
     }
 
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
@@ -247,27 +248,43 @@ impl Imports {
         };
 
         for import in &*module.imports {
-            let (val, func_handle) = if let Some(defined) = self.take_defined(import) {
+            let val = if let Some(defined) = self.defined(import) {
                 match defined {
                     Extern::Global(global) => {
                         global.0.validate_store(store)?;
-                        (ExternVal::Global(global.0.addr), None)
+                        ExternVal::Global(global.0.addr)
                     }
                     Extern::Table(table) => {
                         table.0.validate_store(store)?;
-                        (ExternVal::Table(table.0.addr), None)
+                        ExternVal::Table(table.0.addr)
                     }
                     Extern::Memory(memory) => {
                         memory.0.validate_store(store)?;
-                        (ExternVal::Memory(memory.0.addr), None)
+                        ExternVal::Memory(memory.0.addr)
                     }
-                    Extern::Function(func) => (ExternVal::Func(func.addr()), Some(func)),
+                    Extern::Function(func) => {
+                        func.item.validate_store(store)?;
+                        ExternVal::Func(func.addr())
+                    }
                     Extern::HostFunction(func) => {
-                        (ExternVal::Func(func.instantiate_for_import(store, type_addrs)?.addr()), None)
+                        let ImportKind::Function(type_idx) = import.kind else {
+                            cold_path();
+                            return Err(LinkingError::incompatible_import_type(import).into());
+                        };
+                        let expected_type_addr = type_addrs
+                            .get(type_idx as usize)
+                            .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
+                        let actual_ty = func.resolve_import_type(type_addrs)?;
+                        let actual_type_addr = store.register_host_type(&actual_ty);
+                        if !store.state.type_addr_is_subtype(actual_type_addr, *expected_type_addr) {
+                            cold_path();
+                            return Err(LinkingError::incompatible_import_type(import).into());
+                        }
+                        ExternVal::Func(func.instantiate_registered(store, actual_type_addr).addr())
                     }
                     Extern::Tag(tag) => {
                         tag.0.validate_store(store)?;
-                        (ExternVal::Tag(tag.0.addr), None)
+                        ExternVal::Tag(tag.0.addr)
                     }
                 }
             } else {
@@ -276,7 +293,7 @@ impl Imports {
                     return Err(LinkingError::unknown_import(import).into());
                 };
                 instance.validate_store(store)?;
-                (instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?, None)
+                instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?
             };
 
             if val.kind() != (&import.kind).into() {
@@ -317,9 +334,6 @@ impl Imports {
                 (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
                     let expected_type_addr =
                         type_addrs.get(*ty as usize).ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-                    if let Some(func) = &func_handle {
-                        func.item.validate_store(store)?;
-                    }
                     if !store.state.type_addr_is_subtype(store.state.get_func(func_addr).type_addr, *expected_type_addr)
                     {
                         cold_path();

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::*;
 
-use crate::interpreter::{TinyWasmValue, Value32, Value64, Value128, ValueRef};
+use crate::interpreter::{TinyWasmValue, Value32, Value64, Value128};
 
 struct GlobalLane<T> {
     values: Vec<T>,
@@ -116,28 +116,6 @@ impl Globals {
         }
     }
 
-    /// Returns a dynamically represented global value.
-    pub(crate) fn get(&self, addr: GlobalAddr) -> TinyWasmValue {
-        let ty = self.ty(addr);
-        match ty.ty {
-            WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(self.get_32(addr)),
-            WasmType::I64 | WasmType::F64 => TinyWasmValue::Value64(self.get_64(addr)),
-            WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::from_raw(self.get_32(addr))),
-            WasmType::V128 => TinyWasmValue::Value128(self.get_128(addr)),
-        }
-    }
-
-    /// Sets a global from a dynamically represented value.
-    pub(crate) fn set(&mut self, addr: GlobalAddr, value: TinyWasmValue) {
-        match (self.ty(addr).ty, value) {
-            (WasmType::I32 | WasmType::F32, TinyWasmValue::Value32(value)) => self.set_32(addr, value),
-            (WasmType::Ref(_), TinyWasmValue::ValueRef(value)) => self.set_32(addr, value.raw()),
-            (WasmType::I64 | WasmType::F64, TinyWasmValue::Value64(value)) => self.set_64(addr, value),
-            (WasmType::V128, TinyWasmValue::Value128(value)) => self.set_128(addr, value),
-            _ => unreachable!("global value does not match its declared type"),
-        }
-    }
-
     /// Returns a raw value from the 32-bit lane.
     #[inline(always)]
     pub(crate) fn get_32(&self, addr: GlobalAddr) -> Value32 {
@@ -175,7 +153,7 @@ impl Globals {
     }
 
     /// Iterates over globals in the 32-bit lane for root tracing.
-    pub(crate) fn globals_32(&self) -> impl Iterator<Item = (Value32, GlobalType)> + '_ {
-        self.globals_32.values.iter().copied().zip(self.globals_32.types.iter().copied())
+    pub(crate) fn globals_32(&self) -> impl Iterator<Item = (&Value32, &GlobalType)> {
+        self.globals_32.values.iter().zip(&self.globals_32.types)
     }
 }

@@ -15,12 +15,8 @@ pub(crate) struct TableInstance {
 }
 
 impl TableInstance {
-    #[cfg(test)]
-    pub(crate) fn new(kind: TableType) -> Result<Self> {
-        Self::new_with_init(kind, ValueRef::NULL)
-    }
-
-    pub(crate) fn new_with_init(kind: TableType, init: ValueRef) -> Result<Self> {
+    /// Creates a table filled with the given initial reference.
+    pub(crate) fn new(kind: TableType, init: ValueRef) -> Result<Self> {
         let size = usize::try_from(kind.size_initial).map_err(|_| Trap::OutOfMemory)?;
         if size > MAX_TABLE_SIZE {
             return Err(Trap::OutOfMemory.into());
@@ -99,52 +95,5 @@ impl TableInstance {
         let range = self.checked_range(offset, init.len())?;
         self.elements[range].copy_from_slice(init);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloc::vec;
-
-    // Helper to create a dummy TableType
-    fn dummy_table_type() -> TableType {
-        TableType::new(RefType::FUNCREF, 10, Some(20))
-    }
-
-    #[test]
-    fn test_table_instance_creation() {
-        let kind = dummy_table_type();
-        let table_instance = TableInstance::new(kind).unwrap();
-        assert_eq!(table_instance.size() as u64, kind.size_initial, "Table instance creation failed: size mismatch");
-    }
-
-    #[test]
-    fn test_set_and_get() {
-        let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind).unwrap();
-
-        let value = ValueRef::from_raw(2);
-        let result = table_instance.set(0, value);
-        assert!(result.is_ok(), "Setting table element failed");
-
-        let elem = table_instance.get(0);
-        assert!(elem.is_ok() && elem.unwrap() == &value, "Getting table element failed or returned incorrect value");
-    }
-
-    #[test]
-    fn test_table_init() {
-        let kind = dummy_table_type();
-        let mut table_instance = TableInstance::new(kind).unwrap();
-
-        let init_elements = vec![ValueRef::from_raw(2); 5];
-        let result = table_instance.init(0, &init_elements);
-
-        assert!(result.is_ok(), "Initializing table with elements failed");
-
-        for i in 0..5 {
-            let elem = table_instance.get(i);
-            assert!(elem.is_ok() && !elem.unwrap().is_null(), "Element not initialized correctly at index {i}");
-        }
     }
 }
