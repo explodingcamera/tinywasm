@@ -7,7 +7,7 @@
 
 ## Why `tinywasm`?
 
-- **Tiny**: Small by design, without significantly compromising performance or functionality.
+- **Tiny**: Small by design, while still passing the full WebAssembly 3.0 core testsuite.
 - **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies, and can itself compile to WebAssembly.
 - **Safe**: Written in safe Rust, with optional `unsafe` limited to the `simd-x86` feature. Its sandbox is designed to prevent untrusted Wasm from accessing host memory or escaping the runtime.
 
@@ -42,6 +42,10 @@ assert_eq!(result, 3);
 
 See the [examples](./examples) directory and [documentation](https://docs.rs/tinywasm) for more information.
 
+## Precompiled Modules
+
+TinyWasm modules can be compiled to the internal `twasm` bytecode format, which stores the optimized instruction representation for faster loading and reuse.
+
 ## Cargo Features
 
 - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
@@ -60,12 +64,6 @@ With default features disabled, `tinywasm` depends only on `core`, `alloc`, and 
 Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, memory backend selection, the GC collection threshold, or trap-on-OOM behavior.
 
 [^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for floating-point math support in `no_std`.
-
-## Current Status
-
-`tinywasm` passes the WebAssembly MVP and WebAssembly 2.0 core testsuites and supports the [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1) interoperability target. WebAssembly 3.0 support is still in progress, and some newer proposal suites are tracked in-repo as experimental coverage rather than release guarantees; see [Supported Proposals](#supported-proposals) for details.
-
-TinyWasm also has its own internal bytecode format, `twasm`. WebAssembly modules can be compiled to `twasm`, which stores TinyWasm's optimized instruction representation for faster loading and reuse.
 
 ## Safety
 

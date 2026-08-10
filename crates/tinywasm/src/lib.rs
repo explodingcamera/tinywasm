@@ -7,12 +7,12 @@
 #![cfg_attr(not(feature = "simd-x86"), forbid(unsafe_code))]
 #![cfg_attr(feature = "simd-x86", deny(unsafe_code))]
 
-//! `tinywasm` provides a small, portable WebAssembly interpreter with support for
-//! the WebAssembly MVP, WebAssembly 2.0, and a growing set of newer proposals.
-//! It also supports the [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1)
-//! interoperability target.
-//! It is designed to stay lightweight while still being practical to embed in
-//! applications, tools, and `no_std + alloc` environments.
+//! A small and portable WebAssembly interpreter.
+//!
+//! `tinywasm` passes the full WebAssembly 3.0 core testsuite and supports the
+//! [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1)
+//! interoperability target. It is designed for embedding in applications, tools,
+//! and `no_std + alloc` environments.
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //!
@@ -79,7 +79,7 @@
 //!
 //! To provide imports to a module, you can use the [`Imports`] struct.
 //! This struct allows you to register custom functions, globals, memories, tables,
-//! and other modules to be linked into the module when it is instantiated.
+//! tags, and other modules to be linked into the module when it is instantiated.
 //!
 //! See the [`Imports`] documentation for more information.
 
