@@ -186,6 +186,7 @@ pub enum Instruction {
     // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
     BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
     BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
+    CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
     BinOpLocalLocalSet32(BinOp, LocalAddr, LocalAddr, LocalAddr),
     BinOpLocalLocalSet64(BinOp, LocalAddr, LocalAddr, LocalAddr),
     BinOpLocalLocalSet128(BinOp128, LocalAddr, LocalAddr, LocalAddr),
@@ -255,6 +256,10 @@ pub enum Instruction {
     JumpIfLocalNonZero64 { target_ip: u32, local: LocalAddr },
     JumpCmpStackConst32 { target_ip: u32, imm: i32, op: CmpOp },
     JumpCmpStackConst64 { target_ip: u32, imm: i64, op: CmpOp },
+    JumpCmpStackLocal32 { target_ip: u32, local: LocalAddr, op: CmpOp },
+    JumpCmpStackLocal64 { target_ip: u32, local: LocalAddr, op: CmpOp },
+    IncLocalJump32 { target_ip: u32, local: LocalAddr, delta: i32, on_zero: bool },
+    IncLocalJumpCmpLocal32 { target_ip: u32, local: LocalAddr, delta: i32, right: LocalAddr, op: CmpOp },
     JumpCmpLocalConst32 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
     JumpCmpLocalConst64 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
     JumpCmpLocalLocal32 { target_ip: u32, left: LocalAddr, right: LocalAddr, op: CmpOp },
@@ -477,8 +482,10 @@ pub enum Instruction {
     F64x2RelaxedMin, F64x2RelaxedMax,
     I16x8RelaxedQ15mulrS,
     I16x8RelaxedDotI8x16I7x16S,
-    I32x4RelaxedDotI8x16I7x16AddS
+    I32x4RelaxedDotI8x16I7x16AddS,
 }
+
+const _: () = assert!(core::mem::size_of::<Instruction>() <= 16);
 
 impl Instruction {
     #[inline]
@@ -562,15 +569,5 @@ impl Instruction {
             Self::MemoryCopy { dst_mem, src_mem } => Some(if *dst_mem >= *src_mem { *dst_mem } else { *src_mem }),
             _ => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Instruction;
-
-    #[test]
-    fn instruction_layout_size_is_stable() {
-        assert_eq!(core::mem::size_of::<Instruction>(), 16);
     }
 }

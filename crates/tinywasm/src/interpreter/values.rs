@@ -135,7 +135,7 @@ pub(crate) trait InternalValue: sealed::Sealed + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
-    fn stack_select(stack: &mut ValueStack) -> Result<(), crate::Trap>;
+    fn stack_select(stack: &mut ValueStack);
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self);
@@ -227,16 +227,14 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
-                fn stack_select(stack: &mut ValueStack) -> Result<(), crate::Trap> {
+                fn stack_select(stack: &mut ValueStack) {
                     let cond = stack.stack_32.pop() as i32;
                     let val2 = stack.$stack.pop();
 
                     if cond == 0 {
-                        Self::stack_pop(stack);
-                        stack.$stack.push(val2)?;
+                        let val1 = stack.$stack.len() - 1;
+                        stack.$stack.set(val1, val2);
                     }
-
-                    Ok(())
                 }
             }
         )*
