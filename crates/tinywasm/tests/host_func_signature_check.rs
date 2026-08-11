@@ -155,7 +155,7 @@ fn imported_host_functions_resolve_concrete_types() -> Result<(), Box<dyn core::
         "#,
     )?;
     let module = tinywasm::parse_bytes(&wasm)?;
-    let concrete = RefType::new_concrete(true, 0).expect("valid module-local type index");
+    let concrete = RefType::new_concrete(true, 0);
     let host_ty = FuncType::new(&[WasmType::Ref(concrete)], &[]);
     let host = HostFunction::from_untyped(&host_ty, |_, args| {
         assert_eq!(args, &[WasmValue::Ref(RefValue::Null)]);

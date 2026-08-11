@@ -31,10 +31,7 @@ impl HostFunction {
             let canonical = *type_addrs
                 .get(module_addr as usize)
                 .ok_or_else(|| crate::Error::other("host function signature contains an invalid concrete type"))?;
-            Ok(WasmType::Ref(
-                tinywasm_types::RefType::new_concrete(ref_ty.is_nullable(), canonical)
-                    .expect("canonical type addresses fit in references"),
-            ))
+            Ok(WasmType::Ref(tinywasm_types::RefType::new_concrete(ref_ty.is_nullable(), canonical)))
         };
         let params = self.0.ty.params().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;
         let results = self.0.ty.results().iter().copied().map(resolve).collect::<Result<Vec<_>>>()?;

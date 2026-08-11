@@ -6,7 +6,7 @@ use super::Store;
 pub(crate) fn canonicalize_ref_type(ty: RefType, type_addrs: &[TypeAddr]) -> RefType {
     let Some(type_addr) = ty.type_index() else { return ty };
     let canonical = *type_addrs.get(type_addr as usize).expect("validated type address should exist");
-    RefType::new_concrete(ty.is_nullable(), canonical).expect("canonical type addresses fit in references")
+    RefType::new_concrete(ty.is_nullable(), canonical)
 }
 
 pub(crate) fn canonicalize_value_type(ty: WasmType, type_addrs: &[TypeAddr]) -> WasmType {
@@ -18,12 +18,10 @@ pub(crate) fn canonicalize_value_type(ty: WasmType, type_addrs: &[TypeAddr]) -> 
 
 fn map_value_type(ty: WasmType, resolve: &mut impl FnMut(TypeAddr) -> TypeAddr) -> WasmType {
     match ty {
-        WasmType::Ref(ty) if ty.is_concrete() => {
-            let addr = resolve(ty.type_index().expect("concrete reference has a type index"));
-            WasmType::Ref(
-                RefType::new_concrete(ty.is_nullable(), addr).expect("canonical type addresses fit in references"),
-            )
-        }
+        WasmType::Ref(ty) if ty.is_concrete() => WasmType::Ref(RefType::new_concrete(
+            ty.is_nullable(),
+            resolve(ty.type_index().expect("concrete reference has a type index")),
+        )),
         ty => ty,
     }
 }

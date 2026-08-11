@@ -73,12 +73,9 @@ impl RefType {
     }
 
     #[inline]
-    pub const fn new_concrete(nullable: bool, type_index: u32) -> Option<Self> {
-        if type_index <= Self::PAYLOAD_MASK {
-            Some(Self(((nullable as u32) << 31) | Self::CONCRETE | type_index))
-        } else {
-            None
-        }
+    pub const fn new_concrete(nullable: bool, type_index: u32) -> Self {
+        assert!(type_index <= Self::PAYLOAD_MASK, "type index is too large for a reference type");
+        Self(((nullable as u32) << 31) | Self::CONCRETE | type_index)
     }
 
     #[inline]
@@ -193,7 +190,7 @@ impl ExternRef {
     #[inline]
     pub const fn try_new(addr: u32) -> Option<Self> {
         match encode_host_ref(addr) {
-            Some(raw) => Some(Self(raw)),
+            Some(encoded) => Some(Self(encoded)),
             None => None,
         }
     }
@@ -251,7 +248,7 @@ impl AnyRef {
     #[inline]
     pub const fn from_host(addr: u32) -> Option<Self> {
         match encode_host_ref(addr) {
-            Some(raw) => Some(Self(raw)),
+            Some(encoded) => Some(Self(encoded)),
             None => None,
         }
     }

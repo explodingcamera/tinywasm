@@ -35,6 +35,8 @@ fn main() -> Result<()> {
         println!("  host_fn");
         println!("  fibonacci - calculate fibonacci(30)");
         println!("  tinywasm - run printi32 inside of tinywasm inside of itself");
+        println!("  tinywasm_precompiled - run a precompiled module inside of tinywasm");
+        println!("  tinywasm_no_std - run a precompiled module inside of no_std tinywasm");
         println!("  argon2id - run argon2id(1000, 2, 1)");
         return Ok(());
     }
@@ -44,6 +46,7 @@ fn main() -> Result<()> {
         "printi32" => printi32()?,
         "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
+        "tinywasm_precompiled" => tinywasm_precompiled()?,
         "tinywasm_no_std" => tinywasm_no_std()?,
         "argon2id" => argon2id()?,
         "host_fn" => host_fn()?,
@@ -57,6 +60,8 @@ fn main() -> Result<()> {
             fibonacci()?;
             println!("\ntinywasm.wasm:");
             tinywasm()?;
+            println!("\ntinywasm_precompiled.wasm:");
+            tinywasm_precompiled()?;
             println!("\ntinywasm_no_std.wasm:");
             tinywasm_no_std()?;
             println!("argon2id.wasm:");
@@ -87,6 +92,21 @@ fn tinywasm() -> Result<()> {
 
 fn tinywasm_no_std() -> Result<()> {
     let module = tinywasm::parse_file("./examples/rust/out/tinywasm_no_std.wasm")?;
+    let mut store = Store::default();
+
+    let mut imports = Imports::new();
+    imports.define("env", "printi32", HostFunction::from(|_: FuncContext<'_>, _x: i32| Ok(())));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(black_box(&imports)))?;
+
+    let hello = instance.func::<(), ()>(&store, "hello")?;
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
+    hello.call(&mut store, black_box(()))?;
+    Ok(())
+}
+
+fn tinywasm_precompiled() -> Result<()> {
+    let module = tinywasm::parse_file("./examples/rust/out/tinywasm_precompiled.opt.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
@@ -209,6 +229,11 @@ mod tests {
     #[test]
     fn test_tinywasm() {
         tinywasm().unwrap();
+    }
+
+    #[test]
+    fn test_tinywasm_precompiled() {
+        tinywasm_precompiled().unwrap();
     }
 
     #[test]

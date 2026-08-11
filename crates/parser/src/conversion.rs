@@ -440,8 +440,7 @@ fn convert_heap_type_with_group(
                     )));
                 }
             };
-            RefType::new_concrete(nullable, index)
-                .ok_or_else(|| crate::ParseError::Other(format!("heap type index is too large: {index}")))
+            Ok(RefType::new_concrete(nullable, index))
         }
         wasmparser::HeapType::Abstract { shared: true, .. } | wasmparser::HeapType::Exact(_) => {
             Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")))

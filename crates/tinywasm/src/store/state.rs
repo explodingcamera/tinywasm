@@ -271,23 +271,20 @@ impl State {
         if expected_func {
             let Some(func_addr) = value.addr() else { return false };
             let Some(func) = self.funcs.get(func_addr as usize) else { return false };
-            let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
-            return self.ref_type_is_subtype(actual, expected);
+            return self.ref_type_is_subtype(RefType::new_concrete(false, func.type_addr), expected);
         }
         if expected.abstract_heap_type() == Some(AbstractHeapType::Exn) {
             return value.addr().is_some_and(|addr| self.exceptions.get(addr as usize).is_some());
         }
         if value.is_i31() {
-            let actual = RefType::new_abstract(false, AbstractHeapType::I31);
-            return self.ref_type_is_subtype(actual, expected);
+            return self.ref_type_is_subtype(RefType::new_abstract(false, AbstractHeapType::I31), expected);
         }
         if value.is_host_any() {
-            let actual = RefType::new_abstract(false, AbstractHeapType::Any);
-            return self.ref_type_is_subtype(actual, expected);
+            return self.ref_type_is_subtype(RefType::new_abstract(false, AbstractHeapType::Any), expected);
         }
 
         let Some(object) = self.gc.get(value) else { return false };
-        let actual = RefType::new_concrete(false, object.type_addr).expect("canonical type fits");
+        let actual = RefType::new_concrete(false, object.type_addr);
         self.ref_type_is_subtype(actual, expected)
     }
 
@@ -309,12 +306,10 @@ impl State {
     pub(crate) fn value_matches_type(&self, value: WasmValue, expected: WasmType) -> bool {
         match (value, expected) {
             (WasmValue::Ref(RefValue::Null), WasmType::Ref(expected)) => expected.is_nullable(),
-            (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => {
-                self.funcs.get(func.addr() as usize).is_some_and(|func| {
-                    let actual = RefType::new_concrete(false, func.type_addr).expect("canonical type fits");
-                    self.ref_type_is_subtype(actual, expected)
-                })
-            }
+            (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => self
+                .funcs
+                .get(func.addr() as usize)
+                .is_some_and(|func| self.ref_type_is_subtype(RefType::new_concrete(false, func.type_addr), expected)),
             (WasmValue::Ref(RefValue::Any(_)), WasmType::Ref(expected))
                 if expected.is_func() || expected.is_extern() || expected.is_exn() =>
             {

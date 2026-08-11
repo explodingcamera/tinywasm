@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn concrete_references_require_store_type_information() {
-        let concrete = WasmType::Ref(RefType::new_concrete(false, 0).unwrap());
+        let concrete = WasmType::Ref(RefType::new_concrete(false, 0));
 
         assert!(!WasmValue::from(FuncRef::new(0)).matches_type(concrete));
         assert!(!WasmValue::from(AnyRef::from_host(0).unwrap()).matches_type(concrete));

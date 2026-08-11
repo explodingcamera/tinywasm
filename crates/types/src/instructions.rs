@@ -194,6 +194,8 @@ pub enum Instruction {
     BinOpLocalLocalTee64(BinOp, LocalAddr, LocalAddr, LocalAddr),
     BinOpLocalLocalTee128(BinOp128, LocalAddr, LocalAddr, LocalAddr),
     BinOpLocalConst32(BinOp, LocalAddr, i32), BinOpLocalConst64(BinOp, LocalAddr, i64),
+    BinOpGlobalConst32(BinOp, GlobalAddr, i32), BinOpGlobalConst64(BinOp, GlobalAddr, i64),
+    BinOpGlobalConst128(BinOp128, GlobalAddr, ConstIdx),
     BinOpLocalConst128(BinOp128, LocalAddr, ConstIdx),
     BinOpLocalConstSet32(BinOp, LocalAddr, i32, LocalAddr),
     BinOpLocalConstSet64(BinOp, LocalAddr, i64, LocalAddr),
@@ -258,7 +260,13 @@ pub enum Instruction {
     JumpCmpStackConst64 { target_ip: u32, imm: i64, op: CmpOp },
     JumpCmpStackLocal32 { target_ip: u32, local: LocalAddr, op: CmpOp },
     JumpCmpStackLocal64 { target_ip: u32, local: LocalAddr, op: CmpOp },
+    BinOpLocalConstJump32 { target_ip: u32, local: LocalAddr, imm: i32, op: BinOp, on_zero: bool },
+    BinOpLocalConstJumpCmpLocal32 { target_ip: u32, local: LocalAddr, imm: i32, binop: BinOp, right: LocalAddr, cmp: CmpOp },
+    BinOpStackConstTeeLocalJump32 { target_ip: u32, local: LocalAddr, imm: i32, op: BinOp, on_zero: bool },
+    BinOpGlobalConstJump32 { target_ip: u32, global: GlobalAddr, imm: i32, op: BinOp, on_zero: bool },
     IncLocalJump32 { target_ip: u32, local: LocalAddr, delta: i32, on_zero: bool },
+    IncStackTeeLocalJump32 { target_ip: u32, local: LocalAddr, delta: i32, on_zero: bool },
+    IncGlobalJump32 { target_ip: u32, global: GlobalAddr, delta: i32, on_zero: bool },
     IncLocalJumpCmpLocal32 { target_ip: u32, local: LocalAddr, delta: i32, right: LocalAddr, op: CmpOp },
     JumpCmpLocalConst32 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
     JumpCmpLocalConst64 { target_ip: u32, local: LocalAddr, imm: i32, op: CmpOp },
@@ -291,9 +299,9 @@ pub enum Instruction {
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    GlobalGet32(GlobalAddr), LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr), GlobalSet32(GlobalAddr),
-    GlobalGet64(GlobalAddr), LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr), GlobalSet64(GlobalAddr),
-    GlobalGet128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr), GlobalSet128(GlobalAddr),
+    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr), GlobalTee32(GlobalAddr), LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr),
+    GlobalGet64(GlobalAddr), GlobalSet64(GlobalAddr), GlobalTee64(GlobalAddr), LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr),
+    GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr), GlobalTee128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr),
 
     // > Memory Instructions
     I32Load(MemoryArg),

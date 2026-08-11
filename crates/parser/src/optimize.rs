@@ -92,7 +92,9 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [Const32(c), GlobalGet32(global)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const32(c)] => AddConst32(c));
@@ -103,6 +105,7 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
                 if matches!(op, BinOp::IShrS) {
                     rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 8), Const32(8)] => [LocalGet32(local), I32Extend8S]);
@@ -113,7 +116,9 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet64(global), Const64(c)] => BinOpGlobalConst64(op, global, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [Const64(c), GlobalGet64(global)] => BinOpGlobalConst64(op, global, c));
                 rewrite!(instrs, i, [GlobalGet64(global)] => BinOpStackGlobal64(op, global));
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const64(c)] => AddConst64(c));
@@ -124,6 +129,7 @@ fn rewrite(
                 let Some(op) = int_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet64(global), Const64(c)] => BinOpGlobalConst64(op, global, c));
                 rewrite!(instrs, i, [GlobalGet64(global)] => BinOpStackGlobal64(op, global));
                 if matches!(op, BinOp::IShrS) {
                     rewrite!(instrs, i, [BinOpLocalConst64(BinOp::IShl, local, 8), Const64(8)] => [LocalGet64(local), I64Extend8S]);
@@ -143,33 +149,42 @@ fn rewrite(
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [Const32(c), GlobalGet32(global)] => BinOpGlobalConst32(op, global, c));
             }
             instr @ (F32Sub | F32Div | F32Copysign) => {
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
+                rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
             }
             instr @ (F64Add | F64Mul | F64Min | F64Max) => {
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet64(global), Const64(c)] => BinOpGlobalConst64(op, global, c));
                 rewrite!(instrs, i, [Const64(c), LocalGet64(local)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [Const64(c), GlobalGet64(global)] => BinOpGlobalConst64(op, global, c));
             }
             instr @ (F64Sub | F64Div | F64Copysign) => {
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
                 rewrite!(instrs, i, [LocalGet64(local), Const64(c)] => BinOpLocalConst64(op, local, c));
+                rewrite!(instrs, i, [GlobalGet64(global), Const64(c)] => BinOpGlobalConst64(op, global, c));
             }
             instr @ (V128And | V128Or | V128Xor | I64x2Add | I64x2Mul) => {
                 let Some(op) = bin_op_128(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet128(a), LocalGet128(b)] => BinOpLocalLocal128(op, a, b));
                 rewrite!(instrs, i, [LocalGet128(local), Const128(c)] => BinOpLocalConst128(op, local, c));
+                rewrite!(instrs, i, [GlobalGet128(global), Const128(c)] => BinOpGlobalConst128(op, global, c));
                 rewrite!(instrs, i, [Const128(c), LocalGet128(local)] => BinOpLocalConst128(op, local, c));
+                rewrite!(instrs, i, [Const128(c), GlobalGet128(global)] => BinOpGlobalConst128(op, global, c));
             }
             V128AndNot => {
                 rewrite!(instrs, i, [LocalGet128(a), LocalGet128(b)] => BinOpLocalLocal128(BinOp128::AndNot, a, b));
                 rewrite!(instrs, i, [LocalGet128(local), Const128(c)] => BinOpLocalConst128(BinOp128::AndNot, local, c));
+                rewrite!(instrs, i, [GlobalGet128(global), Const128(c)] => BinOpGlobalConst128(BinOp128::AndNot, global, c));
             }
             I32Store(memarg) | F32Store(memarg) => {
                 rewrite!(instrs, i,
@@ -277,6 +292,9 @@ fn rewrite(
             MemoryFill(mem) => {
                 rewrite!(instrs, i, [Const32(val), Const32(size)] => MemoryFillImm(mem, val as u8, size))
             }
+            GlobalGet32(dst) => rewrite!(instrs, i, [GlobalSet32(src)] if (src == dst) => GlobalTee32(src)),
+            GlobalGet64(dst) => rewrite!(instrs, i, [GlobalSet64(src)] if (src == dst) => GlobalTee64(src)),
+            GlobalGet128(dst) => rewrite!(instrs, i, [GlobalSet128(src)] if (src == dst) => GlobalTee128(src)),
             LocalGet32(dst) => rewrite!(instrs, i, [LocalSet32(src)] if (src == dst) => LocalTee32(src)),
             LocalGet64(dst) => rewrite!(instrs, i, [LocalSet64(src)] if (src == dst) => LocalTee64(src)),
             LocalGet128(dst) => rewrite!(instrs, i, [LocalSet128(src)] if (src == dst) => LocalTee128(src)),
@@ -542,7 +560,6 @@ fn rewrite(
                     replace!(instrs, i, 1 => JumpIfNonZero32(target));
                     continue;
                 });
-                rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalZero32 { target_ip: target, local });
                 rewrite!(instrs, i, [LocalGet64(local), I64Eqz] => {
                     replace!(instrs, i, 2 => JumpIfLocalNonZero64 { target_ip: target, local });
                     continue;
@@ -552,8 +569,30 @@ fn rewrite(
                     continue;
                 });
                 rewrite!(instrs, i,
-                    [BinOpLocalConstTee32(BinOp::IAdd, local, delta, dst)] if (local == dst) =>
-                    IncLocalJump32 { target_ip: target, local, delta, on_zero: true }
+                    [BinOpLocalConstTee32(op, local, imm, dst)] if (local == dst) =>
+                    match inc_delta(op, imm) {
+                        Some(delta) => IncLocalJump32 { target_ip: target, local, delta, on_zero: true },
+                        None => BinOpLocalConstJump32 { target_ip: target, local, imm, op, on_zero: true },
+                    }
+                );
+                rewrite!(instrs, i,
+                    [AddConst32(imm), LocalTee32(local), LocalGet32(cond)] if (local == cond) =>
+                    IncStackTeeLocalJump32 { target_ip: target, local, delta: imm, on_zero: true }
+                );
+                rewrite!(instrs, i,
+                    [AndConstTee32(imm, local), LocalGet32(cond)] if (local == cond) =>
+                    BinOpStackConstTeeLocalJump32 { target_ip: target, local, imm, op: BinOp::IAnd, on_zero: true }
+                );
+                rewrite!(instrs, i,
+                    [SubConstTee32(imm, local), LocalGet32(cond)] if (local == cond) =>
+                    IncStackTeeLocalJump32 { target_ip: target, local, delta: imm.wrapping_neg(), on_zero: true }
+                );
+                rewrite!(instrs, i,
+                    [BinOpGlobalConst32(op, global, imm), GlobalTee32(dst)] if (global == dst) =>
+                    match inc_delta(op, imm) {
+                        Some(delta) => IncGlobalJump32 { target_ip: target, global, delta, on_zero: true },
+                        None => BinOpGlobalConstJump32 { target_ip: target, global, imm, op, on_zero: true },
+                    }
                 );
                 rewrite!(instrs, i,
                     [CmpLocalLocal32(op, left, right)] =>
@@ -564,9 +603,12 @@ fn rewrite(
                     JumpCmpLocalLocal64 { target_ip: target, left, right, op: inverse_cmp_op(op) }
                 );
                 rewrite!(instrs, i,
-                    [BinOpLocalConstTee32(BinOp::IAdd, local, delta, dst), LocalGet32(right), cmp] if
-                    (local == dst && let Some(op) = cmp_op(cmp)) =>
-                    IncLocalJumpCmpLocal32 { target_ip: target, local, delta, right, op: inverse_cmp_op(op) }
+                    [BinOpLocalConstTee32(binop, local, imm, dst), LocalGet32(right), cmp] if
+                    (local == dst && let Some(cmp) = cmp_op(cmp)) =>
+                    match inc_delta(binop, imm) {
+                        Some(delta) => IncLocalJumpCmpLocal32 { target_ip: target, local, delta, right, op: inverse_cmp_op(cmp) },
+                        None => BinOpLocalConstJumpCmpLocal32 { target_ip: target, local, imm, binop, right, cmp: inverse_cmp_op(cmp) },
+                    }
                 );
                 rewrite!(instrs, i,
                     [LocalGet32(local), cmp] if (let Some(op) = cmp_op(cmp)) =>
@@ -611,6 +653,8 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
+                rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalZero32 { target_ip: target, local });
+                rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalZero64 { target_ip: target, local });
                 canonicalize_jump_like_with_target(&mut instrs, i, target, old_idx as u32 + 1);
             }
             JumpIfNonZero32(ip) => {
@@ -623,7 +667,6 @@ fn rewrite(
                     replace!(instrs, i, 1 => JumpIfZero32(target));
                     continue;
                 });
-                rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalNonZero32 { target_ip: target, local });
                 rewrite!(instrs, i, [LocalGet64(local), I64Eqz] => {
                     replace!(instrs, i, 2 => JumpIfLocalZero64 { target_ip: target, local });
                     continue;
@@ -633,8 +676,30 @@ fn rewrite(
                     continue;
                 });
                 rewrite!(instrs, i,
-                    [BinOpLocalConstTee32(BinOp::IAdd, local, delta, dst)] if (local == dst) =>
-                    IncLocalJump32 { target_ip: target, local, delta, on_zero: false }
+                    [BinOpLocalConstTee32(op, local, imm, dst)] if (local == dst) =>
+                    match inc_delta(op, imm) {
+                        Some(delta) => IncLocalJump32 { target_ip: target, local, delta, on_zero: false },
+                        None => BinOpLocalConstJump32 { target_ip: target, local, imm, op, on_zero: false },
+                    }
+                );
+                rewrite!(instrs, i,
+                    [AddConst32(imm), LocalTee32(local), LocalGet32(cond)] if (local == cond) =>
+                    IncStackTeeLocalJump32 { target_ip: target, local, delta: imm, on_zero: false }
+                );
+                rewrite!(instrs, i,
+                    [AndConstTee32(imm, local), LocalGet32(cond)] if (local == cond) =>
+                    BinOpStackConstTeeLocalJump32 { target_ip: target, local, imm, op: BinOp::IAnd, on_zero: false }
+                );
+                rewrite!(instrs, i,
+                    [SubConstTee32(imm, local), LocalGet32(cond)] if (local == cond) =>
+                    IncStackTeeLocalJump32 { target_ip: target, local, delta: imm.wrapping_neg(), on_zero: false }
+                );
+                rewrite!(instrs, i,
+                    [BinOpGlobalConst32(op, global, imm), GlobalTee32(dst)] if (global == dst) =>
+                    match inc_delta(op, imm) {
+                        Some(delta) => IncGlobalJump32 { target_ip: target, global, delta, on_zero: false },
+                        None => BinOpGlobalConstJump32 { target_ip: target, global, imm, op, on_zero: false },
+                    }
                 );
                 rewrite!(instrs, i,
                     [CmpLocalLocal32(op, left, right)] =>
@@ -645,9 +710,12 @@ fn rewrite(
                     JumpCmpLocalLocal64 { target_ip: target, left, right, op }
                 );
                 rewrite!(instrs, i,
-                    [BinOpLocalConstTee32(BinOp::IAdd, local, delta, dst), LocalGet32(right), cmp] if
-                    (local == dst && let Some(op) = cmp_op(cmp)) =>
-                    IncLocalJumpCmpLocal32 { target_ip: target, local, delta, right, op }
+                    [BinOpLocalConstTee32(binop, local, imm, dst), LocalGet32(right), cmp] if
+                    (local == dst && let Some(cmp) = cmp_op(cmp)) =>
+                    match inc_delta(binop, imm) {
+                        Some(delta) => IncLocalJumpCmpLocal32 { target_ip: target, local, delta, right, op: cmp },
+                        None => BinOpLocalConstJumpCmpLocal32 { target_ip: target, local, imm, binop, right, cmp },
+                    }
                 );
                 rewrite!(instrs, i,
                     [LocalGet32(local), cmp] if (let Some(op) = cmp_op(cmp)) =>
@@ -692,6 +760,8 @@ fn rewrite(
                     (0, CmpOp::Ne) => JumpIfNonZero64(target),
                     (imm, op) => JumpCmpStackConst64 { target_ip: target, imm, op },
                 });
+                rewrite!(instrs, i, [LocalGet32(local)] => JumpIfLocalNonZero32 { target_ip: target, local });
+                rewrite!(instrs, i, [LocalGet64(local)] => JumpIfLocalNonZero64 { target_ip: target, local });
                 canonicalize_jump_like_with_target(&mut instrs, i, target, old_idx as u32 + 1);
             }
             JumpIfZero64(ip) => {
@@ -772,6 +842,14 @@ fn cmp_op(instr: Instruction) -> Option<CmpOp> {
         Instruction::I32GeU | Instruction::I64GeU => CmpOp::GeU,
         _ => return None,
     })
+}
+
+fn inc_delta(op: BinOp, imm: i32) -> Option<i32> {
+    match op {
+        BinOp::IAdd => Some(imm),
+        BinOp::ISub => Some(imm.wrapping_neg()),
+        _ => None,
+    }
 }
 
 fn int_bin_op(instr: Instruction) -> Option<BinOp> {
@@ -921,7 +999,13 @@ fn instruction_target_mut(instr: &mut Instruction) -> Option<&mut u32> {
         | Instruction::JumpCmpStackConst64 { target_ip: ip, .. }
         | Instruction::JumpCmpStackLocal32 { target_ip: ip, .. }
         | Instruction::JumpCmpStackLocal64 { target_ip: ip, .. }
+        | Instruction::BinOpLocalConstJump32 { target_ip: ip, .. }
+        | Instruction::BinOpLocalConstJumpCmpLocal32 { target_ip: ip, .. }
+        | Instruction::BinOpStackConstTeeLocalJump32 { target_ip: ip, .. }
+        | Instruction::BinOpGlobalConstJump32 { target_ip: ip, .. }
         | Instruction::IncLocalJump32 { target_ip: ip, .. }
+        | Instruction::IncStackTeeLocalJump32 { target_ip: ip, .. }
+        | Instruction::IncGlobalJump32 { target_ip: ip, .. }
         | Instruction::IncLocalJumpCmpLocal32 { target_ip: ip, .. }
         | Instruction::JumpIfLocalZero32 { target_ip: ip, .. }
         | Instruction::JumpIfLocalNonZero32 { target_ip: ip, .. }

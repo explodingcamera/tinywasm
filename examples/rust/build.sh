@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")" || exit
 
-bins=("host_fn" "hello" "fibonacci" "print" "tinywasm" "argon2id")
-exclude_wat=("tinywasm")
+bins=("host_fn" "hello" "fibonacci" "print" "tinywasm" "tinywasm_precompiled" "argon2id")
+exclude_wat=("tinywasm" "tinywasm_precompiled")
 out_dir="./target/wasm32-unknown-unknown/wasm"
 dest_dir="out"
 
@@ -13,8 +13,9 @@ wasmopt_features="--enable-simd --enable-relaxed-simd --enable-tail-call --enabl
 mkdir -p "$dest_dir"
 
 # build no_std
-cargo build --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm_no_std --no-default-features
+RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=core,alloc,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm_no_std --no-default-features
 cp "$out_dir/tinywasm_no_std.wasm" "$dest_dir/"
+wasm-opt "$dest_dir/tinywasm_no_std.wasm" -o "$dest_dir/tinywasm_no_std.opt.wasm" -O3 $wasmopt_features
 
 for bin in "${bins[@]}"; do
     RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=std,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin "$bin"
