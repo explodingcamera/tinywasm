@@ -96,9 +96,14 @@ fn rewrite(
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), GlobalGet32(global)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
+                rewrite!(instrs, i, [LocalGet32(local)] => BinOpStackLocal32(op, local));
                 if matches!(op, BinOp::IAdd) {
                     rewrite!(instrs, i, [Const32(c)] => AddConst32(c));
                     rewrite!(instrs, i, [I32Add] => I32Add3);
+                    rewrite!(instrs, i,
+                        [BinOpStackLocal32(BinOp::IAdd, local)] =>
+                        [LocalGet32(local), I32Add3]
+                    );
                 }
             }
             instr @ (I32Sub | I32Shl | I32ShrS | I32ShrU | I32Rotl | I32Rotr) => {
@@ -107,6 +112,7 @@ fn rewrite(
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [GlobalGet32(global)] => BinOpStackGlobal32(op, global));
+                rewrite!(instrs, i, [LocalGet32(local)] => BinOpStackLocal32(op, local));
                 if matches!(op, BinOp::IShrS) {
                     rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 8), Const32(8)] => [LocalGet32(local), I32Extend8S]);
                     rewrite!(instrs, i, [BinOpLocalConst32(BinOp::IShl, local, 16), Const32(16)] => [LocalGet32(local), I32Extend16S]);
@@ -152,12 +158,14 @@ fn rewrite(
                 rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
                 rewrite!(instrs, i, [Const32(c), LocalGet32(local)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [Const32(c), GlobalGet32(global)] => BinOpGlobalConst32(op, global, c));
+                rewrite!(instrs, i, [LocalGet32(local)] => BinOpStackLocal32(op, local));
             }
             instr @ (F32Sub | F32Div | F32Copysign) => {
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
                 rewrite!(instrs, i, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(instrs, i, [LocalGet32(local), Const32(c)] => BinOpLocalConst32(op, local, c));
                 rewrite!(instrs, i, [GlobalGet32(global), Const32(c)] => BinOpGlobalConst32(op, global, c));
+                rewrite!(instrs, i, [LocalGet32(local)] => BinOpStackLocal32(op, local));
             }
             instr @ (F64Add | F64Mul | F64Min | F64Max) => {
                 let Some(op) = float_bin_op(instr) else { unreachable!() };
@@ -198,6 +206,10 @@ fn rewrite(
                     IncMemoryLocal32(memarg, load_addr)
                 );
                 rewrite!(instrs, i, [F32Mul, F32Add] => FMaStoreF32(memarg));
+                rewrite!(instrs, i,
+                    [BinOpStackLocal32(BinOp::FMul, local), F32Add] =>
+                    [LocalGet32(local), FMaStoreF32(memarg)]
+                );
                 rewrite!(instrs, i,
                     [LocalGet32(addr_local), LocalGet32(value_local)] if
                     (let (Ok(addr_local), Ok(value_local)) = (u8::try_from(addr_local), u8::try_from(value_local))) =>
@@ -313,6 +325,15 @@ fn rewrite(
                 );
                 rewrite!(instrs, i, [I32Mul, LocalGet32(acc), I32Add] if (acc == dst) => MulAccLocal32(dst));
                 rewrite!(instrs, i, [F32Mul, LocalGet32(acc), F32Add] if (acc == dst) => FMulAccLocal32(dst));
+                rewrite!(instrs, i,
+                    [I32Mul, BinOpStackLocal32(BinOp::IAdd, acc)] if (acc == dst) =>
+                    MulAccLocal32(dst)
+                );
+                rewrite!(instrs, i,
+                    [F32Mul, BinOpStackLocal32(BinOp::FAdd, acc)] if (acc == dst) =>
+                    FMulAccLocal32(dst)
+                );
+                rewrite!(instrs, i, [BinOpStackLocal32(op, local)] => BinOpStackLocalSet32(op, local, dst));
                 rewrite_local_set_direct!(
                     instrs,
                     i,
@@ -403,6 +424,7 @@ fn rewrite(
                 );
             }
             LocalTee32(dst) => {
+                rewrite!(instrs, i, [BinOpStackLocal32(op, local)] => BinOpStackLocalTee32(op, local, dst));
                 fold_local_binop!(
                     instrs, i, dst,
                     source = resolve_local_source_32,
@@ -501,16 +523,22 @@ fn rewrite(
                     LoadLocalTee128(memarg, addr, dst)
                 );
             }
-            Drop32 => rewrite_drop_tee_direct!(
-                instrs,
-                i,
-                tee = LocalTee32,
-                set = LocalSet32,
-                binop_local_local_tee = BinOpLocalLocalTee32,
-                binop_local_local_set = BinOpLocalLocalSet32,
-                binop_local_const_tee = BinOpLocalConstTee32,
-                binop_local_const_set = BinOpLocalConstSet32
-            ),
+            Drop32 => {
+                rewrite!(instrs, i,
+                    [BinOpStackLocalTee32(op, local, dst)] =>
+                    BinOpStackLocalSet32(op, local, dst)
+                );
+                rewrite_drop_tee_direct!(
+                    instrs,
+                    i,
+                    tee = LocalTee32,
+                    set = LocalSet32,
+                    binop_local_local_tee = BinOpLocalLocalTee32,
+                    binop_local_local_set = BinOpLocalLocalSet32,
+                    binop_local_const_tee = BinOpLocalConstTee32,
+                    binop_local_const_set = BinOpLocalConstSet32
+                );
+            }
             Drop64 => rewrite_drop_tee_direct!(
                 instrs,
                 i,

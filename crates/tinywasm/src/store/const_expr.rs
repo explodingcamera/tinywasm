@@ -1,5 +1,4 @@
 use alloc::{format, vec::Vec};
-use core::hint::cold_path;
 use tinywasm_types::*;
 
 use super::{State, default_value};
@@ -108,8 +107,7 @@ pub(super) fn eval_const(
                 stack.push(TinyWasmValue::ValueRef(ValueRef::from_category_addr(addr)));
             }
             Ref(_) => {
-                cold_path();
-                return Err(Error::other("unsupported reference constant"));
+                return cold!(Err(Error::other("unsupported reference constant")));
             }
             RefI31 => {
                 let value = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
@@ -135,7 +133,7 @@ pub(super) fn eval_const(
                     .as_ref();
                 let default = matches!(instruction, StructNewDefault(_));
                 let mut values = Vec::new();
-                values.try_reserve_exact(fields.len()).map_err(|_| Trap::OutOfMemory)?;
+                cold_err!(values.try_reserve_exact(fields.len())).map_err(|_| Trap::OutOfMemory)?;
                 if default {
                     values.extend(fields.iter().map(|field| default_value(field.storage)));
                 } else {
@@ -163,7 +161,7 @@ pub(super) fn eval_const(
                     pop_value(&mut stack, storage)?
                 };
                 let mut values = Vec::new();
-                values.try_reserve_exact(len as usize).map_err(|_| Trap::OutOfMemory)?;
+                cold_err!(values.try_reserve_exact(len as usize)).map_err(|_| Trap::OutOfMemory)?;
                 values.resize(len as usize, value);
                 alloc_object(state, &mut stack, type_addr, values)?;
             }
@@ -176,7 +174,7 @@ pub(super) fn eval_const(
                     .field
                     .storage;
                 let mut values = Vec::new();
-                values.try_reserve_exact(*len as usize).map_err(|_| Trap::OutOfMemory)?;
+                cold_err!(values.try_reserve_exact(*len as usize)).map_err(|_| Trap::OutOfMemory)?;
                 for _ in 0..*len {
                     values.push(pop_value(&mut stack, storage)?);
                 }
@@ -187,8 +185,7 @@ pub(super) fn eval_const(
                 let rhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
                 let lhs = stack.pop().ok_or_else(|| Error::other("const stack underflow"))?;
                 let (TinyWasmValue::Value32(lhs), TinyWasmValue::Value32(rhs)) = (lhs, rhs) else {
-                    cold_path();
-                    return Err(Error::other("type mismatch in const i32 op"));
+                    return cold!(Err(Error::other("type mismatch in const i32 op")));
                 };
                 let out = match instruction {
                     I32Add => (lhs as i32).wrapping_add(rhs as i32),
@@ -202,8 +199,7 @@ pub(super) fn eval_const(
                 let rhs = stack.pop();
                 let lhs = stack.pop();
                 let (Some(TinyWasmValue::Value64(lhs)), Some(TinyWasmValue::Value64(rhs))) = (lhs, rhs) else {
-                    cold_path();
-                    return Err(Error::other("type mismatch in const i64 op"));
+                    return cold!(Err(Error::other("type mismatch in const i64 op")));
                 };
                 let out = match instruction {
                     I64Add => (lhs as i64).wrapping_add(rhs as i64),
@@ -217,12 +213,10 @@ pub(super) fn eval_const(
     }
 
     let Some(value) = stack.pop() else {
-        cold_path();
-        return Err(Error::other("empty const expression"));
+        return cold!(Err(Error::other("empty const expression")));
     };
     if !stack.is_empty() {
-        cold_path();
-        return Err(Error::other("const expression did not reduce to single value"));
+        return cold!(Err(Error::other("const expression did not reduce to single value")));
     }
     Ok(value)
 }

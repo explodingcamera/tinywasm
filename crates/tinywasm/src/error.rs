@@ -250,18 +250,21 @@ impl LinkingError {
 }
 
 impl From<LinkingError> for Error {
+    #[cold]
     fn from(value: LinkingError) -> Self {
         Self::Linker(value)
     }
 }
 
 impl From<TwasmError> for Error {
+    #[cold]
     fn from(value: TwasmError) -> Self {
         Self::Twasm(value)
     }
 }
 
 impl From<Trap> for Error {
+    #[cold]
     fn from(value: Trap) -> Self {
         Self::Trap(value)
     }
@@ -364,6 +367,7 @@ impl From<Error> for crate::std::io::Error {
 
 #[cfg(feature = "parser")]
 impl From<tinywasm_parser::ParseError> for Error {
+    #[cold]
     fn from(value: tinywasm_parser::ParseError) -> Self {
         Self::Parser(value)
     }

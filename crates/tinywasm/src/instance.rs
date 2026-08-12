@@ -111,8 +111,7 @@ impl ModuleInstance {
     #[inline]
     pub(crate) fn validate_store(&self, store: &Store) -> Result<()> {
         if self.0.store_id != store.id() {
-            cold_path();
-            return Err(Trap::InvalidStore.into());
+            return cold!(Err(Trap::InvalidStore.into()));
         }
         Ok(())
     }
@@ -205,8 +204,7 @@ impl ModuleInstance {
         store.add_instance(instance.clone());
 
         if let Some(trap) = elem_trapped.or(data_trapped) {
-            cold_path();
-            return Err(trap.into());
+            return cold!(Err(trap.into()));
         }
         Ok(instance)
     }
@@ -356,8 +354,7 @@ impl ModuleInstance {
         self.validate_store(store)?;
 
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
-            cold_path();
-            return Err(Error::Other(format!("Export is not a function: {name}")));
+            return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
         };
 
         Ok(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() })
@@ -410,8 +407,7 @@ impl ModuleInstance {
         self.validate_store(store)?;
 
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
-            cold_path();
-            return Err(Error::Other(format!("Export is not a function: {name}")));
+            return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
         };
 
         let func = Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() };
@@ -464,8 +460,7 @@ impl ModuleInstance {
         match self.require_export(name)? {
             ExternVal::Memory(mem_addr) => Ok(Memory(StoreItem::new(self.0.store_id, mem_addr))),
             _ => {
-                cold_path();
-                Err(Error::Other(format!("Export is not a memory: {name}")))
+                cold!(Err(Error::Other(format!("Export is not a memory: {name}"))))
             }
         }
     }

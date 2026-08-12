@@ -1,7 +1,6 @@
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use core::hint::cold_path;
 
 use crate::{Function, Global, HostFunction, LinkingError, Memory, Result, Table, Tag};
 use tinywasm_types::*;
@@ -175,8 +174,7 @@ impl Imports {
 
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
-            cold_path();
-            return Err(LinkingError::incompatible_import_type(import).into());
+            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
         }
         Ok(())
     }
@@ -187,14 +185,12 @@ impl Imports {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
         if actual.size_initial < expected.size_initial {
-            cold_path();
-            return Err(LinkingError::incompatible_import_type(import).into());
+            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
         }
 
         match expected.size_max {
             Some(expected_max) if actual.size_max.is_none_or(|actual_max| actual_max > expected_max) => {
-                cold_path();
-                Err(LinkingError::incompatible_import_type(import).into())
+                cold!(Err(LinkingError::incompatible_import_type(import).into()))
             }
             _ => Ok(()),
         }
@@ -268,8 +264,7 @@ impl Imports {
                     }
                     Extern::HostFunction(func) => {
                         let ImportKind::Function(type_idx) = import.kind else {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
+                            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                         };
                         let expected_type_addr = type_addrs
                             .get(type_idx as usize)
@@ -277,8 +272,7 @@ impl Imports {
                         let actual_ty = func.resolve_import_type(type_addrs)?;
                         let actual_type_addr = store.register_host_type(&actual_ty);
                         if !store.state.type_addr_is_subtype(actual_type_addr, *expected_type_addr) {
-                            cold_path();
-                            return Err(LinkingError::incompatible_import_type(import).into());
+                            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                         }
                         ExternVal::Func(func.instantiate_registered(store, actual_type_addr).addr())
                     }
@@ -289,16 +283,14 @@ impl Imports {
                 }
             } else {
                 let Some(instance) = self.modules.get(import.module.as_ref()) else {
-                    cold_path();
-                    return Err(LinkingError::unknown_import(import).into());
+                    return cold!(Err(LinkingError::unknown_import(import).into()));
                 };
                 instance.validate_store(store)?;
                 instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?
             };
 
             if val.kind() != (&import.kind).into() {
-                cold_path();
-                return Err(LinkingError::incompatible_import_type(import).into());
+                return cold!(Err(LinkingError::incompatible_import_type(import).into()));
             }
 
             match (val, &import.kind) {
@@ -309,8 +301,7 @@ impl Imports {
                         && store.state.value_type_is_subtype(global_ty.ty, expected.ty)
                         && (!ty.mutable || store.state.value_type_is_subtype(expected.ty, global_ty.ty));
                     if !compatible {
-                        cold_path();
-                        return Err(LinkingError::incompatible_import_type(import).into());
+                        return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                     }
                     imports.globals.push(global_addr);
                 }
@@ -336,8 +327,7 @@ impl Imports {
                         type_addrs.get(*ty as usize).ok_or_else(|| LinkingError::incompatible_import_type(import))?;
                     if !store.state.type_addr_is_subtype(store.state.get_func(func_addr).type_addr, *expected_type_addr)
                     {
-                        cold_path();
-                        return Err(LinkingError::incompatible_import_type(import).into());
+                        return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                     }
                     imports.funcs.push(func_addr);
                 }
@@ -346,8 +336,7 @@ impl Imports {
                         .get(ty.type_idx as usize)
                         .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
                     if store.state.get_tag(tag_addr).type_addr != *expected_type_addr {
-                        cold_path();
-                        return Err(LinkingError::incompatible_import_type(import).into());
+                        return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                     }
                     imports.tags.push(tag_addr);
                 }

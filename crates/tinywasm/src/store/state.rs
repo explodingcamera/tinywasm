@@ -118,9 +118,9 @@ impl State {
                     TinyWasmValue::ValueRef(value) => Some(*value),
                     _ => None,
                 }));
-            self.gc.collect(roots).map_err(|_| Trap::OutOfMemory)?;
+            cold_err!(self.gc.collect(roots)).map_err(|_| Trap::OutOfMemory)?;
         }
-        self.gc.alloc(type_addr, values, trace_references).map_err(|_| Trap::OutOfMemory)
+        cold_err!(self.gc.alloc(type_addr, values, trace_references)).map_err(|_| Trap::OutOfMemory)
     }
 
     /// Pins a host-visible reference when it resolves to a managed GC object.

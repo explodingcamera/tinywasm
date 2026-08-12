@@ -102,8 +102,7 @@ impl<T: Copy + Default> Stack<T> {
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
         if !self.ensure_capacity_for(self.data.len() + 1) {
-            cold_path();
-            return Err(Trap::ValueStackOverflow);
+            return cold!(Err(Trap::ValueStackOverflow));
         }
 
         self.data.push(value);

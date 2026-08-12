@@ -45,13 +45,7 @@ impl PagedMemory {
     #[inline(always)]
     fn allocate_chunk(&self) -> Result<Box<[u8]>, crate::Trap> {
         let mut chunk = Vec::new();
-        match chunk.try_reserve_exact(self.chunk_size) {
-            Ok(()) => {}
-            Err(_) => {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
+        cold_err!(chunk.try_reserve_exact(self.chunk_size)).map_err(|_| crate::Trap::OutOfMemory)?;
         chunk.resize(self.chunk_size, 0);
         Ok(chunk.into_boxed_slice())
     }
@@ -135,13 +129,8 @@ impl LinearMemory for PagedMemory {
 
         let new_chunk_count = if new_len == 0 { 0 } else { new_len.div_ceil(self.chunk_size) };
         if new_chunk_count > self.chunks.len() {
-            match self.chunks.try_reserve_exact(new_chunk_count - self.chunks.len()) {
-                Ok(()) => {}
-                Err(_) => {
-                    cold_path();
-                    return Err(crate::Trap::OutOfMemory);
-                }
-            }
+            cold_err!(self.chunks.try_reserve_exact(new_chunk_count - self.chunks.len()))
+                .map_err(|_| crate::Trap::OutOfMemory)?;
             self.chunks.resize_with(new_chunk_count, || None);
         } else {
             self.chunks.truncate(new_chunk_count);

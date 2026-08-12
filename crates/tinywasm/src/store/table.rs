@@ -17,12 +17,12 @@ pub(crate) struct TableInstance {
 impl TableInstance {
     /// Creates a table filled with the given initial reference.
     pub(crate) fn new(kind: TableType, init: ValueRef) -> Result<Self> {
-        let size = usize::try_from(kind.size_initial).map_err(|_| Trap::OutOfMemory)?;
+        let size = cold_err!(usize::try_from(kind.size_initial)).map_err(|_| Trap::OutOfMemory)?;
         if size > MAX_TABLE_SIZE {
             return Err(Trap::OutOfMemory.into());
         }
         let mut elements = Vec::new();
-        elements.try_reserve_exact(size).map_err(|_| Trap::OutOfMemory)?;
+        cold_err!(elements.try_reserve_exact(size)).map_err(|_| Trap::OutOfMemory)?;
         elements.resize(size, init);
         Ok(Self { elements, kind })
     }
@@ -82,7 +82,7 @@ impl TableInstance {
             return Err(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() });
         }
 
-        self.elements.try_reserve_exact(n).map_err(|_| Trap::OutOfMemory)?;
+        cold_err!(self.elements.try_reserve_exact(n)).map_err(|_| Trap::OutOfMemory)?;
         self.elements.resize(len, init);
         Ok(())
     }

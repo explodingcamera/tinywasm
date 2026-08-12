@@ -54,21 +54,18 @@ pub trait LinearMemory {
     /// Writes all bytes in `src` starting at `addr`, or returns `None` if any byte could not be written.
     fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
         let Some(end) = addr.checked_add(src.len()) else {
-            cold_path();
-            return None;
+            return cold!(None);
         };
 
         if end > self.len() {
-            cold_path();
-            return None;
+            return cold!(None);
         }
 
         let mut offset = 0;
         while offset < src.len() {
             let written = self.write(addr + offset, &src[offset..]);
             if written == 0 {
-                cold_path();
-                return None;
+                return cold!(None);
             }
             offset += written;
         }
@@ -134,21 +131,18 @@ pub trait LinearMemory {
     /// Reads exactly `dst.len()` bytes starting at `addr`.
     fn read_exact(&self, addr: usize, dst: &mut [u8]) -> Option<()> {
         let Some(end) = addr.checked_add(dst.len()) else {
-            cold_path();
-            return None;
+            return cold!(None);
         };
 
         if end > self.len() {
-            cold_path();
-            return None;
+            return cold!(None);
         }
 
         let mut offset = 0;
         while offset < dst.len() {
             let read = self.read(addr + offset, &mut dst[offset..]);
             if read == 0 {
-                cold_path();
-                return None;
+                return cold!(None);
             }
             offset += read;
         }
@@ -377,13 +371,7 @@ macro_rules! impl_mem_traits {
 
                 #[inline(always)]
                 fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
-                    match mem.$read(addr) {
-                        Ok(bytes) => Ok(Self::from_le_bytes(bytes)),
-                        Err(trap) => {
-                            cold_path();
-                            Err(trap)
-                        }
-                    }
+                    Ok(Self::from_le_bytes(cold_err!(mem.$read(addr))?))
                 }
 
                 #[inline(always)]
@@ -418,13 +406,7 @@ impl MemValue<16> for Value128 {
 
     #[inline(always)]
     fn load_at(mem: &dyn LinearMemory, addr: usize) -> core::result::Result<Self, crate::Trap> {
-        match mem.read_128(addr) {
-            Ok(bytes) => Ok(Self(bytes)),
-            Err(trap) => {
-                cold_path();
-                Err(trap)
-            }
-        }
+        Ok(Self(cold_err!(mem.read_128(addr))?))
     }
 
     #[inline(always)]

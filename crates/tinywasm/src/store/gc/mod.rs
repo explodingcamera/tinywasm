@@ -79,7 +79,7 @@ pub(crate) fn decode_data(
         return Err(Trap::MemoryOutOfBounds { offset: src, len: len.saturating_mul(width), max: data.len() });
     };
     let mut values = Vec::new();
-    values.try_reserve_exact(len).map_err(|_| Trap::OutOfMemory)?;
+    cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
     values.extend(data[src..end].chunks_exact(width).map(|bytes| match width {
         1 => TinyWasmValue::Value32(u32::from(bytes[0])),
         2 => TinyWasmValue::Value32(u32::from(u16::from_le_bytes(bytes.try_into().unwrap()))),

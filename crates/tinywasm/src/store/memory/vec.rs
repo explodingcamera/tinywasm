@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::hint::cold_path;
 
 use super::{LinearMemory, memory_oob};
 
@@ -21,13 +20,7 @@ impl VecMemory {
     /// Prefer this backend when contiguous access is more important than grow performance.
     pub fn try_new(len: usize) -> Result<Self, crate::Trap> {
         let mut data = Vec::new();
-        match data.try_reserve_exact(len) {
-            Ok(()) => {}
-            Err(_) => {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
+        cold_err!(data.try_reserve_exact(len)).map_err(|_| crate::Trap::OutOfMemory)?;
         data.resize(len, 0);
         Ok(Self { data })
     }
@@ -43,8 +36,7 @@ impl VecMemory {
     #[inline(always)]
     fn check_fixed_addr<const N: usize>(&self, addr: usize) -> Result<(), crate::Trap> {
         if N > self.data.len() || addr > self.data.len() - N {
-            cold_path();
-            return Err(memory_oob(addr, N, self.data.len()));
+            return cold!(Err(memory_oob(addr, N, self.data.len())));
         }
         Ok(())
     }
@@ -61,13 +53,8 @@ impl LinearMemory for VecMemory {
         if new_len < self.data.len() {
             return Err(crate::Trap::MemoryOutOfBounds { offset: new_len, len: 0, max: self.data.len() });
         }
-        match self.data.try_reserve_exact(new_len.saturating_sub(self.data.len())) {
-            Ok(()) => {}
-            Err(_) => {
-                cold_path();
-                return Err(crate::Trap::OutOfMemory);
-            }
-        }
+        cold_err!(self.data.try_reserve_exact(new_len.saturating_sub(self.data.len())))
+            .map_err(|_| crate::Trap::OutOfMemory)?;
         self.data.resize(new_len, 0);
         Ok(())
     }

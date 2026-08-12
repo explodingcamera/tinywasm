@@ -1,5 +1,4 @@
 use crate::{Result, Trap};
-use core::hint::cold_path;
 
 use alloc::vec::Vec;
 use tinywasm_types::{FuncAddr, ValueCounts};
@@ -51,14 +50,12 @@ impl CallStack {
         }
 
         if required_len > self.max_size || !self.dynamic {
-            cold_path();
-            return Err(Trap::CallStackOverflow);
+            return cold!(Err(Trap::CallStackOverflow));
         }
 
         let target_capacity = required_len.max(self.stack.capacity().max(1).saturating_mul(2)).min(self.max_size);
         let Ok(()) = self.stack.try_reserve(target_capacity.saturating_sub(self.stack.len())) else {
-            cold_path();
-            return Err(Trap::CallStackOverflow);
+            return cold!(Err(Trap::CallStackOverflow));
         };
         Ok(())
     }

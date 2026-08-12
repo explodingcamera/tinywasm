@@ -38,8 +38,7 @@ impl MemoryInstance {
             match usize::try_from(u64::from(base) + offset) {
                 Ok(addr) => Ok(addr),
                 Err(_) => {
-                    cold_path();
-                    Err(memory_oob(base as usize, N, self.inner.len()))
+                    cold!(Err(memory_oob(base as usize, N, self.inner.len())))
                 }
             }
         }
@@ -50,8 +49,7 @@ impl MemoryInstance {
         match base.checked_add(offset).and_then(|addr| usize::try_from(addr).ok()) {
             Some(addr) => Ok(addr),
             None => {
-                cold_path();
-                Err(memory_oob(base as usize, N, self.inner.len()))
+                cold!(Err(memory_oob(base as usize, N, self.inner.len())))
             }
         }
     }
@@ -108,13 +106,11 @@ impl MemoryInstance {
     ) -> Result<(), Trap> {
         fn check_range(mem: &MemoryStorage, addr: usize, len: usize) -> Result<(), crate::Trap> {
             let Some(end) = addr.checked_add(len) else {
-                cold_path();
-                return Err(memory_oob(addr, len, mem.len()));
+                return cold!(Err(memory_oob(addr, len, mem.len())));
             };
 
             if end > mem.len() || end < addr {
-                cold_path();
-                return Err(memory_oob(addr, len, mem.len()));
+                return cold!(Err(memory_oob(addr, len, mem.len())));
             }
             Ok(())
         }

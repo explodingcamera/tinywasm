@@ -35,18 +35,18 @@ fn globals_use_typed_instructions_and_roundtrip_values() -> Result<(), Box<dyn c
 
     let module = tinywasm::parse_bytes(&wasm)?;
     let instructions = module.funcs.iter().flat_map(|func| func.instructions.iter());
-    let (mut get32, mut get64, mut get128, mut fused32, mut fused64) = (0, 0, 0, 0, 0);
+    let (mut tee32, mut tee64, mut tee128, mut fused32, mut fused64) = (0, 0, 0, 0, 0);
     for instruction in instructions {
         match instruction {
-            Instruction::GlobalGet32(_) => get32 += 1,
-            Instruction::GlobalGet64(_) => get64 += 1,
-            Instruction::GlobalGet128(_) => get128 += 1,
+            Instruction::GlobalTee32(_) => tee32 += 1,
+            Instruction::GlobalTee64(_) => tee64 += 1,
+            Instruction::GlobalTee128(_) => tee128 += 1,
             Instruction::BinOpStackGlobal32(..) => fused32 += 1,
             Instruction::BinOpStackGlobal64(..) => fused64 += 1,
             _ => {}
         }
     }
-    assert_eq!((get32, get64, get128), (3, 2, 1));
+    assert_eq!((tee32, tee64, tee128), (3, 2, 1));
     assert_eq!((fused32, fused64), (1, 1));
 
     let mut store = Store::default();

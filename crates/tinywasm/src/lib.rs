@@ -83,6 +83,8 @@
 //!
 //! See the [`Imports`] documentation for more information.
 
+#[macro_use]
+mod macros;
 mod std;
 extern crate alloc;
 

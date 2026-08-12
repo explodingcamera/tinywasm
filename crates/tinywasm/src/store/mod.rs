@@ -60,6 +60,7 @@ pub struct Store {
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
+    pub(crate) host_params: Vec<WasmValue>,
 }
 
 #[cfg(feature = "debug")]
@@ -97,6 +98,7 @@ impl Store {
             state,
             call_stack: CallStack::new(engine.config()),
             value_stack: ValueStack::new(engine.config()),
+            host_params: Vec::new(),
             engine,
             execution_fuel: 0,
             execution_active: false,
@@ -266,13 +268,7 @@ impl Store {
         let start = self.state.memories.len() as MemAddr;
         self.state.memories.reserve_exact(memories.len());
         for mem in memories {
-            self.state.memories.push(match init(*mem, &self.engine.config().memory_backend) {
-                Ok(mem) => mem,
-                Err(e) => {
-                    cold_path();
-                    return Err(e);
-                }
-            });
+            self.state.memories.push(cold_err!(init(*mem, &self.engine.config().memory_backend))?);
         }
         Ok(start..start + memories.len() as MemAddr)
     }
@@ -287,13 +283,7 @@ impl Store {
     ) -> Result<()> {
         self.state.globals.reserve(globals);
         for global in globals {
-            let value = match eval_const(&mut self.state, &global.init, out, func_addrs, type_addrs) {
-                Ok(val) => val,
-                Err(e) => {
-                    cold_path();
-                    return Err(e);
-                }
-            };
+            let value = cold_err!(eval_const(&mut self.state, &global.init, out, func_addrs, type_addrs))?;
             let ty = global.ty.with_ty(canonicalize_value_type(global.ty.ty, type_addrs));
             out.push(self.state.globals.push(ty, value));
         }

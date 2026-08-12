@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use core::hint::cold_path;
 
 use tinywasm_types::MemoryType;
 
@@ -43,8 +42,7 @@ impl LazyLinearMemory {
             let storage = match self.backend.create(self.ty, self.initial_len) {
                 Ok(storage) => storage,
                 Err(Error::Trap(trap)) => {
-                    cold_path();
-                    return Err(trap);
+                    return cold!(Err(trap));
                 }
                 Err(err) => panic!("lazy memory materialization failed: {err}"),
             };
