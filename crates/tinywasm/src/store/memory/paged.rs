@@ -65,6 +65,41 @@ impl PagedMemory {
     }
 
     #[inline(always)]
+    fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
+        let Some(end) = addr.checked_add(N).filter(|end| *end <= self.len) else {
+            return cold!(Err(memory_oob(addr, N, self.len)));
+        };
+        let chunk_idx = addr >> self.chunk_shift;
+        let chunk_offset = addr & self.chunk_mask;
+        if end <= ((chunk_idx + 1) << self.chunk_shift) {
+            let mut bytes = [0; N];
+            if let Some(chunk) = self.chunk_slice(chunk_idx) {
+                bytes.copy_from_slice(&chunk[chunk_offset..chunk_offset + N]);
+            }
+            return Ok(bytes);
+        }
+        cold_path();
+        let mut bytes = [0; N];
+        self.read_exact(addr, &mut bytes).ok_or_else(|| memory_oob(addr, N, self.len))?;
+        Ok(bytes)
+    }
+
+    #[inline(always)]
+    fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8]) -> Result<(), crate::Trap> {
+        let Some(end) = addr.checked_add(N).filter(|end| *end <= self.len) else {
+            return cold!(Err(memory_oob(addr, N, self.len)));
+        };
+        let chunk_idx = addr >> self.chunk_shift;
+        let chunk_offset = addr & self.chunk_mask;
+        if end <= ((chunk_idx + 1) << self.chunk_shift) {
+            self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + N].copy_from_slice(bytes);
+            return Ok(());
+        }
+        cold_path();
+        self.write_all(addr, bytes)?.ok_or_else(|| memory_oob(addr, N, self.len))
+    }
+
+    #[inline(always)]
     fn checked_end(&self, addr: usize, len: usize) -> Option<usize> {
         let end = addr.checked_add(len)?;
         if end > self.len {
@@ -160,25 +195,23 @@ impl LinearMemory for PagedMemory {
     }
 
     #[inline(always)]
-    fn write(&mut self, addr: usize, src: &[u8]) -> usize {
+    fn write(&mut self, addr: usize, src: &[u8]) -> Result<usize, crate::Trap> {
         if addr >= self.len || src.is_empty() {
-            return 0;
+            return Ok(0);
         }
 
         let chunk_idx = addr >> self.chunk_shift;
         let chunk_offset = addr & self.chunk_mask;
         let write_len = min(min(self.chunk_size - chunk_offset, self.len - addr), src.len());
 
-        let Ok(chunk) = self.chunk_mut(chunk_idx) else {
-            return 0;
-        };
+        let chunk = self.chunk_mut(chunk_idx)?;
         chunk[chunk_offset..chunk_offset + write_len].copy_from_slice(&src[..write_len]);
-        write_len
+        Ok(write_len)
     }
 
     #[inline(always)]
-    fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
-        let end = self.checked_end(addr, src.len())?;
+    fn write_all(&mut self, addr: usize, src: &[u8]) -> Result<Option<()>, crate::Trap> {
+        let Some(end) = self.checked_end(addr, src.len()) else { return Ok(None) };
         let mut pos = addr;
         let mut src_offset = 0;
 
@@ -187,19 +220,19 @@ impl LinearMemory for PagedMemory {
             let chunk_offset = pos & self.chunk_mask;
             let copy_len = min(self.chunk_size - chunk_offset, end - pos);
 
-            let chunk = self.chunk_mut(chunk_idx).ok()?;
+            let chunk = self.chunk_mut(chunk_idx)?;
             chunk[chunk_offset..chunk_offset + copy_len].copy_from_slice(&src[src_offset..src_offset + copy_len]);
 
             pos += copy_len;
             src_offset += copy_len;
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     #[inline(always)]
-    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Option<()> {
-        let end = self.checked_end(addr, len)?;
+    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<Option<()>, crate::Trap> {
+        let Some(end) = self.checked_end(addr, len) else { return Ok(None) };
         let mut pos = addr;
 
         while pos < end {
@@ -217,26 +250,27 @@ impl LinearMemory for PagedMemory {
                     chunk[chunk_offset..chunk_offset + fill_len].fill(0);
                 }
             } else {
-                self.chunk_mut(chunk_idx).ok()?[chunk_offset..chunk_offset + fill_len].fill(val);
+                self.chunk_mut(chunk_idx)?[chunk_offset..chunk_offset + fill_len].fill(val);
             }
 
             pos = chunk_end;
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     #[inline(always)]
-    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Option<()> {
-        self.checked_end(src, len)?;
-        self.checked_end(dst, len)?;
+    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<Option<()>, crate::Trap> {
+        if self.checked_end(src, len).is_none() || self.checked_end(dst, len).is_none() {
+            return Ok(None);
+        }
 
         if len == 0 || dst == src {
-            return Some(());
+            return Ok(Some(()));
         }
 
         if self.copy_within_single_chunk(dst, src, len) {
-            return Some(());
+            return Ok(Some(()));
         }
 
         let mut buf = [0u8; 256];
@@ -245,8 +279,11 @@ impl LinearMemory for PagedMemory {
             let mut copied = 0;
             while copied < len {
                 let chunk_len = min(buf.len(), len - copied);
-                self.read_exact(src + copied, &mut buf[..chunk_len])?;
-                self.write_all(dst + copied, &buf[..chunk_len])?;
+                if self.read_exact(src + copied, &mut buf[..chunk_len]).is_none()
+                    || self.write_all(dst + copied, &buf[..chunk_len])?.is_none()
+                {
+                    return Ok(None);
+                }
                 copied += chunk_len;
             }
         } else {
@@ -254,13 +291,16 @@ impl LinearMemory for PagedMemory {
             while remaining > 0 {
                 let chunk_len = min(buf.len(), remaining);
                 let chunk_start = remaining - chunk_len;
-                self.read_exact(src + chunk_start, &mut buf[..chunk_len])?;
-                self.write_all(dst + chunk_start, &buf[..chunk_len])?;
+                if self.read_exact(src + chunk_start, &mut buf[..chunk_len]).is_none()
+                    || self.write_all(dst + chunk_start, &buf[..chunk_len])?.is_none()
+                {
+                    return Ok(None);
+                }
                 remaining = chunk_start;
             }
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     #[inline(always)]
@@ -275,6 +315,26 @@ impl LinearMemory for PagedMemory {
     }
 
     #[inline(always)]
+    fn read_16(&self, addr: usize) -> core::result::Result<[u8; 2], crate::Trap> {
+        self.read_fixed::<2>(addr)
+    }
+
+    #[inline(always)]
+    fn read_32(&self, addr: usize) -> core::result::Result<[u8; 4], crate::Trap> {
+        self.read_fixed::<4>(addr)
+    }
+
+    #[inline(always)]
+    fn read_64(&self, addr: usize) -> core::result::Result<[u8; 8], crate::Trap> {
+        self.read_fixed::<8>(addr)
+    }
+
+    #[inline(always)]
+    fn read_128(&self, addr: usize) -> core::result::Result<[u8; 16], crate::Trap> {
+        self.read_fixed::<16>(addr)
+    }
+
+    #[inline(always)]
     fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
         if addr >= self.len {
             cold_path();
@@ -284,5 +344,25 @@ impl LinearMemory for PagedMemory {
         let chunk_offset = addr & self.chunk_mask;
         self.chunk_mut(chunk_idx)?[chunk_offset] = bytes[0];
         Ok(())
+    }
+
+    #[inline(always)]
+    fn write_16(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_fixed::<2>(addr, bytes)
+    }
+
+    #[inline(always)]
+    fn write_32(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_fixed::<4>(addr, bytes)
+    }
+
+    #[inline(always)]
+    fn write_64(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_fixed::<8>(addr, bytes)
+    }
+
+    #[inline(always)]
+    fn write_128(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
+        self.write_fixed::<16>(addr, bytes)
     }
 }

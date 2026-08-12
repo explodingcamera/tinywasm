@@ -1,6 +1,6 @@
 use alloc::{vec, vec::Vec};
 use core::hint::cold_path;
-use tinywasm_types::{ValueCounts, WasmType, WasmValue};
+use tinywasm_types::{MemoryArch, ValueCounts, WasmType, WasmValue};
 
 use super::StackBase;
 use crate::engine::{Config, StackConfig};
@@ -280,6 +280,24 @@ impl ValueStack {
         T::stack_push(self, value)
     }
 
+    #[inline(always)]
+    pub(crate) fn pop_memory_operand(&mut self, arch: MemoryArch) -> Result<usize, Trap> {
+        match arch {
+            MemoryArch::I32 => Ok(self.stack_32.pop() as usize),
+            MemoryArch::I64 => {
+                let value = self.stack_64.pop();
+                #[cfg(target_pointer_width = "64")]
+                return Ok(value as usize);
+                #[cfg(not(target_pointer_width = "64"))]
+                return cold_err!(usize::try_from(value).map_err(|_| Trap::MemoryOutOfBounds {
+                    offset: usize::MAX,
+                    len: 0,
+                    max: usize::MAX,
+                }));
+            }
+        }
+    }
+
     #[inline]
     pub(crate) fn select_multi(&mut self, counts: ValueCounts) {
         let condition = i32::stack_pop(self) != 0;
@@ -305,7 +323,7 @@ impl ValueStack {
         locals: ValueCounts,
         base: StackBase,
     ) -> Result<StackBase, Trap> {
-        self.extend_from_wasmvalues(values).inspect_err(|_| self.truncate_to_base(base))?;
+        self.extend_wasmvalues(values.iter().copied()).inspect_err(|_| self.truncate_to_base(base))?;
         self.enter_locals(&params, &locals).inspect_err(|_| self.truncate_to_base(base))
     }
 
@@ -361,10 +379,6 @@ impl ValueStack {
         pin_refs: bool,
     ) -> impl ExactSizeIterator<Item = WasmValue> + 'a {
         WasmValues { stack: self, state, types: types.iter(), index, pin_refs }
-    }
-
-    pub(crate) fn extend_from_wasmvalues(&mut self, values: &[WasmValue]) -> Result<(), Trap> {
-        self.extend_wasmvalues(values.iter().copied())
     }
 
     pub(crate) fn extend_wasmvalues(&mut self, values: impl Iterator<Item = WasmValue>) -> Result<(), Trap> {

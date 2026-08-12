@@ -35,10 +35,7 @@ wasmparser = { version = "0.256", default-features = false }
 wast = "256"
 wat = "1.256"
 
-criterion = { version = "0.8", default-features = false, features = [
-  "cargo_bench_support",
-  "rayon"
-] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "rayon"] }
 
 [[example]]
 name = "wasm-rust"

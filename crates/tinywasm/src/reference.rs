@@ -122,7 +122,7 @@ impl crate::std::io::Read for MemoryCursor<'_> {
 impl crate::std::io::Write for MemoryCursor<'_> {
     fn write(&mut self, buf: &[u8]) -> crate::std::io::Result<usize> {
         let offset = self.offset()?;
-        let written = self.memory.inner.write(offset, buf);
+        let written = self.memory.inner.write(offset, buf).map_err(Error::from)?;
         self.advance(written)?;
         Ok(written)
     }
@@ -242,7 +242,7 @@ impl Memory {
     /// Depending on the configured backend, this may return fewer bytes than requested even when
     /// more space is available. Use [`Self::copy_from_slice`] when you need the full slice written.
     pub fn write(&self, store: &mut Store, offset: usize, src: &[u8]) -> Result<usize> {
-        Ok(self.instance_mut(store)?.inner.write(offset, src))
+        Ok(self.instance_mut(store)?.inner.write(offset, src)?)
     }
 
     /// Reads exactly `dst.len()` bytes from memory.
@@ -281,14 +281,14 @@ impl Memory {
 
     /// Fill a slice of memory with a value.
     pub fn fill(&self, store: &mut Store, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance_mut(store)?.inner.fill(offset, len, val).ok_or_else(|| {
+        self.instance_mut(store)?.inner.fill(offset, len, val)?.ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds { offset, len, max: self.instance(store).unwrap().inner.len() })
         })
     }
 
     /// Copies a full slice into memory.
     pub fn copy_from_slice(&self, store: &mut Store, offset: usize, data: &[u8]) -> Result<()> {
-        self.instance_mut(store)?.inner.write_all(offset, data).ok_or_else(|| {
+        self.instance_mut(store)?.inner.write_all(offset, data)?.ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset,
                 len: data.len(),

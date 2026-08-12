@@ -48,7 +48,7 @@ pub fn format_memory_type(ty: &MemoryType) -> String {
         MemoryArch::I32 => "i32",
         MemoryArch::I64 => "i64",
     };
-    let max = if ty.page_count_max() == ty.page_count_initial() && ty.max_size() == ty.initial_size() {
+    let max = if ty.page_count_max() == ty.page_count_initial() {
         ty.page_count_initial().to_string()
     } else {
         ty.page_count_max().to_string()

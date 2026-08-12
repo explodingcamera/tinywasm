@@ -1,12 +1,12 @@
-use alloc::{boxed::Box, format, sync::Arc};
+use alloc::{boxed::Box, sync::Arc};
 use alloc::{vec, vec::Vec};
 use core::cmp::min;
 use core::hint::cold_path;
 
 use tinywasm_types::MemoryType;
 
+use crate::Result;
 use crate::interpreter::Value128;
-use crate::{Error, Result};
 
 mod instance;
 mod lazy;
@@ -48,69 +48,76 @@ pub trait LinearMemory {
     /// Writes up to `src.len()` bytes starting at `addr` and returns the number of bytes written.
     ///
     /// Backends may return fewer bytes than requested even when more space is available. This lets
-    /// non-contiguous backends stop at a natural boundary such as the end of a chunk.
-    fn write(&mut self, addr: usize, src: &[u8]) -> usize;
+    /// non-contiguous backends stop at a natural boundary such as the end of a chunk. Backend
+    /// failures are returned as traps.
+    fn write(&mut self, addr: usize, src: &[u8]) -> core::result::Result<usize, crate::Trap>;
 
-    /// Writes all bytes in `src` starting at `addr`, or returns `None` if any byte could not be written.
-    fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
+    /// Writes all bytes in `src`, returns `Ok(None)` for an invalid range, or returns a backend trap.
+    fn write_all(&mut self, addr: usize, src: &[u8]) -> core::result::Result<Option<()>, crate::Trap> {
         let Some(end) = addr.checked_add(src.len()) else {
-            return cold!(None);
+            return cold!(Ok(None));
         };
 
         if end > self.len() {
-            return cold!(None);
+            return cold!(Ok(None));
         }
 
         let mut offset = 0;
         while offset < src.len() {
-            let written = self.write(addr + offset, &src[offset..]);
+            let written = self.write(addr + offset, &src[offset..])?;
             if written == 0 {
-                return cold!(None);
+                return cold!(Ok(None));
             }
             offset += written;
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     /// Fills the range `[addr, addr + len)` with `val`.
-    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Option<()> {
-        let end = addr.checked_add(len)?;
+    fn fill(&mut self, addr: usize, len: usize, val: u8) -> core::result::Result<Option<()>, crate::Trap> {
+        let Some(end) = addr.checked_add(len) else { return Ok(None) };
         if end > self.len() {
-            return None;
+            return Ok(None);
         }
 
+        let chunk = [val; 1024];
         let mut offset = 0;
         while offset < len {
             let chunk_len = min(len - offset, 1024);
-            let chunk = vec![val; chunk_len];
-            self.write_all(addr + offset, &chunk)?;
+            if self.write_all(addr + offset, &chunk[..chunk_len])?.is_none() {
+                return Ok(None);
+            }
             offset += chunk_len;
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     /// Copies `len` bytes from `src` to `dst` within the same memory.
-    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Option<()> {
-        let src_end = src.checked_add(len)?;
-        let dst_end = dst.checked_add(len)?;
+    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> core::result::Result<Option<()>, crate::Trap> {
+        let Some(src_end) = src.checked_add(len) else { return Ok(None) };
+        let Some(dst_end) = dst.checked_add(len) else { return Ok(None) };
         if src_end > self.len() || dst_end > self.len() {
-            return None;
+            return Ok(None);
         }
 
         if len == 0 || dst == src {
-            return Some(());
+            return Ok(Some(()));
         }
+
+        let mut chunk = [0; 1024];
 
         // If the source and destination ranges are disjoint, we can copy forward without a temporary buffer.
         if dst < src || dst >= src_end {
             let mut offset = 0;
             while offset < len {
                 let chunk_len = min(len - offset, 1024);
-                let mut chunk = vec![0; chunk_len];
-                self.read_exact(src + offset, &mut chunk)?;
-                self.write_all(dst + offset, &chunk)?;
+                if self.read_exact(src + offset, &mut chunk[..chunk_len]).is_none()
+                    || self.write_all(dst + offset, &chunk[..chunk_len])?.is_none()
+                {
+                    return Ok(None);
+                }
                 offset += chunk_len;
             }
         } else {
@@ -119,13 +126,15 @@ pub trait LinearMemory {
             while offset > 0 {
                 let chunk_len = min(offset, 1024);
                 offset -= chunk_len;
-                let mut chunk = vec![0; chunk_len];
-                self.read_exact(src + offset, &mut chunk)?;
-                self.write_all(dst + offset, &chunk)?;
+                if self.read_exact(src + offset, &mut chunk[..chunk_len]).is_none()
+                    || self.write_all(dst + offset, &chunk[..chunk_len])?.is_none()
+                {
+                    return Ok(None);
+                }
             }
         }
 
-        Some(())
+        Ok(Some(()))
     }
 
     /// Reads exactly `dst.len()` bytes starting at `addr`.
@@ -214,7 +223,7 @@ pub trait LinearMemory {
 
     /// Writes exactly 1 byte at `addr`.
     fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.write_all(addr, bytes).ok_or_else(|| {
+        self.write_all(addr, bytes)?.ok_or_else(|| {
             cold_path();
             memory_oob(addr, 1, self.len())
         })
@@ -222,7 +231,7 @@ pub trait LinearMemory {
 
     /// Writes exactly 2 bytes at `addr`.
     fn write_16(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.write_all(addr, bytes).ok_or_else(|| {
+        self.write_all(addr, bytes)?.ok_or_else(|| {
             cold_path();
             memory_oob(addr, 2, self.len())
         })
@@ -230,7 +239,7 @@ pub trait LinearMemory {
 
     /// Writes exactly 4 bytes at `addr`.
     fn write_32(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.write_all(addr, bytes).ok_or_else(|| {
+        self.write_all(addr, bytes)?.ok_or_else(|| {
             cold_path();
             memory_oob(addr, 4, self.len())
         })
@@ -238,7 +247,7 @@ pub trait LinearMemory {
 
     /// Writes exactly 8 bytes at `addr`.
     fn write_64(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.write_all(addr, bytes).ok_or_else(|| {
+        self.write_all(addr, bytes)?.ok_or_else(|| {
             cold_path();
             memory_oob(addr, 8, self.len())
         })
@@ -246,14 +255,14 @@ pub trait LinearMemory {
 
     /// Writes exactly 16 bytes at `addr`.
     fn write_128(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.write_all(addr, bytes).ok_or_else(|| {
+        self.write_all(addr, bytes)?.ok_or_else(|| {
             cold_path();
             memory_oob(addr, 16, self.len())
         })
     }
 }
 
-type MemoryFactory = dyn Fn(MemoryType) -> Result<Box<dyn LinearMemory>> + Send + Sync;
+type MemoryFactory = dyn Fn(MemoryType) -> core::result::Result<Box<dyn LinearMemory>, crate::Trap> + Send + Sync;
 
 /// Configures how runtime memory instances are created.
 #[derive(Clone, Default)]
@@ -291,9 +300,11 @@ impl MemoryBackend {
     }
 
     /// Uses a custom factory to create memory instances.
+    ///
+    /// Factory traps are returned during eager creation or when a lazy memory first materializes.
     pub fn custom<F, M>(factory: F) -> Self
     where
-        F: Fn(MemoryType) -> Result<M> + Send + Sync + 'static,
+        F: Fn(MemoryType) -> core::result::Result<M, crate::Trap> + Send + Sync + 'static,
         M: LinearMemory + 'static,
     {
         Self(MemoryBackendInner::Custom(Arc::new(move |ty| {
@@ -302,22 +313,21 @@ impl MemoryBackend {
         })))
     }
 
-    pub(crate) fn create(&self, ty: MemoryType, initial_len: usize) -> Result<MemoryStorage> {
+    pub(crate) fn create(
+        &self,
+        ty: MemoryType,
+        initial_len: usize,
+    ) -> core::result::Result<MemoryStorage, crate::Trap> {
         let storage = match &self.0 {
-            MemoryBackendInner::Vec => {
-                Box::new(VecMemory::try_new(initial_len).map_err(Error::Trap)?) as Box<dyn LinearMemory>
-            }
+            MemoryBackendInner::Vec => Box::new(VecMemory::try_new(initial_len)?) as Box<dyn LinearMemory>,
             MemoryBackendInner::Paged { chunk_size } => {
-                Box::new(PagedMemory::try_new(initial_len, *chunk_size).map_err(Error::Trap)?) as Box<dyn LinearMemory>
+                Box::new(PagedMemory::try_new(initial_len, *chunk_size)?) as Box<dyn LinearMemory>
             }
             MemoryBackendInner::Custom(factory) => factory(ty)?,
         };
 
         if storage.len() < initial_len {
-            return Err(Error::Other(format!(
-                "memory backend returned {} bytes for a memory that requires at least {initial_len}",
-                storage.len()
-            )));
+            return Err(crate::Trap::Other("memory backend returned less storage than required"));
         }
 
         Ok(storage)

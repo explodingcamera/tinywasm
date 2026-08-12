@@ -78,7 +78,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     bench_grow(&mut group, "paged", || {
         PagedMemory::try_new(PAGE_SIZE, CHUNK_SIZE).expect("bench memory should be constructible")
     });
-
     bench_write_all(
         &mut group,
         "vec",

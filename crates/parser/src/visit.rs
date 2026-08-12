@@ -477,10 +477,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         terminating [] => [] { visit_unreachable => Unreachable, visit_return => Return }
         memory_index [] => [Addr] { visit_memory_size(memory: u32) => MemorySize }
         memory_index [Addr] => [Addr] { visit_memory_grow(memory: u32) => MemoryGrow }
-        memory_index [Addr, S32, Addr] => [] {
-            visit_memory_init(data_index: u32, memory: u32) => MemoryInit,
-            visit_memory_fill(memory: u32) => MemoryFill,
-        }
+        memory_index [Addr, S32, Addr] => [] { visit_memory_fill(memory: u32) => MemoryFill }
         table [Addr] => [S32] { visit_table_get(table: u32) => TableGet }
         table [Addr, S32] => [] { visit_table_set(table: u32) => TableSet }
         table [] => [Addr] { visit_table_size(table: u32) => TableSize }
@@ -939,6 +936,11 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let src = self.metadata.memory_size(src_mem)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy { dst_mem, src_mem })
+    }
+
+    fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Self::Output {
+        let dst = self.metadata.memory_size(memory)?;
+        self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(data_index, memory))
     }
 
     fn visit_br_on_cast(

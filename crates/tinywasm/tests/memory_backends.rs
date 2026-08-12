@@ -13,12 +13,19 @@ use tinywasm_parser::{Parser, ParserOptions};
 
 type TestResult<T = ()> = Result<T, Box<dyn core::error::Error>>;
 
+fn initial_memory_size(ty: MemoryType) -> usize {
+    usize::try_from(ty.page_count_initial())
+        .ok()
+        .and_then(|pages| pages.checked_mul(usize::try_from(ty.page_size()).ok()?))
+        .expect("test memory size should fit usize")
+}
+
 fn instantiate_module_with_counting_backend(module: Module) -> TestResult<usize> {
     let created = Arc::new(AtomicUsize::new(0));
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
-        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
+        PagedMemory::try_new(initial_memory_size(ty), 16)
     });
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
@@ -43,7 +50,7 @@ fn instantiate_exported_memory_with_counting_backend(
     let factory_calls = created.clone();
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
-        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
+        PagedMemory::try_new(initial_memory_size(ty), 16)
     });
     let engine = Engine::new(Config::new().with_memory_backend(backend));
     let mut store = Store::new(engine);
@@ -83,7 +90,7 @@ fn custom_backend_factory_is_used_for_host_memories() -> TestResult {
     let backend = MemoryBackend::custom(move |ty| {
         factory_calls.fetch_add(1, Ordering::Relaxed);
         page_size_seen.store(ty.page_size() as usize, Ordering::Relaxed);
-        Ok(PagedMemory::try_new(ty.initial_size() as usize, 16)?)
+        PagedMemory::try_new(initial_memory_size(ty), 16)
     });
 
     let engine = Engine::new(Config::new().with_memory_backend(backend));
@@ -238,6 +245,43 @@ fn paged_read_and_write_stop_at_chunk_boundaries() -> TestResult {
     assert_eq!(memory.read_vec(&store, 6, 4)?, &[20, 21, 22, 23]);
 
     Ok(())
+}
+
+#[test]
+fn paged_fixed_width_accesses_cross_chunk_boundaries() -> TestResult {
+    use tinywasm::LinearMemory;
+
+    let mut memory = PagedMemory::try_new(32, 4).map_err(tinywasm::Error::from)?;
+    memory.write_32(2, &0x1234_5678u32.to_le_bytes()).map_err(tinywasm::Error::from)?;
+    memory.write_64(6, &0x0123_4567_89ab_cdefu64.to_le_bytes()).map_err(tinywasm::Error::from)?;
+    memory.write_128(14, &u128::MAX.to_le_bytes()).map_err(tinywasm::Error::from)?;
+
+    assert_eq!(u32::from_le_bytes(memory.read_32(2).map_err(tinywasm::Error::from)?), 0x1234_5678);
+    assert_eq!(u64::from_le_bytes(memory.read_64(6).map_err(tinywasm::Error::from)?), 0x0123_4567_89ab_cdef);
+    assert_eq!(u128::from_le_bytes(memory.read_128(14).map_err(tinywasm::Error::from)?), u128::MAX);
+    Ok(())
+}
+
+#[test]
+fn lazy_custom_backend_creation_trap_is_propagated() -> TestResult {
+    let wasm = wat::parse_str(r#"(module (memory (export "memory") 1))"#)?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let backend = MemoryBackend::custom(|_| Err::<PagedMemory, _>(tinywasm::Trap::Other("backend unavailable")));
+    let mut store = Store::new(Engine::new(Config::new().with_memory_backend(backend)));
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    let memory = instance.memory("memory")?;
+
+    assert_eq!(
+        memory.copy_from_slice(&mut store, 0, &[1]).unwrap_err(),
+        tinywasm::Error::from(tinywasm::Trap::Other("backend unavailable"))
+    );
+    Ok(())
+}
+
+#[test]
+fn memory64_default_limit_is_not_memory32_limit() {
+    let ty = MemoryType::new(MemoryArch::I64, 65_537, None, None);
+    assert!(ty.page_count_max() > 65_536);
 }
 
 #[cfg(feature = "std")]

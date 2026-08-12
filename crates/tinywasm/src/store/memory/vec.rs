@@ -81,39 +81,42 @@ impl LinearMemory for VecMemory {
     }
 
     #[inline(always)]
-    fn write(&mut self, addr: usize, src: &[u8]) -> usize {
+    fn write(&mut self, addr: usize, src: &[u8]) -> Result<usize, crate::Trap> {
         if addr >= self.data.len() {
-            return 0;
+            return Ok(0);
         }
 
         let write_len = src.len().min(self.data.len() - addr);
         self.data[addr..addr + write_len].copy_from_slice(&src[..write_len]);
-        write_len
+        Ok(write_len)
     }
 
     #[inline(always)]
-    fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
-        let dst = self.data.get_mut(addr..addr.checked_add(src.len())?)?;
+    fn write_all(&mut self, addr: usize, src: &[u8]) -> Result<Option<()>, crate::Trap> {
+        let Some(end) = addr.checked_add(src.len()) else { return Ok(None) };
+        let Some(dst) = self.data.get_mut(addr..end) else { return Ok(None) };
         dst.copy_from_slice(src);
-        Some(())
+        Ok(Some(()))
     }
 
     #[inline(always)]
-    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Option<()> {
-        self.data.get_mut(addr..addr.checked_add(len)?)?.fill(val);
-        Some(())
+    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<Option<()>, crate::Trap> {
+        let Some(end) = addr.checked_add(len) else { return Ok(None) };
+        let Some(dst) = self.data.get_mut(addr..end) else { return Ok(None) };
+        dst.fill(val);
+        Ok(Some(()))
     }
 
     #[inline(always)]
-    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Option<()> {
-        let src_end = src.checked_add(len)?;
-        let dst_end = dst.checked_add(len)?;
+    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<Option<()>, crate::Trap> {
+        let Some(src_end) = src.checked_add(len) else { return Ok(None) };
+        let Some(dst_end) = dst.checked_add(len) else { return Ok(None) };
         if src_end > self.data.len() || dst_end > self.data.len() {
-            return None;
+            return Ok(None);
         }
 
         self.data.copy_within(src..src_end, dst);
-        Some(())
+        Ok(Some(()))
     }
 
     #[inline(always)]

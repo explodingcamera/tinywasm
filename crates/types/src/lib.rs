@@ -14,10 +14,11 @@ use core::ops::{Deref, Range};
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
-const MAX_MEMORY_SIZE: u64 = 4294967296;
-
-const fn max_page_count(page_size: u64) -> u64 {
-    MAX_MEMORY_SIZE / page_size
+const fn max_page_count(arch: MemoryArch, page_size: u64) -> u64 {
+    match arch {
+        MemoryArch::I32 => (1u64 << 32) / page_size,
+        MemoryArch::I64 => u64::MAX / page_size,
+    }
 }
 
 mod instructions;
@@ -611,22 +612,16 @@ impl MemoryType {
 
     #[inline]
     pub const fn page_count_max(&self) -> u64 {
-        if let Some(page_count_max) = self.page_count_max { page_count_max } else { max_page_count(self.page_size()) }
+        if let Some(page_count_max) = self.page_count_max {
+            page_count_max
+        } else {
+            max_page_count(self.arch, self.page_size())
+        }
     }
 
     #[inline]
     pub const fn page_size(&self) -> u64 {
         if let Some(page_size) = self.page_size { page_size } else { MEM_PAGE_SIZE }
-    }
-
-    #[inline]
-    pub const fn initial_size(&self) -> u64 {
-        self.page_count_initial * self.page_size()
-    }
-
-    #[inline]
-    pub const fn max_size(&self) -> u64 {
-        self.page_count_max() * self.page_size()
     }
 
     /// Set a different memory architecture.

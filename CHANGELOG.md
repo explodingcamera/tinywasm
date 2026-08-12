@@ -24,11 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed function tuples now support up to 20 parameters or results. `WasmTupleChain` is deprecated. Use untyped functions for larger signatures.
 - Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
 - Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
+- `LinearMemory` mutation methods and custom memory-backend factories now return `Trap` errors so lazy backend failures can be propagated.
 
 ### Fixed
 
 - Directly defined imports now reject handles from a different `Store`.
 - Tail calls to host functions now return directly to the caller frame.
+- Fixed Memory64 bulk-memory operations and optimized stores using the wrong value-stack lane.
+- Fixed `memory.init` bounds checks, operand lowering, and local-memory allocation analysis.
+- Fixed Memory64 default limits and host-size handling, including 32-bit targets.
 
 ### Breaking Changes
 

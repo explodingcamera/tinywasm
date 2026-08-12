@@ -409,7 +409,7 @@ pub enum Instruction {
     TableFill(TableAddr),
 
     // > Bulk Memory Instructions
-    MemoryInit(MemAddr, DataAddr),
+    MemoryInit(DataAddr, MemAddr),
     MemoryCopy { dst_mem: MemAddr, src_mem: MemAddr },
     MemoryFill(MemAddr),
     MemoryFillImm(MemAddr, u8, i32),
@@ -572,11 +572,10 @@ impl Instruction {
             | Self::V128Store16Lane(arg, ..)
             | Self::V128Store32Lane(arg, ..)
             | Self::V128Store64Lane(arg, ..) => Some(arg.mem_addr()),
-            Self::MemorySize(mem)
-            | Self::MemoryGrow(mem)
-            | Self::MemoryInit(mem, ..)
-            | Self::MemoryFill(mem)
-            | Self::MemoryFillImm(mem, ..) => Some(*mem),
+            Self::MemorySize(mem) | Self::MemoryGrow(mem) | Self::MemoryFill(mem) | Self::MemoryFillImm(mem, ..) => {
+                Some(*mem)
+            }
+            Self::MemoryInit(_, mem) => Some(*mem),
             Self::MemoryCopy { dst_mem, src_mem } => Some(if *dst_mem >= *src_mem { *dst_mem } else { *src_mem }),
             _ => None,
         }

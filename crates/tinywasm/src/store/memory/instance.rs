@@ -25,40 +25,50 @@ impl core::fmt::Debug for MemoryInstance {
 impl MemoryInstance {
     const COPY_CHUNK_SIZE: usize = 4 * 1024;
 
-    #[inline(always)]
-    pub(crate) fn effective_addr_32<const N: usize>(&self, base: u32, offset: u64) -> Result<usize, Trap> {
+    fn host_size(kind: MemoryType, pages: u64) -> Result<usize> {
         #[cfg(target_pointer_width = "64")]
         {
-            debug_assert!(u32::try_from(offset).is_ok(), "validated memory32 offsets fit in u32");
-            Ok(base as usize + offset as usize)
+            pages
+                .checked_mul(kind.page_size())
+                .map(|size| size as usize)
+                .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
         }
 
         #[cfg(not(target_pointer_width = "64"))]
         {
-            match usize::try_from(u64::from(base) + offset) {
-                Ok(addr) => Ok(addr),
-                Err(_) => {
-                    cold!(Err(memory_oob(base as usize, N, self.inner.len())))
-                }
-            }
+            let page_size = usize::try_from(kind.page_size())
+                .map_err(|_| Error::UnsupportedFeature("memory page size exceeds the host address space"))?;
+            let pages = usize::try_from(pages)
+                .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
+            pages.checked_mul(page_size).ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
         }
     }
 
     #[inline(always)]
-    pub(crate) fn effective_addr_64<const N: usize>(&self, base: u64, offset: u64) -> Result<usize, Trap> {
-        match base.checked_add(offset).and_then(|addr| usize::try_from(addr).ok()) {
-            Some(addr) => Ok(addr),
-            None => {
-                cold!(Err(memory_oob(base as usize, N, self.inner.len())))
+    pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
+        #[cfg(target_pointer_width = "64")]
+        {
+            if !self.is_64bit() {
+                debug_assert!(u32::try_from(offset).is_ok(), "validated memory32 offsets fit in u32");
+                return Ok(base + offset as usize);
+            }
+            match base.checked_add(offset as usize) {
+                Some(addr) => Ok(addr),
+                None => cold!(Err(memory_oob(base, N, self.inner.len()))),
+            }
+        }
+
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            match usize::try_from(offset).ok().and_then(|offset| base.checked_add(offset)) {
+                Some(addr) => Ok(addr),
+                None => cold!(Err(memory_oob(base, N, self.inner.len()))),
             }
         }
     }
 
     pub(crate) fn new(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
-        assert!(kind.page_count_initial() <= kind.page_count_max());
-
-        let initial_len = usize::try_from(kind.initial_size())
-            .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
+        let initial_len = Self::host_size(kind, kind.page_count_initial())?;
 
         crate::log::debug!(
             "initializing memory with {} pages of {} bytes",
@@ -78,10 +88,7 @@ impl MemoryInstance {
     }
 
     pub(crate) fn new_lazy(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
-        assert!(kind.page_count_initial() <= kind.page_count_max());
-
-        let initial_len = usize::try_from(kind.initial_size())
-            .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
+        let initial_len = Self::host_size(kind, kind.page_count_initial())?;
 
         crate::log::debug!(
             "initializing lazy memory with {} pages of {} bytes",
@@ -130,7 +137,7 @@ impl MemoryInstance {
                 cold_path();
                 memory_oob(src + copied, chunk_len, src_memory.inner.len())
             })?;
-            self.inner.write_all(dst + copied, &buf[..chunk_len]).ok_or_else(|| {
+            self.inner.write_all(dst + copied, &buf[..chunk_len])?.ok_or_else(|| {
                 cold_path();
                 memory_oob(dst + copied, chunk_len, self.inner.len())
             })?;
@@ -141,7 +148,7 @@ impl MemoryInstance {
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
-        self.inner.copy_within(dst, src, len).ok_or_else(|| {
+        self.inner.copy_within(dst, src, len)?.ok_or_else(|| {
             cold_path();
             memory_oob(dst, len, self.inner.len())
         })
@@ -169,16 +176,7 @@ impl MemoryInstance {
             return Ok(None);
         }
 
-        let Some(new_size) = (new_pages as u64).checked_mul(self.kind.page_size()) else {
-            return Ok(None);
-        };
-        if new_size > self.kind.max_size() {
-            cold_path();
-            crate::log::debug!("memory.grow failed: new_size={}, max_size={}", new_size, self.kind.max_size());
-            return Ok(None);
-        }
-
-        let Some(new_size) = usize::try_from(new_size).ok() else {
+        let Ok(new_size) = Self::host_size(self.kind, new_pages as u64) else {
             return Ok(None);
         };
         if new_size == self.inner.len() {

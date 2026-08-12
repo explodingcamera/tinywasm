@@ -428,7 +428,7 @@ impl Store {
                     };
 
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-                    match mem.inner.write_all(offset, &data.data) {
+                    match mem.inner.write_all(offset, &data.data)? {
                         Some(()) => None,
                         None => {
                             return Ok((
