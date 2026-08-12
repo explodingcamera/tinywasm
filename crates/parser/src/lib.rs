@@ -170,27 +170,11 @@ impl Parser {
     fn validator(&self) -> Option<Validator> {
         #[cfg(feature = "validate")]
         {
-            let features = WasmFeatures::CALL_INDIRECT_OVERLONG
-                | WasmFeatures::BULK_MEMORY_OPT
-                | WasmFeatures::RELAXED_SIMD
-                | WasmFeatures::GC_TYPES
-                | WasmFeatures::GC
-                | WasmFeatures::REFERENCE_TYPES
-                | WasmFeatures::MUTABLE_GLOBAL
-                | WasmFeatures::MULTI_VALUE
-                | WasmFeatures::FLOATS
-                | WasmFeatures::BULK_MEMORY
-                | WasmFeatures::SATURATING_FLOAT_TO_INT
-                | WasmFeatures::SIGN_EXTENSION
-                | WasmFeatures::EXTENDED_CONST
-                | WasmFeatures::FUNCTION_REFERENCES
-                | WasmFeatures::TAIL_CALL
-                | WasmFeatures::MULTI_MEMORY
-                | WasmFeatures::SIMD
-                | WasmFeatures::MEMORY64
-                | WasmFeatures::CUSTOM_PAGE_SIZES
-                | WasmFeatures::EXCEPTIONS
-                | WasmFeatures::WIDE_ARITHMETIC;
+            let features = WasmFeatures::WASM3
+                .difference(WasmFeatures::THREADS)
+                .union(WasmFeatures::CUSTOM_PAGE_SIZES)
+                .union(WasmFeatures::WIDE_ARITHMETIC)
+                .union(WasmFeatures::COMPACT_IMPORTS);
             self.options.validation().then(|| Validator::new_with_features(features))
         }
         #[cfg(not(feature = "validate"))]

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for the WebAssembly function-references proposal
 - Added basic support for the WebAssembly garbage-collection proposal
 - Added support for the WebAssembly exception-handling proposal, including tags, `try_table`, `throw`, and `throw_ref`
+- Added support for the WebAssembly compact-imports proposal
 - Added `WasmValue::ty` and `WasmValue::matches_type`
 - Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
