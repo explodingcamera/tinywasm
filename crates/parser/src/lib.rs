@@ -65,6 +65,10 @@ pub struct ParserOptions {
     pub optimize_local_memory_allocation: bool,
     /// Whether to run the peephole rewrite optimizer.
     pub optimize_rewrite: bool,
+    /// Whether to deduplicate immutable function operands while parsing.
+    ///
+    /// This uses more parse CPU to reduce precompiled module and archive size.
+    pub deduplicate_operands: bool,
 
     #[cfg(parallel_parser)]
     /// Number of threads to use for parallel parsing.
@@ -83,6 +87,7 @@ impl Default for ParserOptions {
             validation: cfg!(feature = "validate"),
             optimize_local_memory_allocation: true,
             optimize_rewrite: true,
+            deduplicate_operands: false,
             #[cfg(parallel_parser)]
             parser_threads: None,
         }
@@ -132,6 +137,17 @@ impl ParserOptions {
     /// Returns whether the peephole rewrite optimizer is enabled.
     pub const fn optimize_rewrite(&self) -> bool {
         self.optimize_rewrite
+    }
+
+    /// Enable or disable parse-time deduplication of immutable function operands.
+    pub const fn with_operand_deduplication(mut self, enabled: bool) -> Self {
+        self.deduplicate_operands = enabled;
+        self
+    }
+
+    /// Returns whether immutable function operands are deduplicated while parsing.
+    pub const fn deduplicate_operands(&self) -> bool {
+        self.deduplicate_operands
     }
 
     #[cfg(parallel_parser)]

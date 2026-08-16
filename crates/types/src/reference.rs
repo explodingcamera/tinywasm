@@ -68,6 +68,18 @@ impl RefType {
     pub const EXNREF: Self = Self::new_abstract(true, AbstractHeapType::Exn);
 
     #[inline]
+    #[doc(hidden)]
+    pub const fn to_bits(self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) const fn from_bits(bits: u32) -> Option<Self> {
+        let ty = Self(bits);
+        if ty.is_concrete() || ty.abstract_heap_type().is_some() { Some(ty) } else { None }
+    }
+
+    #[inline]
     pub const fn new_abstract(nullable: bool, heap_type: AbstractHeapType) -> Self {
         Self((nullable as u32) << 31 | heap_type as u32)
     }

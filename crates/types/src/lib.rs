@@ -22,10 +22,12 @@ const fn max_page_count(arch: MemoryArch, page_size: u64) -> u64 {
 }
 
 mod instructions;
+mod operands;
 mod reference;
 mod types;
 mod value;
 pub use instructions::*;
+pub use operands::*;
 pub use reference::*;
 pub use types::*;
 pub use value::*;
@@ -472,17 +474,10 @@ pub struct WasmFunction {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunctionData {
-    pub v128_constants: Box<[[u8; 16]]>,
+    pub operands64: Box<[Operand64]>,
+    pub operands128: Box<[Operand128]>,
     pub branch_table_targets: Box<[u32]>,
     pub exception_handlers: Box<[ExceptionHandler]>,
-}
-
-impl WasmFunctionData {
-    /// Panics if `idx` is out of bounds.
-    #[inline(always)]
-    pub fn v128_const(&self, idx: ConstIdx) -> [u8; 16] {
-        *self.v128_constants.get(idx as usize).unwrap_or_else(|| unreachable!("invalid v128 constant index: {idx}"))
-    }
 }
 
 /// A WebAssembly Module Export

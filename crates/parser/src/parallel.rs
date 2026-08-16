@@ -1,4 +1,4 @@
-use crate::module::{FunctionCode, optimize_function_code};
+use crate::module::{OptimizedFunctionCode, optimize_function_code};
 use crate::validation::{FuncToValidate, FuncValidatorAllocations, ValidatorResources};
 use crate::{ParseError, ParserOptions, Result, conversion};
 use alloc::sync::Arc;
@@ -64,7 +64,7 @@ fn process_function_job(
     imported_memory_count: u32,
     validator_allocs: Option<FuncValidatorAllocations>,
     reader_allocs: OperatorsReaderAllocations,
-) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+) -> Result<(OptimizedFunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     #[cfg(feature = "validate")]
     let validator = job.func_to_validate.map(|func| func.into_validator(validator_allocs.unwrap_or_default()));
     #[cfg(not(feature = "validate"))]
@@ -74,12 +74,12 @@ fn process_function_job(
     };
     let (code, validator_allocs, reader_allocs) = match job.body {
         FunctionBodyInput::Borrowed(func) => {
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx)?
+            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
         }
         FunctionBodyInput::Owned(body) => {
             let reader = wasmparser::BinaryReader::new(&body.section_bytes[body.body_range], body.body_offset);
             let func = wasmparser::FunctionBody::new(reader);
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx)?
+            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
         }
     };
 
@@ -100,7 +100,7 @@ fn process_chunk<'a>(
     options: &ParserOptions,
     imported_func_count: usize,
     imported_memory_count: u32,
-) -> Result<Vec<FunctionCode>> {
+) -> Result<Vec<OptimizedFunctionCode>> {
     let mut validator_allocs = None;
     let mut reader_allocs = OperatorsReaderAllocations::default();
     let jobs = jobs.into_iter();
@@ -130,7 +130,7 @@ pub(crate) fn process_pending(
     options: &ParserOptions,
     imported_func_count: usize,
     imported_memory_count: u32,
-) -> Result<Vec<FunctionCode>> {
+) -> Result<Vec<OptimizedFunctionCode>> {
     let num_workers = worker_count(options, pending.len());
     if num_workers == 1 {
         return process_chunk(pending, metadata, options, imported_func_count, imported_memory_count);

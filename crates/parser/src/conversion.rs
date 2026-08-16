@@ -1,7 +1,7 @@
 use crate::validation::{FuncValidator, FuncValidatorAllocations, ValidatorResources};
 #[cfg(feature = "validate")]
 use crate::visit::process_operators_and_validate;
-use crate::{Result, module::FunctionCode, visit::process_operators};
+use crate::{ParserOptions, Result, module::FunctionCode, visit::process_operators};
 use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations, UnpackedIndex};
@@ -149,6 +149,7 @@ pub(crate) fn convert_module_code(
     reader_allocs: OperatorsReaderAllocations,
     metadata: &crate::visit::ModuleMetadata,
     ty_idx: u32,
+    options: &ParserOptions,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let locals_reader = func.get_locals_reader()?;
     #[cfg(feature = "validate")]
@@ -194,32 +195,40 @@ pub(crate) fn convert_module_code(
             let (body, data, validator_allocs, reader_allocs) = process_operators_and_validate(
                 validator,
                 func,
-                local_types,
-                local_addr_map,
+                (local_types, local_addr_map),
                 metadata,
                 ty_idx,
                 reader_allocs,
+                options.deduplicate_operands(),
             )?;
             (body, data, Some(validator_allocs), reader_allocs)
         }
         None => {
-            let (body, data, reader_allocs) =
-                process_operators(func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
+            let (body, data, reader_allocs) = process_operators(
+                func,
+                (local_types, local_addr_map),
+                metadata,
+                ty_idx,
+                reader_allocs,
+                options.deduplicate_operands(),
+            )?;
             (body, data, None, reader_allocs)
         }
     };
     #[cfg(not(feature = "validate"))]
     let (body, data, validator_allocs, reader_allocs) = {
         let _ = validator;
-        let (body, data, reader_allocs) =
-            process_operators(func, local_types, local_addr_map, metadata, ty_idx, reader_allocs)?;
+        let (body, data, reader_allocs) = process_operators(
+            func,
+            (local_types, local_addr_map),
+            metadata,
+            ty_idx,
+            reader_allocs,
+            options.deduplicate_operands(),
+        )?;
         (body, data, None, reader_allocs)
     };
-    Ok((
-        FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory: false },
-        validator_allocs,
-        reader_allocs,
-    ))
+    Ok((FunctionCode { instructions: body, data, locals: local_counts }, validator_allocs, reader_allocs))
 }
 
 pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, types: &mut Vec<SubType>) -> Result<u32> {
