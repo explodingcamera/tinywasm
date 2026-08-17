@@ -110,6 +110,17 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
+    pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
+        if !self.ensure_capacity_for(self.data.len() + 1) {
+            return cold!(Err(Trap::ValueStackOverflow));
+        }
+
+        let value = self.data[index];
+        self.data.push(value);
+        Ok(())
+    }
+
+    #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
         self.data.pop().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"))
     }

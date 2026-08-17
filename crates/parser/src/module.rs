@@ -11,6 +11,12 @@ use wasmparser::{OperatorsReaderAllocations, Payload};
 
 pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
+    pub data: crate::visit::FunctionDataBuilder,
+    pub locals: ValueCounts,
+}
+
+pub(crate) struct OptimizedFunctionCode {
+    pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub uses_local_memory: bool,
@@ -22,19 +28,15 @@ pub(crate) fn optimize_function_code(
     function_results: ValueCounts,
     self_func_addr: u32,
     imported_memory_count: u32,
-) -> Result<FunctionCode> {
-    let optimized = optimize::optimize_instructions(
-        code.instructions,
-        &mut code.data,
-        options,
-        function_results,
-        self_func_addr,
-        imported_memory_count,
-    )?;
-
-    code.instructions = optimized.instructions;
-    code.uses_local_memory = optimized.uses_local_memory;
-    Ok(code)
+) -> Result<OptimizedFunctionCode> {
+    let optimized =
+        optimize::optimize_instructions(code.instructions, &mut code.data, options, function_results, self_func_addr)?;
+    let data = code.data.finish();
+    let uses_local_memory = optimized
+        .instructions
+        .iter()
+        .any(|instruction| instruction.memory_addr(&data).is_some_and(|memory| memory >= imported_memory_count));
+    Ok(OptimizedFunctionCode { instructions: optimized.instructions, data, locals: code.locals, uses_local_memory })
 }
 
 #[derive(Default)]
@@ -53,7 +55,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
     pub(crate) exports: Arc<[Export]>,
-    pub(crate) code: Vec<FunctionCode>,
+    pub(crate) code: Vec<OptimizedFunctionCode>,
     pub(crate) globals: Box<[Global]>,
     pub(crate) tables: Box<[TableDefinition]>,
     pub(crate) memory_types: Box<[MemoryType]>,
@@ -402,7 +404,7 @@ impl<'a> ModuleReader<'a> {
         let metadata = self.translation_metadata();
 
         let (code, func_validator_allocs, operators_reader_allocs) =
-            convert_module_code(function, func_validator, operators_reader_allocs, metadata, ty_idx)?;
+            convert_module_code(function, func_validator, operators_reader_allocs, metadata, ty_idx, options)?;
 
         self.code.push(optimize_function_code(
             code,
@@ -565,7 +567,7 @@ impl<'a> ModuleReader<'a> {
             .into_iter()
             .zip(self.code_type_addrs)
             .zip(self.code_results)
-            .map(|((code, ty_idx), results)| {
+            .map(|((code, ty_idx), results)| -> Result<_> {
                 let ty =
                     self.types.get(ty_idx).and_then(SubType::as_func).expect("function type was checked while parsing");
                 let params = ValueCounts::from_iter(ty.params());
@@ -573,15 +575,15 @@ impl<'a> ModuleReader<'a> {
                     local_memory_allocation = LocalMemoryAllocation::Eager;
                 }
 
-                Arc::new(WasmFunction {
-                    instructions: code.instructions.into(),
+                Ok(Arc::new(WasmFunction {
+                    instructions: code.instructions.into_boxed_slice(),
                     data: code.data,
                     locals: code.locals,
                     params,
                     results,
-                })
+                }))
             })
-            .collect();
+            .collect::<Result<_>>()?;
 
         Ok(ModuleInner {
             funcs,

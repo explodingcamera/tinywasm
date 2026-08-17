@@ -3,10 +3,11 @@ use crate::{
     conversion::{convert_heap_type, value_lane},
     macros::visit::*,
 };
-use alloc::{boxed::Box, string::ToString, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
 use tinywasm_types::{
-    Global, Import, ImportKind, Instruction, MemoryArg, MemoryType, StorageType, TableDefinition, TagType, TypeSection,
-    ValueCounts, ValueLane, WasmFunctionData,
+    BranchTableArg, CastBranch, ExceptionHandler, Global, I64Operand, Import, ImportKind, Instruction, MemoryArg,
+    MemoryType, Operand64, Operand128, OperandIdx, OperandType, StorageType, TableDefinition, TagType, TwoU32,
+    TypeSection, V128Operand, ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -52,17 +53,105 @@ pub(crate) struct ModuleMetadata {
     aggregate_fields: Vec<AggregateFields>,
 }
 
+pub(crate) struct FunctionDataBuilder {
+    pub(crate) operands64: Vec<Operand64>,
+    pub(crate) operands128: Vec<Operand128>,
+    pub(crate) branch_table_targets: Vec<u32>,
+    pub(crate) exception_handlers: Vec<ExceptionHandler>,
+    deduplicate64: Option<BTreeMap<Operand64, u32>>,
+    deduplicate128: Option<BTreeMap<Operand128, u32>>,
+}
+
+pub(crate) trait BuilderRawOperand: tinywasm_types::RawOperand + Ord {
+    fn push(builder: &mut FunctionDataBuilder, raw: Self, deduplicate: bool) -> Result<u32>;
+    fn get(builder: &FunctionDataBuilder, index: u32) -> Self;
+    fn set(builder: &mut FunctionDataBuilder, index: u32, raw: Self);
+}
+
+macro_rules! builder_raw_operand {
+    ($raw:ty, $lane:ident, $map:ident) => {
+        impl BuilderRawOperand for $raw {
+            fn push(builder: &mut FunctionDataBuilder, raw: Self, deduplicate: bool) -> Result<u32> {
+                if deduplicate && let Some(index) = builder.$map.as_ref().and_then(|map| map.get(&raw)) {
+                    return Ok(*index);
+                }
+                let index = u32::try_from(builder.$lane.len())
+                    .map_err(|_| crate::ParseError::Other("instruction operand index overflow".into()))?;
+                builder.$lane.push(raw);
+                if deduplicate && let Some(map) = &mut builder.$map {
+                    map.insert(raw, index);
+                }
+                Ok(index)
+            }
+
+            fn get(builder: &FunctionDataBuilder, index: u32) -> Self {
+                *builder.$lane.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
+            }
+
+            fn set(builder: &mut FunctionDataBuilder, index: u32, raw: Self) {
+                *builder.$lane.get_mut(index as usize).unwrap_or_else(|| unreachable!("invalid operand index")) = raw;
+            }
+        }
+    };
+}
+
+builder_raw_operand!(Operand64, operands64, deduplicate64);
+builder_raw_operand!(Operand128, operands128, deduplicate128);
+
+impl FunctionDataBuilder {
+    pub(crate) fn new(deduplicate_operands: bool) -> Self {
+        Self {
+            operands64: Vec::new(),
+            operands128: Vec::new(),
+            branch_table_targets: Vec::new(),
+            exception_handlers: Vec::new(),
+            deduplicate64: deduplicate_operands.then(BTreeMap::new),
+            deduplicate128: deduplicate_operands.then(BTreeMap::new),
+        }
+    }
+
+    pub(crate) fn push_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
+    where
+        T::Raw: BuilderRawOperand,
+    {
+        <T::Raw as BuilderRawOperand>::push(self, operand.encode(), true).map(OperandIdx::new)
+    }
+
+    pub(crate) fn push_target_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
+    where
+        T::Raw: BuilderRawOperand,
+    {
+        <T::Raw as BuilderRawOperand>::push(self, operand.encode(), false).map(OperandIdx::new)
+    }
+
+    pub(crate) fn operand<T: OperandType>(&self, index: OperandIdx<T>) -> T
+    where
+        T::Raw: BuilderRawOperand,
+    {
+        T::decode(<T::Raw as BuilderRawOperand>::get(self, index.index()))
+    }
+
+    pub(crate) fn set_operand<T: OperandType>(&mut self, index: OperandIdx<T>, operand: T)
+    where
+        T::Raw: BuilderRawOperand,
+    {
+        <T::Raw as BuilderRawOperand>::set(self, index.index(), operand.encode())
+    }
+
+    pub(crate) fn finish(self) -> WasmFunctionData {
+        WasmFunctionData {
+            operands64: self.operands64.into_boxed_slice(),
+            operands128: self.operands128.into_boxed_slice(),
+            branch_table_targets: self.branch_table_targets.into_boxed_slice(),
+            exception_handlers: self.exception_handlers.into_boxed_slice(),
+        }
+    }
+}
+
 enum AggregateFields {
     Other,
     Struct(Box<[ValueLane]>),
     Array(ValueLane),
-}
-
-#[derive(Default)]
-struct FunctionDataBuilder {
-    v128_constants: Vec<[u8; 16]>,
-    branch_table_targets: Vec<u32>,
-    exception_handlers: Vec<tinywasm_types::ExceptionHandler>,
 }
 
 pub(crate) struct FunctionBuilder<'a> {
@@ -83,13 +172,14 @@ impl<'a> FunctionBuilder<'a> {
         local_types: Vec<ValueLane>,
         local_addr_map: Vec<u16>,
         body_size: usize,
+        deduplicate_operands: bool,
     ) -> Self {
         Self {
             local_types,
             local_addr_map,
             metadata,
             instructions: Vec::with_capacity(body_size.min(1024)),
-            data: FunctionDataBuilder::default(),
+            data: FunctionDataBuilder::new(deduplicate_operands),
             control_stack: alloc::vec![ControlFrame {
                 kind: BlockKind::Function,
                 has_else: false,
@@ -112,10 +202,18 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         type_index: u32,
         field_index: u32,
-        instruction: fn(u32, u32) -> Instruction,
+        instruction: fn(OperandIdx<TwoU32>) -> Instruction,
     ) -> Result<()> {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        self.emit(&[ValueLane::S32], &[size], instruction(type_index, field_index))
+        let operand = self.push_operand(TwoU32 { first: type_index, second: field_index })?;
+        self.emit(&[ValueLane::S32], &[size], instruction(operand))
+    }
+
+    fn push_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
+    where
+        T::Raw: BuilderRawOperand,
+    {
+        self.data.push_operand(operand)
     }
 }
 
@@ -294,17 +392,19 @@ impl VisitSimdOperator<'_> for ValidateThenVisit<'_, '_> {
 
 pub(crate) fn process_operators(
     body: FunctionBody<'_>,
-    local_types: Vec<ValueLane>,
-    local_addr_map: Vec<u16>,
+    locals: (Vec<ValueLane>, Vec<u16>),
     metadata: &ModuleMetadata,
     ty_idx: u32,
     allocs: OperatorsReaderAllocations,
-) -> Result<(Vec<Instruction>, WasmFunctionData, OperatorsReaderAllocations)> {
+    deduplicate_operands: bool,
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, OperatorsReaderAllocations)> {
+    let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
     let signature = metadata.signature(ty_idx)?.clone();
-    let mut builder = FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size);
+    let mut builder =
+        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
 
     while !reader.eof() {
         let position = reader.original_position();
@@ -319,29 +419,26 @@ pub(crate) fn process_operators(
     }
 
     reader.finish()?;
-    let data = WasmFunctionData {
-        v128_constants: builder.data.v128_constants.into_boxed_slice(),
-        branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
-        exception_handlers: builder.data.exception_handlers.into_boxed_slice(),
-    };
-    Ok((builder.instructions, data, reader.into_allocations()))
+    Ok((builder.instructions, builder.data, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
 pub(crate) fn process_operators_and_validate(
     mut validator: FuncValidator<ValidatorResources>,
     body: FunctionBody<'_>,
-    local_types: Vec<ValueLane>,
-    local_addr_map: Vec<u16>,
+    locals: (Vec<ValueLane>, Vec<u16>),
     metadata: &ModuleMetadata,
     ty_idx: u32,
     allocs: OperatorsReaderAllocations,
-) -> Result<(Vec<Instruction>, WasmFunctionData, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+    deduplicate_operands: bool,
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+    let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
     let signature = metadata.signature(ty_idx)?.clone();
-    let mut builder = FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size);
+    let mut builder =
+        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
 
     while !reader.eof() {
         let position = reader.original_position();
@@ -356,12 +453,7 @@ pub(crate) fn process_operators_and_validate(
     }
 
     reader.finish()?;
-    let data = WasmFunctionData {
-        v128_constants: builder.data.v128_constants.into_boxed_slice(),
-        branch_table_targets: builder.data.branch_table_targets.into_boxed_slice(),
-        exception_handlers: builder.data.exception_handlers.into_boxed_slice(),
-    };
-    Ok((builder.instructions, data, validator.into_allocations(), reader.into_allocations()))
+    Ok((builder.instructions, builder.data, validator.into_allocations(), reader.into_allocations()))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
@@ -395,7 +487,6 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         }
         fixed [] => [] { visit_data_drop(segment: u32) => DataDrop, visit_elem_drop(segment: u32) => ElemDrop }
         fixed [] => [S32] { visit_i32_const(value: i32) => Const32, visit_ref_func(function: u32) => RefFunc }
-        fixed [] => [S64] { visit_i64_const(value: i64) => Const64 }
         heap false [] => [S32] { visit_ref_null => RefNull }
         heap false [S32] => [S32] {
             visit_ref_test_non_null => RefTest, visit_ref_cast_non_null => RefCast,
@@ -483,21 +574,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         table [] => [Addr] { visit_table_size(table: u32) => TableSize }
         table [S32, Addr] => [Addr] { visit_table_grow(table: u32) => TableGrow }
         table [Addr, S32, Addr] => [] { visit_table_fill(table: u32) => TableFill }
-        table [Addr, S32, S32] => [] { visit_table_init(elem_index: u32, table: u32) => TableInit }
         fixed [] => [S32] { visit_struct_new_default(type_index: u32) => StructNewDefault }
         fixed [S32] => [S32] {
             visit_array_new_default(type_index: u32) => ArrayNewDefault, visit_array_len => ArrayLen,
-        }
-        fixed [S32, S32] => [S32] {
-            visit_array_new_data(type_index: u32, data_index: u32) => ArrayNewData,
-            visit_array_new_elem(type_index: u32, elem_index: u32) => ArrayNewElem,
-        }
-        fixed [S32, S32, S32, S32] => [] {
-            visit_array_init_data(type_index: u32, data_index: u32) => ArrayInitData,
-            visit_array_init_elem(type_index: u32, elem_index: u32) => ArrayInitElem,
-        }
-        fixed [S32, S32, S32, S32, S32] => [] {
-            visit_array_copy(type_index_dst: u32, type_index_src: u32) => ArrayCopy,
         }
         array_field [Field, S32] => [S32] { visit_array_new(type_index: u32) => ArrayNew }
         array_field [S32, S32] => [Field] {
@@ -533,7 +612,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(type_index, field_index))
+        let operand = self.push_operand(TwoU32 { first: type_index, second: field_index })?;
+        self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(operand))
     }
 
     fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Self::Output {
@@ -542,7 +622,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             self.pop_expect(size)?;
         }
         self.push_sizes(&[ValueLane::S32])?;
-        self.instructions.push(Instruction::ArrayNewFixed(type_index, array_size));
+        let operand = self.push_operand(TwoU32 { first: type_index, second: array_size })?;
+        self.instructions.push(Instruction::ArrayNewFixed(operand));
         Ok(())
     }
 
@@ -555,7 +636,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let signature = self.metadata.signature(type_index)?.clone();
         let mut inputs = signature.params;
         inputs.push(self.metadata.table_size(table_index)?);
-        self.emit(&inputs, &signature.results, Instruction::CallIndirect(type_index, table_index))
+        let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
+        self.emit(&inputs, &signature.results, Instruction::CallIndirect(operand))
     }
 
     fn visit_call_ref(&mut self, type_index: u32) -> Self::Output {
@@ -579,7 +661,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         inputs.push(self.metadata.table_size(table_index)?);
         self.apply_effect(&inputs, &[])?;
         self.mark_unreachable();
-        self.instructions.push(Instruction::ReturnCallIndirect(type_index, table_index));
+        let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
+        self.instructions.push(Instruction::ReturnCallIndirect(operand));
         Ok(())
     }
 
@@ -851,7 +934,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
         let header_ip = self.instructions.len();
         let branch_table_start = self.data.branch_table_targets.len() as u32;
-        self.instructions.push(Instruction::BranchTable(0, branch_table_start, len));
+        let branch_operand =
+            self.data.push_target_operand(BranchTableArg { target: 0, start: branch_table_start, len })?;
+        self.instructions.push(Instruction::BranchTable(branch_operand));
 
         struct PadInfo {
             depth: u32,
@@ -894,8 +979,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             .iter()
             .find(|pad| pad.depth == default_depth)
             .ok_or_else(|| crate::ParseError::Other("missing default branch table target".into()))?;
-        if let Instruction::BranchTable(default_ip, _, _) = &mut self.instructions[header_ip] {
-            *default_ip = default_pad.pad_start as u32;
+        if let Instruction::BranchTable(index) = self.instructions[header_ip] {
+            let mut operand = self.data.operand(index);
+            operand.target = default_pad.pad_start as u32;
+            self.data.set_operand(index, operand);
         }
 
         for pad in &pads {
@@ -921,26 +1008,66 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        self.emit(&[], &[ValueLane::S64], Instruction::Const64(val.bits() as i64))
+        let operand = self.push_operand(I64Operand { value: val.bits() as i64 })?;
+        self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
+    }
+
+    fn visit_i64_const(&mut self, value: i64) -> Self::Output {
+        let operand = self.push_operand(I64Operand { value })?;
+        self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
         let dst = self.metadata.table_size(dst_table)?;
         let src = self.metadata.table_size(src_table)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        self.emit(&[dst, src, len], &[], Instruction::TableCopy { dst_table, src_table })
+        let operand = self.push_operand(TwoU32 { first: dst_table, second: src_table })?;
+        self.emit(&[dst, src, len], &[], Instruction::TableCopy(operand))
     }
 
     fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
         let dst = self.metadata.memory_size(dst_mem)?;
         let src = self.metadata.memory_size(src_mem)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        self.emit(&[dst, src, len], &[], Instruction::MemoryCopy { dst_mem, src_mem })
+        let operand = self.push_operand(TwoU32 { first: dst_mem, second: src_mem })?;
+        self.emit(&[dst, src, len], &[], Instruction::MemoryCopy(operand))
     }
 
     fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Self::Output {
         let dst = self.metadata.memory_size(memory)?;
-        self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(data_index, memory))
+        let operand = self.push_operand(TwoU32 { first: data_index, second: memory })?;
+        self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(operand))
+    }
+
+    fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Self::Output {
+        let address = self.metadata.table_size(table)?;
+        let operand = self.push_operand(TwoU32 { first: elem_index, second: table })?;
+        self.emit(&[address, ValueLane::S32, ValueLane::S32], &[], Instruction::TableInit(operand))
+    }
+
+    fn visit_array_new_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
+        let operand = self.push_operand(TwoU32 { first: type_index, second: data_index })?;
+        self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewData(operand))
+    }
+
+    fn visit_array_new_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
+        let operand = self.push_operand(TwoU32 { first: type_index, second: elem_index })?;
+        self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewElem(operand))
+    }
+
+    fn visit_array_init_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
+        let operand = self.push_operand(TwoU32 { first: type_index, second: data_index })?;
+        self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitData(operand))
+    }
+
+    fn visit_array_init_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
+        let operand = self.push_operand(TwoU32 { first: type_index, second: elem_index })?;
+        self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitElem(operand))
+    }
+
+    fn visit_array_copy(&mut self, type_index_dst: u32, type_index_src: u32) -> Self::Output {
+        let operand = self.push_operand(TwoU32 { first: type_index_dst, second: type_index_src })?;
+        self.emit(&[ValueLane::S32; 5], &[], Instruction::ArrayCopy(operand))
     }
 
     fn visit_br_on_cast(
@@ -1187,19 +1314,13 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
     }
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
-        self.emit(
-            &[ValueLane::S128, ValueLane::S128],
-            &[ValueLane::S128],
-            Instruction::I8x16Shuffle(self.data.v128_constants.len() as u32),
-        )?;
-        self.data.v128_constants.push(lanes);
-        Ok(())
+        let index = self.push_operand(V128Operand { value: lanes })?;
+        self.emit(&[ValueLane::S128, ValueLane::S128], &[ValueLane::S128], Instruction::I8x16Shuffle(index))
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        self.emit(&[], &[ValueLane::S128], Instruction::Const128(self.data.v128_constants.len() as u32))?;
-        self.data.v128_constants.push(*value.bytes());
-        Ok(())
+        let index = self.push_operand(V128Operand { value: *value.bytes() })?;
+        self.emit(&[], &[ValueLane::S128], Instruction::Const128(index))
     }
 }
 
@@ -1213,7 +1334,12 @@ impl FunctionBuilder<'_> {
         self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
         let conditional_ip = self.instructions.len();
-        self.instructions.push(Instruction::BrOnCast(0, target, branch_on_fail));
+        let operand = self.data.push_target_operand(CastBranch { target: 0, ref_type_bits: target.to_bits() })?;
+        self.instructions.push(if branch_on_fail {
+            Instruction::BrOnCastFail(operand)
+        } else {
+            Instruction::BrOnCast(operand)
+        });
         self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
@@ -1357,10 +1483,15 @@ impl FunctionBuilder<'_> {
     /// Emits the stack-shaping instruction required by a branch.
     fn emit_dropkeep(&mut self, base: ValueCounts, keep: ValueCounts) {
         let target = ValueCounts { c32: base.c32 + keep.c32, c64: base.c64 + keep.c64, c128: base.c128 + keep.c128 };
-        if self.lane_counts == target {
-            return;
+        if self.lane_counts.c32 != target.c32 {
+            self.instructions.push(Instruction::DropKeep32 { base: base.c32, keep: keep.c32 });
         }
-        self.instructions.push(Instruction::DropKeep((base, keep).into()));
+        if self.lane_counts.c64 != target.c64 {
+            self.instructions.push(Instruction::DropKeep64 { base: base.c64, keep: keep.c64 });
+        }
+        if self.lane_counts.c128 != target.c128 {
+            self.instructions.push(Instruction::DropKeep128 { base: base.c128, keep: keep.c128 });
+        }
     }
 
     fn patch_jump(&mut self, jump_ip: usize, target: usize) {
@@ -1369,9 +1500,13 @@ impl FunctionBuilder<'_> {
             | Instruction::JumpIfZero32(ip)
             | Instruction::JumpIfNonZero32(ip)
             | Instruction::JumpIfRefNull(ip)
-            | Instruction::JumpIfRefNonNull(ip)
-            | Instruction::BrOnCast(ip, _, _) => {
+            | Instruction::JumpIfRefNonNull(ip) => {
                 *ip = target as u32;
+            }
+            Instruction::BrOnCast(index) | Instruction::BrOnCastFail(index) => {
+                let mut operand = self.data.operand(*index);
+                operand.target = target as u32;
+                self.data.set_operand(*index, operand);
             }
             _ => {}
         }

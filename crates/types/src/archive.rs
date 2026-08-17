@@ -64,6 +64,9 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Instruction, ModuleInner, V128Operand, WasmFunction};
+    use crate::{OperandIdx, OperandType};
+    use alloc::{boxed::Box, sync::Arc, vec};
 
     #[test]
     fn test_invalid_magic() {
@@ -79,5 +82,28 @@ mod tests {
         let mut twasm = wasm.serialize_twasm().expect("should serialize");
         twasm[4] = 0;
         assert!(matches!(Module::try_from_twasm(&twasm), Err(TwasmError::InvalidVersion)));
+    }
+
+    #[test]
+    fn v128_operands_round_trip_archive() {
+        let bytes = [0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xfe, 0xff, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x90];
+        let mut function = WasmFunction::default();
+        let constant = OperandIdx::new(0);
+        function.data.operands128 = vec![V128Operand { value: bytes }.encode()].into_boxed_slice();
+        function.instructions = vec![Instruction::Const128(constant), Instruction::I8x16Shuffle(constant)].into();
+        let module = Module::from(ModuleInner { funcs: Box::new([Arc::new(function)]), ..ModuleInner::default() });
+
+        let archive = module.serialize_twasm().expect("serialize archive");
+        assert_eq!(&archive[..6], b"TWAS05");
+        let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
+        let function = &decoded.funcs[0];
+
+        for instruction in function.instructions.iter() {
+            let index = match instruction {
+                Instruction::Const128(index) | Instruction::I8x16Shuffle(index) => *index,
+                _ => panic!("unexpected instruction"),
+            };
+            assert_eq!(index.get(&function.data).value, bytes);
+        }
     }
 }
