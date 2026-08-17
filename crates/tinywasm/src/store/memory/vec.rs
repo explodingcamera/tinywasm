@@ -1,24 +1,19 @@
 use alloc::vec::Vec;
 
-use super::{LinearMemory, memory_oob};
+use super::memory_oob;
 
-/// A contiguous `Vec<u8>`-backed linear memory.
+/// A contiguous `Vec<u8>`-backed linear memory storage.
 ///
-/// This is the simplest backend and typically gives the best read and write throughput because
-/// the whole memory lives in one contiguous allocation.
-///
-/// The tradeoff is growth cost: large grows may need to reallocate and copy the full buffer,
-/// which can get expensive for large memories.
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct VecMemory {
+/// This is the internal storage boundary for [`super::MemoryInstance`]. Keeping it a concrete type
+/// rather than a `Vec<u8>` directly means the backing representation can later be swapped for an
+/// mmap-backed implementation without touching the interpreter's load and store paths.
+pub(crate) struct VecMemory {
     data: Vec<u8>,
 }
 
 impl VecMemory {
     /// Tries to create a new memory with `len` zero-initialized bytes.
-    ///
-    /// Prefer this backend when contiguous access is more important than grow performance.
-    pub fn try_new(len: usize) -> Result<Self, crate::Trap> {
+    pub(crate) fn try_new(len: usize) -> Result<Self, crate::Trap> {
         let mut data = Vec::new();
         cold_err!(data.try_reserve_exact(len)).map_err(|_| crate::Trap::OutOfMemory)?;
         data.resize(len, 0);
@@ -26,11 +21,18 @@ impl VecMemory {
     }
 
     #[inline(always)]
-    fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
-        self.check_fixed_addr::<N>(addr)?;
-        let mut bytes = [0u8; N];
-        bytes.copy_from_slice(&self.data[addr..addr + N]);
-        Ok(bytes)
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Grows the backing allocation to `new_len`. Only called after the Wasm limits and any user
+    /// limiter have accepted the grow.
+    #[inline(always)]
+    pub(crate) fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
+        debug_assert!(new_len >= self.data.len(), "memory only grows");
+        cold_err!(self.data.try_reserve_exact(new_len - self.data.len())).map_err(|_| crate::Trap::OutOfMemory)?;
+        self.data.resize(new_len, 0);
+        Ok(())
     }
 
     #[inline(always)]
@@ -40,27 +42,27 @@ impl VecMemory {
         }
         Ok(())
     }
-}
 
-impl LinearMemory for VecMemory {
+    /// Reads exactly `N` bytes at `addr` into a fixed-size array.
     #[inline(always)]
-    fn len(&self) -> usize {
-        self.data.len()
+    pub(crate) fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
+        self.check_fixed_addr::<N>(addr)?;
+        let mut bytes = [0u8; N];
+        bytes.copy_from_slice(&self.data[addr..addr + N]);
+        Ok(bytes)
     }
 
+    /// Writes exactly `N` bytes from `bytes` at `addr`.
     #[inline(always)]
-    fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
-        if new_len < self.data.len() {
-            return Err(crate::Trap::MemoryOutOfBounds { offset: new_len, len: 0, max: self.data.len() });
-        }
-        cold_err!(self.data.try_reserve_exact(new_len.saturating_sub(self.data.len())))
-            .map_err(|_| crate::Trap::OutOfMemory)?;
-        self.data.resize(new_len, 0);
+    pub(crate) fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8]) -> Result<(), crate::Trap> {
+        self.check_fixed_addr::<N>(addr)?;
+        self.data[addr..addr + N].copy_from_slice(bytes);
         Ok(())
     }
 
+    /// Reads up to `dst.len()` bytes starting at `addr` and returns the number of bytes read.
     #[inline(always)]
-    fn read(&self, addr: usize, dst: &mut [u8]) -> usize {
+    pub(crate) fn read(&self, addr: usize, dst: &mut [u8]) -> usize {
         if addr >= self.data.len() {
             return 0;
         }
@@ -69,114 +71,59 @@ impl LinearMemory for VecMemory {
         read_len
     }
 
+    /// Writes up to `src.len()` bytes starting at `addr` and returns the number of bytes written.
     #[inline(always)]
-    fn read_exact(&self, addr: usize, dst: &mut [u8]) -> Option<()> {
+    pub(crate) fn write(&mut self, addr: usize, src: &[u8]) -> usize {
+        if addr >= self.data.len() {
+            return 0;
+        }
+        let write_len = src.len().min(self.data.len() - addr);
+        self.data[addr..addr + write_len].copy_from_slice(&src[..write_len]);
+        write_len
+    }
+
+    /// Reads exactly `dst.len()` bytes starting at `addr`, returning `None` for an invalid range.
+    #[inline(always)]
+    pub(crate) fn read_exact(&self, addr: usize, dst: &mut [u8]) -> Option<()> {
         dst.copy_from_slice(self.data.get(addr..addr.checked_add(dst.len())?)?);
         Some(())
     }
 
+    /// Reads `len` bytes starting at `addr` into a newly allocated buffer, returning `None` for an
+    /// invalid range.
     #[inline(always)]
-    fn read_vec(&self, addr: usize, len: usize) -> Option<Vec<u8>> {
+    pub(crate) fn read_vec(&self, addr: usize, len: usize) -> Option<Vec<u8>> {
         Some(self.data.get(addr..addr.checked_add(len)?)?.to_vec())
     }
 
+    /// Writes all of `src` at `addr`, returning `None` for an invalid range.
     #[inline(always)]
-    fn write(&mut self, addr: usize, src: &[u8]) -> Result<usize, crate::Trap> {
-        if addr >= self.data.len() {
-            return Ok(0);
-        }
-
-        let write_len = src.len().min(self.data.len() - addr);
-        self.data[addr..addr + write_len].copy_from_slice(&src[..write_len]);
-        Ok(write_len)
-    }
-
-    #[inline(always)]
-    fn write_all(&mut self, addr: usize, src: &[u8]) -> Result<Option<()>, crate::Trap> {
-        let Some(end) = addr.checked_add(src.len()) else { return Ok(None) };
-        let Some(dst) = self.data.get_mut(addr..end) else { return Ok(None) };
+    pub(crate) fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
+        let end = addr.checked_add(src.len())?;
+        let dst = self.data.get_mut(addr..end)?;
         dst.copy_from_slice(src);
-        Ok(Some(()))
+        Some(())
     }
 
+    /// Fills the range `[addr, addr + len)` with `val`, returning `None` for an invalid range.
     #[inline(always)]
-    fn fill(&mut self, addr: usize, len: usize, val: u8) -> Result<Option<()>, crate::Trap> {
-        let Some(end) = addr.checked_add(len) else { return Ok(None) };
-        let Some(dst) = self.data.get_mut(addr..end) else { return Ok(None) };
+    pub(crate) fn fill(&mut self, addr: usize, len: usize, val: u8) -> Option<()> {
+        let end = addr.checked_add(len)?;
+        let dst = self.data.get_mut(addr..end)?;
         dst.fill(val);
-        Ok(Some(()))
+        Some(())
     }
 
+    /// Copies `len` bytes from `src` to `dst` within the memory, returning `None` for an invalid
+    /// range.
     #[inline(always)]
-    fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<Option<()>, crate::Trap> {
-        let Some(src_end) = src.checked_add(len) else { return Ok(None) };
-        let Some(dst_end) = dst.checked_add(len) else { return Ok(None) };
+    pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Option<()> {
+        let src_end = src.checked_add(len)?;
+        let dst_end = dst.checked_add(len)?;
         if src_end > self.data.len() || dst_end > self.data.len() {
-            return Ok(None);
+            return None;
         }
-
         self.data.copy_within(src..src_end, dst);
-        Ok(Some(()))
-    }
-
-    #[inline(always)]
-    fn read_8(&self, addr: usize) -> core::result::Result<[u8; 1], crate::Trap> {
-        self.check_fixed_addr::<1>(addr)?;
-        Ok([self.data[addr]])
-    }
-
-    #[inline(always)]
-    fn read_16(&self, addr: usize) -> core::result::Result<[u8; 2], crate::Trap> {
-        self.read_fixed::<2>(addr)
-    }
-
-    #[inline(always)]
-    fn read_32(&self, addr: usize) -> core::result::Result<[u8; 4], crate::Trap> {
-        self.read_fixed::<4>(addr)
-    }
-
-    #[inline(always)]
-    fn read_64(&self, addr: usize) -> core::result::Result<[u8; 8], crate::Trap> {
-        self.read_fixed::<8>(addr)
-    }
-
-    #[inline(always)]
-    fn read_128(&self, addr: usize) -> core::result::Result<[u8; 16], crate::Trap> {
-        self.read_fixed::<16>(addr)
-    }
-
-    #[inline(always)]
-    fn write_8(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.check_fixed_addr::<1>(addr)?;
-        self.data[addr] = bytes[0];
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_16(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.check_fixed_addr::<2>(addr)?;
-        self.data[addr..addr + 2].copy_from_slice(bytes);
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_32(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.check_fixed_addr::<4>(addr)?;
-        self.data[addr..addr + 4].copy_from_slice(bytes);
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_64(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.check_fixed_addr::<8>(addr)?;
-        self.data[addr..addr + 8].copy_from_slice(bytes);
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn write_128(&mut self, addr: usize, bytes: &[u8]) -> core::result::Result<(), crate::Trap> {
-        self.check_fixed_addr::<16>(addr)?;
-        self.data[addr..addr + 16].copy_from_slice(bytes);
-        Ok(())
+        Some(())
     }
 }

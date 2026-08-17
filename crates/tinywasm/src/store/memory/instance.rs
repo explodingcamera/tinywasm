@@ -1,7 +1,6 @@
-use alloc::format;
 use tinywasm_types::{MemoryArch, MemoryType};
 
-use crate::{Error, MemoryBackend, Result, Trap};
+use crate::{Error, ResourceLimiter, Result, Trap};
 
 use super::{MemoryStorage, memory_oob};
 use core::hint::cold_path;
@@ -67,7 +66,7 @@ impl MemoryInstance {
         }
     }
 
-    pub(crate) fn new(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
+    pub(crate) fn new(kind: MemoryType) -> Result<Self> {
         let initial_len = Self::host_size(kind, kind.page_count_initial())?;
 
         crate::log::debug!(
@@ -76,27 +75,7 @@ impl MemoryInstance {
             kind.page_size()
         );
 
-        let storage = backend.create(kind, initial_len)?;
-        if storage.len() != initial_len {
-            return Err(Error::Other(format!(
-                "memory backend returned {} bytes for a memory that requires {initial_len}",
-                storage.len()
-            )));
-        }
-
-        Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
-    }
-
-    pub(crate) fn new_lazy(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
-        let initial_len = Self::host_size(kind, kind.page_count_initial())?;
-
-        crate::log::debug!(
-            "initializing lazy memory with {} pages of {} bytes",
-            kind.page_count_initial(),
-            kind.page_size()
-        );
-
-        let storage = backend.create_lazy(kind, initial_len)?;
+        let storage = MemoryStorage::try_new(initial_len)?;
         Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
     }
 
@@ -137,7 +116,7 @@ impl MemoryInstance {
                 cold_path();
                 memory_oob(src + copied, chunk_len, src_memory.inner.len())
             })?;
-            self.inner.write_all(dst + copied, &buf[..chunk_len])?.ok_or_else(|| {
+            self.inner.write_all(dst + copied, &buf[..chunk_len]).ok_or_else(|| {
                 cold_path();
                 memory_oob(dst + copied, chunk_len, self.inner.len())
             })?;
@@ -148,13 +127,18 @@ impl MemoryInstance {
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
-        self.inner.copy_within(dst, src, len)?.ok_or_else(|| {
+        self.inner.copy_within(dst, src, len).ok_or_else(|| {
             cold_path();
             memory_oob(dst, len, self.inner.len())
         })
     }
 
-    pub(crate) fn grow(&mut self, pages_delta: i64, trap_on_oom: bool) -> Result<Option<i64>, Trap> {
+    pub(crate) fn grow(
+        &mut self,
+        pages_delta: i64,
+        trap_on_oom: bool,
+        limiter: Option<&dyn ResourceLimiter>,
+    ) -> Result<Option<i64>, Trap> {
         if pages_delta < 0 {
             cold_path();
             crate::log::debug!("memory.grow failed: negative delta {}", pages_delta);
@@ -181,6 +165,21 @@ impl MemoryInstance {
         };
         if new_size == self.inner.len() {
             return Ok(i64::try_from(current_pages).ok());
+        }
+
+        if let Some(limiter) = limiter {
+            let maximum = self.kind.page_count_max_declared().and_then(|pages| Self::host_size(self.kind, pages).ok());
+            match limiter.memory_growing(self.inner.len(), new_size, maximum) {
+                Ok(true) => {}
+                Ok(false) => {
+                    cold_path();
+                    return Ok(None);
+                }
+                Err(trap) => {
+                    cold_path();
+                    return Err(trap);
+                }
+            }
         }
 
         if let Err(err) = self.inner.grow_to(new_size) {

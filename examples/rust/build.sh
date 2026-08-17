@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")" || exit
 
-bins=("host_fn" "hello" "fibonacci" "print" "tinywasm" "tinywasm_precompiled" "argon2id")
-exclude_wat=("tinywasm" "tinywasm_precompiled")
+bins=("host_fn" "hello" "fibonacci" "print" "tinywasm" "argon2id")
+exclude_wat=("tinywasm")
 out_dir="./target/wasm32-unknown-unknown/wasm"
 dest_dir="out"
 

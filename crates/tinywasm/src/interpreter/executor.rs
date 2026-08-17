@@ -27,6 +27,7 @@ pub(crate) struct Executor<'store, const BUDGETED: bool> {
     module: ModuleInstance,
     store: &'store mut Store,
     call_stack_base: u32,
+    mem0: MemAddr,
 }
 
 impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
@@ -36,7 +37,22 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             .get_module_instance(wasm_func.owner)
             .unwrap_or_else(|| unreachable!("invalid module instance"))
             .clone();
-        Self { module, cf, func: wasm_func.func.clone(), store, call_stack_base }
+        let mem0 = module.mem0_addr();
+        Self { module, cf, func: wasm_func.func.clone(), store, call_stack_base, mem0 }
+    }
+
+    /// Resolves a module-local memory index to its store address, caching the common memory-0 case.
+    #[inline(always)]
+    fn mem_addr(&self, idx: MemAddr) -> MemAddr {
+        if idx == 0 { self.mem0 } else { self.module.resolve_mem_addr(idx) }
+    }
+
+    /// Switches the executor to another module, keeping the cached memory-0 address in sync.
+    #[inline]
+    fn set_module(&mut self, owner: ModuleInstanceId) {
+        self.module =
+            self.store.get_module_instance(owner).unwrap_or_else(|| unreachable!("invalid module instance")).clone();
+        self.mem0 = self.module.mem0_addr();
     }
 
     #[inline(always)]
@@ -975,11 +991,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let wasm_func = self.store.state.get_wasm_func(self.cf.func_addr);
         self.func = wasm_func.func.clone();
         if wasm_func.owner != self.module.id() {
-            self.module = self
-                .store
-                .get_module_instance(wasm_func.owner)
-                .unwrap_or_else(|| unreachable!("invalid module instance"))
-                .clone();
+            self.set_module(wasm_func.owner);
         }
     }
 
@@ -1038,11 +1050,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
         self.cf = CallFrame::new(func_addr, locals_base, locals);
         if owner != self.module.id() {
-            self.module = self
-                .store
-                .get_module_instance(owner)
-                .unwrap_or_else(|| unreachable!("invalid module instance"))
-                .clone();
+            self.set_module(owner);
         }
 
         Ok(())
@@ -1064,11 +1072,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
         self.cf = CallFrame::new(func_addr, locals_base, locals);
         if owner != self.module.id() {
-            self.module = self
-                .store
-                .get_module_instance(owner)
-                .unwrap_or_else(|| unreachable!("invalid module instance"))
-                .clone();
+            self.set_module(owner);
         }
 
         Ok(())
@@ -1277,7 +1281,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         value_local: u8,
     ) -> Result<(), Trap> {
         let value = T::local_get(&self.store.value_stack, &self.cf, u16::from(value_local));
-        let mem_addr = self.module.resolve_mem_addr(memarg.mem_addr());
+        let mem_addr = self.mem_addr(memarg.mem_addr());
         let mem = self.store.state.get_mem(mem_addr);
         let addr = if mem.is_64bit() {
             let base = u64::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
@@ -1292,7 +1296,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             mem.effective_addr::<N>(base as usize, memarg.offset())?
         };
         let mem = self.store.state.get_mem_mut(mem_addr);
-        value.store_at(&mut *mem.inner, addr)
+        value.store_at(&mut mem.inner, addr)
     }
 
     #[inline(always)]
@@ -1302,7 +1306,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         addr_local: u8,
         increment: impl FnOnce(T) -> T,
     ) -> Result<(), Trap> {
-        let mem_addr = self.module.resolve_mem_addr(memarg.mem_addr());
+        let mem_addr = self.mem_addr(memarg.mem_addr());
         let mem = self.store.state.get_mem(mem_addr);
         let addr = if mem.is_64bit() {
             let base = i64::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)) as u64;
@@ -1318,8 +1322,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
 
         let mem = self.store.state.get_mem_mut(mem_addr);
-        let value = cold_err!(T::load_at(&*mem.inner, addr))?;
-        increment(value).store_at(&mut *mem.inner, addr)
+        let value = cold_err!(T::load_at(&mem.inner, addr))?;
+        increment(value).store_at(&mut mem.inner, addr)
     }
 
     #[inline(always)]
@@ -1334,12 +1338,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let lhs = T::stack_pop(&mut self.store.value_stack);
         let acc = T::stack_pop(&mut self.store.value_stack);
         let fma = acc + lhs * rhs;
-        let mem_addr = self.module.resolve_mem_addr(m.mem_addr());
+        let mem_addr = self.mem_addr(m.mem_addr());
         let mem = self.store.state.get_mem(mem_addr);
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = mem.effective_addr::<N>(base, m.offset())?;
         let mem = self.store.state.get_mem_mut(mem_addr);
-        fma.store_at(&mut *mem.inner, addr)?;
+        fma.store_at(&mut mem.inner, addr)?;
         Ok(())
     }
 
@@ -1349,7 +1353,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         memarg: CompactMemoryArg,
         addr_local: u8,
     ) -> Result<T, Trap> {
-        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(memarg.mem_addr()));
+        let mem = self.store.state.get_mem(self.mem_addr(memarg.mem_addr()));
         let addr = if mem.is_64bit() {
             let base = i64::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local)) as u64;
             let base = cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds {
@@ -1362,7 +1366,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             let base = u32::local_get(&self.store.value_stack, &self.cf, u16::from(addr_local));
             mem.effective_addr::<N>(base as usize, memarg.offset())?
         };
-        cold_err!(T::load_at(&*mem.inner, addr))
+        cold_err!(T::load_at(&mem.inner, addr))
     }
 
     #[inline(always)]
@@ -1638,7 +1642,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {
-        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(addr));
+        let mem = self.store.state.get_mem(self.mem_addr(addr));
         match mem.is_64bit() {
             true => self.store.value_stack.push::<i64>(mem.page_count as i64),
             false => self.store.value_stack.push::<i32>(mem.page_count as i32),
@@ -1646,14 +1650,17 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_memory_grow(&mut self, addr: u32) -> Result<(), Trap> {
-        let mem = self.store.state.get_mem_mut(self.module.resolve_mem_addr(addr));
-        let is_64bit = mem.is_64bit();
+        let mem_addr = self.mem_addr(addr);
+        let is_64bit = self.store.state.get_mem(mem_addr).is_64bit();
         let pages_delta = match is_64bit {
             true => <i64>::stack_pop(&mut self.store.value_stack),
             false => i64::from(<i32>::stack_pop(&mut self.store.value_stack)),
         };
+        let trap_on_oom = self.store.engine.config().trap_on_oom();
+        let limiter = self.store.engine.config().resource_limiter.as_deref();
 
-        let size = mem.grow(pages_delta, self.store.engine.config().trap_on_oom())?.unwrap_or(-1);
+        let mem = self.store.state.get_mem_mut(mem_addr);
+        let size = mem.grow(pages_delta, trap_on_oom, limiter)?.unwrap_or(-1);
         match is_64bit {
             true => self.store.value_stack.push::<i64>(size)?,
             false => self.store.value_stack.push::<i32>(size as i32)?,
@@ -1664,8 +1671,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_memory_copy(&mut self, index: OperandIdx<TwoU32>) -> Result<(), Trap> {
         let TwoU32 { first: dst_mem, second: src_mem } = index.get(&self.func.data);
-        let dst_mem_addr = self.module.resolve_mem_addr(dst_mem);
-        let src_mem_addr = self.module.resolve_mem_addr(src_mem);
+        let dst_mem_addr = self.mem_addr(dst_mem);
+        let src_mem_addr = self.mem_addr(src_mem);
         let dst_arch = self.store.state.get_mem(dst_mem_addr).kind.arch();
         let src_arch = self.store.state.get_mem(src_mem_addr).kind.arch();
         let len_arch =
@@ -1687,7 +1694,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     fn exec_memory_fill(&mut self, addr: u32) -> Result<(), Trap> {
-        let mem_addr = self.module.resolve_mem_addr(addr);
+        let mem_addr = self.mem_addr(addr);
         let arch = self.store.state.get_mem(mem_addr).kind.arch();
         let size = self.store.value_stack.pop_memory_operand(arch)?;
         let val = i32::stack_pop(&mut self.store.value_stack);
@@ -1697,7 +1704,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_memory_fill_const(&mut self, index: OperandIdx<MemoryFillConstOp>) -> Result<(), Trap> {
         let MemoryFillConstOp { memory: addr, byte: val, value: size } = index.get(&self.func.data);
-        let mem_addr = self.module.resolve_mem_addr(addr);
+        let mem_addr = self.mem_addr(addr);
         let arch = self.store.state.get_mem(mem_addr).kind.arch();
         let dst = self.store.value_stack.pop_memory_operand(arch)?;
         self.exec_memory_fill_impl(mem_addr, dst, val, size as u32 as usize)
@@ -1706,7 +1713,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_memory_fill_impl(&mut self, mem_addr: MemAddr, dst: usize, val: u8, size: usize) -> Result<(), Trap> {
         let mem = self.store.state.get_mem_mut(mem_addr);
         let max = mem.inner.len();
-        if mem.inner.fill(dst, size, val)?.is_none() {
+        if mem.inner.fill(dst, size, val).is_none() {
             return cold!(Err(Trap::MemoryOutOfBounds { offset: dst, len: size, max }));
         }
         Ok(())
@@ -1716,7 +1723,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let TwoU32 { first: data_index, second: mem_index } = index.get(&self.func.data);
         let size = u32::stack_pop(&mut self.store.value_stack) as usize;
         let offset = u32::stack_pop(&mut self.store.value_stack) as usize;
-        let mem_addr = self.module.resolve_mem_addr(mem_index);
+        let mem_addr = self.mem_addr(mem_index);
         let arch = self.store.state.get_mem(mem_addr).kind.arch();
         let dst = self.store.value_stack.pop_memory_operand(arch)?;
 
@@ -1739,7 +1746,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return cold!(Err(Trap::MemoryOutOfBounds { offset: 0, len: 0, max: 0 }));
         };
 
-        if mem.inner.write_all(dst, &data[offset..offset + size])?.is_none() {
+        if mem.inner.write_all(dst, &data[offset..offset + size]).is_none() {
             return cold!(Err(Trap::MemoryOutOfBounds { offset: dst, len: size, max: mem_len }));
         }
         Ok(())
@@ -1772,10 +1779,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         arg: MemoryLaneArg,
     ) -> Result<(), Trap> {
         let m = arg.memory_arg_idx.get(&self.func.data);
-        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
+        let mem = self.store.state.get_mem(self.mem_addr(m.mem_addr()));
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = mem.effective_addr::<LOAD_SIZE>(base, m.offset())?;
-        let val = cold_err!(LOAD::load_at(&*mem.inner, addr))?;
+        let val = cold_err!(LOAD::load_at(&mem.inner, addr))?;
         let offset = arg.lane as usize * LOAD_SIZE;
         let mut imm = <Value128>::stack_pop(&mut self.store.value_stack).to_mem_bytes();
         imm[offset..offset + LOAD_SIZE].copy_from_slice(&val.to_mem_bytes());
@@ -1790,10 +1797,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
         let m = index.get(&self.func.data);
-        let mem = self.store.state.get_mem(self.module.resolve_mem_addr(m.mem_addr()));
+        let mem = self.store.state.get_mem(self.mem_addr(m.mem_addr()));
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = mem.effective_addr::<LOAD_SIZE>(base, m.offset())?;
-        let value = cold_err!(LOAD::load_at(&*mem.inner, addr))?;
+        let value = cold_err!(LOAD::load_at(&mem.inner, addr))?;
         self.store.value_stack.push(cast(value))
     }
 
@@ -1804,12 +1811,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         val_bytes.copy_from_slice(&bytes[lane_offset..lane_offset + N]);
         let val = U::from_mem_bytes(val_bytes);
         let m = arg.memory_arg_idx.get(&self.func.data);
-        let mem_addr = self.module.resolve_mem_addr(m.mem_addr());
+        let mem_addr = self.mem_addr(m.mem_addr());
         let mem = self.store.state.get_mem(mem_addr);
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = mem.effective_addr::<N>(base, m.offset())?;
         let mem = self.store.state.get_mem_mut(mem_addr);
-        cold_err!(val.store_at(&mut *mem.inner, addr))?;
+        cold_err!(val.store_at(&mut mem.inner, addr))?;
         Ok(())
     }
 
@@ -1822,12 +1829,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let val = cast(val);
 
         let m = index.get(&self.func.data);
-        let mem_addr = self.module.resolve_mem_addr(m.mem_addr());
+        let mem_addr = self.mem_addr(m.mem_addr());
         let mem = self.store.state.get_mem(mem_addr);
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = mem.effective_addr::<N>(base, m.offset())?;
         let mem = self.store.state.get_mem_mut(mem_addr);
-        cold_err!(val.store_at(&mut *mem.inner, addr))?;
+        cold_err!(val.store_at(&mut mem.inner, addr))?;
         Ok(())
     }
 

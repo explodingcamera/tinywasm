@@ -61,7 +61,6 @@ fn process_function_job(
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
     imported_func_count: usize,
-    imported_memory_count: u32,
     validator_allocs: Option<FuncValidatorAllocations>,
     reader_allocs: OperatorsReaderAllocations,
 ) -> Result<(OptimizedFunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
@@ -83,13 +82,7 @@ fn process_function_job(
         }
     };
 
-    let code = optimize_function_code(
-        code,
-        options,
-        job.results,
-        (imported_func_count + job.ordinal) as u32,
-        imported_memory_count,
-    )?;
+    let code = optimize_function_code(code, options, job.results, (imported_func_count + job.ordinal) as u32)?;
 
     Ok((code, validator_allocs, reader_allocs))
 }
@@ -99,7 +92,6 @@ fn process_chunk<'a>(
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
     imported_func_count: usize,
-    imported_memory_count: u32,
 ) -> Result<Vec<OptimizedFunctionCode>> {
     let mut validator_allocs = None;
     let mut reader_allocs = OperatorsReaderAllocations::default();
@@ -107,15 +99,8 @@ fn process_chunk<'a>(
     let mut codes = Vec::with_capacity(jobs.size_hint().0);
 
     for job in jobs {
-        let (code, next_validator_allocs, next_reader_allocs) = process_function_job(
-            job,
-            metadata,
-            options,
-            imported_func_count,
-            imported_memory_count,
-            validator_allocs,
-            reader_allocs,
-        )?;
+        let (code, next_validator_allocs, next_reader_allocs) =
+            process_function_job(job, metadata, options, imported_func_count, validator_allocs, reader_allocs)?;
         codes.push(code);
         validator_allocs = next_validator_allocs;
         reader_allocs = next_reader_allocs;
@@ -129,11 +114,10 @@ pub(crate) fn process_pending(
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
     imported_func_count: usize,
-    imported_memory_count: u32,
 ) -> Result<Vec<OptimizedFunctionCode>> {
     let num_workers = worker_count(options, pending.len());
     if num_workers == 1 {
-        return process_chunk(pending, metadata, options, imported_func_count, imported_memory_count);
+        return process_chunk(pending, metadata, options, imported_func_count);
     }
     let code_count = pending.len();
     let chunk_size = pending.len().div_ceil(num_workers);
@@ -151,10 +135,7 @@ pub(crate) fn process_pending(
                 bytes += body_len(&job.body);
                 chunk.push(job);
             }
-            handles
-                .push(scope.spawn(move || {
-                    process_chunk(chunk, metadata, options, imported_func_count, imported_memory_count)
-                }));
+            handles.push(scope.spawn(move || process_chunk(chunk, metadata, options, imported_func_count)));
         }
 
         let mut codes = Vec::with_capacity(code_count);

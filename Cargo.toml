@@ -57,10 +57,6 @@ name = "tinywasm"
 harness = false
 name = "tinywasm_modes"
 
-[[bench]]
-harness = false
-name = "memory_backends"
-
 [dev-dependencies]
 anyhow.workspace = true
 criterion.workspace = true

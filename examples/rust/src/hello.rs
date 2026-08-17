@@ -19,10 +19,12 @@ pub unsafe extern "C" fn arg_size() -> i32 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn hello(len: i32) {
-    let arg = core::str::from_utf8(&ARG[0..len as usize]).unwrap();
-    let res = format!("Hello, {}!", arg).as_bytes().to_vec();
+    unsafe {
+        let arg = core::str::from_utf8(&ARG[0..len as usize]).unwrap();
+        let res = format!("Hello, {}!", arg).as_bytes().to_vec();
 
-    let len = res.len() as i32;
-    let ptr = res.leak().as_ptr() as i64;
-    print_utf8(ptr, len);
+        let len = res.len() as i32;
+        let ptr = res.leak().as_ptr() as i64;
+        print_utf8(ptr, len);
+    }
 }

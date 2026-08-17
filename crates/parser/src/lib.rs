@@ -61,8 +61,6 @@ pub struct ParserOptions {
     /// Disable this only for trusted input. Parsing without validation may produce
     /// a module that violates runtime assumptions.
     pub validation: bool,
-    /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
-    pub optimize_local_memory_allocation: bool,
     /// Whether to run the peephole rewrite optimizer.
     pub optimize_rewrite: bool,
     /// Whether to deduplicate immutable function operands while parsing.
@@ -85,7 +83,6 @@ impl Default for ParserOptions {
     fn default() -> Self {
         Self {
             validation: cfg!(feature = "validate"),
-            optimize_local_memory_allocation: true,
             optimize_rewrite: true,
             deduplicate_operands: false,
             #[cfg(parallel_parser)]
@@ -115,17 +112,6 @@ impl ParserOptions {
     /// Returns whether WebAssembly validation is enabled.
     pub const fn validation(&self) -> bool {
         self.validation
-    }
-
-    /// Enable or disable the optimization that skips allocating unused local memories.
-    pub const fn with_local_memory_allocation_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_local_memory_allocation = enabled;
-        self
-    }
-
-    /// Returns whether unused local memory allocation optimization is enabled.
-    pub const fn optimize_local_memory_allocation(&self) -> bool {
-        self.optimize_local_memory_allocation
     }
 
     /// Enable or disable the peephole rewrite optimizer.
@@ -234,7 +220,7 @@ impl Parser {
         }
 
         reader.process_pending_functions(&self.options)?;
-        reader.into_module(&self.options)
+        reader.into_module()
     }
 
     #[cfg(feature = "std")]
@@ -335,7 +321,7 @@ impl Parser {
 
                     if reader.end_reached || eof {
                         reader.process_pending_functions(&self.options)?;
-                        return reader.into_module(&self.options);
+                        return reader.into_module();
                     }
                 }
             };
@@ -347,7 +333,7 @@ impl TryFrom<ModuleReader<'_>> for Module {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader<'_>) -> Result<Self> {
-        reader.into_module(&ParserOptions::default())
+        reader.into_module()
     }
 }
 

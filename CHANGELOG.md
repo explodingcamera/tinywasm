@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 - Added optional parse-time operand deduplication to reduce precompiled module and `.twasm` archive size.
+- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory growth.
 
 ### Changed
 
@@ -25,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Typed function tuples now support up to 20 parameters or results. `WasmTupleChain` is deprecated. Use untyped functions for larger signatures.
 - Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
 - Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
-- `LinearMemory` mutation methods and custom memory-backend factories now return `Trap` errors so lazy backend failures can be propagated.
+- Linear memory now uses a single contiguous `Vec`-backed storage with const-generic fixed-width loads and stores.
 
 ### Fixed
 
@@ -44,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `ModuleInstanceAddr` to `ModuleInstanceId`.
 - Removed `HostFunction::ty` and `WasmFunction::ty`. Use `Function::ty(&Store)` for runtime function types.
 - Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
+- Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed.
+- Removed the local-memory allocation analysis (`LocalMemoryAllocation` and `ParserOptions::optimize_local_memory_allocation`). Local memories are always allocated eagerly.
 
 ## [0.10.0] - 2026-07-24
 

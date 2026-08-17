@@ -23,7 +23,6 @@ mod types;
 
 use const_expr::eval_const;
 pub(crate) use gc::{decode_data, default_value, pop_value, push_value};
-pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
@@ -31,6 +30,25 @@ pub(crate) use {data::*, element::*, exception::*, function::*, global::*, table
 
 // global store id counter
 static STORE_ID: AtomicU32 = AtomicU32::new(0);
+
+/// Limits resource consumption within a [`Store`].
+///
+/// The limiter is consulted before a memory grows, so a host can bound how much a guest may
+/// consume. This mirrors the shape of Wasmtime's `ResourceLimiter`; additional resource types can
+/// be added as the need arises.
+///
+/// A limiter is shared across the stores created from one [`Engine`], so implementations must be
+/// `Send + Sync` and use interior mutability to track state.
+pub trait ResourceLimiter: Send + Sync {
+    /// Notifies the limiter that a linear memory is about to grow.
+    ///
+    /// `current` and `desired` are byte sizes and are always multiples of the memory's page size.
+    /// `maximum` is the memory's declared maximum in bytes, or `None` when the memory is unbounded.
+    ///
+    /// Return `Ok(true)` to allow the grow, `Ok(false)` to reject it (the guest observes
+    /// `memory.grow` returning -1), or `Err` to turn the grow into a trap.
+    fn memory_growing(&self, current: usize, desired: usize, maximum: Option<usize>) -> Result<bool, Trap>;
+}
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -263,12 +281,12 @@ impl Store {
     pub(crate) fn init_memories(
         &mut self,
         memories: &[MemoryType],
-        init: impl Fn(MemoryType, &MemoryBackend) -> Result<MemoryInstance>,
+        init: impl Fn(MemoryType) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
         let start = self.state.memories.len() as MemAddr;
         self.state.memories.reserve_exact(memories.len());
         for mem in memories {
-            self.state.memories.push(cold_err!(init(*mem, &self.engine.config().memory_backend))?);
+            self.state.memories.push(cold_err!(init(*mem))?);
         }
         Ok(start..start + memories.len() as MemAddr)
     }
@@ -428,7 +446,7 @@ impl Store {
                     };
 
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-                    match mem.inner.write_all(offset, &data.data)? {
+                    match mem.inner.write_all(offset, &data.data) {
                         Some(()) => None,
                         None => {
                             return Ok((

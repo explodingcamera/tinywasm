@@ -54,8 +54,8 @@
 //! ```
 //!
 //! For non-default runtime behavior, construct a [`Store`] with a custom [`Engine`]
-//! and [`engine::Config`] to control stack sizing, fuel accounting, memory backends,
-//! and trap-on-OOM behavior.
+//! and [`engine::Config`] to control stack sizing, fuel accounting, and trap-on-OOM
+//! behavior. A [`ResourceLimiter`] can be attached to a [`Store`] to bound memory growth.
 //!
 //! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
 //!
@@ -129,7 +129,7 @@ use interpreter::InterpreterRuntime;
 
 /// Global configuration for the WebAssembly interpreter
 pub mod engine;
-pub use engine::{Engine, LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, StackConfig, VecMemory};
+pub use engine::{Engine, StackConfig};
 
 #[cfg(feature = "parser")]
 /// Re-export of [`tinywasm_parser`]. Requires `parser` feature.

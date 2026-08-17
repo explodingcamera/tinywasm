@@ -122,7 +122,7 @@ impl crate::std::io::Read for MemoryCursor<'_> {
 impl crate::std::io::Write for MemoryCursor<'_> {
     fn write(&mut self, buf: &[u8]) -> crate::std::io::Result<usize> {
         let offset = self.offset()?;
-        let written = self.memory.inner.write(offset, buf).map_err(Error::from)?;
+        let written = self.memory.inner.write(offset, buf);
         self.advance(written)?;
         Ok(written)
     }
@@ -163,7 +163,7 @@ impl Memory {
     /// Create a new memory in the given store.
     pub fn new(store: &mut Store, ty: MemoryType) -> Result<Self> {
         let addr = store.state.memories.len() as MemAddr;
-        store.state.memories.push(MemoryInstance::new(ty, &store.engine.config().memory_backend)?);
+        store.state.memories.push(MemoryInstance::new(ty)?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -242,7 +242,7 @@ impl Memory {
     /// Depending on the configured backend, this may return fewer bytes than requested even when
     /// more space is available. Use [`Self::copy_from_slice`] when you need the full slice written.
     pub fn write(&self, store: &mut Store, offset: usize, src: &[u8]) -> Result<usize> {
-        Ok(self.instance_mut(store)?.inner.write(offset, src)?)
+        Ok(self.instance_mut(store)?.inner.write(offset, src))
     }
 
     /// Reads exactly `dst.len()` bytes from memory.
@@ -265,7 +265,9 @@ impl Memory {
 
     /// Grow the memory by the given number of pages.
     pub fn grow(&self, store: &mut Store, delta_pages: i64) -> Result<Option<i64>> {
-        self.instance_mut(store)?.grow(delta_pages, true).map_err(Into::into)
+        let limiter = store.engine.config().resource_limiter.clone();
+        let mem = self.instance_mut(store)?;
+        mem.grow(delta_pages, true, limiter.as_deref()).map_err(Into::into)
     }
 
     /// Get the current size of the memory in pages.
@@ -281,14 +283,14 @@ impl Memory {
 
     /// Fill a slice of memory with a value.
     pub fn fill(&self, store: &mut Store, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance_mut(store)?.inner.fill(offset, len, val)?.ok_or_else(|| {
+        self.instance_mut(store)?.inner.fill(offset, len, val).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds { offset, len, max: self.instance(store).unwrap().inner.len() })
         })
     }
 
     /// Copies a full slice into memory.
     pub fn copy_from_slice(&self, store: &mut Store, offset: usize, data: &[u8]) -> Result<()> {
-        self.instance_mut(store)?.inner.write_all(offset, data)?.ok_or_else(|| {
+        self.instance_mut(store)?.inner.write_all(offset, data).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset,
                 len: data.len(),
