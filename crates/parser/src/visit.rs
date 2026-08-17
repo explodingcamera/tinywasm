@@ -1334,12 +1334,12 @@ impl FunctionBuilder<'_> {
         self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
         let conditional_ip = self.instructions.len();
-        let operand = self.data.push_target_operand(CastBranch {
-            target: 0,
-            ref_type_bits: target.to_bits(),
-            branch_on_fail: u8::from(branch_on_fail),
-        })?;
-        self.instructions.push(Instruction::BrOnCast(operand));
+        let operand = self.data.push_target_operand(CastBranch { target: 0, ref_type_bits: target.to_bits() })?;
+        self.instructions.push(if branch_on_fail {
+            Instruction::BrOnCastFail(operand)
+        } else {
+            Instruction::BrOnCast(operand)
+        });
         self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
@@ -1503,7 +1503,7 @@ impl FunctionBuilder<'_> {
             | Instruction::JumpIfRefNonNull(ip) => {
                 *ip = target as u32;
             }
-            Instruction::BrOnCast(index) => {
+            Instruction::BrOnCast(index) | Instruction::BrOnCastFail(index) => {
                 let mut operand = self.data.operand(*index);
                 operand.target = target as u32;
                 self.data.set_operand(*index, operand);

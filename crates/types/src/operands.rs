@@ -3,9 +3,12 @@ use core::marker::PhantomData;
 use crate::WasmFunctionData;
 
 /// An index into the operand lane used by `T`.
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "archive", serde(transparent))]
 #[repr(transparent)]
 pub struct OperandIdx<T> {
     index: u32,
+    #[cfg_attr(feature = "archive", serde(skip))]
     marker: PhantomData<T>,
 }
 
@@ -56,43 +59,8 @@ impl<T> core::fmt::Debug for OperandIdx<T> {
     }
 }
 
-#[cfg(feature = "archive")]
-impl<T> serde::Serialize for OperandIdx<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serde::Serialize::serialize(&self.index, serializer)
-    }
-}
-
-#[cfg(feature = "archive")]
-impl<'de, T> serde::Deserialize<'de> for OperandIdx<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        Ok(Self::new(serde::Deserialize::deserialize(deserializer)?))
-    }
-}
-
-/// Raw fields stored in a per-function 64-bit operand lane.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(transparent)]
-pub struct Operand64(u64);
-
-/// Raw fields stored in a per-function 128-bit operand lane.
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(transparent)]
-pub struct Operand128(u128);
-
 pub(crate) mod sealed {
     pub trait Sealed {}
-    pub trait RawSealed {}
 }
 
 /// A typed view stored in one of the per-function operand lanes.
@@ -107,112 +75,103 @@ pub trait OperandType: sealed::Sealed + Copy {
 }
 
 #[doc(hidden)]
-pub trait RawOperand: sealed::RawSealed + Copy {
+pub trait RawOperand: sealed::Sealed + Copy {
     fn get(data: &WasmFunctionData, index: u32) -> Self;
 }
 
-impl sealed::RawSealed for Operand64 {}
-impl RawOperand for Operand64 {
-    #[inline(always)]
-    fn get(data: &WasmFunctionData, index: u32) -> Self {
-        *data.operands64.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
-    }
-}
+macro_rules! define_operand {
+    ($name:ident, $len:literal, $lane:ident) => {
+        #[doc = concat!("Raw fields stored in a per-function ", $len, "-byte operand lane.")]
+        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+        #[cfg_attr(feature = "debug", derive(Debug))]
+        #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+        #[repr(transparent)]
+        pub struct $name([u8; $len]);
 
-impl sealed::RawSealed for Operand128 {}
-impl RawOperand for Operand128 {
-    #[inline(always)]
-    fn get(data: &WasmFunctionData, index: u32) -> Self {
-        *data.operands128.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
-    }
-}
+        impl sealed::Sealed for $name {}
 
-macro_rules! operand_fields {
-    ($ty:ty) => {
-        #[inline]
-        pub(crate) const fn u16(self, offset: u32) -> u16 {
-            (self.0 >> (offset * 8)) as u16
+        impl RawOperand for $name {
+            #[inline(always)]
+            fn get(data: &WasmFunctionData, index: u32) -> Self {
+                *data.$lane.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
+            }
         }
-        #[inline]
-        pub(crate) const fn u32(self, offset: u32) -> u32 {
-            (self.0 >> (offset * 8)) as u32
-        }
-        #[inline]
-        pub(crate) const fn u64(self, offset: u32) -> u64 {
-            (self.0 >> (offset * 8)) as u64
-        }
-        #[inline]
-        pub(crate) const fn i64(self, offset: u32) -> i64 {
-            self.u64(offset) as i64
+
+        impl $name {
+            /// Returns the byte at `OFFSET`.
+            #[inline]
+            pub fn u8<const OFFSET: usize>(self) -> u8 {
+                const { assert!(OFFSET < $len) };
+                self.0[OFFSET]
+            }
+
+            /// Returns the little-endian `u16` at `OFFSET`.
+            #[inline]
+            pub fn u16<const OFFSET: usize>(self) -> u16 {
+                const { assert!(OFFSET + 2 <= $len) };
+                u16::from_le_bytes(self.0[OFFSET..OFFSET + 2].try_into().unwrap_or_else(|_| unreachable!()))
+            }
+
+            /// Returns the little-endian `u32` at `OFFSET`.
+            #[inline]
+            pub fn u32<const OFFSET: usize>(self) -> u32 {
+                const { assert!(OFFSET + 4 <= $len) };
+                u32::from_le_bytes(self.0[OFFSET..OFFSET + 4].try_into().unwrap_or_else(|_| unreachable!()))
+            }
+
+            /// Returns the little-endian `u64` at `OFFSET`.
+            #[inline]
+            pub fn u64<const OFFSET: usize>(self) -> u64 {
+                const { assert!(OFFSET + 8 <= $len) };
+                u64::from_le_bytes(self.0[OFFSET..OFFSET + 8].try_into().unwrap_or_else(|_| unreachable!()))
+            }
+
+            /// Builds an operand from its raw little-endian bytes.
+            #[inline]
+            pub fn from_le_bytes(value: [u8; $len]) -> Self {
+                Self(value)
+            }
+
+            /// Returns the raw little-endian bytes.
+            #[inline]
+            pub fn to_le_bytes(self) -> [u8; $len] {
+                self.0
+            }
+
+            /// Writes `value` at `OFFSET` and returns the updated operand.
+            #[inline]
+            pub fn with_u8<const OFFSET: usize>(mut self, value: u8) -> Self {
+                const { assert!(OFFSET < $len) };
+                self.0[OFFSET] = value;
+                self
+            }
+
+            /// Writes `value` at `OFFSET` and returns the updated operand.
+            #[inline]
+            pub fn with_u16<const OFFSET: usize>(mut self, value: u16) -> Self {
+                const { assert!(OFFSET + 2 <= $len) };
+                self.0[OFFSET..OFFSET + 2].copy_from_slice(&value.to_le_bytes());
+                self
+            }
+
+            /// Writes `value` at `OFFSET` and returns the updated operand.
+            #[inline]
+            pub fn with_u32<const OFFSET: usize>(mut self, value: u32) -> Self {
+                const { assert!(OFFSET + 4 <= $len) };
+                self.0[OFFSET..OFFSET + 4].copy_from_slice(&value.to_le_bytes());
+                self
+            }
+
+            /// Writes `value` at `OFFSET` and returns the updated operand.
+            #[inline]
+            pub fn with_u64<const OFFSET: usize>(mut self, value: u64) -> Self {
+                const { assert!(OFFSET + 8 <= $len) };
+                self.0[OFFSET..OFFSET + 8].copy_from_slice(&value.to_le_bytes());
+                self
+            }
         }
     };
 }
 
-impl Operand64 {
-    operand_fields!(u64);
-
-    #[inline]
-    pub(crate) const fn with_u16(self, offset: u32, value: u16) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u16::MAX as u64) << shift)) | ((value as u64) << shift))
-    }
-
-    #[inline]
-    pub(crate) const fn with_u32(self, offset: u32, value: u32) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u32::MAX as u64) << shift)) | ((value as u64) << shift))
-    }
-
-    #[inline]
-    pub(crate) const fn with_u64(self, _offset: u32, value: u64) -> Self {
-        Self(value)
-    }
-}
-
-impl Operand128 {
-    operand_fields!(u128);
-
-    #[inline]
-    pub(crate) const fn u8(self, offset: u32) -> u8 {
-        (self.0 >> (offset * 8)) as u8
-    }
-
-    #[inline]
-    pub(crate) const fn i32(self, offset: u32) -> i32 {
-        self.u32(offset) as i32
-    }
-
-    #[inline]
-    pub(crate) const fn from_le_bytes(value: [u8; 16]) -> Self {
-        Self(u128::from_le_bytes(value))
-    }
-
-    #[inline]
-    pub(crate) const fn to_le_bytes(self) -> [u8; 16] {
-        self.0.to_le_bytes()
-    }
-
-    #[inline]
-    pub(crate) const fn with_u8(self, offset: u32, value: u8) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u8::MAX as u128) << shift)) | ((value as u128) << shift))
-    }
-
-    #[inline]
-    pub(crate) const fn with_u16(self, offset: u32, value: u16) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u16::MAX as u128) << shift)) | ((value as u128) << shift))
-    }
-
-    #[inline]
-    pub(crate) const fn with_u32(self, offset: u32, value: u32) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u32::MAX as u128) << shift)) | ((value as u128) << shift))
-    }
-
-    #[inline]
-    pub(crate) const fn with_u64(self, offset: u32, value: u64) -> Self {
-        let shift = offset * 8;
-        Self((self.0 & !((u64::MAX as u128) << shift)) | ((value as u128) << shift))
-    }
-}
+define_operand!(Operand64, 8, operands64);
+define_operand!(Operand128, 16, operands128);

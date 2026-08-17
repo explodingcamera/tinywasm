@@ -6,10 +6,10 @@ use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
 use tinywasm_types::{
     BinOp, BinOp128, CmpOp, CompactMemoryArg, GlobalConst32, GlobalConst64, GlobalUpdate, GlobalV128, I32LocalArg,
-    I64Local, Instruction, LocalConst64, LocalConstCmp, LocalConstSet32, LocalConstSet64, LocalConstSetV128,
+    I64Operand, Instruction, LocalConst64, LocalConstCmp, LocalConstSet32, LocalConstSet64, LocalConstSetV128,
     LocalLocalCmp, LocalTripleArg, LocalU32, LocalUpdate, LocalUpdateCmp, LocalV128, MemoryArg, MemoryFillConstOp,
-    MemoryLocalArg, OperandIdx, PackedOp, StackConst32, StackConst64, TargetLocal, TargetLocalArg, V128LocalArg,
-    V128Operand, ValueCounts,
+    MemoryLocalArg, OperandIdx, PackedOp, StackConst32, StackConst64, TargetLocal, TargetLocalArg, V128Operand,
+    ValueCounts,
 };
 
 pub(crate) struct OptimizeResult {
@@ -725,8 +725,7 @@ fn rewrite_local_set64(
             }
             Instruction::LocalGet64(src) => replace!(output, *read, 1 => Instruction::LocalCopy64(src, dst)),
             Instruction::Const64(index) => {
-                let index = operand!(data, I64Local { value: data.operand(index).value, local: dst })?;
-                replace!(output, *read, 1 => Instruction::SetLocalConst64(index));
+                replace!(output, *read, 1 => Instruction::SetLocalConst64(PackedOp::new(dst, index)));
             }
             Instruction::BinOpLocalLocal64(op, left, right) => {
                 let index = operand!(data, LocalTripleArg { left, right, dst })?;
@@ -735,8 +734,8 @@ fn rewrite_local_set64(
             instruction if let Some((op, src, value)) = local_const64(data, instruction) => {
                 if src == dst && matches!(op, BinOp::IAdd | BinOp::ISub) {
                     let delta = if op == BinOp::IAdd { value } else { value.wrapping_neg() };
-                    let index = operand!(data, I64Local { value: delta, local: dst })?;
-                    replace!(output, *read, 1 => Instruction::IncLocal64(index));
+                    let index = operand!(data, I64Operand { value: delta })?;
+                    replace!(output, *read, 1 => Instruction::IncLocal64(PackedOp::new(dst, index)));
                 } else {
                     let replacement = local_const_set!(data, 64, op, src, dst, value, false);
                     replace!(output, *read, 1 => replacement);
@@ -776,7 +775,7 @@ fn rewrite_local_set128(
             }
             Instruction::LocalGet128(src) => replace!(output, *read, 1 => Instruction::LocalCopy128(src, dst)),
             Instruction::Const128(value) => {
-                replace!(output, *read, 1 => Instruction::SetLocalConst128(V128LocalArg { value, local: dst }))
+                replace!(output, *read, 1 => Instruction::SetLocalConst128(PackedOp::new(dst, value)))
             }
             Instruction::BinOpLocalLocal128(op, left, right) => {
                 let index = operand!(data, LocalTripleArg { left, right, dst })?;
@@ -867,13 +866,11 @@ fn rewrite_local_tee64(
     if *read >= output.block_start + 2 {
         match [output[*read - 2], output[*read - 1]] {
             [Instruction::Const64(value), Instruction::I64And] => {
-                let index = operand!(data, I64Local { value: data.operand(value).value, local: dst })?;
-                replace!(output, *read, 2 => Instruction::AndConstTee64(index));
+                replace!(output, *read, 2 => Instruction::AndConstTee64(PackedOp::new(dst, value)));
                 return Ok(());
             }
             [Instruction::Const64(value), Instruction::I64Sub] => {
-                let index = operand!(data, I64Local { value: data.operand(value).value, local: dst })?;
-                replace!(output, *read, 2 => Instruction::SubConstTee64(index));
+                replace!(output, *read, 2 => Instruction::SubConstTee64(PackedOp::new(dst, value)));
                 return Ok(());
             }
             _ => {}

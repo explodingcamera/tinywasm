@@ -75,23 +75,13 @@ impl OperandType for LocalTripleArg {
 
     #[inline(always)]
     fn decode(raw: Self::Raw) -> Self {
-        Self { left: raw.u16(0), right: raw.u16(2), dst: raw.u16(4) }
+        Self { left: raw.u16::<0>(), right: raw.u16::<2>(), dst: raw.u16::<4>() }
     }
 
     #[inline]
     fn encode(self) -> Self::Raw {
-        Operand64::default().with_u16(0, self.left).with_u16(2, self.right).with_u16(4, self.dst)
+        Operand64::default().with_u16::<0>(self.left).with_u16::<2>(self.right).with_u16::<4>(self.dst)
     }
-}
-
-/// An indexed SIMD value and local operand that fit in an instruction payload.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct V128LocalArg {
-    pub value: OperandIdx<V128Operand>,
-    pub local: LocalAddr,
 }
 
 /// A branch target and local operand that fit in an instruction payload.
@@ -119,18 +109,18 @@ macro_rules! operand_view {
 
             #[inline(always)]
             fn decode(raw: Self::Raw) -> Self {
-                Self { $($field: raw.$read($offset) as $ty),+ }
+                Self { $($field: raw.$read::<$offset>() as $ty),+ }
             }
 
             #[inline]
             fn encode(self) -> Self::Raw {
-                <$raw>::default()$(.$write($offset, self.$field as _))+
+                <$raw>::default()$(.$write::<$offset>(self.$field as _))+
             }
         }
     };
 }
 
-operand_view!(I64Operand, operands64, Operand64, { value: i64 = i64 / with_u64(0) });
+operand_view!(I64Operand, operands64, Operand64, { value: i64 = u64 / with_u64(0) });
 operand_view!(TwoU32, operands64, Operand64, {
     first: u32 = u32 / with_u32(0), second: u32 = u32 / with_u32(4)
 });
@@ -141,53 +131,50 @@ operand_view!(TargetLocal, operands64, Operand64, {
     target: u32 = u32 / with_u32(0), local: u16 = u16 / with_u16(4)
 });
 
-operand_view!(I64Local, operands128, Operand128, {
-    value: i64 = i64 / with_u64(0), local: u16 = u16 / with_u16(8)
-});
 operand_view!(LocalConst64, operands128, Operand128, {
     local: u16 = u16 / with_u16(0), value: u64 = u64 / with_u64(2)
 });
-operand_view!(GlobalConst32, operands128, Operand128, {
+operand_view!(GlobalConst32, operands64, Operand64, {
     global: u32 = u32 / with_u32(0), value: u32 = u32 / with_u32(4)
 });
 operand_view!(GlobalConst64, operands128, Operand128, {
     global: u32 = u32 / with_u32(0), value: u64 = u64 / with_u64(4)
 });
-operand_view!(LocalConstSet32, operands128, Operand128, {
+operand_view!(LocalConstSet32, operands64, Operand64, {
     local: u16 = u16 / with_u16(0), dst: u16 = u16 / with_u16(2), value: u32 = u32 / with_u32(4)
 });
 operand_view!(LocalConstSet64, operands128, Operand128, {
     local: u16 = u16 / with_u16(0), dst: u16 = u16 / with_u16(2), value: u64 = u64 / with_u64(4)
 });
 operand_view!(MemoryFillConstOp, operands128, Operand128, {
-    memory: u32 = u32 / with_u32(0), byte: u8 = u8 / with_u8(4), value: i32 = i32 / with_u32(5)
+    memory: u32 = u32 / with_u32(0), byte: u8 = u8 / with_u8(4), value: i32 = u32 / with_u32(5)
 });
-operand_view!(CastBranch, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), ref_type_bits: u32 = u32 / with_u32(4), branch_on_fail: u8 = u8 / with_u8(8)
+operand_view!(CastBranch, operands64, Operand64, {
+    target: u32 = u32 / with_u32(0), ref_type_bits: u32 = u32 / with_u32(4)
 });
 operand_view!(BranchTableArg, operands128, Operand128, {
     target: u32 = u32 / with_u32(0), start: u32 = u32 / with_u32(4), len: u32 = u32 / with_u32(8)
 });
-operand_view!(StackConst32, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = i32 / with_u32(4)
+operand_view!(StackConst32, operands64, Operand64, {
+    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4)
 });
 operand_view!(StackConst64, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i64 = i64 / with_u64(4)
+    target: u32 = u32 / with_u32(0), value: i64 = u64 / with_u64(4)
 });
 operand_view!(LocalConstCmp, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = i32 / with_u32(4), local: u16 = u16 / with_u16(8)
+    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8)
 });
-operand_view!(LocalLocalCmp, operands128, Operand128, {
+operand_view!(LocalLocalCmp, operands64, Operand64, {
     target: u32 = u32 / with_u32(0), left: u16 = u16 / with_u16(4), right: u16 = u16 / with_u16(6)
 });
 operand_view!(LocalUpdate, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = i32 / with_u32(4), local: u16 = u16 / with_u16(8), on_zero: u8 = u8 / with_u8(10)
+    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8), on_zero: u8 = u8 / with_u8(10)
 });
 operand_view!(GlobalUpdate, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = i32 / with_u32(4), global: u32 = u32 / with_u32(8), on_zero: u8 = u8 / with_u8(12)
+    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), global: u32 = u32 / with_u32(8), on_zero: u8 = u8 / with_u8(12)
 });
 operand_view!(LocalUpdateCmp, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = i32 / with_u32(4), local: u16 = u16 / with_u16(8), right: u16 = u16 / with_u16(10)
+    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8), right: u16 = u16 / with_u16(10)
 });
 
 /// An operation packed inline with an indexed operand.
@@ -244,12 +231,12 @@ pub struct LocalConstSetV128 {
     pub value: OperandIdx<V128Operand>,
 }
 
-macro_rules! operand128_view {
-    ($name:ident, $decode:expr, $encode:expr) => {
+macro_rules! operand_raw_view {
+    ($name:ident, $raw:ty, $decode:expr, $encode:expr) => {
         impl sealed::Sealed for $name {}
 
         impl OperandType for $name {
-            type Raw = Operand128;
+            type Raw = $raw;
 
             #[inline(always)]
             fn decode(raw: Self::Raw) -> Self {
@@ -264,24 +251,27 @@ macro_rules! operand128_view {
     };
 }
 
-operand128_view!(V128Operand, |raw: Operand128| Self { value: raw.to_le_bytes() }, |value: Self| {
+operand_raw_view!(V128Operand, Operand128, |raw: Operand128| Self { value: raw.to_le_bytes() }, |value: Self| {
     Operand128::from_le_bytes(value.value)
 });
-operand128_view!(
+operand_raw_view!(
     LocalV128,
-    |raw: Operand128| Self { local: raw.u16(0), value: OperandIdx::new(raw.u32(2)) },
-    |value: Self| { Operand128::default().with_u16(0, value.local).with_u32(2, value.value.index()) }
+    Operand64,
+    |raw: Operand64| Self { local: raw.u16::<0>(), value: OperandIdx::new(raw.u32::<2>()) },
+    |value: Self| { Operand64::default().with_u16::<0>(value.local).with_u32::<2>(value.value.index()) }
 );
-operand128_view!(
+operand_raw_view!(
     GlobalV128,
-    |raw: Operand128| Self { global: raw.u32(0), value: OperandIdx::new(raw.u32(4)) },
-    |value: Self| { Operand128::default().with_u32(0, value.global).with_u32(4, value.value.index()) }
+    Operand64,
+    |raw: Operand64| Self { global: raw.u32::<0>(), value: OperandIdx::new(raw.u32::<4>()) },
+    |value: Self| { Operand64::default().with_u32::<0>(value.global).with_u32::<4>(value.value.index()) }
 );
-operand128_view!(
+operand_raw_view!(
     LocalConstSetV128,
-    |raw: Operand128| Self { local: raw.u16(0), dst: raw.u16(2), value: OperandIdx::new(raw.u32(4)) },
+    Operand64,
+    |raw: Operand64| Self { local: raw.u16::<0>(), dst: raw.u16::<2>(), value: OperandIdx::new(raw.u32::<4>()) },
     |value: Self| {
-        Operand128::default().with_u16(0, value.local).with_u16(2, value.dst).with_u32(4, value.value.index())
+        Operand64::default().with_u16::<0>(value.local).with_u16::<2>(value.dst).with_u32::<4>(value.value.index())
     }
 );
 
@@ -359,12 +349,12 @@ impl OperandType for MemoryArg {
 
     #[inline(always)]
     fn decode(raw: Self::Raw) -> Self {
-        Self::new(raw.u64(0), raw.u32(8))
+        Self::new(raw.u64::<0>(), raw.u32::<8>())
     }
 
     #[inline]
     fn encode(self) -> Self::Raw {
-        Operand128::default().with_u64(0, self.offset).with_u32(8, self.mem_addr)
+        Operand128::default().with_u64::<0>(self.offset).with_u32::<8>(self.mem_addr)
     }
 }
 
@@ -389,12 +379,12 @@ impl OperandType for CompactMemoryArg {
 
     #[inline(always)]
     fn decode(raw: Self::Raw) -> Self {
-        Self { offset: raw.u32(0), mem_addr: raw.u16(4) }
+        Self { offset: raw.u32::<0>(), mem_addr: raw.u16::<4>() }
     }
 
     #[inline]
     fn encode(self) -> Self::Raw {
-        Operand64::default().with_u32(0, self.offset).with_u16(4, self.mem_addr)
+        Operand64::default().with_u32::<0>(self.offset).with_u16::<4>(self.mem_addr)
     }
 }
 
@@ -424,7 +414,6 @@ const _: () = {
     assert!(core::mem::size_of::<CompactMemoryArg>() == 6);
     assert!(core::mem::size_of::<MemoryLocalArg>() == 6);
     assert!(core::mem::size_of::<LocalTripleArg>() == 6);
-    assert!(core::mem::size_of::<V128LocalArg>() == 6);
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -555,7 +544,7 @@ pub enum BinOp128 {
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
     AddConst32(i32), AddConst64(OperandIdx<I64Operand>),
-    IncLocal32(I32LocalArg), IncLocal64(OperandIdx<I64Local>),
+    IncLocal32(I32LocalArg), IncLocal64(PackedOp<LocalAddr, I64Operand>),
     // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
     BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
     BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
@@ -575,7 +564,7 @@ pub enum Instruction {
     BinOpStackLocal128(BinOp128, LocalAddr),
     BinOpStackGlobal32(BinOp, u32),
     BinOpStackGlobal64(BinOp, u32),
-    SetLocalConst32(I32LocalArg), SetLocalConst64(OperandIdx<I64Local>), SetLocalConst128(V128LocalArg),
+    SetLocalConst32(I32LocalArg), SetLocalConst64(PackedOp<LocalAddr, I64Operand>), SetLocalConst128(PackedOp<LocalAddr, V128Operand>),
     IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
     StoreLocalLocal32(MemoryLocalArg), StoreLocalLocal64(MemoryLocalArg), StoreLocalLocal128(MemoryLocalArg),
     LoadLocal32(MemoryLocalArg), LoadLocal64(MemoryLocalArg),
@@ -588,7 +577,7 @@ pub enum Instruction {
     LoadLocalSet16S32(MemoryLocalArg), LoadLocalSet16U32(MemoryLocalArg),
     LoadLocalTee128(MemoryLocalArg), LoadLocalSet128(MemoryLocalArg),
     AndConstTee32(I32LocalArg), SubConstTee32(I32LocalArg),
-    AndConstTee64(OperandIdx<I64Local>), SubConstTee64(OperandIdx<I64Local>),
+    AndConstTee64(PackedOp<LocalAddr, I64Operand>), SubConstTee64(PackedOp<LocalAddr, I64Operand>),
     MulAccLocal32(LocalAddr), MulAccLocal64(LocalAddr),
     FMulAccLocal32(LocalAddr), FMulAccLocal64(LocalAddr),
     I32Add3,
@@ -671,6 +660,7 @@ pub enum Instruction {
     RefTest(RefType),
     RefCast(RefType),
     BrOnCast(OperandIdx<CastBranch>),
+    BrOnCastFail(OperandIdx<CastBranch>),
 
     // > GC Objects
     StructNew(TypeAddr),
@@ -904,7 +894,6 @@ mod tests {
         assert_eq!(core::mem::size_of::<CompactMemoryArg>(), 6);
         assert_eq!(core::mem::size_of::<MemoryLocalArg>(), 6);
         assert_eq!(core::mem::size_of::<LocalTripleArg>(), 6);
-        assert_eq!(core::mem::size_of::<V128LocalArg>(), 6);
     }
 
     #[test]
@@ -912,9 +901,15 @@ mod tests {
         let memory = MemoryArg::new(u64::MAX, u32::MAX);
         assert_eq!(MemoryArg::decode(memory.encode()), memory);
 
-        let value =
-            Operand128::default().with_u8(0, u8::MAX).with_u16(1, u16::MAX).with_u32(3, u32::MAX).with_u64(7, u64::MAX);
-        assert_eq!((value.u8(0), value.u16(1), value.u32(3), value.u64(7)), (u8::MAX, u16::MAX, u32::MAX, u64::MAX));
+        let value = Operand128::default()
+            .with_u8::<0>(u8::MAX)
+            .with_u16::<1>(u16::MAX)
+            .with_u32::<3>(u32::MAX)
+            .with_u64::<7>(u64::MAX);
+        assert_eq!(
+            (value.u8::<0>(), value.u16::<1>(), value.u32::<3>(), value.u64::<7>()),
+            (u8::MAX, u16::MAX, u32::MAX, u64::MAX)
+        );
 
         let bytes = [u8::MAX; 16];
         assert_eq!(Operand128::from_le_bytes(bytes).to_le_bytes(), bytes);
@@ -923,12 +918,12 @@ mod tests {
     #[test]
     fn v128_operand_views_round_trip_max_bytes() {
         let value = OperandIdx::<V128Operand>::new(0);
-        let local = OperandIdx::<LocalV128>::new(1);
-        let global = OperandIdx::<GlobalV128>::new(2);
-        let set = OperandIdx::<LocalConstSetV128>::new(3);
+        let local = OperandIdx::<LocalV128>::new(0);
+        let global = OperandIdx::<GlobalV128>::new(1);
+        let set = OperandIdx::<LocalConstSetV128>::new(2);
         let data = super::super::WasmFunctionData {
-            operands128: vec![
-                V128Operand { value: [u8::MAX; 16] }.encode(),
+            operands128: vec![V128Operand { value: [u8::MAX; 16] }.encode()].into_boxed_slice(),
+            operands64: vec![
                 LocalV128 { local: u16::MAX, value }.encode(),
                 GlobalV128 { global: u32::MAX, value }.encode(),
                 LocalConstSetV128 { local: u16::MAX, dst: u16::MAX, value }.encode(),

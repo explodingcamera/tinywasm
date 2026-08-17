@@ -55,7 +55,7 @@ pub(super) fn set_rewrite_target(
         JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => {
             *packed = push_packed_target_copy(data, *packed, target)?
         }
-        BrOnCast(index) => *index = push_target_copy(data, *index, target)?,
+        BrOnCast(index) | BrOnCastFail(index) => *index = push_target_copy(data, *index, target)?,
         JumpCmpStackConst32(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
         JumpCmpStackConst64(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
         BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => {
@@ -118,7 +118,7 @@ fn instruction_target(data: &FunctionDataBuilder, instruction: Instruction) -> O
             arg.target_ip
         }
         JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => data.operand(packed.index).target,
-        BrOnCast(index) => data.operand(index).target,
+        BrOnCast(index) | BrOnCastFail(index) => data.operand(index).target,
         JumpCmpStackConst32(packed) => data.operand(packed.index).target,
         JumpCmpStackConst64(packed) => data.operand(packed.index).target,
         BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => data.operand(packed.index).target,
@@ -148,7 +148,7 @@ fn set_target(instruction: &mut Instruction, data: &mut FunctionDataBuilder, tar
             arg.target_ip = target
         }
         JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => set_packed_operand_target(data, *packed, target),
-        BrOnCast(index) => set_operand_target(data, *index, target),
+        BrOnCast(index) | BrOnCastFail(index) => set_operand_target(data, *index, target),
         JumpCmpStackConst32(packed) => set_packed_operand_target(data, *packed, target),
         JumpCmpStackConst64(packed) => set_packed_operand_target(data, *packed, target),
         BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => {
