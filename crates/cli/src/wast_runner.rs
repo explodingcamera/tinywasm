@@ -16,6 +16,10 @@ use wast::{QuoteWat, core::AbstractHeapType};
 
 const TEST_TIME_SLICE: Duration = Duration::from_millis(20);
 const TEST_MAX_SUSPENSIONS: u32 = 1000;
+// Older suites classify encodings that wasmparser accepts with the latest feature set as malformed.
+const ACCEPTED_MALFORMED_MESSAGES: &[&str] =
+    &["integer representation too long", "zero byte expected", "zero flag expected"];
+const ACCEPTED_INVALID_MESSAGES: &[&str] = &["multiple memories"];
 
 #[derive(Default)]
 struct ModuleRegistry {
@@ -307,24 +311,13 @@ impl WastRunner {
                         &format!("AssertMalformed({i})"),
                         span.linecol_in(wast_raw),
                         match res {
-                            Ok(_) => {
-                                if message == "zero byte expected"
-                                    || message == "integer representation too long"
-                                    || message == "zero flag expected"
-                                {
-                                    continue;
-                                }
-                                Err(anyhow!("expected module to be malformed: {message}"))
-                            }
+                            Ok(_) if ACCEPTED_MALFORMED_MESSAGES.contains(&message) => Ok(()),
+                            Ok(_) => Err(anyhow!("expected module to be malformed: {message}")),
                             Err(_) => Ok(()),
                         },
                     );
                 }
                 AssertInvalid { span, mut module, message } => {
-                    if ["multiple memories", "type mismatch"].contains(&message) {
-                        test_group.add_result(&format!("AssertInvalid({i})"), span.linecol_in(wast_raw), Ok(()));
-                        continue;
-                    }
                     let res = catch_unwind_silent(move || parse_module_bytes(&module.encode().unwrap()))
                         .map_err(|e| anyhow!("failed to parse module (invalid): {}", try_downcast_panic(e)))
                         .and_then(|res| res);
@@ -332,7 +325,8 @@ impl WastRunner {
                         &format!("AssertInvalid({i})"),
                         span.linecol_in(wast_raw),
                         match res {
-                            Ok(_) => Err(anyhow!("expected module to be invalid")),
+                            Ok(_) if ACCEPTED_INVALID_MESSAGES.contains(&message) => Ok(()),
+                            Ok(_) => Err(anyhow!("expected module to be invalid: {message}")),
                             Err(_) => Ok(()),
                         },
                     );
