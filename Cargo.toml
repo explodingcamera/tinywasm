@@ -13,7 +13,7 @@ default-members = [".", "crates/parser", "crates/tinywasm", "crates/types"]
 [workspace.package]
 version = "0.11.0-pre.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.98"
 repository = "https://github.com/explodingcamera/tinywasm"
 license = "MIT OR Apache-2.0"
 keywords = ["interpreter", "no-std", "tinywasm", "wasm", "webassembly"]
@@ -31,9 +31,9 @@ pretty_env_logger = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 wasm-testsuite = { version = "0.7" }
-wasmparser = { version = "0.256", default-features = false }
-wast = "256"
-wat = "1.256"
+wasmparser = { version = "0.257", default-features = false }
+wast = "257"
+wat = "1.257"
 
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "rayon"] }
 

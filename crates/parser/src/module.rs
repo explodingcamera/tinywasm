@@ -330,7 +330,7 @@ impl<'a> ModuleReader<'a> {
     pub(crate) fn begin_code_section(
         &mut self,
         count: u32,
-        range: Range<usize>,
+        range: Range<u64>,
         size: u32,
         validator: Option<&mut Validator>,
         options: &ParserOptions,
@@ -434,7 +434,7 @@ impl<'a> ModuleReader<'a> {
     pub(crate) fn queue_owned_code_section(
         &mut self,
         count: u32,
-        body_offset: usize,
+        body_offset: u64,
         section_bytes: Arc<[u8]>,
         validator: Option<&mut Validator>,
     ) -> Result<()> {
@@ -446,6 +446,8 @@ impl<'a> ModuleReader<'a> {
         for _ in 0..count {
             let body_reader = reader.read_reader()?;
             let body_range = body_reader.range();
+            let body_start = (body_range.start - body_offset) as usize;
+            let body_end = (body_range.end - body_offset) as usize;
             #[cfg(feature = "validate")]
             let func_to_validate = {
                 let function = wasmparser::FunctionBody::new(body_reader);
@@ -456,7 +458,7 @@ impl<'a> ModuleReader<'a> {
             self.queue_function(
                 crate::parallel::FunctionBodyInput::Owned(crate::parallel::OwnedFunctionBody {
                     section_bytes: section_bytes.clone(),
-                    body_range: (body_range.start - body_offset)..(body_range.end - body_offset),
+                    body_range: body_start..body_end,
                     body_offset: body_range.start,
                 }),
                 func_to_validate,

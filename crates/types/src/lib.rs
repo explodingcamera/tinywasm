@@ -700,7 +700,7 @@ impl From<&ImportKind> for ExternalKind {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Data {
     pub data: Box<[u8]>,
-    pub range: Range<usize>,
+    pub range: Range<u64>,
     pub kind: DataKind,
 }
 
@@ -718,7 +718,7 @@ pub enum DataKind {
 pub struct Element {
     pub kind: ElementKind,
     pub items: Box<[ElementItem]>,
-    pub range: Range<usize>,
+    pub range: Range<u64>,
     pub ty: RefType,
 }
 

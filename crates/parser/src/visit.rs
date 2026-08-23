@@ -221,7 +221,7 @@ impl<'a> FunctionBuilder<'a> {
 struct ValidateThenVisit<'a, 'm> {
     validator: &'a mut FuncValidator<ValidatorResources>,
     builder: &'a mut FunctionBuilder<'m>,
-    position: usize,
+    position: u64,
 }
 
 impl ModuleMetadata {

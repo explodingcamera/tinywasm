@@ -249,7 +249,7 @@ impl Parser {
                         buffer.truncate(buffer.len() - buffer_offset);
                         buffer_offset = 0;
                     }
-                    let read_bytes = Self::read_more(&mut stream, &mut buffer, hint as usize)?;
+                    let read_bytes = Self::read_more(&mut stream, &mut buffer, hint)?;
                     eof = read_bytes == 0;
                 }
                 wasmparser::Chunk::Parsed { consumed, payload } => {
@@ -258,17 +258,12 @@ impl Parser {
 
                     match payload {
                         wasmparser::Payload::CodeSectionStart { count, range, size } => {
-                            let defer = reader.begin_code_section(
-                                count,
-                                range.clone(),
-                                size,
-                                validator.as_mut(),
-                                &self.options,
-                            )?;
+                            let defer =
+                                reader.begin_code_section(count, range, size, validator.as_mut(), &self.options)?;
 
                             #[cfg(parallel_parser)]
                             if defer {
-                                deferred_code_section = Some((count, range.end - size as usize, size as usize));
+                                deferred_code_section = Some((count, size as usize));
                             }
 
                             #[cfg(not(parallel_parser))]
@@ -284,21 +279,21 @@ impl Parser {
                     buffer_offset += consumed;
 
                     #[cfg(parallel_parser)]
-                    if let Some((count, body_offset, section_size)) = deferred_code_section {
+                    if let Some((count, section_size)) = deferred_code_section {
                         while buffer.len() - buffer_offset < section_size {
                             let remaining = section_size - (buffer.len() - buffer_offset);
                             let read_bytes = Self::read_more(&mut stream, &mut buffer, remaining)?;
                             if read_bytes == 0 {
                                 return Err(ParseError::ParseError {
                                     message: "unexpected end-of-file".into(),
-                                    offset: body_offset + buffer.len() - buffer_offset,
+                                    offset: parser.offset() + (buffer.len() - buffer_offset) as u64,
                                 });
                             }
                         }
 
                         let section_end = buffer_offset + section_size;
                         let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[buffer_offset..section_end].to_vec());
-                        reader.queue_owned_code_section(count, body_offset, section_bytes, validator.as_mut())?;
+                        reader.queue_owned_code_section(count, parser.offset(), section_bytes, validator.as_mut())?;
                         parser.skip_section();
                         buffer_offset = section_end;
                         continue;

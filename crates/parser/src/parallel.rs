@@ -17,7 +17,7 @@ pub(crate) struct OwnedFunctionBody {
     // function jobs from that section.
     pub section_bytes: Arc<[u8]>,
     pub body_range: Range<usize>,
-    pub body_offset: usize,
+    pub body_offset: u64,
 }
 
 pub(crate) struct PendingFunction<'a> {

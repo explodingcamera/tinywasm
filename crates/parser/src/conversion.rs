@@ -164,7 +164,7 @@ pub(crate) fn convert_module_code(
     for (local_index, local) in locals_reader.into_iter().enumerate() {
         let local = local?;
         if let Some(validator) = validator.as_mut() {
-            validator.define_locals(locals_position + local_index, local.0, local.1)?;
+            validator.define_locals(locals_position + local_index as u64, local.0, local.1)?;
         }
         extend_local_types(&mut local_types, local.0, local.1)?;
     }
