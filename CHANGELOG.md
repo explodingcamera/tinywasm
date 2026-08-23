@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
 - Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed. To limit initial memory allocation and growth, configure a `ResourceLimiter` with `Config::with_resource_limiter`.
 - Removed the local-memory allocation analysis (`LocalMemoryAllocation` and `ParserOptions::optimize_local_memory_allocation`). Local memories are always allocated eagerly.
+- Removed `Config::with_trap_on_oom`. A `ResourceLimiter` can return a trap when rejecting a memory allocation or growth request.
 
 ## [0.10.0] - 2026-07-24
 

@@ -8,10 +8,6 @@ pub struct EngineFlags {
     #[arg(long, value_enum)]
     pub fuel_policy: Option<FuelPolicyArg>,
 
-    /// Trap immediately on memory or stack allocation failure
-    #[arg(long)]
-    pub trap_on_oom: bool,
-
     /// Fixed value stack size for all value lanes
     #[arg(long, conflicts_with = "value_stack_dynamic")]
     pub value_stack_size: Option<usize>,
@@ -86,10 +82,6 @@ impl EngineFlags {
 
         if let Some(call_stack_dynamic) = self.call_stack_dynamic.clone() {
             config = config.with_call_stack(call_stack_dynamic.into_stack_config());
-        }
-
-        if self.trap_on_oom {
-            config = config.with_trap_on_oom(true);
         }
 
         Ok(Engine::new(config))

@@ -68,7 +68,7 @@ impl MemoryInstance {
 
         if initial_len != 0
             && let Some(limiter) = limiter
-            && !cold_err!(limiter.memory_growing(0, initial_len, Self::maximum_size(kind)))?
+            && !limiter.memory_growing(0, initial_len, Self::maximum_size(kind))?
         {
             return cold!(Err(Trap::OutOfMemory.into()));
         }
@@ -101,7 +101,6 @@ impl MemoryInstance {
     pub(crate) fn grow(
         &mut self,
         pages_delta: i64,
-        trap_on_oom: bool,
         limiter: Option<&dyn ResourceLimiter>,
     ) -> Result<Option<i64>, Trap> {
         let current_pages = self.page_count;
@@ -126,15 +125,12 @@ impl MemoryInstance {
         }
 
         if let Some(limiter) = limiter
-            && !cold_err!(limiter.memory_growing(self.inner.len(), new_size, Self::maximum_size(self.kind)))?
+            && !limiter.memory_growing(self.inner.len(), new_size, Self::maximum_size(self.kind))?
         {
             return cold!(Ok(None));
         }
 
-        if let Err(err) = cold_err!(self.inner.grow_to(new_size)) {
-            if trap_on_oom {
-                return Err(err);
-            }
+        if cold_err!(self.inner.grow_to(new_size)).is_err() {
             return Ok(None);
         }
         self.page_count = new_pages;

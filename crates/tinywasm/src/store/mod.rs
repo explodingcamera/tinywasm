@@ -31,32 +31,54 @@ pub(crate) use {data::*, element::*, exception::*, function::*, global::*, table
 // global store id counter
 static STORE_ID: AtomicU32 = AtomicU32::new(0);
 
-/// Limits resource consumption within a [`Store`].
+/// Controls resource usage by WebAssembly instances.
 ///
-/// The limiter is consulted before a memory is created or grown, so a host can bound how much a
-/// guest may consume. This mirrors the shape of Wasmtime's `ResourceLimiter`; additional resource
-/// types can be added as the need arises.
+/// Configure a limiter with
+/// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). It currently
+/// controls guest linear-memory allocation and growth. It does not account for stacks, GC storage,
+/// runtime metadata, or other host allocations.
 ///
-/// A limiter is shared across the stores created from one [`Engine`], so implementations must be
-/// `Send + Sync` and use interior mutability to track state.
+/// # Example
+/// ```rust
+/// use std::sync::Arc;
+/// use tinywasm::engine::Config;
+/// use tinywasm::types::{MemoryArch, MemoryType};
+/// use tinywasm::{Engine, Memory, ResourceLimiter, Store};
+///
+/// struct MemoryLimit(usize);
+///
+/// impl ResourceLimiter for MemoryLimit {
+///     fn memory_growing(
+///         &self,
+///         _current: usize,
+///         desired: usize,
+///         _maximum: Option<usize>,
+///     ) -> Result<bool, tinywasm::Trap> {
+///         Ok(desired <= self.0)
+///     }
+/// }
+///
+/// let config = Config::new().with_resource_limiter(Arc::new(MemoryLimit(64 * 1024)));
+/// let mut store = Store::new(Engine::new(config));
+/// let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
+/// assert_eq!(memory.grow(&mut store, 1)?, None);
+/// # Ok::<(), tinywasm::Error>(())
+/// ```
 pub trait ResourceLimiter: Send + Sync {
-    /// Notifies the limiter that a linear memory is about to be allocated or grown.
+    /// Returns whether a memory allocation or growth is allowed.
     ///
-    /// `current` and `desired` are byte sizes and are always multiples of the memory's page size.
-    /// `maximum` is the memory's declared maximum in bytes, or `None` when the memory is unbounded.
-    ///
-    /// For initial allocation, `current` is zero. Return `Ok(true)` to allow the allocation or grow,
-    /// `Ok(false)` to reject it, or `Err` to return the supplied trap. A rejected initial allocation
-    /// returns [`Trap::OutOfMemory`], while a rejected `memory.grow` returns -1 to the guest.
-    fn memory_growing(&self, current: usize, desired: usize, maximum: Option<usize>) -> Result<bool, Trap>;
+    /// Sizes are in bytes. `current` is zero for initial allocation, and `maximum` is `None` for an
+    /// unbounded memory. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
+    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result.
+    fn memory_growing(
+        &self,
+        current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap>;
 }
 
-/// Global state that can be manipulated by WebAssembly programs
-///
-/// Managed WebAssembly GC objects are collected automatically. Other Store
-/// instances, such as modules, functions, memories, and tables, live until the
-/// Store is dropped. GC references exposed through the copyable host value API
-/// are retained for the Store's lifetime.
+/// Runtime state used by WebAssembly instances and host functions.
 ///
 /// ## Example
 /// ```rust

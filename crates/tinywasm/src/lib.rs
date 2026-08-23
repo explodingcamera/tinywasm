@@ -54,9 +54,9 @@
 //! ```
 //!
 //! For non-default runtime behavior, construct a [`Store`] with a custom [`Engine`]
-//! and [`engine::Config`] to control stack sizing, fuel accounting, and trap-on-OOM
-//! behavior. A [`ResourceLimiter`] can be attached to the engine configuration to bound memory
-//! allocation and growth for stores created from that engine.
+//! and [`engine::Config`] to control stack sizing and fuel accounting. A [`ResourceLimiter`] can be
+//! attached to the engine configuration to bound memory allocation and growth for stores created
+//! from that engine and to trap rejected requests.
 //!
 //! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
 //!

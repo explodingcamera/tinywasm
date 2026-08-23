@@ -65,7 +65,7 @@ struct TrapGrowth;
 
 impl ResourceLimiter for TrapGrowth {
     fn memory_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
-        if current == 0 { Ok(true) } else { Err(Trap::Other("growth denied")) }
+        if current == 0 { Ok(true) } else { Err(Trap::Unreachable) }
     }
 }
 
@@ -76,15 +76,6 @@ fn resource_limiter_can_reject_growth() -> TestResult {
 
     assert_eq!(memory.grow(&mut store, 1)?, None);
     assert_eq!(memory.page_count(&store)?, 1);
-    Ok(())
-}
-
-#[test]
-fn resource_limiter_can_trap_on_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(TrapGrowth));
-    let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
-
-    assert!(matches!(memory.grow(&mut store, 1).unwrap_err(), tinywasm::Error::Trap(Trap::Other("growth denied"))));
     Ok(())
 }
 
@@ -105,6 +96,26 @@ fn resource_limiter_rejects_guest_memory_grow() -> TestResult {
 
     let grow = instance.func::<(), i32>(&store, "grow")?;
     assert_eq!(grow.call(&mut store, ())?, -1);
+    Ok(())
+}
+
+#[test]
+fn resource_limiter_can_trap_guest_memory_grow() -> TestResult {
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (memory 1)
+          (func (export "grow") (result i32)
+            i32.const 1
+            memory.grow))
+        "#,
+    )?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let mut store = store_with_limiter(Arc::new(TrapGrowth));
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+
+    let grow = instance.func::<(), i32>(&store, "grow")?;
+    assert!(matches!(grow.call(&mut store, ()), Err(tinywasm::Error::Trap(Trap::Unreachable))));
     Ok(())
 }
 

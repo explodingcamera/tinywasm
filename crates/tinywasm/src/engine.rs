@@ -96,8 +96,7 @@ impl StackConfig {
 ///     .with_value_stack_32(StackConfig::dynamic(1024, 36 * 1024))
 ///     .with_value_stack_64(StackConfig::dynamic(1024, 32 * 1024))
 ///     .with_value_stack_128(StackConfig::dynamic(256, 4 * 1024))
-///     .with_call_stack(StackConfig::dynamic(64, 1024))
-///     .with_trap_on_oom(true);
+///     .with_call_stack(StackConfig::dynamic(64, 1024));
 ///
 /// assert!(matches!(config.fuel_policy(), FuelPolicy::Weighted));
 /// ```
@@ -117,9 +116,6 @@ pub struct Config {
     pub call_stack: StackConfig,
     /// Fuel accounting policy used by budgeted execution. Defaults to [`FuelPolicy::PerInstruction`].
     pub fuel_policy: FuelPolicy,
-    /// Whether memory and stack allocation failures should trap instead of degrading into normal operation failure modes.
-    /// Defaults to `false`.
-    pub trap_on_oom: bool,
     /// Resource limiter shared across all stores created from this engine. Defaults to `None`.
     pub resource_limiter: Option<Arc<dyn ResourceLimiter>>,
     /// Initial number of GC heap bytes that triggers collection.
@@ -171,12 +167,6 @@ impl Config {
         self
     }
 
-    /// Configure whether memory and stack allocation failures trap immediately.
-    pub fn with_trap_on_oom(mut self, trap_on_oom: bool) -> Self {
-        self.trap_on_oom = trap_on_oom;
-        self
-    }
-
     /// Set the resource limiter shared across all stores created from this engine.
     pub fn with_resource_limiter(mut self, limiter: Arc<dyn ResourceLimiter>) -> Self {
         self.resource_limiter = Some(limiter);
@@ -193,10 +183,6 @@ impl Config {
     pub fn fuel_policy(&self) -> FuelPolicy {
         self.fuel_policy
     }
-
-    pub(crate) const fn trap_on_oom(&self) -> bool {
-        self.trap_on_oom
-    }
 }
 
 impl Default for Config {
@@ -207,7 +193,6 @@ impl Default for Config {
             value_stack_128: StackConfig::fixed(DEFAULT_VALUE_STACK_128_SIZE),
             call_stack: StackConfig::fixed(DEFAULT_MAX_CALL_STACK_SIZE),
             fuel_policy: FuelPolicy::default(),
-            trap_on_oom: false,
             resource_limiter: None,
             gc_collection_threshold: 1024 * 1024,
         }
@@ -223,7 +208,6 @@ impl core::fmt::Debug for Config {
             .field("value_stack_128", &self.value_stack_128)
             .field("call_stack", &self.call_stack)
             .field("fuel_policy", &self.fuel_policy)
-            .field("trap_on_oom", &self.trap_on_oom)
             .field("resource_limiter", &self.resource_limiter.is_some())
             .field("gc_collection_threshold", &self.gc_collection_threshold)
             .finish()

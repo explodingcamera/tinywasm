@@ -1656,11 +1656,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             true => <i64>::stack_pop(&mut self.store.value_stack),
             false => i64::from(<i32>::stack_pop(&mut self.store.value_stack)),
         };
-        let trap_on_oom = self.store.engine.config().trap_on_oom();
         let limiter = self.store.engine.config().resource_limiter.as_deref();
 
         let mem = self.store.state.get_mem_mut(mem_addr);
-        let size = mem.grow(pages_delta, trap_on_oom, limiter)?.unwrap_or(-1);
+        let size = mem.grow(pages_delta, limiter)?.unwrap_or(-1);
         match is_64bit {
             true => self.store.value_stack.push::<i64>(size)?,
             false => self.store.value_stack.push::<i32>(size as i32)?,
