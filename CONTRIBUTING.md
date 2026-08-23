@@ -33,7 +33,7 @@ $ cargo test-wast ./wasm-testsuite/data/wasm-v1/{file}.wast
 $ cargo test-wasm-custom
 
 # Run a specific example (run without arguments to see available examples)
-#   The wasm test files required to run the `wasm-rust` examples are not
+#   The wasm test files required to run the `rust` example are not
 #   included in the main repository.
 #   To build these, you will need to install binaryen and wabt
 #   and run `./examples/rust/build.sh`.
@@ -48,7 +48,7 @@ Example usage:
 
 ```bash
 cargo install --locked samply
-samply record -- cargo run --release --example wasm-rust -- tinywasm
+samply record -- cargo run --release --example rust -- tinywasm
 ```
 
 ## Commits

@@ -2,8 +2,10 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
+use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
-use tinywasm_types::{ExnRef, FuncType};
+
+use crate::{ExnRef, WasmValue};
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
@@ -31,7 +33,7 @@ pub enum Error {
         /// The expected type
         expected: Box<FuncType>,
         /// The actual value
-        actual: Vec<tinywasm_types::WasmValue>,
+        actual: Vec<WasmValue>,
     },
 
     /// An invalid label type was encountered
@@ -146,8 +148,11 @@ pub enum Trap {
     /// Invalid Integer Conversion
     InvalidConversionToInt,
 
-    /// The store is not the one that the module instance was instantiated in
+    /// A Store-owned handle or reference was used with a different Store.
     InvalidStore,
+
+    /// A reference does not identify a live value of the expected kind.
+    InvalidReference,
 
     /// Integer Overflow
     IntegerOverflow,
@@ -228,6 +233,7 @@ impl Trap {
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
             Self::InvalidStore => "invalid store",
+            Self::InvalidReference => "invalid reference",
             Self::Other(message) => message,
         }
     }
@@ -337,6 +343,7 @@ impl Display for Trap {
             Self::NullI31Reference => write!(f, "null i31 reference"),
             Self::CastFailure => write!(f, "cast failure"),
             Self::InvalidStore => write!(f, "invalid store"),
+            Self::InvalidReference => write!(f, "invalid reference"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {
                 write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")

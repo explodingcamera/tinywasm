@@ -3,7 +3,9 @@ use crate::reference::StoreItem;
 use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store};
 use alloc::{format, vec::Vec};
 use core::hint::cold_path;
-use tinywasm_types::{FuncAddr, FuncType, ModuleInstanceId, WasmValue};
+use tinywasm_types::{FuncAddr, FuncType, ModuleInstanceId};
+
+use crate::{FuncRef, WasmValue};
 
 mod context;
 mod host;
@@ -12,8 +14,6 @@ mod values;
 pub use context::FuncContext;
 pub use host::HostFunction;
 pub use resume::{ExecProgress, FuncExecution, FuncExecutionTyped};
-#[allow(deprecated)]
-pub use values::WasmTupleChain;
 pub use values::{FromWasmValues, IntoWasmValues, ToWasmType, ToWasmTypes};
 
 /// A function handle
@@ -25,6 +25,12 @@ pub struct Function {
 }
 
 impl Function {
+    /// Returns this function as a Store-aware WebAssembly function reference.
+    pub fn as_func_ref(&self, store: &Store) -> Result<FuncRef> {
+        self.item.validate_store(store)?;
+        Ok(FuncRef::new(store.store_id(), self.addr()))
+    }
+
     #[inline]
     /// Returns the function's address in its store.
     pub(crate) const fn addr(&self) -> FuncAddr {
@@ -66,7 +72,13 @@ impl Function {
             )));
         }
 
-        if !func_ty.params().iter().zip(params).all(|(ty, param)| store.state.value_matches_type(*param, *ty)) {
+        for param in params {
+            if matches!(param, WasmValue::Ref(_)) {
+                param.to_runtime(store)?;
+            }
+        }
+
+        if !func_ty.params().iter().zip(params).all(|(ty, param)| store.value_matches_type(param, *ty)) {
             cold_path();
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
@@ -90,8 +102,7 @@ impl Function {
     ) -> Result<Vec<WasmValue>> {
         let instance = store.state.get_func(self.addr());
         let type_addr = instance.type_addr;
-        let results_may_gc = instance.gc.results;
-        let result = match &instance.kind {
+        match &instance.kind {
             crate::store::FunctionKind::Host(host) => {
                 let host = host.clone();
                 host.call_values(store, self.module_id, type_addr, params)
@@ -99,21 +110,22 @@ impl Function {
             crate::store::FunctionKind::Wasm(wasm) => {
                 let wasm_params = wasm.func.params;
                 let wasm_locals = wasm.func.locals;
-                let locals_base =
-                    store.value_stack.enter_wasm_call(params, wasm_params, wasm_locals, value_stack_base)?;
+                store
+                    .push_wasm_values(params.iter().cloned())
+                    .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+                let locals_base = store
+                    .value_stack
+                    .enter_locals(&wasm_params, &wasm_locals)
+                    .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
                 let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
                 InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
                     store.call_stack.truncate_to(call_stack_base);
                     store.value_stack.truncate_to_base(value_stack_base);
                 })?;
-                let result_types = store.state.get_canonical_func_type(type_addr).results();
-                Ok(store.value_stack.pop_wasmvalues(&store.state, result_types))
+                let result_type = store.state.get_canonical_func_type(type_addr).clone();
+                store.pop_stack_values(result_type.results())
             }
-        };
-        if results_may_gc && let Ok(values) = &result {
-            store.state.pin_host_values(values);
         }
-        result
     }
 
     fn prepare_typed(
@@ -157,7 +169,7 @@ impl Function {
                 store.value_stack.truncate_to_base(value_stack_base);
             })?;
         }
-        store.take_typed_results(instance.type_addr, value_stack_base, instance.gc.results)
+        store.take_typed_results(instance.type_addr, value_stack_base)
     }
 }
 
@@ -181,12 +193,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
             let params = params.into_wasm_values().collect::<Vec<_>>();
             let result = self.func.call(store, &params)?;
             let mut values = result.into_iter();
-            let result = R::from_wasm_values(&mut values)?;
-            return if values.next().is_none() {
-                Ok(result)
-            } else {
-                Err(Error::other("typed conversion did not consume all WebAssembly values"))
-            };
+            return R::from_wasm_values_exact(&mut values);
         }
 
         store.enter_execution()?;

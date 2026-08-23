@@ -7,7 +7,7 @@ use crate::Module;
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
-const TWASM_VERSION: &[u8; 2] = b"05";
+const TWASM_VERSION: &[u8; 2] = b"06";
 
 fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
@@ -64,7 +64,10 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Instruction, ModuleInner, V128Operand, WasmFunction};
+    use crate::{
+        AbstractHeapType, ConstInstruction, Global, GlobalType, Instruction, ModuleFuncIdx, ModuleInner, RefType,
+        V128Operand, WasmFunction, WasmType,
+    };
     use crate::{OperandIdx, OperandType};
     use alloc::{boxed::Box, sync::Arc, vec};
 
@@ -94,7 +97,7 @@ mod tests {
         let module = Module::from(ModuleInner { funcs: Box::new([Arc::new(function)]), ..ModuleInner::default() });
 
         let archive = module.serialize_twasm().expect("serialize archive");
-        assert_eq!(&archive[..6], b"TWAS05");
+        assert_eq!(&archive[..6], b"TWAS06");
         let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
         let function = &decoded.funcs[0];
 
@@ -105,5 +108,38 @@ mod tests {
             };
             assert_eq!(index.get(&function.data).value, bytes);
         }
+    }
+
+    #[test]
+    fn const_reference_expressions_round_trip_archive() {
+        let null_type = RefType::new_abstract(true, AbstractHeapType::Extern);
+        let module = Module::from(ModuleInner {
+            globals: vec![
+                Global {
+                    ty: GlobalType::new(WasmType::Ref(null_type), false),
+                    init: vec![ConstInstruction::RefNull(null_type)].into_boxed_slice(),
+                },
+                Global {
+                    ty: GlobalType::new(WasmType::Ref(RefType::FUNCREF), false),
+                    init: vec![ConstInstruction::RefFunc(ModuleFuncIdx::new(7))].into_boxed_slice(),
+                },
+                Global {
+                    ty: GlobalType::new(WasmType::Ref(RefType::new_abstract(false, AbstractHeapType::I31)), false),
+                    init: vec![ConstInstruction::I32Const(42), ConstInstruction::RefI31].into_boxed_slice(),
+                },
+            ]
+            .into_boxed_slice(),
+            ..ModuleInner::default()
+        });
+
+        let archive = module.serialize_twasm().expect("serialize archive");
+        let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
+
+        assert!(matches!(decoded.globals[0].init.as_ref(), [ConstInstruction::RefNull(ty)] if *ty == null_type));
+        assert!(matches!(
+            decoded.globals[1].init.as_ref(),
+            [ConstInstruction::RefFunc(index)] if index.index() == 7
+        ));
+        assert!(matches!(decoded.globals[2].init.as_ref(), [ConstInstruction::I32Const(42), ConstInstruction::RefI31]));
     }
 }

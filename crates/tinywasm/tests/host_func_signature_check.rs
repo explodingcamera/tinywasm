@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use tinywasm::types::{ExternRef, FuncType, RefType, RefValue, WasmType, WasmValue};
+use tinywasm::types::{FuncType, RefType, RefValue, WasmType, WasmValue};
 use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
 
 const VAL_LISTS: &[&[WasmValue]] = &[
@@ -8,7 +8,6 @@ const VAL_LISTS: &[&[WasmValue]] = &[
     &[WasmValue::I32(0), WasmValue::I32(0)],
     &[WasmValue::I32(0), WasmValue::I32(0), WasmValue::F64(0.0)],
     &[WasmValue::I32(0), WasmValue::F64(0.0), WasmValue::I32(0)],
-    &[WasmValue::Ref(RefValue::Extern(ExternRef::new(0))), WasmValue::F64(0.0), WasmValue::I32(0)],
 ];
 
 fn module_cases() -> Vec<(Module, FuncType, Vec<WasmValue>)> {
@@ -105,7 +104,7 @@ fn test_linking_invalid_typed_func() -> Result<(), Box<dyn core::error::Error>> 
 }
 
 #[test]
-fn concrete_host_references_use_canonical_types() -> Result<(), Box<dyn core::error::Error>> {
+fn standalone_host_functions_reject_concrete_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -125,19 +124,11 @@ fn concrete_host_references_use_canonical_types() -> Result<(), Box<dyn core::er
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
-    let right_ref = instance.func_untyped(&store, "right-ref")?.call(&mut store, &[])?;
-    let wrong_ref = instance.func_untyped(&store, "wrong-ref")?.call(&mut store, &[])?;
     let return_ty = instance.func_untyped(&store, "right-ref")?.ty(&store)?.clone();
     let param_ty = instance.func_untyped(&store, "takes-a")?.ty(&store)?.clone();
 
-    let wrong_result = wrong_ref.clone();
-    let wrong_return =
-        HostFunction::from_untyped(&return_ty, move |_, _| Ok(wrong_result.clone())).instantiate(&mut store)?;
-    assert!(wrong_return.call(&mut store, &[]).is_err());
-
-    let accept_a = HostFunction::from_untyped(&param_ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
-    assert!(accept_a.call(&mut store, &wrong_ref).is_err());
-    assert!(accept_a.call(&mut store, &right_ref).is_ok());
+    assert!(HostFunction::from_untyped(&return_ty, |_, _| Ok(Vec::new())).instantiate(&mut store).is_err());
+    assert!(HostFunction::from_untyped(&param_ty, |_, _| Ok(Vec::new())).instantiate(&mut store).is_err());
 
     Ok(())
 }
@@ -212,7 +203,10 @@ fn host_calls_reject_unknown_function_references() -> Result<(), Box<dyn core::e
     let mut store = Store::default();
     let ty = FuncType::new(&[WasmType::Ref(tinywasm::types::RefType::FUNCREF)], &[]);
     let host = HostFunction::from_untyped(&ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
-    let invalid = WasmValue::Ref(RefValue::Func(tinywasm::types::FuncRef::new(u32::MAX)));
+    let mut other_store = Store::default();
+    let other =
+        HostFunction::from_untyped(&FuncType::new(&[], &[]), |_, _| Ok(Vec::new())).instantiate(&mut other_store)?;
+    let invalid = WasmValue::Ref(RefValue::Func(other.as_func_ref(&other_store)?));
 
     assert!(host.call(&mut store, &[invalid]).is_err());
     Ok(())

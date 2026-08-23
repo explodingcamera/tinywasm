@@ -1,6 +1,6 @@
-use tinywasm::types::WasmValue;
 #[cfg(feature = "guest-debug")]
-use tinywasm::types::{FuncRef, RefValue};
+use tinywasm::types::RefValue;
+use tinywasm::types::WasmValue;
 use tinywasm::{ExternItem, ModuleInstance, Store};
 
 #[test]
@@ -30,12 +30,13 @@ fn private_items_are_accessible_by_index() -> Result<(), Box<dyn core::error::Er
     assert_eq!(instance.memory_by_index(0)?.read_vec(&store, 0, 4)?, &[1, 2, 3, 4]);
 
     assert_eq!(instance.table_by_index(0)?.size(&store)?, 2);
-    assert_eq!(instance.table_by_index(0)?.get(&store, 0)?, WasmValue::Ref(RefValue::Func(FuncRef::new(0))));
-    assert_eq!(instance.table_by_index(0)?.get(&store, 1)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
+    let function = instance.func_by_index(&store, 0)?.as_func_ref(&store)?;
+    assert_eq!(instance.table_by_index(0)?.get(&mut store, 0)?, WasmValue::Ref(RefValue::Func(function)));
+    assert_eq!(instance.table_by_index(0)?.get(&mut store, 1)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
 
-    assert_eq!(instance.global_by_index(0)?.get(&store)?, WasmValue::I32(11));
+    assert_eq!(instance.global_by_index(0)?.get(&mut store)?, WasmValue::I32(11));
     instance.global_by_index(0)?.set(&mut store, WasmValue::I32(23))?;
-    assert_eq!(instance.global_by_index(0)?.get(&store)?, WasmValue::I32(23));
+    assert_eq!(instance.global_by_index(0)?.get(&mut store)?, WasmValue::I32(23));
 
     Ok(())
 }
@@ -55,14 +56,14 @@ fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<(), Box<d
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
-    assert_eq!(instance.global_get(&store, "g")?, WasmValue::I32(3));
-    assert_eq!(instance.global("g")?.get(&store)?, WasmValue::I32(3));
+    assert_eq!(instance.global_get(&mut store, "g")?, WasmValue::I32(3));
+    assert_eq!(instance.global("g")?.get(&mut store)?, WasmValue::I32(3));
     instance.global_set(&mut store, "g", WasmValue::I32(9))?;
-    assert_eq!(instance.global("g")?.get(&store)?, WasmValue::I32(9));
+    assert_eq!(instance.global("g")?.get(&mut store)?, WasmValue::I32(9));
 
     let table = instance.table("t")?;
     assert_eq!(table.size(&store)?, 1);
-    assert_eq!(table.get(&store, 0)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
+    assert_eq!(table.get(&mut store, 0)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
 
     let old_size = instance.table("t")?.grow(&mut store, 1, tinywasm::types::RefValue::Null.into())?;
     assert_eq!(old_size, Some(1));
@@ -196,7 +197,7 @@ fn start_resolves_module_func_index_to_store_addr() -> Result<(), Box<dyn core::
     let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
 
     instance.start(&mut store)?;
-    assert_eq!(instance.global_get(&store, "g")?, WasmValue::I32(1));
+    assert_eq!(instance.global_get(&mut store, "g")?, WasmValue::I32(1));
 
     Ok(())
 }

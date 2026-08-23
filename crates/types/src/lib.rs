@@ -326,13 +326,35 @@ pub type TableAddr = Addr;
 pub type MemAddr = Addr;
 pub type GlobalAddr = Addr;
 pub type TagAddr = Addr;
-pub type ExnAddr = Addr;
 pub type ElemAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
 pub type ConstIdx = Addr;
 
 // additional internal addresses
+/// A function index in a WebAssembly module's function index space.
+///
+/// This remains module-local until instantiation resolves it to a [`FuncAddr`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "archive", serde(transparent))]
+pub struct ModuleFuncIdx(u32);
+
+impl ModuleFuncIdx {
+    /// Creates a module-local function index.
+    #[inline]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// Returns the module-local function index.
+    #[inline]
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
 /// An address in the current type space.
 ///
 /// Parsed modules use module-local addresses; instantiated types use their store's canonical addresses.

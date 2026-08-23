@@ -1,8 +1,9 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
-use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType, WasmValue};
+use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 
 use super::{FromWasmValues, FuncContext, IntoWasmValues, ToWasmTypes};
-use crate::{Function, FunctionInstance, Result, Store};
+use crate::store::FuncValueTypes;
+use crate::{Function, FunctionInstance, Result, Store, WasmValue};
 
 /// A reusable host function definition.
 #[derive(Clone)]
@@ -11,12 +12,8 @@ pub struct HostFunction(Arc<HostFunctionInner>);
 impl HostFunction {
     /// Instantiates the function with an already registered canonical type.
     pub(crate) fn instantiate_registered(&self, store: &mut Store, type_addr: TypeAddr) -> Function {
-        let addr = store.add_func(FunctionInstance {
-            type_addr,
-            gc: store.state.func_gc_metadata(type_addr),
-            kind: crate::store::FunctionKind::Host(self.clone()),
-        });
-        Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
+        let addr = store.add_func(FunctionInstance { type_addr, kind: crate::store::FunctionKind::Host(self.clone()) });
+        Function { item: crate::StoreItem::new(store.store_id(), addr), module_id: 0 }
     }
 
     /// Resolves the importing module's types without allocating a function instance.
@@ -49,10 +46,11 @@ impl HostFunction {
         let result = match &self.0.callback {
             HostCallback::Untyped(func) => func(FuncContext { store, module_id }, args),
             HostCallback::Typed(func) => func.call(FuncContext { store, module_id }, args),
-        }?;
-        let expected = store.state.get_canonical_func_type(type_addr);
+        };
+        let expected = store.state.get_canonical_func_type(type_addr).clone();
+        let result = result?;
         if result.len() == expected.results().len()
-            && result.iter().zip(expected.results()).all(|(&value, &ty)| store.state.value_matches_type(value, ty))
+            && result.iter().zip(expected.results()).all(|(value, &ty)| store.value_matches_type(value, ty))
         {
             Ok(result)
         } else {
@@ -79,8 +77,9 @@ impl HostFunction {
     ///
     /// # Errors
     ///
-    /// Returns an error if the signature uses a store-specific reference type
-    /// that is not registered in `store`.
+    /// Returns an error if the signature contains a concrete reference type.
+    /// Define the function through [`crate::Imports`] when concrete types must
+    /// be resolved against an importing module.
     ///
     /// ## Example
     ///
@@ -104,13 +103,9 @@ impl HostFunction {
             .params()
             .iter()
             .chain(self.0.ty.results())
-            .filter_map(|ty| match ty {
-                WasmType::Ref(ty) => ty.type_index(),
-                _ => None,
-            })
-            .any(|type_addr| type_addr as usize >= store.state.canonical_types.len())
+            .any(|ty| matches!(ty, WasmType::Ref(ty) if ty.is_concrete()))
         {
-            return Err(crate::Error::other("host function signature contains a concrete type from another store"));
+            return Err(crate::Error::other("standalone host functions cannot use concrete reference types"));
         }
         let type_addr = store.register_host_type(&self.0.ty);
         Ok(self.instantiate_registered(store, type_addr))
@@ -226,29 +221,22 @@ where
     R: IntoWasmValues,
 {
     fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
-        let mut values = args.iter().copied();
-        let params = P::from_wasm_values(&mut values)?;
-        if values.next().is_some() {
-            return Err(crate::Error::other("typed conversion did not consume all WebAssembly values"));
-        }
+        let mut values = args.iter().cloned();
+        let params = P::from_wasm_values_exact(&mut values)?;
         Ok((self.func)(ctx, params)?.into_wasm_values().collect())
     }
 
     fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
-        let params = store.state.get_canonical_func_type(type_addr).params();
-        let base = store.value_stack.base_before(params.iter().collect());
-        let mut values = store.value_stack.wasm_values(&store.state, params, base, true);
-        let params = P::from_wasm_values(&mut values).and_then(|params| {
-            if values.next().is_some() {
-                Err(crate::Error::other("typed conversion did not consume all WebAssembly values"))
-            } else {
-                Ok(params)
-            }
-        });
-        drop(values);
+        let base = {
+            let params = store.state.get_canonical_func_type(type_addr).params();
+            store.value_stack.base_before(params.iter().collect())
+        };
+        let params = {
+            let mut values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
+            P::from_wasm_values_exact(&mut values)
+        };
         store.value_stack.truncate_to_base(base);
-        let params = params?;
-        let result = (self.func)(FuncContext { store, module_id }, params)?;
+        let result = (self.func)(FuncContext { store, module_id }, params?)?;
         store.push_typed_values::<true>(type_addr, result.into_wasm_values(), base)
     }
 }

@@ -1,4 +1,4 @@
-use tinywasm::types::{ExternRef, RefValue, WasmValue};
+use tinywasm::types::{RefValue, WasmValue};
 use tinywasm::{Engine, ExecProgress, ModuleInstance, Store, engine::Config};
 
 const MODULE: &str = r#"
@@ -28,7 +28,7 @@ fn store() -> Store {
 }
 
 #[test]
-fn host_result_is_pinned_and_rejected_by_another_store() {
+fn host_result_is_rooted_and_rejected_by_another_store() {
     let module = tinywasm::parse_bytes(&wat::parse_str(MODULE).unwrap()).unwrap();
     let mut first_store = store();
     let first = ModuleInstance::instantiate(&mut first_store, &module, None).unwrap();
@@ -39,7 +39,7 @@ fn host_result_is_pinned_and_rejected_by_another_store() {
     let value = new.call(&mut first_store, &[]).unwrap().pop().unwrap();
     assert!(matches!(value, WasmValue::Ref(RefValue::Any(_))));
     churn.call(&mut first_store, &[]).unwrap();
-    assert_eq!(read.call(&mut first_store, &[value]).unwrap(), [WasmValue::I32(42)]);
+    assert_eq!(read.call(&mut first_store, std::slice::from_ref(&value)).unwrap(), [WasmValue::I32(42)]);
 
     let mut second_store = store();
     let second = ModuleInstance::instantiate(&mut second_store, &module, None).unwrap();
@@ -48,7 +48,7 @@ fn host_result_is_pinned_and_rejected_by_another_store() {
 }
 
 #[test]
-fn externalized_gc_result_is_pinned() {
+fn externalized_gc_result_is_rooted() {
     let module = tinywasm::parse_bytes(&wat::parse_str(MODULE).unwrap()).unwrap();
     let mut store = store();
     let instance = ModuleInstance::instantiate(&mut store, &module, None).unwrap();
@@ -71,12 +71,12 @@ fn host_externref_does_not_alias_a_gc_object() {
     let read = instance.func_untyped(&store, "read-extern").unwrap();
 
     new.call(&mut store, &[]).unwrap();
-    let host_ref = WasmValue::Ref(RefValue::Extern(ExternRef::new(0)));
+    let host_ref = tinywasm::ExternRef::try_new(&mut store, 0).unwrap().into();
     assert!(read.call(&mut store, &[host_ref]).is_err());
 }
 
 #[test]
-fn resumable_gc_result_is_pinned() {
+fn resumable_gc_result_is_rooted() {
     let module = tinywasm::parse_bytes(&wat::parse_str(MODULE).unwrap()).unwrap();
     let mut store = store();
     let instance = ModuleInstance::instantiate(&mut store, &module, None).unwrap();

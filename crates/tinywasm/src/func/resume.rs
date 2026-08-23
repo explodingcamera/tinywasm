@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
-use tinywasm_types::{FuncAddr, TypeAddr, WasmValue};
+use tinywasm_types::{FuncAddr, TypeAddr};
 
 use super::{FromWasmValues, Function, FunctionTyped, IntoWasmValues};
 use crate::interpreter::stack::{CallFrame, StackBase};
-use crate::{Error, InterpreterRuntime, Result, Store};
+use crate::{Error, InterpreterRuntime, Result, Store, WasmValue};
 
 #[derive(Clone, PartialEq, Eq)]
 /// Progress for fuel-limited function execution.
@@ -29,7 +29,7 @@ enum FuncExecutionState {
 
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 enum CallResult {
-    Stack { type_addr: TypeAddr, pin_refs: bool },
+    Stack { type_addr: TypeAddr },
     Values(Vec<WasmValue>),
 }
 
@@ -53,7 +53,6 @@ impl Function {
     ) -> Result<FuncExecution<'store>> {
         self.item.validate_store(store)?;
         self.validate_params(store, params)?;
-        let results_may_gc = store.state.get_func(self.addr()).gc.results;
 
         store.enter_execution()?;
         let result: Result<FuncExecutionState> = (|| {
@@ -68,12 +67,8 @@ impl Function {
                     store.call_stack.clear();
                     store.value_stack.clear();
                     let locals = wasm_func.func.locals;
-                    let locals_base = store.value_stack.enter_wasm_call(
-                        params,
-                        wasm_func.func.params,
-                        locals,
-                        StackBase::default(),
-                    )?;
+                    store.push_wasm_values(params.iter().cloned())?;
+                    let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &locals)?;
                     let callframe = CallFrame::new(self.addr(), locals_base, locals);
 
                     Ok(FuncExecutionState::Running { callframe, root_func_addr: self.addr() })
@@ -83,9 +78,6 @@ impl Function {
         store.exit_execution();
 
         let state = result?;
-        if results_may_gc && let FuncExecutionState::Completed(Some(CallResult::Values(values))) = &state {
-            store.state.pin_host_values(values);
-        }
         Ok(FuncExecution { store, state })
     }
 }
@@ -123,9 +115,8 @@ impl<'store> FuncExecution<'store> {
             crate::interpreter::ExecState::Completed => {
                 let func = self.store.state.get_func(root_func_addr);
                 let result_ty = func.type_addr;
-                let results_may_gc = func.gc.results;
                 self.state = FuncExecutionState::Completed(None);
-                Ok(ExecProgress::Completed(CallResult::Stack { type_addr: result_ty, pin_refs: results_may_gc }))
+                Ok(ExecProgress::Completed(CallResult::Stack { type_addr: result_ty }))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
                 let FuncExecutionState::Running { callframe: current, .. } = &mut self.state else {
@@ -142,12 +133,9 @@ impl<'store> FuncExecution<'store> {
         run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<Vec<WasmValue>>> {
         match self.resume_raw(run)? {
-            ExecProgress::Completed(CallResult::Stack { type_addr, pin_refs }) => {
-                let types = self.store.state.get_canonical_func_type(type_addr).results();
-                let values = self.store.value_stack.pop_wasmvalues(&self.store.state, types);
-                if pin_refs {
-                    self.store.state.pin_host_values(&values);
-                }
+            ExecProgress::Completed(CallResult::Stack { type_addr }) => {
+                let ty = self.store.state.get_canonical_func_type(type_addr).clone();
+                let values = self.store.pop_stack_values(ty.results())?;
                 Ok(ExecProgress::Completed(values))
             }
             ExecProgress::Completed(CallResult::Values(values)) => Ok(ExecProgress::Completed(values)),
@@ -226,10 +214,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
             store.value_stack.clear();
             match self.func.prepare_typed(store, &func, params.into_wasm_values(), StackBase::default())? {
                 Some(callframe) => Ok(FuncExecutionState::Running { callframe, root_func_addr: self.func.addr() }),
-                None => Ok(FuncExecutionState::Completed(Some(CallResult::Stack {
-                    type_addr: func.type_addr,
-                    pin_refs: func.gc.results,
-                }))),
+                None => Ok(FuncExecutionState::Completed(Some(CallResult::Stack { type_addr: func.type_addr }))),
             }
         })();
         store.exit_execution();
@@ -244,16 +229,12 @@ impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
         run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<R>> {
         match self.execution.resume_raw(run)? {
-            ExecProgress::Completed(CallResult::Stack { type_addr, pin_refs }) => Ok(ExecProgress::Completed(
-                self.execution.store.take_typed_results(type_addr, StackBase::default(), pin_refs)?,
-            )),
+            ExecProgress::Completed(CallResult::Stack { type_addr }) => {
+                Ok(ExecProgress::Completed(self.execution.store.take_typed_results(type_addr, StackBase::default())?))
+            }
             ExecProgress::Completed(CallResult::Values(values)) => {
                 let mut values = values.into_iter();
-                let result = R::from_wasm_values(&mut values)?;
-                if values.next().is_some() {
-                    return Err(Error::other("typed conversion did not consume all WebAssembly values"));
-                }
-                Ok(ExecProgress::Completed(result))
+                Ok(ExecProgress::Completed(R::from_wasm_values_exact(&mut values)?))
             }
             ExecProgress::Suspended => Ok(ExecProgress::Suspended),
         }

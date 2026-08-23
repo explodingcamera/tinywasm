@@ -38,7 +38,7 @@ wat = "1.257"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "rayon"] }
 
 [[example]]
-name = "wasm-rust"
+name = "rust"
 test = false
 
 [[bench]]

@@ -11,13 +11,13 @@ const WASM: &str = r#"
 "#;
 
 fn main() -> Result<()> {
-    let wasm = wat::parse_str(WASM).expect("Failed to parse WAT");
+    let wasm = wat::parse_str(WASM)?;
     let module = Parser::default().parse_module_bytes(wasm)?;
+
+    // Serialize the optimized module for storage or distribution.
     let twasm = module.serialize_twasm()?;
 
-    // Now, you could e.g. write `twasm` to a file called `add.twasm`
-    // and load it later in a different program.
-
+    // Archived modules load without parsing Wasm again and should only come from trusted sources.
     let module = Module::try_from_twasm(&twasm)?;
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;

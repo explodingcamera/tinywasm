@@ -10,15 +10,7 @@ use crate::func::HostFunction;
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct FunctionInstance {
     pub(crate) type_addr: TypeAddr,
-    pub(crate) gc: FunctionGcMetadata,
     pub(crate) kind: FunctionKind,
-}
-
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) struct FunctionGcMetadata {
-    pub(crate) params: bool,
-    pub(crate) results: bool,
 }
 
 #[derive(Clone)]

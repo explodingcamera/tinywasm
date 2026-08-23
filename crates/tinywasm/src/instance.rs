@@ -3,8 +3,11 @@ use core::hint::cold_path;
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};
+use crate::reference::StoreId;
 use crate::store::MemoryInstance;
-use crate::{Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap};
+use crate::{
+    Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap, WasmValue,
+};
 
 /// A typed view over an exported extern value.
 pub enum ExternItem {
@@ -47,7 +50,7 @@ pub struct ModuleInstance(Rc<ModuleInstanceInner>);
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 struct ModuleInstanceInner {
-    store_id: u32,
+    store_id: StoreId,
     id: ModuleInstanceId,
     type_addrs: Box<[TypeAddr]>,
     func_addrs: Box<[FuncAddr]>,
@@ -121,7 +124,7 @@ impl ModuleInstance {
 
     #[inline]
     pub(crate) fn validate_store(&self, store: &Store) -> Result<()> {
-        if self.0.store_id != store.id() {
+        if self.0.store_id != store.store_id() {
             return cold!(Err(Trap::InvalidStore.into()));
         }
         Ok(())
@@ -160,9 +163,9 @@ impl ModuleInstance {
     /// let mut store = Store::default();
     /// let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
     ///
-    /// assert_eq!(instance.global_get(&store, "g")?, 0.into());
+    /// assert_eq!(instance.global_get(&mut store, "g")?, 0.into());
     /// instance.start(&mut store)?;
-    /// assert_eq!(instance.global_get(&store, "g")?, 42.into());
+    /// assert_eq!(instance.global_get(&mut store, "g")?, 42.into());
     /// # Ok(())
     /// # }
     /// ```
@@ -189,7 +192,7 @@ impl ModuleInstance {
             store.init_data(&addrs.memories, &addrs.globals, &addrs.funcs, &module.data, &type_addrs)?;
 
         let instance = ModuleInstanceInner {
-            store_id: store.id(),
+            store_id: store.store_id(),
             id,
             type_addrs,
             func_addrs: addrs.funcs.into_boxed_slice(),
@@ -213,7 +216,7 @@ impl ModuleInstance {
     }
 
     /// Get a export by name
-    pub fn export_addr(&self, name: &str) -> Option<ExternVal> {
+    pub(crate) fn export_addr(&self, name: &str) -> Option<ExternVal> {
         let export = self.0.exports.iter().find(|e| *e.name == *name)?;
         let addr = match export.kind {
             ExternalKind::Func => self.0.func_addrs.get(export.index as usize)?,
@@ -312,7 +315,7 @@ impl ModuleInstance {
     /// let ExternItem::Global(global) = instance.extern_item("answer")? else {
     ///     panic!("expected global export");
     /// };
-    /// assert_eq!(global.get(&store)?, 42.into());
+    /// assert_eq!(global.get(&mut store)?, 42.into());
     /// # Ok(())
     /// # }
     /// ```
@@ -516,7 +519,7 @@ impl ModuleInstance {
     }
 
     /// Get the value of a global export by name.
-    pub fn global_get(&self, store: &Store, name: &str) -> Result<WasmValue> {
+    pub fn global_get(&self, store: &mut Store, name: &str) -> Result<WasmValue> {
         self.global(name)?.get(store)
     }
 
@@ -601,9 +604,9 @@ impl ModuleInstance {
     /// let mut store = Store::default();
     /// let instance = ModuleInstance::instantiate_no_start(&mut store, &module, None)?;
     ///
-    /// assert_eq!(instance.global_get(&store, "g")?, 0.into());
+    /// assert_eq!(instance.global_get(&mut store, "g")?, 0.into());
     /// assert_eq!(instance.start(&mut store)?, Some(()));
-    /// assert_eq!(instance.global_get(&store, "g")?, 7.into());
+    /// assert_eq!(instance.global_get(&mut store, "g")?, 7.into());
     /// # Ok(())
     /// # }
     /// ```

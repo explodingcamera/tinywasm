@@ -40,7 +40,7 @@ let result = func.call(&mut store, (1, 2))?;
 assert_eq!(result, 3);
 ```
 
-See the [examples](./examples) directory and [documentation](https://docs.rs/tinywasm) for more information.
+See the [examples](./examples), including the [GC reference example](./examples/gc.rs), and the [documentation](https://docs.rs/tinywasm) for more information.
 
 ## Precompiled Modules
 
@@ -96,7 +96,7 @@ TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | `next`             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | `next`             |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
-| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🌑     | -                  |
+| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | `next`             |
 | [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |
 
 **Legend**\

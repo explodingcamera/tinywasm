@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::engine::Config;
-use crate::interpreter::Value128;
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -17,10 +16,10 @@ pub(crate) struct State {
     pub(crate) memories: Vec<MemoryInstance>,
     pub(crate) globals: Globals,
     pub(crate) tags: Vec<TagInstance>,
-    pub(crate) exceptions: Vec<ExceptionInstance>,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) data: Vec<DataInstance>,
     pub(crate) gc: gc::GcHeap,
+    pub(crate) roots: gc::Roots,
 }
 
 impl State {
@@ -33,16 +32,37 @@ impl State {
             memories: Vec::new(),
             globals: Globals::default(),
             tags: Vec::new(),
-            exceptions: Vec::new(),
             elements: Vec::new(),
             data: Vec::new(),
             gc: gc::GcHeap::new(config),
+            roots: gc::Roots::new(),
         }
     }
 
-    /// Returns whether values of this type can contain a managed GC object.
-    pub(crate) fn type_may_contain_gc(&self, ty: &WasmType) -> bool {
-        Self::type_may_contain_gc_in(&self.canonical_types, ty)
+    pub(crate) fn collect_gc(&mut self, additional: impl IntoIterator<Item = ValueRef>) -> Result<(), gc::AllocError> {
+        let canonical_types = &self.canonical_types;
+        let store_roots = self
+            .globals
+            .globals_32()
+            .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, &ty.ty))
+            .map(|(value, _)| ValueRef::from_raw(*value))
+            .chain(
+                self.tables
+                    .iter()
+                    .filter(|table| {
+                        Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(table.kind.element_type))
+                    })
+                    .flat_map(|table| table.elements.iter().copied()),
+            )
+            .chain(
+                self.elements
+                    .iter()
+                    .filter(|element| Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(element.ty)))
+                    .flat_map(|element| element.items.iter().flatten().copied()),
+            )
+            .chain(additional);
+        let roots = self.roots.values().chain(store_roots);
+        self.gc.collect(roots)
     }
 
     fn type_may_contain_gc_in(types: &[SubType], ty: &WasmType) -> bool {
@@ -58,25 +78,28 @@ impl State {
                     | AbstractHeapType::Struct
                     | AbstractHeapType::Array
                     | AbstractHeapType::Extern
+                    | AbstractHeapType::Exn
             )
         )
     }
 
-    /// Precomputes whether a canonical function signature can carry GC objects.
-    pub(crate) fn func_gc_metadata(&self, type_addr: TypeAddr) -> FunctionGcMetadata {
-        let ty = self.get_canonical_func_type(type_addr);
-        FunctionGcMetadata {
-            params: ty.params().iter().any(|ty| self.type_may_contain_gc(ty)),
-            results: ty.results().iter().any(|ty| self.type_may_contain_gc(ty)),
-        }
+    pub(crate) fn check_gc_allocation(&self, type_addr: TypeAddr, value_count: usize) -> Result<(), Trap> {
+        let trace_references = match &self.get_type(type_addr).composite {
+            CompositeType::Struct(ty) => {
+                ty.fields.iter().any(|field| matches!(field.storage, StorageType::Value(WasmType::Ref(_))))
+            }
+            CompositeType::Array(ty) => matches!(ty.field.storage, StorageType::Value(WasmType::Ref(_))),
+            CompositeType::Func(_) => unreachable!("GC object type is not a function"),
+        };
+        self.gc.check_allocation(value_count, trace_references)
     }
 
     /// Allocates an object, collecting from all runtime roots when needed.
     pub(crate) fn alloc_gc_object(
         &mut self,
         type_addr: TypeAddr,
-        values: Vec<TinyWasmValue>,
-        stack_32: impl IntoIterator<Item = u32>,
+        values: Vec<RuntimeValue>,
+        additional_roots: impl IntoIterator<Item = ValueRef>,
     ) -> Result<ValueRef, Trap> {
         let trace_references = match &self.get_type(type_addr).composite {
             CompositeType::Struct(ty) => {
@@ -86,66 +109,43 @@ impl State {
             CompositeType::Func(_) => unreachable!("GC object type is not a function"),
         };
         if self.gc.should_collect(values.len(), trace_references) {
-            let canonical_types = &self.canonical_types;
-            let roots = stack_32
-                .into_iter()
-                .map(ValueRef::from_raw)
-                .chain(
-                    self.globals
-                        .globals_32()
-                        .filter(|(_, ty)| Self::type_may_contain_gc_in(canonical_types, &ty.ty))
-                        .map(|(value, _)| ValueRef::from_raw(*value)),
-                )
-                .chain(
-                    self.tables
-                        .iter()
-                        .filter(|table| {
-                            Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(table.kind.element_type))
-                        })
-                        .flat_map(|table| table.elements.iter().copied()),
-                )
-                .chain(
-                    self.elements
-                        .iter()
-                        .filter(|element| Self::type_may_contain_gc_in(canonical_types, &WasmType::Ref(element.ty)))
-                        .flat_map(|element| element.items.iter().flatten().copied()),
-                )
-                .chain(self.exceptions.iter().flat_map(|exception| {
-                    exception.payload.iter().filter_map(|value| match value {
-                        TinyWasmValue::ValueRef(value) => Some(*value),
-                        _ => None,
-                    })
-                }))
-                .chain(values.iter().filter_map(|value| match value {
-                    TinyWasmValue::ValueRef(value) => Some(*value),
-                    _ => None,
-                }));
-            cold_err!(self.gc.collect(roots)).map_err(|_| Trap::OutOfMemory)?;
+            let roots = additional_roots.into_iter().chain(values.iter().filter_map(|value| match value {
+                RuntimeValue::ValueRef(value) => Some(*value),
+                _ => None,
+            }));
+            cold_err!(self.collect_gc(roots)).map_err(|_| Trap::OutOfMemory)?;
         }
         self.gc.alloc(type_addr, values, trace_references)
     }
 
-    /// Pins a host-visible reference when it resolves to a managed GC object.
-    pub(crate) fn pin_host_ref(&self, value: RefValue) {
-        let raw = match value {
-            RefValue::Any(value) => value.raw(),
-            RefValue::Extern(value) => value.raw(),
-            RefValue::Null | RefValue::Func(_) | RefValue::Exn(_) => return,
-        };
-        self.gc.pin(ValueRef::from_raw(raw));
-    }
-
-    /// Pins GC references that have crossed into host-visible values.
-    pub(crate) fn pin_host_values(&self, values: &[WasmValue]) {
-        for &value in values {
-            if let WasmValue::Ref(value) = value {
-                self.pin_host_ref(value);
-            }
+    /// Allocates a traced exception object, collecting with its payload as temporary roots.
+    pub(crate) fn alloc_exception(
+        &mut self,
+        tag_addr: TagAddr,
+        payload: Vec<RuntimeValue>,
+        additional_roots: impl IntoIterator<Item = ValueRef>,
+    ) -> Result<ValueRef, Trap> {
+        let type_addr = self.get_tag(tag_addr).type_addr;
+        let mut trace_fields = Vec::new();
+        trace_fields.try_reserve_exact(payload.len()).map_err(|_| Trap::OutOfMemory)?;
+        trace_fields.extend(
+            self.get_canonical_func_type(type_addr)
+                .params()
+                .iter()
+                .map(|ty| Self::type_may_contain_gc_in(&self.canonical_types, ty)),
+        );
+        if self.gc.should_collect(payload.len(), true) {
+            let roots = additional_roots.into_iter().chain(payload.iter().filter_map(|value| match value {
+                RuntimeValue::ValueRef(value) => Some(*value),
+                _ => None,
+            }));
+            cold_err!(self.collect_gc(roots)).map_err(|_| Trap::OutOfMemory)?;
         }
+        self.gc.alloc_exception(tag_addr, payload, &trace_fields)
     }
 
     /// Resolves a non-null object of the expected canonical type.
-    pub(crate) fn gc_object(&self, reference: ValueRef, expected_type: TypeAddr) -> Result<&gc::GcObject, Trap> {
+    pub(crate) fn gc_object(&self, reference: ValueRef, expected_type: TypeAddr) -> Result<gc::Handle, Trap> {
         if reference.is_null() {
             return Err(if self.get_type(expected_type).as_array().is_some() {
                 Trap::NullArrayReference
@@ -154,36 +154,13 @@ impl State {
             });
         }
         let object = self.gc.get(reference).ok_or(Trap::Other("invalid GC reference"))?;
-        if !self.type_addr_is_subtype(object.type_addr, expected_type) {
+        let gc::GcObjectKind::Composite(type_addr) = object.kind else {
+            return Err(Trap::Other("GC reference is not a struct or array"));
+        };
+        if !self.type_addr_is_subtype(type_addr, expected_type) {
             return Err(Trap::Other("GC reference type mismatch"));
         }
-        Ok(object)
-    }
-
-    /// Converts an internal reference using canonical heap type information.
-    pub(crate) fn to_ref_value(&self, value: ValueRef, ty: RefType) -> RefValue {
-        if value.is_null() {
-            return RefValue::Null;
-        }
-
-        if let Some(type_addr) = ty.type_index() {
-            return match &self.get_type(type_addr).composite {
-                CompositeType::Func(_) => {
-                    RefValue::Func(FuncRef::new(value.addr().expect("non-null reference has an address")))
-                }
-                CompositeType::Struct(_) | CompositeType::Array(_) => RefValue::Any(AnyRef::from_raw(value.raw())),
-            };
-        }
-        if ty.is_func() {
-            return RefValue::Func(FuncRef::new(value.addr().expect("non-null reference has an address")));
-        }
-        if ty.is_extern() {
-            return RefValue::Extern(ExternRef::from_raw(value.raw()));
-        }
-        if ty.is_exn() {
-            return RefValue::Exn(ExnRef::new(value.addr().expect("non-null reference has an address")));
-        }
-        RefValue::Any(AnyRef::from_raw(value.raw()))
+        self.gc.handle(reference).ok_or(Trap::Other("invalid GC reference"))
     }
 
     /// Returns whether one canonical type is a subtype of another.
@@ -276,7 +253,7 @@ impl State {
             return self.ref_type_is_subtype(RefType::new_concrete(false, func.type_addr), expected);
         }
         if expected.abstract_heap_type() == Some(AbstractHeapType::Exn) {
-            return value.addr().is_some_and(|addr| self.exceptions.get(addr as usize).is_some());
+            return matches!(self.gc.get(value).map(|object| object.kind), Some(gc::GcObjectKind::Exception(_)));
         }
         if value.is_i31() {
             return self.ref_type_is_subtype(RefType::new_abstract(false, AbstractHeapType::I31), expected);
@@ -286,7 +263,8 @@ impl State {
         }
 
         let Some(object) = self.gc.get(value) else { return false };
-        let actual = RefType::new_concrete(false, object.type_addr);
+        let gc::GcObjectKind::Composite(type_addr) = object.kind else { return false };
+        let actual = RefType::new_concrete(false, type_addr);
         self.ref_type_is_subtype(actual, expected)
     }
 
@@ -303,30 +281,6 @@ impl State {
     #[inline]
     pub(crate) fn get_canonical_func_type(&self, addr: TypeAddr) -> &FuncType {
         self.get_type(addr).as_func().expect("validated function address references a function type")
-    }
-
-    pub(crate) fn value_matches_type(&self, value: WasmValue, expected: WasmType) -> bool {
-        match (value, expected) {
-            (WasmValue::Ref(RefValue::Null), WasmType::Ref(expected)) => expected.is_nullable(),
-            (WasmValue::Ref(RefValue::Func(func)), WasmType::Ref(expected)) => self
-                .funcs
-                .get(func.addr() as usize)
-                .is_some_and(|func| self.ref_type_is_subtype(RefType::new_concrete(false, func.type_addr), expected)),
-            (WasmValue::Ref(RefValue::Any(_)), WasmType::Ref(expected))
-                if expected.is_func() || expected.is_extern() || expected.is_exn() =>
-            {
-                false
-            }
-            (WasmValue::Ref(RefValue::Exn(value)), WasmType::Ref(expected)) => {
-                expected.abstract_heap_type() == Some(AbstractHeapType::Exn)
-                    && self.exceptions.get(value.addr() as usize).is_some()
-            }
-            (WasmValue::Ref(RefValue::Any(value)), WasmType::Ref(expected)) => {
-                self.value_ref_matches(ValueRef::from_raw(value.raw()), expected)
-            }
-            (_, WasmType::Ref(expected)) if expected.is_concrete() => false,
-            _ => value.matches_type(expected),
-        }
     }
 
     pub(super) fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
@@ -406,36 +360,28 @@ impl State {
     }
 
     /// Converts a global directly to its public value representation.
-    pub(crate) fn get_global_wasmvalue(&self, addr: GlobalAddr) -> WasmValue {
+    pub(crate) fn get_global_internal(&self, addr: GlobalAddr) -> RuntimeValue {
         let ty = self.globals.ty(addr).ty;
         match ty {
-            WasmType::I32 => WasmValue::I32(self.globals.get_32(addr) as i32),
-            WasmType::I64 => WasmValue::I64(self.globals.get_64(addr) as i64),
-            WasmType::F32 => WasmValue::F32(f32::from_bits(self.globals.get_32(addr))),
-            WasmType::F64 => WasmValue::F64(f64::from_bits(self.globals.get_64(addr))),
-            WasmType::Ref(ty) => WasmValue::Ref(self.to_ref_value(ValueRef::from_raw(self.globals.get_32(addr)), ty)),
-            WasmType::V128 => WasmValue::V128(self.globals.get_128(addr).0),
+            WasmType::I32 | WasmType::F32 => RuntimeValue::Value32(self.globals.get_32(addr)),
+            WasmType::I64 | WasmType::F64 => RuntimeValue::Value64(self.globals.get_64(addr)),
+            WasmType::Ref(_) => RuntimeValue::ValueRef(ValueRef::from_raw(self.globals.get_32(addr))),
+            WasmType::V128 => RuntimeValue::Value128(self.globals.get_128(addr)),
         }
     }
 
     /// Validates and sets a global from its public value representation.
-    pub(crate) fn set_global_wasmvalue(&mut self, addr: GlobalAddr, value: WasmValue) -> Result<()> {
+    pub(crate) fn set_global_wasmvalue(&mut self, addr: GlobalAddr, value: RuntimeValue) -> Result<()> {
         let ty = self.globals.ty(addr);
         if !ty.mutable {
             cold_path();
             return Err(Error::other("global is immutable"));
         }
-        if !self.value_matches_type(value, ty.ty) {
-            cold_path();
-            return Err(Error::other("invalid global value type"));
-        }
         match value {
-            WasmValue::I32(value) => self.globals.set_32(addr, value as u32),
-            WasmValue::I64(value) => self.globals.set_64(addr, value as u64),
-            WasmValue::F32(value) => self.globals.set_32(addr, value.to_bits()),
-            WasmValue::F64(value) => self.globals.set_64(addr, value.to_bits()),
-            WasmValue::Ref(value) => self.globals.set_32(addr, ValueRef::from(value).raw()),
-            WasmValue::V128(value) => self.globals.set_128(addr, Value128(value)),
+            RuntimeValue::Value32(value) => self.globals.set_32(addr, value),
+            RuntimeValue::Value64(value) => self.globals.set_64(addr, value),
+            RuntimeValue::ValueRef(value) => self.globals.set_32(addr, value.raw()),
+            RuntimeValue::Value128(value) => self.globals.set_128(addr, value),
         }
         Ok(())
     }

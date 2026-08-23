@@ -23,10 +23,11 @@ fn main() -> Result<()> {
     let mut store = Store::default();
 
     let call_add_twice = HostFunction::from(|mut ctx: FuncContext<'_>, value: i32| {
+        // FuncContext exposes the active module and its Store to the callback.
         let add_one = ctx.module().func::<i32, i32>(ctx.store(), "add_one")?;
 
-        // Use ctx.call for reentrant calls from host functions. Function::call
-        // starts a root invocation and cannot preserve the active call stacks.
+        // Use ctx.call while a host callback has an active Wasm invocation.
+        // Function::call only starts top-level invocations.
         let value = ctx.call(&add_one, value)?;
         ctx.call(&add_one, value)
     });

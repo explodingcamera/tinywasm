@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
-use tinywasm_types::{ModuleInstanceId, WasmValue};
+use tinywasm_types::ModuleInstanceId;
 
-use crate::{Error, FromWasmValues, Function, FunctionTyped, IntoWasmValues, Result};
+use crate::{Error, FromWasmValues, FuncRef, Function, FunctionTyped, IntoWasmValues, Result, WasmValue};
 
 /// The context of a host-function call
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
@@ -45,7 +45,7 @@ impl FuncContext<'_> {
     }
 
     /// Get the value of a global export.
-    pub fn global_get(&self, name: &str) -> Result<WasmValue> {
+    pub fn global_get(&mut self, name: &str) -> Result<WasmValue> {
         self.module().global_get(self.store, name)
     }
 
@@ -97,6 +97,16 @@ impl FuncContext<'_> {
         func.call_untyped(self.store, args, call_stack_base, value_stack_base)
     }
 
+    /// Calls a Store-aware function reference in the current module context.
+    pub fn call_ref(&mut self, func: FuncRef, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+        let addr = func.addr(self.store.store_id()).ok_or(crate::Trap::InvalidStore)?;
+        if self.store.state.funcs.get(addr as usize).is_none() {
+            return Err(crate::Trap::InvalidReference.into());
+        }
+        let function = Function { item: crate::StoreItem::new(self.store.store_id(), addr), module_id: self.module_id };
+        self.call_untyped(&function, args)
+    }
+
     /// Call a typed function from within the current host-function invocation.
     ///
     /// See [`Self::call_untyped`] for reentrancy and resumable-execution
@@ -115,12 +125,7 @@ impl FuncContext<'_> {
             let params = params.into_wasm_values().collect::<Vec<_>>();
             let results = self.call_untyped(&func.func, &params)?;
             let mut values = results.into_iter();
-            let result = R::from_wasm_values(&mut values)?;
-            return if values.next().is_none() {
-                Ok(result)
-            } else {
-                Err(Error::other("typed conversion did not consume all WebAssembly values"))
-            };
+            return R::from_wasm_values_exact(&mut values);
         }
 
         let call_stack_base = self.store.call_stack.len();
@@ -140,12 +145,5 @@ impl core::ops::Deref for FuncContext<'_> {
 impl core::ops::DerefMut for FuncContext<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.store
-    }
-}
-
-impl<'a> FuncContext<'a> {
-    /// Create a new host function context.
-    pub const fn new(store: &'a mut crate::Store, module_id: ModuleInstanceId) -> Self {
-        Self { store, module_id }
     }
 }

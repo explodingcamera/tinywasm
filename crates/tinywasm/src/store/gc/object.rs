@@ -1,12 +1,11 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
-use core::cell::RefCell;
 use core::mem::size_of;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use tinywasm_types::TypeAddr;
+use tinywasm_types::{TagAddr, TypeAddr};
 
 use crate::engine::Config;
-use crate::interpreter::{TinyWasmValue, ValueRef};
+use crate::interpreter::{RuntimeValue, ValueRef};
 use crate::{ResourceLimiter, Trap};
 
 use super::{AllocError, Arena, Handle, Trace};
@@ -14,9 +13,15 @@ use super::{AllocError, Arena, Handle, Trace};
 static NEXT_GC_REF: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) struct GcObject {
-    pub(crate) type_addr: TypeAddr,
-    pub(crate) values: Box<[TinyWasmValue]>,
+    pub(crate) kind: GcObjectKind,
+    pub(crate) values: Box<[RuntimeValue]>,
     references: Option<Box<[Option<Handle>]>>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum GcObjectKind {
+    Composite(TypeAddr),
+    Exception(TagAddr),
 }
 
 impl Trace for GcObject {
@@ -30,7 +35,6 @@ impl Trace for GcObject {
 pub(crate) struct GcHeap {
     objects: Arena<GcObject>,
     directory: Vec<(u32, Handle)>,
-    pinned: RefCell<Vec<Handle>>,
     resource_limiter: Option<Arc<dyn ResourceLimiter>>,
 }
 
@@ -46,7 +50,6 @@ impl GcHeap {
         Self {
             objects: Arena::new(config.gc_collection_threshold),
             directory: Vec::new(),
-            pinned: RefCell::new(Vec::new()),
             resource_limiter: config.resource_limiter.clone(),
         }
     }
@@ -65,19 +68,13 @@ impl GcHeap {
     }
 
     #[inline]
-    pub(crate) fn get_mut(&mut self, value: ValueRef) -> Option<&mut GcObject> {
-        self.objects.get_mut(self.handle(value)?)
+    pub(crate) fn get_handle(&self, handle: Handle) -> Option<&GcObject> {
+        self.objects.get(handle)
     }
 
-    /// Allocates an object and returns its compact runtime reference.
-    pub(crate) fn alloc(
-        &mut self,
-        type_addr: TypeAddr,
-        values: Vec<TinyWasmValue>,
-        trace_references: bool,
-    ) -> Result<ValueRef, Trap> {
-        let element_size = size_of::<TinyWasmValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
-        let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
+    pub(crate) fn check_allocation(&self, value_count: usize, trace_references: bool) -> Result<(), Trap> {
+        let element_size = size_of::<RuntimeValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
+        let out_of_line_bytes = value_count.checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
         let allocation_size = Arena::<GcObject>::allocation_size(out_of_line_bytes).ok_or(Trap::OutOfMemory)?;
         let desired = self.objects.allocated_bytes.checked_add(allocation_size).ok_or(Trap::OutOfMemory)?;
         if let Some(limiter) = &self.resource_limiter
@@ -85,7 +82,38 @@ impl GcHeap {
         {
             return Err(Trap::OutOfMemory);
         }
+        Ok(())
+    }
 
+    /// Allocates an object and returns its compact runtime reference.
+    pub(crate) fn alloc(
+        &mut self,
+        type_addr: TypeAddr,
+        values: Vec<RuntimeValue>,
+        trace_references: bool,
+    ) -> Result<ValueRef, Trap> {
+        self.alloc_kind(GcObjectKind::Composite(type_addr), values, trace_references, None)
+    }
+
+    /// Allocates an exception and traces references in its payload.
+    pub(crate) fn alloc_exception(
+        &mut self,
+        tag_addr: TagAddr,
+        payload: Vec<RuntimeValue>,
+        trace_fields: &[bool],
+    ) -> Result<ValueRef, Trap> {
+        self.alloc_kind(GcObjectKind::Exception(tag_addr), payload, true, Some(trace_fields))
+    }
+
+    fn alloc_kind(
+        &mut self,
+        kind: GcObjectKind,
+        values: Vec<RuntimeValue>,
+        trace_references: bool,
+        trace_fields: Option<&[bool]>,
+    ) -> Result<ValueRef, Trap> {
+        let element_size = size_of::<RuntimeValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
+        let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
         let key =
             NEXT_GC_REF.try_update(Ordering::Relaxed, Ordering::Relaxed, |key| (key < (1 << 30)).then_some(key + 1));
         let Ok(key) = key else {
@@ -94,27 +122,27 @@ impl GcHeap {
         let references = if trace_references {
             let mut references = Vec::new();
             references.try_reserve_exact(values.len()).map_err(|_| Trap::OutOfMemory)?;
-            references.extend(values.iter().map(|value| match value {
-                TinyWasmValue::ValueRef(value) => self.handle(*value),
+            references.extend(values.iter().enumerate().map(|(index, value)| match value {
+                RuntimeValue::ValueRef(value) if trace_fields.is_none_or(|fields| fields[index]) => self.handle(*value),
                 _ => None,
             }));
             Some(references.into_boxed_slice())
         } else {
             None
         };
-        let object = GcObject { type_addr, values: values.into_boxed_slice(), references };
+        let object = GcObject { kind, values: values.into_boxed_slice(), references };
         self.directory.try_reserve(1).map_err(|_| Trap::OutOfMemory)?;
         let handle = self.objects.alloc(object, out_of_line_bytes).map_err(|_| Trap::OutOfMemory)?;
         self.directory.push((key, handle));
         Ok(ValueRef::from_category_addr(key))
     }
 
-    pub(crate) fn set(&mut self, object: ValueRef, index: usize, value: TinyWasmValue) -> Option<()> {
+    pub(crate) fn set(&mut self, object: Handle, index: usize, value: RuntimeValue) -> Option<()> {
         let reference = match value {
-            TinyWasmValue::ValueRef(value) => self.handle(value),
+            RuntimeValue::ValueRef(value) => self.handle(value),
             _ => None,
         };
-        let object = self.get_mut(object)?;
+        let object = self.objects.get_mut(object)?;
         *object.values.get_mut(index)? = value;
         if let Some(references) = &mut object.references {
             references[index] = reference;
@@ -123,20 +151,17 @@ impl GcHeap {
     }
 
     /// Replaces a contiguous range and updates its traced references.
-    pub(crate) fn set_slice(&mut self, object: ValueRef, index: usize, values: &[TinyWasmValue]) -> Option<()> {
-        let object_handle = self.handle(object)?;
+    pub(crate) fn set_slice(&mut self, object: Handle, index: usize, values: &[RuntimeValue]) -> Option<()> {
         let end = index.checked_add(values.len())?;
         let directory = &self.directory;
-        let object = self.objects.get_mut(object_handle)?;
+        let object = self.objects.get_mut(object)?;
         object.values.get_mut(index..end)?.copy_from_slice(values);
         if let Some(references) = &mut object.references {
             for (reference, value) in references[index..end].iter_mut().zip(values) {
                 *reference = match value {
-                    TinyWasmValue::ValueRef(value) => {
-                        let key = value.addr();
-                        key.and_then(|key| directory.binary_search_by_key(&key, |entry| entry.0).ok())
-                            .map(|index| directory[index].1)
-                    }
+                    RuntimeValue::ValueRef(value) => value.addr().and_then(|key| {
+                        directory.binary_search_by_key(&key, |entry| entry.0).ok().map(|index| directory[index].1)
+                    }),
                     _ => None,
                 };
             }
@@ -145,17 +170,12 @@ impl GcHeap {
     }
 
     /// Fills a contiguous range and updates its traced references.
-    pub(crate) fn fill(
-        &mut self,
-        object: ValueRef,
-        range: core::ops::Range<usize>,
-        value: TinyWasmValue,
-    ) -> Option<()> {
+    pub(crate) fn fill(&mut self, object: Handle, range: core::ops::Range<usize>, value: RuntimeValue) -> Option<()> {
         let reference = match value {
-            TinyWasmValue::ValueRef(value) => self.handle(value),
+            RuntimeValue::ValueRef(value) => self.handle(value),
             _ => None,
         };
-        let object = self.get_mut(object)?;
+        let object = self.objects.get_mut(object)?;
         object.values.get_mut(range.clone())?.fill(value);
         if let Some(references) = &mut object.references {
             references[range].fill(reference);
@@ -164,36 +184,24 @@ impl GcHeap {
     }
 
     pub(crate) fn should_collect(&self, value_count: usize, trace_references: bool) -> bool {
-        let element_size = size_of::<TinyWasmValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
+        let element_size = size_of::<RuntimeValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
         self.objects.should_collect(value_count.saturating_mul(element_size))
     }
 
-    /// Reclaims objects unreachable from runtime and permanent host roots.
+    /// Reclaims objects unreachable from runtime roots.
     pub(crate) fn collect(&mut self, roots: impl IntoIterator<Item = ValueRef>) -> Result<(), AllocError> {
-        let pinned = self.pinned.borrow();
         let directory = &self.directory;
         let root_handles = roots.into_iter().filter_map(|value| {
             let key = value.addr()?;
             Some(directory.get(directory.binary_search_by_key(&key, |entry| entry.0).ok()?)?.1)
         });
-        self.objects.collect(pinned.iter().copied().chain(root_handles))?;
-        drop(pinned);
+        self.objects.collect(root_handles)?;
         self.directory.retain(|(_, handle)| self.objects.get(*handle).is_some());
         Ok(())
     }
 
-    /// Permanently roots a managed reference exposed through the copyable host API.
-    pub(crate) fn pin(&self, value: ValueRef) {
-        if let Some(handle) = self.handle(value) {
-            let mut pinned = self.pinned.borrow_mut();
-            if let Err(index) = pinned.binary_search(&handle) {
-                pinned.insert(index, handle);
-            }
-        }
-    }
-
-    pub(crate) fn copy_within(&mut self, object: ValueRef, src: core::ops::Range<usize>, dst: usize) -> Option<()> {
-        let object = self.get_mut(object)?;
+    pub(crate) fn copy_within(&mut self, object: Handle, src: core::ops::Range<usize>, dst: usize) -> Option<()> {
+        let object = self.objects.get_mut(object)?;
         object.values.copy_within(src.clone(), dst);
         if let Some(references) = &mut object.references {
             references.copy_within(src, dst);
@@ -204,13 +212,11 @@ impl GcHeap {
     /// Copies values and tracing metadata between two distinct objects.
     pub(crate) fn copy_between(
         &mut self,
-        src: ValueRef,
+        src: Handle,
         src_range: core::ops::Range<usize>,
-        dst: ValueRef,
+        dst: Handle,
         dst_index: usize,
     ) -> Option<()> {
-        let src = self.handle(src)?;
-        let dst = self.handle(dst)?;
         let (src, dst) = self.objects.get_disjoint_mut(src, dst)?;
         let src_values = src.values.get(src_range.clone())?;
         let dst_end = dst_index.checked_add(src_values.len())?;
@@ -254,13 +260,27 @@ mod tests {
     #[test]
     fn collection_reclaims_object_cycles() {
         let mut heap = GcHeap::default();
-        let first = heap.alloc(0, alloc::vec![TinyWasmValue::ValueRef(ValueRef::NULL)], true).unwrap();
-        let second = heap.alloc(0, alloc::vec![TinyWasmValue::ValueRef(first)], true).unwrap();
-        heap.set(first, 0, TinyWasmValue::ValueRef(second)).unwrap();
+        let first = heap.alloc(0, alloc::vec![RuntimeValue::ValueRef(ValueRef::NULL)], true).unwrap();
+        let second = heap.alloc(0, alloc::vec![RuntimeValue::ValueRef(first)], true).unwrap();
+        heap.set(heap.handle(first).unwrap(), 0, RuntimeValue::ValueRef(second)).unwrap();
 
         heap.collect([]).unwrap();
 
         assert!(heap.get(first).is_none());
         assert!(heap.get(second).is_none());
+    }
+
+    #[test]
+    fn exception_payload_traces_managed_objects() {
+        let mut heap = GcHeap::default();
+        let payload = heap.alloc(0, Vec::new(), false).unwrap();
+        let exception = heap.alloc_exception(0, alloc::vec![RuntimeValue::ValueRef(payload)], &[true]).unwrap();
+
+        heap.collect([exception]).unwrap();
+        assert!(heap.get(payload).is_some());
+
+        heap.collect([]).unwrap();
+        assert!(heap.get(exception).is_none());
+        assert!(heap.get(payload).is_none());
     }
 }

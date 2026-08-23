@@ -1,17 +1,16 @@
 use alloc::{boxed::Box, format, vec::Vec};
 use core::hint::cold_path;
-use core::sync::atomic::{AtomicU32, Ordering};
 use tinywasm_types::*;
 
 use crate::func::FromWasmValues;
 use crate::interpreter::stack::{CallStack, StackBase, ValueStack};
-use crate::interpreter::{TinyWasmValue, ValueRef};
-use crate::{Engine, Error, ModuleInstance, Result, Trap};
+use crate::interpreter::{RuntimeValue, ValueRef};
+use crate::reference::{ReferentKind, RootedItem, StoreId, StoredRef};
+use crate::{Engine, Error, ExnRef, FuncRef, ModuleInstance, RefValue, Result, Trap, WasmValue};
 
 mod const_expr;
 mod data;
 mod element;
-mod exception;
 mod function;
 mod gc;
 mod global;
@@ -22,14 +21,11 @@ mod tag;
 mod types;
 
 use const_expr::eval_const;
-pub(crate) use gc::{decode_data, default_value, pop_value, push_value};
+pub(crate) use gc::{GcObjectKind, decode_data, default_value, pop_value, push_value};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
-pub(crate) use {data::*, element::*, exception::*, function::*, global::*, table::*, tag::*};
-
-// global store id counter
-static STORE_ID: AtomicU32 = AtomicU32::new(0);
+pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 
 /// Controls resource usage by WebAssembly instances.
 ///
@@ -60,7 +56,7 @@ static STORE_ID: AtomicU32 = AtomicU32::new(0);
 ///
 /// let config = Config::new().with_resource_limiter(Arc::new(MemoryLimit(64 * 1024)));
 /// let mut store = Store::new(Engine::new(config));
-/// let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
+/// let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 /// assert_eq!(memory.grow(&mut store, 1)?, None);
 /// # Ok::<(), tinywasm::Error>(())
 /// ```
@@ -97,9 +93,9 @@ pub trait ResourceLimiter: Send + Sync {
 
     /// Returns whether a GC object allocation is allowed.
     ///
-    /// Sizes are the logical bytes retained by live GC objects after collection. `maximum` is
-    /// currently always `None`. `Ok(false)` rejects the allocation with [`Trap::OutOfMemory`], while
-    /// `Err` returns the provided trap. The default implementation allows the request.
+    /// Sizes are logical allocated bytes before and after the requested allocation. Unreachable
+    /// objects remain included until collection. `maximum` is currently always `None`. `Ok(false)`
+    /// rejects the allocation with [`Trap::OutOfMemory`], while `Err` returns the provided trap.
     fn gc_growing(
         &self,
         _current: usize,
@@ -124,7 +120,7 @@ pub trait ResourceLimiter: Send + Sync {
 ///
 ///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
-    id: u32,
+    id: StoreId,
     pub(crate) module_instances: Vec<ModuleInstance>,
 
     pub(crate) engine: Engine,
@@ -135,6 +131,52 @@ pub struct Store {
     pub(crate) value_stack: ValueStack,
     pub(crate) host_params: Vec<WasmValue>,
 }
+
+#[derive(Clone, Copy)]
+pub(crate) enum FuncValueTypes {
+    Params,
+    Results,
+}
+
+pub(crate) struct StackValueIter<'a> {
+    store: &'a mut Store,
+    type_addr: TypeAddr,
+    types: FuncValueTypes,
+    index: StackBase,
+    position: usize,
+    len: usize,
+}
+
+impl Iterator for StackValueIter<'_> {
+    type Item = WasmValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position == self.len {
+            return None;
+        }
+        let ty = {
+            let func_ty = self.store.state.get_canonical_func_type(self.type_addr);
+            match self.types {
+                FuncValueTypes::Params => func_ty.params()[self.position],
+                FuncValueTypes::Results => func_ty.results()[self.position],
+            }
+        };
+        self.position += 1;
+        let value = self.store.stack_value(ty, &mut self.index);
+        Some(
+            value
+                .into_wasm(self.store, ty)
+                .unwrap_or_else(|_| unreachable!("invalid internal value at a typed host boundary")),
+        )
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len - self.position;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for StackValueIter<'_> {}
 
 #[cfg(feature = "debug")]
 impl core::fmt::Debug for Store {
@@ -162,8 +204,7 @@ impl Default for Store {
 impl Store {
     /// Create a new store
     pub fn new(engine: Engine) -> Self {
-        let id =
-            STORE_ID.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1)).expect("too many stores");
+        let id = StoreId::fresh();
         let state = State::new(engine.config());
         Self {
             id,
@@ -180,7 +221,152 @@ impl Store {
 
     /// Get the store's ID (unique per process)
     pub fn id(&self) -> u32 {
+        self.id.get()
+    }
+
+    pub(crate) const fn store_id(&self) -> StoreId {
         self.id
+    }
+
+    pub(crate) fn root_reference<T: StoredRef>(&mut self, value: ValueRef, kind: ReferentKind) -> Result<T> {
+        let token = match kind {
+            ReferentKind::Struct | ReferentKind::Array | ReferentKind::Exception => {
+                Some(self.state.roots.insert(value)?)
+            }
+            ReferentKind::I31 | ReferentKind::HostExtern => None,
+        };
+        Ok(T::from_rooted_item(RootedItem { store: self.id, value, kind, _token: token }))
+    }
+
+    pub(crate) fn root_exception(&mut self, value: ValueRef) -> Result<ExnRef> {
+        if !matches!(self.state.gc.get(value).map(|object| object.kind), Some(gc::GcObjectKind::Exception(_))) {
+            return Err(Trap::InvalidReference.into());
+        }
+        self.root_reference(value, ReferentKind::Exception)
+    }
+
+    pub(crate) fn resolve_ref<T: StoredRef>(&self, reference: &T) -> Result<ValueRef, Trap> {
+        let item = reference.rooted_item();
+        if item.store != self.id {
+            return Err(Trap::InvalidStore);
+        }
+        Ok(item.value)
+    }
+
+    pub(crate) fn encode_ref(&self, value: &RefValue) -> Result<ValueRef> {
+        Ok(match value {
+            RefValue::Null => ValueRef::NULL,
+            RefValue::Func(value) => ValueRef::from_category_addr(value.addr(self.id).ok_or(Trap::InvalidStore)?),
+            RefValue::Any(value) => self.resolve_ref(value)?,
+            RefValue::Extern(value) => self.resolve_ref(value)?,
+            RefValue::Exn(value) => self.resolve_ref(value)?,
+        })
+    }
+
+    pub(crate) fn decode_ref(&mut self, value: ValueRef, ty: RefType) -> Result<RefValue> {
+        if value.is_null() {
+            return Ok(RefValue::Null);
+        }
+        if ty.type_index().is_some_and(|addr| self.state.get_type(addr).as_func().is_some()) || ty.is_func() {
+            return Ok(RefValue::Func(FuncRef::new(self.id, value.addr().ok_or(Trap::InvalidReference)?)));
+        }
+        if ty.is_exn() {
+            return self.root_exception(value).map(RefValue::Exn);
+        }
+        let kind = if value.is_i31() {
+            ReferentKind::I31
+        } else if value.is_host_any() {
+            ReferentKind::HostExtern
+        } else {
+            match self.state.gc.get(value).map(|object| object.kind) {
+                Some(gc::GcObjectKind::Composite(type_addr)) => match &self.state.get_type(type_addr).composite {
+                    CompositeType::Struct(_) => ReferentKind::Struct,
+                    CompositeType::Array(_) => ReferentKind::Array,
+                    CompositeType::Func(_) => return Err(Trap::InvalidReference.into()),
+                },
+                _ => return Err(Trap::InvalidReference.into()),
+            }
+        };
+        if ty.is_extern() {
+            Ok(RefValue::Extern(self.root_reference(value, kind)?))
+        } else {
+            Ok(RefValue::Any(self.root_reference(value, kind)?))
+        }
+    }
+
+    fn stack_value(&self, ty: WasmType, index: &mut StackBase) -> RuntimeValue {
+        match ty {
+            WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => {
+                let value = *self.value_stack.stack_32.get(index.s32 as usize);
+                index.s32 += 1;
+                if matches!(ty, WasmType::Ref(_)) {
+                    RuntimeValue::ValueRef(ValueRef::from_raw(value))
+                } else {
+                    RuntimeValue::Value32(value)
+                }
+            }
+            WasmType::I64 | WasmType::F64 => {
+                let value = *self.value_stack.stack_64.get(index.s64 as usize);
+                index.s64 += 1;
+                RuntimeValue::Value64(value)
+            }
+            WasmType::V128 => {
+                let value = *self.value_stack.stack_128.get(index.s128 as usize);
+                index.s128 += 1;
+                RuntimeValue::Value128(value)
+            }
+        }
+    }
+
+    pub(crate) fn stack_value_iter(
+        &mut self,
+        type_addr: TypeAddr,
+        types: FuncValueTypes,
+        index: StackBase,
+    ) -> Result<StackValueIter<'_>, Trap> {
+        let canonical = self.state.get_canonical_func_type(type_addr);
+        let canonical = match types {
+            FuncValueTypes::Params => canonical.params(),
+            FuncValueTypes::Results => canonical.results(),
+        };
+        let len = canonical.len();
+        let reference_count = canonical.iter().filter(|ty| matches!(ty, WasmType::Ref(_))).count();
+        self.state.roots.reserve(reference_count)?;
+        Ok(StackValueIter { store: self, type_addr, types, index, position: 0, len })
+    }
+
+    pub(crate) fn push_wasm_values(&mut self, values: impl IntoIterator<Item = WasmValue>) -> Result<()> {
+        for value in values {
+            let value = value.to_runtime(self)?;
+            self.value_stack.push_dyn(value)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn pop_stack_values(&mut self, types: &[WasmType]) -> Result<Vec<WasmValue>> {
+        let base = self.value_stack.base_before(types.iter().collect());
+        let values = (|| {
+            let mut index = base;
+            let mut values = Vec::new();
+            values.try_reserve_exact(types.len()).map_err(|_| Trap::OutOfMemory)?;
+            for &ty in types {
+                let value = self.stack_value(ty, &mut index);
+                values.push(value.into_wasm(self, ty)?);
+            }
+            Ok(values)
+        })();
+        self.value_stack.truncate_to_base(base);
+        values
+    }
+
+    /// Reclaims unreachable managed objects.
+    ///
+    /// Globals, tables, operand stacks, and owned host references are traced as
+    /// roots. Objects also become eligible for automatic threshold collection
+    /// after the last owned handle is dropped.
+    pub fn gc(&mut self) -> Result<()> {
+        let stack_roots = self.value_stack.stack_32.into_iter().copied().map(ValueRef::from_raw).collect::<Vec<_>>();
+        self.state.collect_gc(stack_roots).map_err(|_| Trap::OutOfMemory.into())
     }
 
     /// Get a module instance by the internal id
@@ -197,10 +383,27 @@ impl Store {
         self.module_instances.push(instance);
     }
 
-    /// Returns whether a public value has the requested runtime type.
-    #[doc(hidden)]
-    pub fn value_matches_type(&self, value: WasmValue, ty: WasmType) -> bool {
-        self.state.value_matches_type(value, ty)
+    pub(crate) fn value_matches_type(&self, value: &WasmValue, ty: WasmType) -> bool {
+        let (WasmValue::Ref(value), WasmType::Ref(expected)) = (value, ty) else {
+            return value.matches_type(ty);
+        };
+        let category_matches = match value {
+            RefValue::Null => return expected.is_nullable(),
+            RefValue::Func(_) => {
+                expected.is_func()
+                    || expected.type_index().is_some_and(|addr| self.state.get_type(addr).as_func().is_some())
+            }
+            RefValue::Extern(_) => expected.is_extern(),
+            RefValue::Exn(_) => expected.is_exn(),
+            RefValue::Any(_) => !expected.is_func() && !expected.is_extern() && !expected.is_exn(),
+        };
+        if !category_matches {
+            return false;
+        }
+        match self.encode_ref(value) {
+            Ok(value) => self.state.value_ref_matches(value, expected),
+            _ => false,
+        }
     }
 
     /// Marks the store as executing and rejects nested root calls.
@@ -233,10 +436,11 @@ impl Store {
             let mut values = values;
             for &ty in expected {
                 let value = values.next().ok_or_else(|| Error::other("not enough typed function values"))?;
-                if !self.state.value_matches_type(value, ty) {
+                let internal = value.to_runtime(self)?;
+                if !self.value_matches_type(&value, ty) {
                     return Err(Error::other("typed function value does not match its signature"));
                 }
-                self.value_stack.extend_wasmvalues(core::iter::once(value))?;
+                self.value_stack.push_dyn(internal)?;
             }
             if values.next().is_some() {
                 return Err(Error::other("too many typed function values"));
@@ -254,18 +458,11 @@ impl Store {
         &mut self,
         type_addr: TypeAddr,
         stack_base: StackBase,
-        pin_refs: bool,
     ) -> Result<R> {
-        let types = self.state.get_canonical_func_type(type_addr).results();
-        let mut values = self.value_stack.wasm_values(&self.state, types, stack_base, pin_refs);
-        let result = R::from_wasm_values(&mut values).and_then(|result| {
-            if values.next().is_some() {
-                Err(Error::other("typed conversion did not consume all WebAssembly values"))
-            } else {
-                Ok(result)
-            }
-        });
-        drop(values);
+        let result = {
+            let mut values = self.stack_value_iter(type_addr, FuncValueTypes::Results, stack_base)?;
+            R::from_wasm_values_exact(&mut values)
+        };
         self.value_stack.truncate_to_base(stack_base);
         result
     }
@@ -283,11 +480,9 @@ impl Store {
         self.state.funcs.reserve_exact(funcs.len());
         for (func, &type_idx) in funcs.iter().cloned().zip(module_type_idxs) {
             let type_addr = type_addrs[type_idx as usize];
-            self.state.funcs.push(FunctionInstance {
-                type_addr,
-                gc: self.state.func_gc_metadata(type_addr),
-                kind: FunctionKind::Wasm(WasmFunctionInstance { func, owner }),
-            });
+            self.state
+                .funcs
+                .push(FunctionInstance { type_addr, kind: FunctionKind::Wasm(WasmFunctionInstance { func, owner }) });
         }
         start..start + funcs.len() as FuncAddr
     }
@@ -318,7 +513,7 @@ impl Store {
         for table in tables {
             let init = match &table.init {
                 Some(expr) => match eval_const(&mut self.state, expr, global_addrs, func_addrs, type_addrs)? {
-                    TinyWasmValue::ValueRef(value) => value,
+                    RuntimeValue::ValueRef(value) => value,
                     _ => return Err(Error::other("table initializer is not a reference value")),
                 },
                 None => ValueRef::NULL,
@@ -374,7 +569,7 @@ impl Store {
     ) -> Result<ValueRef> {
         match item {
             ElementItem::Expr(expr) => match eval_const(&mut self.state, expr, globals, funcs, type_addrs)? {
-                TinyWasmValue::ValueRef(value) => Ok(value),
+                RuntimeValue::ValueRef(value) => Ok(value),
                 other => {
                     cold_path();
                     Err(Error::Other(format!("expected ref type, got {other:?}")))
@@ -426,8 +621,8 @@ impl Store {
                 // this one is active, so we need to initialize it (essentially a `table.init` instruction)
                 ElementKind::Active { offset, table } => {
                     let offset = match eval_const(&mut self.state, offset, global_addrs, func_addrs, type_addrs)? {
-                        TinyWasmValue::Value32(value) => u64::from(value),
-                        TinyWasmValue::Value64(value) => value,
+                        RuntimeValue::Value32(value) => u64::from(value),
+                        RuntimeValue::Value64(value) => value,
                         other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
                     };
                     let table_addr = table_addrs
@@ -493,8 +688,8 @@ impl Store {
                     };
 
                     let offset = match eval_const(&mut self.state, offset, global_addrs, func_addrs, type_addrs)? {
-                        TinyWasmValue::Value32(value) => u64::from(value),
-                        TinyWasmValue::Value64(value) => value,
+                        RuntimeValue::Value32(value) => u64::from(value),
+                        RuntimeValue::Value64(value) => value,
                         other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
                     };
                     let Some(mem) = self.state.memories.get_mut(*mem_addr as usize) else {

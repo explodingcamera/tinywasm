@@ -29,10 +29,12 @@ fn main() -> Result<()> {
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let count_down = instance.func::<i32, i32>(&store, "count_down")?;
 
+    // A resumable call returns execution state instead of running to completion.
     let mut execution = count_down.call_resumable(&mut store, 10_000)?;
     let fuel_per_round = 128;
     let mut fuel_rounds = 0;
 
+    // Each resume call limits one round. std builds also support wall-clock budgets.
     let result = loop {
         fuel_rounds += 1;
         match execution.resume_with_fuel(fuel_per_round)? {

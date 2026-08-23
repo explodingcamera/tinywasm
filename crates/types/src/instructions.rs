@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 
 use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
 use crate::operands::sealed;
-use crate::{DataAddr, ElemAddr, MemAddr, Operand64, Operand128, OperandIdx, OperandType, RefType, RefValue};
+use crate::{DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand128, OperandIdx, OperandType, RefType};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -429,7 +429,8 @@ pub enum ConstInstruction {
     GlobalGet64(GlobalAddr),
     GlobalGet128(GlobalAddr),
     GlobalGetRef(GlobalAddr),
-    Ref(RefValue),
+    RefNull(RefType),
+    RefFunc(ModuleFuncIdx),
     RefI31,
     AnyConvertExtern,
     ExternConvertAny,

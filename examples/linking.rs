@@ -1,7 +1,6 @@
 use anyhow::Result;
 use tinywasm::{ModuleInstance, Store};
 
-// WebAssembly module defining and exporting an `add` function.
 const WASM_ADD: &str = r#"
 (module
   (func $add (param $lhs i32) (param $rhs i32) (result i32)
@@ -11,7 +10,6 @@ const WASM_ADD: &str = r#"
   (export "add" (func $add)))
 "#;
 
-// WebAssembly module importing an `add` function and using it.
 const WASM_IMPORT: &str = r#"
 (module
   (import "adder" "add" (func $add (param i32 i32) (result i32)))
@@ -24,25 +22,23 @@ const WASM_IMPORT: &str = r#"
 "#;
 
 fn main() -> Result<()> {
-    let wasm_add = wat::parse_str(WASM_ADD).expect("failed to parse wat");
-    let wasm_import = wat::parse_str(WASM_IMPORT).expect("failed to parse wat");
+    let wasm_add = wat::parse_str(WASM_ADD)?;
+    let wasm_import = wat::parse_str(WASM_IMPORT)?;
 
     let add_module = tinywasm::parse_bytes(&wasm_add)?;
     let import_module = tinywasm::parse_bytes(&wasm_import)?;
 
     let mut store = Store::default();
 
-    // Instantiate the `add` module.
     let add_instance = ModuleInstance::instantiate(&mut store, &add_module, None)?;
 
-    // Link the `adder` namespace to the `add` module's instance.
+    // Imports can link a module namespace and define individual host items together.
     let mut imports = tinywasm::Imports::new();
     imports.link_module("adder", add_instance)?;
 
-    // Instantiate the `import` module with the linked imports.
     let import_instance = ModuleInstance::instantiate(&mut store, &import_module, Some(&imports))?;
 
-    // Call the `main` function, which uses the imported `add` function.
+    // Calling `main` crosses the linked module boundary to `add`.
     let main = import_instance.func::<(), i32>(&store, "main")?;
     assert_eq!(main.call(&mut store, ())?, 3);
 
