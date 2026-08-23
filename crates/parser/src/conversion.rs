@@ -152,8 +152,7 @@ pub(crate) fn convert_module_code(
     options: &ParserOptions,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let mut locals_reader = func.get_locals_reader()?;
-    let signature = metadata.signature(ty_idx)?.clone();
-    let mut local_types = signature.params.clone();
+    let mut local_types = metadata.signature(ty_idx)?.params.clone();
 
     #[cfg(feature = "validate")]
     let mut validator = validator;

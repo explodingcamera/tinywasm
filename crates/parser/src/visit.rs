@@ -168,7 +168,7 @@ pub(crate) struct FunctionBuilder<'a> {
 impl<'a> FunctionBuilder<'a> {
     pub(crate) fn new(
         metadata: &'a ModuleMetadata,
-        signature: Signature,
+        signature: &Signature,
         local_types: Vec<ValueLane>,
         local_addr_map: Vec<u16>,
         body_size: usize,
@@ -188,7 +188,7 @@ impl<'a> FunctionBuilder<'a> {
                 height: 0,
                 base: ValueCounts::default(),
                 params: Vec::new(),
-                results: signature.results,
+                results: signature.results.clone(),
                 unreachable: false,
                 entry_unreachable: false,
                 end_reachable: false,
@@ -402,7 +402,7 @@ pub(crate) fn process_operators(
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
-    let signature = metadata.signature(ty_idx)?.clone();
+    let signature = metadata.signature(ty_idx)?;
     let mut builder =
         FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
 
@@ -436,7 +436,7 @@ pub(crate) fn process_operators_and_validate(
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
-    let signature = metadata.signature(ty_idx)?.clone();
+    let signature = metadata.signature(ty_idx)?;
     let mut builder =
         FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
 
@@ -628,27 +628,26 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_call(&mut self, function_index: u32) -> Self::Output {
-        let signature = self.metadata.function_signature(function_index)?.clone();
+        let signature = self.metadata.function_signature(function_index)?;
         self.emit(&signature.params, &signature.results, Instruction::Call(function_index))
     }
 
     fn visit_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
-        let signature = self.metadata.signature(type_index)?.clone();
-        let mut inputs = signature.params;
-        inputs.push(self.metadata.table_size(table_index)?);
+        let table_size = self.metadata.table_size(table_index)?;
         let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
-        self.emit(&inputs, &signature.results, Instruction::CallIndirect(operand))
+        let signature = self.metadata.signature(type_index)?;
+        self.pop_expect(table_size)?;
+        self.emit(&signature.params, &signature.results, Instruction::CallIndirect(operand))
     }
 
     fn visit_call_ref(&mut self, type_index: u32) -> Self::Output {
-        let signature = self.metadata.signature(type_index)?.clone();
-        let mut inputs = signature.params;
-        inputs.push(ValueLane::S32);
-        self.emit(&inputs, &signature.results, Instruction::CallRef(type_index))
+        let signature = self.metadata.signature(type_index)?;
+        self.pop_expect(ValueLane::S32)?;
+        self.emit(&signature.params, &signature.results, Instruction::CallRef(type_index))
     }
 
     fn visit_return_call(&mut self, function_index: u32) -> Self::Output {
-        let signature = self.metadata.function_signature(function_index)?.clone();
+        let signature = self.metadata.function_signature(function_index)?;
         self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
         self.instructions.push(Instruction::ReturnCall(function_index));
@@ -656,10 +655,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_return_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
-        let signature = self.metadata.signature(type_index)?.clone();
-        let mut inputs = signature.params;
-        inputs.push(self.metadata.table_size(table_index)?);
-        self.apply_effect(&inputs, &[])?;
+        let table_size = self.metadata.table_size(table_index)?;
+        let signature = self.metadata.signature(type_index)?;
+        self.pop_expect(table_size)?;
+        self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
         let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
         self.instructions.push(Instruction::ReturnCallIndirect(operand));
@@ -667,10 +666,9 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_return_call_ref(&mut self, type_index: u32) -> Self::Output {
-        let signature = self.metadata.signature(type_index)?.clone();
-        let mut inputs = signature.params;
-        inputs.push(ValueLane::S32);
-        self.apply_effect(&inputs, &[])?;
+        let signature = self.metadata.signature(type_index)?;
+        self.pop_expect(ValueLane::S32)?;
+        self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
         self.instructions.push(Instruction::ReturnCallRef(type_index));
         Ok(())
@@ -838,7 +836,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_throw(&mut self, tag_index: u32) -> Self::Output {
-        let signature = self.metadata.tag_signature(tag_index)?.clone();
+        let signature = self.metadata.tag_signature(tag_index)?;
         self.apply_effect(&signature.params, &[])?;
         self.instructions.push(Instruction::Throw(tag_index));
         self.mark_unreachable();
