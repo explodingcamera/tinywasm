@@ -552,13 +552,6 @@ fn table_value_to_element(
     })
 }
 
-fn storage_type(storage: StorageType) -> WasmType {
-    match storage {
-        StorageType::I8 | StorageType::I16 => WasmType::I32,
-        StorageType::Value(ty) => ty,
-    }
-}
-
 impl I31Ref {
     /// Returns the signed i31 value.
     pub fn value(&self, store: &Store) -> Result<i32> {
@@ -592,7 +585,7 @@ impl StructRef {
             .ok_or_else(|| Error::other("struct field out of bounds"))?
             .storage;
         let value = *store.state.gc.get(reference).unwrap().values.get(index).unwrap();
-        value.into_wasm(store, storage_type(storage))
+        value.into_wasm(store, storage.unpacked())
     }
 
     /// Reads all fields in declaration order.
@@ -606,7 +599,7 @@ impl StructRef {
         for index in 0..field_count {
             let storage = store.state.get_type(type_addr).as_struct().unwrap().fields[index].storage;
             let value = store.state.gc.get(reference).unwrap().values[index];
-            values.push(value.into_wasm(store, storage_type(storage))?);
+            values.push(value.into_wasm(store, storage.unpacked())?);
         }
         Ok(values)
     }
@@ -654,7 +647,7 @@ impl ArrayRef {
         let (reference, type_addr) = rooted_object(store, self, ReferentKind::Array)?;
         let storage = store.state.get_type(type_addr).as_array().unwrap().field.storage;
         let value = *store.state.gc.get(reference).unwrap().values.get(index).ok_or(Trap::ArrayOutOfBounds)?;
-        value.into_wasm(store, storage_type(storage))
+        value.into_wasm(store, storage.unpacked())
     }
 
     /// Writes one mutable array element after validating its canonical value type.
@@ -681,7 +674,7 @@ fn set_gc_value(
     if !field.mutable {
         return Err(Error::other(format!("{field_name} is immutable")));
     }
-    let expected = storage_type(field.storage);
+    let expected = field.storage.unpacked();
     if !store.value_matches_type(&value, expected) {
         return Err(Error::other(format!("invalid {field_name} value type")));
     }
@@ -875,7 +868,7 @@ impl Global {
     pub fn get(&self, store: &mut Store) -> Result<WasmValue> {
         self.0.validate_store(store)?;
         let ty = store.state.globals.ty(self.0.addr).ty;
-        let value = store.state.get_global_internal(self.0.addr);
+        let value = store.state.global_value(self.0.addr);
         value.into_wasm(store, ty)
     }
 
@@ -887,7 +880,7 @@ impl Global {
             return Err(Error::other("invalid global value type"));
         }
         let value = value.to_runtime(store)?;
-        store.state.set_global_wasmvalue(self.0.addr, value)
+        store.state.set_global_value(self.0.addr, value)
     }
 }
 

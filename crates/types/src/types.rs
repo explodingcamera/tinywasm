@@ -156,3 +156,13 @@ pub enum StorageType {
     I16,
     Value(WasmType),
 }
+
+impl StorageType {
+    /// Returns the unpacked WebAssembly value type used on the stack.
+    pub const fn unpacked(self) -> WasmType {
+        match self {
+            Self::I8 | Self::I16 => WasmType::I32,
+            Self::Value(ty) => ty,
+        }
+    }
+}

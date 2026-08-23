@@ -128,6 +128,7 @@ impl_scalar_wasm_traits!(
     i64 => WasmType::I64,
     f32 => WasmType::F32,
     f64 => WasmType::F64,
+    [u8; 16] => WasmType::V128,
     FuncRef => WasmType::Ref(tinywasm_types::RefType::FUNCREF.with_nullability(false)),
     AnyRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Any)),
     EqRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Eq)),

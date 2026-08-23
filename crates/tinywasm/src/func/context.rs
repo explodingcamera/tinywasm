@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use tinywasm_types::ModuleInstanceId;
 
 use crate::{Error, FromWasmValues, FuncRef, Function, FunctionTyped, IntoWasmValues, Result, WasmValue};
@@ -84,27 +83,26 @@ impl FuncContext<'_> {
     /// Nested calls are currently blocking only. If the surrounding invocation
     /// is resumed with fuel or a time budget, this method does not suspend and
     /// later continue the host function in the middle of the nested call.
-    pub fn call_untyped(&mut self, func: &Function, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+    pub fn call_untyped(&mut self, func: &Function, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         if !self.store.execution_active {
             return Err(Error::other("FuncContext::call requires an active host-function invocation"));
         }
 
-        func.item.validate_store(self.store)?;
-        func.validate_params(self.store, args)?;
+        func.validate_call(self.store, args, results.len())?;
 
         let call_stack_base = self.store.call_stack.len();
         let value_stack_base = self.store.value_stack.base();
-        func.call_untyped(self.store, args, call_stack_base, value_stack_base)
+        func.call_untyped(self.store, args, results, call_stack_base, value_stack_base)
     }
 
     /// Calls a Store-aware function reference in the current module context.
-    pub fn call_ref(&mut self, func: FuncRef, args: &[WasmValue]) -> Result<Vec<WasmValue>> {
+    pub fn call_ref(&mut self, func: FuncRef, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let addr = func.addr(self.store.store_id()).ok_or(crate::Trap::InvalidStore)?;
         if self.store.state.funcs.get(addr as usize).is_none() {
             return Err(crate::Trap::InvalidReference.into());
         }
         let function = Function { item: crate::StoreItem::new(self.store.store_id(), addr), module_id: self.module_id };
-        self.call_untyped(&function, args)
+        self.call_untyped(&function, args, results)
     }
 
     /// Call a typed function from within the current host-function invocation.
@@ -122,15 +120,29 @@ impl FuncContext<'_> {
         func.func.item.validate_store(self.store)?;
         let func_instance = self.store.state.get_func(func.func.addr()).clone();
         if matches!(&func_instance.kind, crate::store::FunctionKind::Host(host) if host.typed_callback().is_none()) {
-            let params = params.into_wasm_values().collect::<Vec<_>>();
-            let results = self.call_untyped(&func.func, &params)?;
-            let mut values = results.into_iter();
-            return R::from_wasm_values_exact(&mut values);
+            let ty = self.store.state.get_canonical_func_type(func_instance.type_addr);
+            let (param_count, result_count) = (ty.params().len(), ty.results().len());
+            self.store.with_scratch_values(param_count + result_count, |store, values| {
+                super::write_typed_params(&mut values[..param_count], params.into_wasm_values())?;
+                let (params, results) = values.split_at_mut(param_count);
+                func.func.validate_call(store, params, results.len())?;
+                let call_stack_base = store.call_stack.len();
+                let value_stack_base = store.value_stack.base();
+                func.func.call_untyped(store, params, results, call_stack_base, value_stack_base)?;
+                values.drain(..param_count);
+                R::from_wasm_values_exact(&mut values.drain(..))
+            })
+        } else {
+            let call_stack_base = self.store.call_stack.len();
+            let value_stack_base = self.store.value_stack.base();
+            func.func.call_typed(
+                self.store,
+                &func_instance,
+                params.into_wasm_values(),
+                call_stack_base,
+                value_stack_base,
+            )
         }
-
-        let call_stack_base = self.store.call_stack.len();
-        let value_stack_base = self.store.value_stack.base();
-        func.func.call_typed(self.store, &func_instance, params.into_wasm_values(), call_stack_base, value_stack_base)
     }
 }
 

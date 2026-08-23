@@ -60,7 +60,9 @@ fn globals_use_typed_instructions_and_roundtrip_values() -> Result<(), Box<dyn c
         ("ref", WasmValue::Ref(RefValue::Null)),
     ];
     for (name, value) in cases {
-        assert_eq!(instance.func_untyped(&store, name)?.call(&mut store, std::slice::from_ref(&value))?, vec![value]);
+        let mut results = [value.clone()];
+        instance.func_untyped(&store, name)?.call(&mut store, std::slice::from_ref(&value), &mut results)?;
+        assert_eq!(results, [value]);
     }
     assert_eq!(instance.func::<i32, i32>(&store, "add-i32")?.call(&mut store, 2)?, 13);
     assert_eq!(instance.func::<i64, i64>(&store, "add-i64")?.call(&mut store, 2)?, 15);

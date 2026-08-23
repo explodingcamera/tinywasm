@@ -21,7 +21,7 @@ fn func_handle_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> 
     let func = instance.func_untyped(&owner_store, "add")?;
 
     let mut other_store = Store::default();
-    let err = func.call(&mut other_store, &[1.into(), 2.into()]).unwrap_err();
+    let err = func.call(&mut other_store, &[1.into(), 2.into()], &mut [0.into()]).unwrap_err();
     assert!(err.to_string().contains("invalid store"));
 
     Ok(())

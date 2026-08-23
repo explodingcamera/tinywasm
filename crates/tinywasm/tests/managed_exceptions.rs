@@ -54,7 +54,7 @@ fn exception_accessors_validate_store_and_expose_payload() {
     let mut store = Store::default();
     let instance = instantiate(&mut store);
     let throw = instance.func_untyped(&store, "throw-scalar").unwrap();
-    let exception = exception(throw.call(&mut store, &[WasmValue::I32(17)]).unwrap_err());
+    let exception = exception(throw.call(&mut store, &[WasmValue::I32(17)], &mut []).unwrap_err());
 
     assert_eq!(exception.tag(&store).unwrap(), instance.tag("scalar-tag").unwrap());
     assert_eq!(exception.field(&mut store, 0).unwrap(), WasmValue::I32(17));
@@ -71,12 +71,14 @@ fn exception_roots_keep_payload_graphs_live() {
     let instance = instantiate(&mut store);
     let throw = instance.func_untyped(&store, "throw-graph").unwrap();
     let read = instance.func_untyped(&store, "read-node").unwrap();
-    let exception = exception(throw.call(&mut store, &[]).unwrap_err());
+    let exception = exception(throw.call(&mut store, &[], &mut []).unwrap_err());
 
     store.gc().unwrap();
     let payload = exception.field(&mut store, 0).unwrap();
     assert!(matches!(payload, WasmValue::Ref(RefValue::Any(_))));
-    assert_eq!(read.call(&mut store, &[payload]).unwrap(), [WasmValue::I32(42)]);
+    let mut results = [WasmValue::I32(0)];
+    read.call(&mut store, &[payload], &mut results).unwrap();
+    assert_eq!(results, [WasmValue::I32(42)]);
 }
 
 #[test]
@@ -84,21 +86,21 @@ fn owned_exception_references_survive_collection_and_reject_another_store() {
     let mut store = Store::default();
     let instance = instantiate(&mut store);
     let throw = instance.func_untyped(&store, "throw-scalar").unwrap();
-    let first = exception(throw.call(&mut store, &[WasmValue::I32(1)]).unwrap_err());
+    let first = exception(throw.call(&mut store, &[WasmValue::I32(1)], &mut []).unwrap_err());
 
     store.gc().unwrap();
-    let current = exception(throw.call(&mut store, &[WasmValue::I32(2)]).unwrap_err());
+    let current = exception(throw.call(&mut store, &[WasmValue::I32(2)], &mut []).unwrap_err());
     assert_eq!(current.field(&mut store, 0).unwrap(), WasmValue::I32(2));
     assert_eq!(first.field(&mut store, 0).unwrap(), WasmValue::I32(1));
     let rethrow = instance.func_untyped(&store, "rethrow").unwrap();
-    let rethrown = exception(rethrow.call(&mut store, &[WasmValue::Ref(RefValue::Exn(first))]).unwrap_err());
+    let rethrown = exception(rethrow.call(&mut store, &[WasmValue::Ref(RefValue::Exn(first))], &mut []).unwrap_err());
     assert_eq!(rethrown.field(&mut store, 0).unwrap(), WasmValue::I32(1));
 
     let mut other = Store::default();
     let other_instance = instantiate(&mut other);
     let other_rethrow = other_instance.func_untyped(&other, "rethrow").unwrap();
     assert_eq!(
-        other_rethrow.call(&mut other, &[WasmValue::Ref(RefValue::Exn(current))]).unwrap_err(),
+        other_rethrow.call(&mut other, &[WasmValue::Ref(RefValue::Exn(current))], &mut []).unwrap_err(),
         Error::Trap(Trap::InvalidStore)
     );
 }
@@ -130,11 +132,11 @@ fn dropped_exception_roots_release_counted_gc_bytes() {
     let catch = instance.func_untyped(&store, "catch-scalar").unwrap();
 
     for value in 0..32 {
-        catch.call(&mut store, &[WasmValue::I32(value)]).unwrap();
+        catch.call(&mut store, &[WasmValue::I32(value)], &mut []).unwrap();
     }
     store.gc().unwrap();
     usage.lock().unwrap().clear();
 
-    catch.call(&mut store, &[WasmValue::I32(33)]).unwrap();
+    catch.call(&mut store, &[WasmValue::I32(33)], &mut []).unwrap();
     assert_eq!(usage.lock().unwrap()[0].0, 0);
 }

@@ -29,7 +29,8 @@ pub fn run(args: RunArgs) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("export is not a function: {export}"))?;
             let func = instance.func_untyped(&store, export)?;
             let params = parse_invocation_args(func_ty, &args.args)?;
-            let results = func.call(&mut store, &params)?;
+            let mut results = vec![tinywasm::WasmValue::I32(0); func.ty(&store)?.results().len()];
+            func.call(&mut store, &params, &mut results)?;
             print_results(&results);
             Ok(())
         }
@@ -44,7 +45,7 @@ pub fn run(args: RunArgs) -> Result<()> {
                     "module has no start function or `_start` export. Use `tinywasm inspect {module_path}` or `tinywasm run --invoke <export> {module_path}`"
                 )
             })?;
-            start.call(&mut store, &[])?;
+            start.call(&mut store, &[], &mut [])?;
             Ok(())
         }
     }

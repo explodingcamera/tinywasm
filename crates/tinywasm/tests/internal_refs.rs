@@ -24,7 +24,9 @@ fn private_items_are_accessible_by_index() -> Result<(), Box<dyn core::error::Er
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let func = instance.func_by_index(&store, 0)?;
-    assert_eq!(func.call(&mut store, &[])?, vec![WasmValue::I32(7)]);
+    let mut results = [WasmValue::I32(0)];
+    func.call(&mut store, &[], &mut results)?;
+    assert_eq!(results, [WasmValue::I32(7)]);
 
     instance.memory_by_index(0)?.copy_from_slice(&mut store, 0, &[1, 2, 3, 4])?;
     assert_eq!(instance.memory_by_index(0)?.read_vec(&store, 0, 4)?, &[1, 2, 3, 4]);
@@ -122,13 +124,13 @@ fn extern_item_and_exports_use_actual_function_type() -> Result<(), Box<dyn core
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
-    assert_eq!(func.call(&mut store, &[])?, vec![]);
+    func.call(&mut store, &[], &mut [])?;
 
     let (_, ExternItem::Func(func)) = instance.exports().find(|(name, _)| *name == "f").expect("export f not found")
     else {
         panic!("expected function export")
     };
-    assert_eq!(func.call(&mut store, &[])?, vec![]);
+    func.call(&mut store, &[], &mut [])?;
 
     Ok(())
 }
@@ -171,7 +173,7 @@ fn export_func_type_index_mismatch_fixture_would_break_old_lookup() -> Result<()
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     let ExternItem::Func(func) = instance.extern_item("f")? else { panic!("expected function export") };
-    assert_eq!(func.call(&mut store, &[])?, vec![]);
+    func.call(&mut store, &[], &mut [])?;
 
     Ok(())
 }

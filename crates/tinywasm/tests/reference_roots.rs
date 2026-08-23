@@ -27,7 +27,7 @@ fn roots_and_function_references_reject_another_store() {
 
     assert!(matches!(root.key(&second), Err(tinywasm::Error::Trap(Trap::InvalidStore))));
     assert!(matches!(
-        accepts_func_ref.call(&mut second, &[WasmValue::Ref(RefValue::Func(func_ref))]),
+        accepts_func_ref.call(&mut second, &[WasmValue::Ref(RefValue::Func(func_ref))], &mut []),
         Err(tinywasm::Error::Trap(Trap::InvalidStore))
     ));
 }
@@ -38,15 +38,18 @@ fn callback_results_and_captured_clones_remain_valid() {
     let captured = Arc::new(Mutex::new(None));
     let callback_root = captured.clone();
     let ty = FuncType::new(&[], &[WasmType::Ref(RefType::EXTERNREF)]);
-    let function = HostFunction::from_untyped(&ty, move |mut context, _| {
+    let function = HostFunction::from_untyped(&ty, move |mut context, _, results| {
         let root = ExternRef::try_new(context.store_mut(), 17)?;
         *callback_root.lock().unwrap() = Some(root.clone());
-        Ok(vec![root.into()])
+        results[0] = root.into();
+        Ok(())
     })
     .instantiate(&mut store)
     .unwrap();
 
-    let result = function.call(&mut store, &[]).unwrap().pop().unwrap();
+    let mut results = [WasmValue::Ref(RefValue::Null)];
+    function.call(&mut store, &[], &mut results).unwrap();
+    let [result] = results;
     let WasmValue::Ref(RefValue::Extern(result)) = result else { panic!("expected externref") };
     assert_eq!(result.key(&store), Ok(17));
     assert_eq!(captured.lock().unwrap().as_ref().unwrap().key(&store), Ok(17));
@@ -72,11 +75,14 @@ fn guest_callback_arguments_are_rooted_before_entering_untyped_host_code() {
     imports.define(
         "host",
         "check",
-        HostFunction::from_untyped(&FuncType::new(&[WasmType::Ref(RefType::EXTERNREF)], &[]), |context, args| {
-            let WasmValue::Ref(RefValue::Extern(value)) = &args[0] else { panic!("expected externref") };
-            assert_eq!(value.key(context.store()), Ok(23));
-            Ok(Vec::new())
-        }),
+        HostFunction::from_untyped(
+            &FuncType::new(&[WasmType::Ref(RefType::EXTERNREF)], &[]),
+            |context, args, _results| {
+                let WasmValue::Ref(RefValue::Extern(value)) = &args[0] else { panic!("expected externref") };
+                assert_eq!(value.key(context.store()), Ok(23));
+                Ok(())
+            },
+        ),
     );
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
 
@@ -92,5 +98,7 @@ fn typed_option_reference_signatures_are_nullable() {
             .unwrap();
 
     assert_eq!(function.ty(&store).unwrap().params(), &[WasmType::Ref(RefType::EXTERNREF)]);
-    assert_eq!(function.call(&mut store, &[WasmValue::Ref(RefValue::Null)]).unwrap(), [WasmValue::Ref(RefValue::Null)]);
+    let mut results = [WasmValue::Ref(RefValue::Null)];
+    function.call(&mut store, &[WasmValue::Ref(RefValue::Null)], &mut results).unwrap();
+    assert_eq!(results, [WasmValue::Ref(RefValue::Null)]);
 }

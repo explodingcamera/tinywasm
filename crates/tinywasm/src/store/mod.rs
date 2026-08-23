@@ -21,7 +21,7 @@ mod tag;
 mod types;
 
 use const_expr::eval_const;
-pub(crate) use gc::{GcObjectKind, decode_data, default_value, pop_value, push_value};
+pub(crate) use gc::{GcObjectKind, data_range, decode_data, default_value, pop_value, push_value};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
@@ -129,7 +129,26 @@ pub struct Store {
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
-    pub(crate) host_params: Vec<WasmValue>,
+    value_scratch: ValueScratch,
+}
+
+#[derive(Default)]
+struct ValueScratch(Vec<WasmValue>);
+
+impl ValueScratch {
+    fn take_resized(&mut self, len: usize) -> Result<Vec<WasmValue>> {
+        self.0.clear();
+        self.0.try_reserve(len).map_err(|_| Trap::OutOfMemory)?;
+        self.0.resize(len, WasmValue::I32(0));
+        Ok(core::mem::take(&mut self.0))
+    }
+
+    fn restore(&mut self, mut values: Vec<WasmValue>) {
+        values.clear();
+        if values.capacity() > self.0.capacity() {
+            self.0 = values;
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -212,7 +231,7 @@ impl Store {
             state,
             call_stack: CallStack::new(engine.config()),
             value_stack: ValueStack::new(engine.config()),
-            host_params: Vec::new(),
+            value_scratch: ValueScratch::default(),
             engine,
             execution_fuel: 0,
             execution_active: false,
@@ -226,6 +245,17 @@ impl Store {
 
     pub(crate) const fn store_id(&self) -> StoreId {
         self.id
+    }
+
+    pub(crate) fn with_scratch_values<T>(
+        &mut self,
+        len: usize,
+        use_values: impl FnOnce(&mut Self, &mut Vec<WasmValue>) -> Result<T>,
+    ) -> Result<T> {
+        let mut values = self.value_scratch.take_resized(len)?;
+        let result = use_values(self, &mut values);
+        self.value_scratch.restore(values);
+        result
     }
 
     pub(crate) fn root_reference<T: StoredRef>(&mut self, value: ValueRef, kind: ReferentKind) -> Result<T> {
@@ -343,20 +373,21 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn pop_stack_values(&mut self, types: &[WasmType]) -> Result<Vec<WasmValue>> {
+    pub(crate) fn pop_stack_values(&mut self, types: &[WasmType], results: &mut [WasmValue]) -> Result<()> {
+        if types.len() != results.len() {
+            return Err(Error::other("result buffer has the wrong length"));
+        }
         let base = self.value_stack.base_before(types.iter().collect());
-        let values = (|| {
+        let result = (|| {
             let mut index = base;
-            let mut values = Vec::new();
-            values.try_reserve_exact(types.len()).map_err(|_| Trap::OutOfMemory)?;
-            for &ty in types {
+            for (&ty, result) in types.iter().zip(results) {
                 let value = self.stack_value(ty, &mut index);
-                values.push(value.into_wasm(self, ty)?);
+                *result = value.into_wasm(self, ty)?;
             }
-            Ok(values)
+            Ok(())
         })();
         self.value_stack.truncate_to_base(base);
-        values
+        result
     }
 
     /// Reclaims unreachable managed objects.

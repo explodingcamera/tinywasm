@@ -42,15 +42,17 @@ fn untyped_resume_supports_zero_fuel() -> Result<()> {
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let func = instance.func_untyped(&store, "add")?;
 
-    let mut exec = func.call_resumable(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)])?;
-    assert!(matches!(exec.resume_with_fuel(0)?, ExecProgress::Suspended));
+    let mut results = [WasmValue::I32(0)];
+    {
+        let mut exec = func.call_resumable(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)], &mut results)?;
+        assert!(matches!(exec.resume_with_fuel(0)?, ExecProgress::Suspended));
 
-    match exec.resume_with_fuel(16)? {
-        ExecProgress::Completed(values) => {
-            assert_eq!(values, vec![WasmValue::I32(42)])
+        match exec.resume_with_fuel(16)? {
+            ExecProgress::Completed(()) => {}
+            ExecProgress::Suspended => panic!("expected completion"),
         }
-        ExecProgress::Suspended => panic!("expected completion"),
     }
+    assert_eq!(results, [WasmValue::I32(42)]);
 
     Ok(())
 }

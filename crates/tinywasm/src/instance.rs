@@ -349,8 +349,9 @@ impl ModuleInstance {
     /// # let mut store = Store::default();
     /// let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     /// let add = instance.func_untyped(&store, "add")?;
-    /// let result = add.call(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)])?;
-    /// assert_eq!(result, vec![WasmValue::I32(42)]);
+    /// let mut results = [WasmValue::I32(0)];
+    /// add.call(&mut store, &[WasmValue::I32(20), WasmValue::I32(22)], &mut results)?;
+    /// assert_eq!(results, [WasmValue::I32(42)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -614,7 +615,7 @@ impl ModuleInstance {
     /// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-start>
     pub fn start(&self, store: &mut Store) -> Result<Option<()>> {
         match self.start_func(store)? {
-            Some(func) => func.call(store, &[]).map(|_| Some(())),
+            Some(func) => func.call(store, &[], &mut []).map(|_| Some(())),
             None => Ok(None),
         }
     }

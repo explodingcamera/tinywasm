@@ -225,6 +225,7 @@ impl WastRunner {
 
         let mut store = Store::default();
         let mut module_registry = ModuleRegistry::default();
+        let mut call_results = Vec::new();
 
         println!("running {} tests for group: {}", directives.len(), file.name());
         for (i, directive) in directives.into_iter().enumerate() {
@@ -332,8 +333,9 @@ impl WastRunner {
                 AssertExhaustion { call, message, span } => {
                     let module = module_registry.get_idx(call.module);
                     let args = convert_wastargs(&mut store, call.args)?;
-                    let res =
-                        catch_unwind_silent(|| exec_fn_instance(module, &mut store, call.name, &args).map(|_| ()));
+                    let res = catch_unwind_silent(|| {
+                        exec_fn_instance(module, &mut store, call.name, &args, &mut call_results)
+                    });
                     let Ok(Err(tinywasm::Error::Trap(trap))) = res else {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
@@ -368,7 +370,7 @@ impl WastRunner {
                         let module = module_registry.get_idx(invoke.module);
                         let args = convert_wastargs(&mut store, invoke.args)
                             .map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results)
                     });
                     match res {
                         Err(err) => test_group.add_result(
@@ -415,7 +417,7 @@ impl WastRunner {
                         let module = module_registry.get_idx(invoke.module);
                         let args = convert_wastargs(&mut store, invoke.args)
                             .map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results)
                     });
                     let result = match res {
                         Err(err) => Err(anyhow!("test panicked: {}", try_downcast_panic(err))),
@@ -469,7 +471,7 @@ impl WastRunner {
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
                         let args = convert_wastargs(&mut store, invoke.args)?;
                         let module = module_registry.get_idx(invoke.module);
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results).map_err(|e| {
                             error!("failed to execute function: {e:?}");
                             e
                         })?;
@@ -554,21 +556,21 @@ impl WastRunner {
                         let module = module_registry
                             .get(invoke.module)
                             .ok_or_else(|| anyhow!("module instance was not found"))?;
-                        let outcomes =
-                            exec_fn_instance(Some(module.id()), &mut store, invoke.name, &args).map_err(|e| {
+                        exec_fn_instance(Some(module.id()), &mut store, invoke.name, &args, &mut call_results)
+                            .map_err(|e| {
                                 error!("failed to execute function: {e:?}");
                                 e
                             })?;
-                        if !expected_alternatives.iter().any(|expected| expected.len() == outcomes.len()) {
+                        if !expected_alternatives.iter().any(|expected| expected.len() == call_results.len()) {
                             return Err(anyhow!(
                                 "expected {} results, got {}",
                                 expected_alternatives.first().map_or(0, |v| v.len()),
-                                outcomes.len()
+                                call_results.len()
                             ));
                         }
                         if expected_alternatives.iter().any(|expected| {
-                            expected.len() == outcomes.len()
-                                && outcomes
+                            expected.len() == call_results.len()
+                                && call_results
                                     .iter()
                                     .zip(expected.iter())
                                     .all(|(outcome, exp)| exp.matches(outcome, &store, &module))
@@ -716,12 +718,12 @@ fn exec_with_budget(
     func: &tinywasm::Function,
     store: &mut Store,
     args: &[WasmValue],
-) -> Result<Vec<WasmValue>, tinywasm::Error> {
-    let mut exec = func.call_resumable(store, args)?;
+    results: &mut [WasmValue],
+) -> Result<(), tinywasm::Error> {
+    let mut exec = func.call_resumable(store, args, results)?;
     for _ in 0..TEST_MAX_SUSPENSIONS {
-        match exec.resume_with_time_budget(TEST_TIME_SLICE)? {
-            ExecProgress::Completed(values) => return Ok(values),
-            ExecProgress::Suspended => {}
+        if let ExecProgress::Completed(()) = exec.resume_with_time_budget(TEST_TIME_SLICE)? {
+            return Ok(());
         }
     }
     Err(tinywasm::Error::Other(format!(
@@ -742,7 +744,8 @@ fn exec_fn_instance(
     store: &mut Store,
     name: &str,
     args: &[WasmValue],
-) -> Result<Vec<WasmValue>, tinywasm::Error> {
+    results: &mut Vec<WasmValue>,
+) -> Result<(), tinywasm::Error> {
     let Some(instance) = instance else {
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
@@ -750,7 +753,9 @@ fn exec_fn_instance(
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
     let func = instance.func_untyped(store, name)?;
-    exec_with_budget(&func, store, args)
+    results.clear();
+    results.resize(func.ty(store)?.results().len(), WasmValue::I32(0));
+    exec_with_budget(&func, store, args, results)
 }
 
 fn catch_unwind_silent<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {

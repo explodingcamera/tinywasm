@@ -161,7 +161,27 @@ value_conversions! {
     f32 => F32, as_f32;
     f64 => F64, as_f64;
     [u8; 16] => V128, as_v128;
-    RefValue => Ref, as_ref;
+}
+
+impl WasmValue {
+    /// Returns the contained reference value.
+    pub const fn as_ref(&self) -> Option<&RefValue> {
+        if let Self::Ref(value) = self { Some(value) } else { None }
+    }
+}
+
+impl From<RefValue> for WasmValue {
+    fn from(value: RefValue) -> Self {
+        Self::Ref(value)
+    }
+}
+
+impl TryFrom<WasmValue> for RefValue {
+    type Error = ();
+
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        if let WasmValue::Ref(value) = value { Ok(value) } else { Err(()) }
+    }
 }
 
 macro_rules! ref_conversions {

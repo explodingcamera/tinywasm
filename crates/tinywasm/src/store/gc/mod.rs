@@ -3,6 +3,7 @@ mod object;
 mod roots;
 
 use alloc::vec::Vec;
+use core::ops::Range;
 use tinywasm_types::{StorageType, WasmType};
 
 use crate::Trap;
@@ -58,12 +59,12 @@ pub(crate) fn push_value(
 }
 
 /// Decodes numeric array elements from a data segment.
-pub(crate) fn decode_data(
+pub(crate) fn data_range(
     storage: StorageType,
     data: &[u8],
     src: usize,
     len: usize,
-) -> Result<Vec<RuntimeValue>, Trap> {
+) -> Result<(Range<usize>, usize), Trap> {
     let width = match storage {
         StorageType::I8 => 1,
         StorageType::I16 => 2,
@@ -76,9 +77,20 @@ pub(crate) fn decode_data(
     else {
         return Err(Trap::MemoryOutOfBounds { offset: src, len: len.saturating_mul(width), max: data.len() });
     };
+    Ok((src..end, width))
+}
+
+/// Decodes numeric array elements from a data segment.
+pub(crate) fn decode_data(
+    storage: StorageType,
+    data: &[u8],
+    src: usize,
+    len: usize,
+) -> Result<Vec<RuntimeValue>, Trap> {
+    let (range, width) = data_range(storage, data, src, len)?;
     let mut values = Vec::new();
     cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
-    values.extend(data[src..end].chunks_exact(width).map(|bytes| match width {
+    values.extend(data[range].chunks_exact(width).map(|bytes| match width {
         1 => RuntimeValue::Value32(u32::from(bytes[0])),
         2 => RuntimeValue::Value32(u32::from(u16::from_le_bytes(bytes.try_into().unwrap()))),
         4 => RuntimeValue::Value32(u32::from_le_bytes(bytes.try_into().unwrap())),

@@ -36,15 +36,19 @@ fn host_result_is_rooted_and_rejected_by_another_store() {
     let read = first.func_untyped(&first_store, "read").unwrap();
     let churn = first.func_untyped(&first_store, "churn").unwrap();
 
-    let value = new.call(&mut first_store, &[]).unwrap().pop().unwrap();
+    let mut results = [WasmValue::Ref(RefValue::Null)];
+    new.call(&mut first_store, &[], &mut results).unwrap();
+    let [value] = results;
     assert!(matches!(value, WasmValue::Ref(RefValue::Any(_))));
-    churn.call(&mut first_store, &[]).unwrap();
-    assert_eq!(read.call(&mut first_store, std::slice::from_ref(&value)).unwrap(), [WasmValue::I32(42)]);
+    churn.call(&mut first_store, &[], &mut []).unwrap();
+    let mut results = [WasmValue::I32(0)];
+    read.call(&mut first_store, std::slice::from_ref(&value), &mut results).unwrap();
+    assert_eq!(results, [WasmValue::I32(42)]);
 
     let mut second_store = store();
     let second = ModuleInstance::instantiate(&mut second_store, &module, None).unwrap();
     let other_read = second.func_untyped(&second_store, "read").unwrap();
-    assert!(other_read.call(&mut second_store, &[value]).is_err());
+    assert!(other_read.call(&mut second_store, &[value], &mut [WasmValue::I32(0)]).is_err());
 }
 
 #[test]
@@ -56,10 +60,14 @@ fn externalized_gc_result_is_rooted() {
     let read = instance.func_untyped(&store, "read-extern").unwrap();
     let churn = instance.func_untyped(&store, "churn").unwrap();
 
-    let value = new.call(&mut store, &[]).unwrap().pop().unwrap();
+    let mut results = [WasmValue::Ref(RefValue::Null)];
+    new.call(&mut store, &[], &mut results).unwrap();
+    let [value] = results;
     assert!(matches!(value, WasmValue::Ref(RefValue::Extern(_))));
-    churn.call(&mut store, &[]).unwrap();
-    assert_eq!(read.call(&mut store, &[value]).unwrap(), [WasmValue::I32(42)]);
+    churn.call(&mut store, &[], &mut []).unwrap();
+    let mut results = [WasmValue::I32(0)];
+    read.call(&mut store, &[value], &mut results).unwrap();
+    assert_eq!(results, [WasmValue::I32(42)]);
 }
 
 #[test]
@@ -70,9 +78,9 @@ fn host_externref_does_not_alias_a_gc_object() {
     let new = instance.func_untyped(&store, "new").unwrap();
     let read = instance.func_untyped(&store, "read-extern").unwrap();
 
-    new.call(&mut store, &[]).unwrap();
+    new.call(&mut store, &[], &mut [WasmValue::Ref(RefValue::Null)]).unwrap();
     let host_ref = tinywasm::ExternRef::try_new(&mut store, 0).unwrap().into();
-    assert!(read.call(&mut store, &[host_ref]).is_err());
+    assert!(read.call(&mut store, &[host_ref], &mut [WasmValue::I32(0)]).is_err());
 }
 
 #[test]
@@ -84,15 +92,20 @@ fn resumable_gc_result_is_rooted() {
     let read = instance.func_untyped(&store, "read").unwrap();
     let churn = instance.func_untyped(&store, "churn").unwrap();
 
-    let mut execution = new.call_resumable(&mut store, &[]).unwrap();
-    let value = match execution.resume_with_fuel(1000).unwrap() {
-        ExecProgress::Completed(mut values) => values.pop().unwrap(),
-        ExecProgress::Suspended => panic!("constructor unexpectedly suspended"),
-    };
-    drop(execution);
+    let mut results = [WasmValue::Ref(RefValue::Null)];
+    {
+        let mut execution = new.call_resumable(&mut store, &[], &mut results).unwrap();
+        match execution.resume_with_fuel(1000).unwrap() {
+            ExecProgress::Completed(()) => {}
+            ExecProgress::Suspended => panic!("constructor unexpectedly suspended"),
+        }
+    }
+    let [value] = results;
 
-    churn.call(&mut store, &[]).unwrap();
-    assert_eq!(read.call(&mut store, &[value]).unwrap(), [WasmValue::I32(42)]);
+    churn.call(&mut store, &[], &mut []).unwrap();
+    let mut results = [WasmValue::I32(0)];
+    read.call(&mut store, &[value], &mut results).unwrap();
+    assert_eq!(results, [WasmValue::I32(42)]);
 }
 
 #[test]
@@ -116,5 +129,7 @@ fn element_initializers_root_previous_gc_values() {
     let mut store = store();
     let instance = ModuleInstance::instantiate(&mut store, &module, None).unwrap();
 
-    assert_eq!(instance.func_untyped(&store, "first").unwrap().call(&mut store, &[]).unwrap(), [WasmValue::I32(1)]);
+    let mut results = [WasmValue::I32(0)];
+    instance.func_untyped(&store, "first").unwrap().call(&mut store, &[], &mut results).unwrap();
+    assert_eq!(results, [WasmValue::I32(1)]);
 }

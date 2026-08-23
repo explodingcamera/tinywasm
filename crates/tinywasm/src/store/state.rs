@@ -359,8 +359,8 @@ impl State {
         Self::get_mut(&mut self.elements, addr, "element")
     }
 
-    /// Converts a global directly to its public value representation.
-    pub(crate) fn get_global_internal(&self, addr: GlobalAddr) -> RuntimeValue {
+    /// Returns a global in its internal value representation.
+    pub(crate) fn global_value(&self, addr: GlobalAddr) -> RuntimeValue {
         let ty = self.globals.ty(addr).ty;
         match ty {
             WasmType::I32 | WasmType::F32 => RuntimeValue::Value32(self.globals.get_32(addr)),
@@ -370,8 +370,8 @@ impl State {
         }
     }
 
-    /// Validates and sets a global from its public value representation.
-    pub(crate) fn set_global_wasmvalue(&mut self, addr: GlobalAddr, value: RuntimeValue) -> Result<()> {
+    /// Sets a global from its internal value representation.
+    pub(crate) fn set_global_value(&mut self, addr: GlobalAddr, value: RuntimeValue) -> Result<()> {
         let ty = self.globals.ty(addr);
         if !ty.mutable {
             cold_path();

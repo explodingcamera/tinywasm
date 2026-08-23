@@ -1081,32 +1081,28 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Ok(false);
         }
 
-        let (param_count, base) = {
-            let param_types = self.store.state.get_canonical_func_type(type_addr).params();
-            (param_types.len(), self.store.value_stack.base_before(param_types.iter().collect()))
+        let (param_count, result_count, base) = {
+            let ty = self.store.state.get_canonical_func_type(type_addr);
+            (ty.params().len(), ty.results().len(), self.store.value_stack.base_before(ty.params().iter().collect()))
         };
-        let mut params = core::mem::take(&mut self.store.host_params);
-        debug_assert!(params.is_empty());
-        if cold_err!(params.try_reserve_exact(param_count)).is_err() {
-            self.store.host_params = params;
-            return Err(Trap::OutOfMemory);
-        }
-        let host_values = self.store.stack_value_iter(type_addr, crate::store::FuncValueTypes::Params, base)?;
-        params.extend(host_values);
-        self.store.value_stack.truncate_to_base(base);
-        let result = host_func.call_values(self.store, self.module.id(), type_addr, &params);
-        params.clear();
-        self.store.host_params = params;
-        let res = match result {
-            Ok(values) => values,
-            Err(error) => return Err(Trap::HostFunction(Box::new(error))),
-        };
-
-        let push_result = self.store.push_wasm_values(res);
-        push_result.map_err(|error| match error {
-            Error::Trap(trap) => trap,
-            other => Trap::HostFunction(Box::new(other)),
-        })?;
+        let module_id = self.module.id();
+        self.store
+            .with_scratch_values(param_count + result_count, |store, values| {
+                let host_values = store.stack_value_iter(type_addr, crate::store::FuncValueTypes::Params, base)?;
+                for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
+                    *slot = value;
+                }
+                store.value_stack.truncate_to_base(base);
+                let (params, results) = values.split_at_mut(param_count);
+                host_func
+                    .call_values(store, module_id, type_addr, params, results)
+                    .map_err(|error| Error::Trap(Trap::HostFunction(Box::new(error))))?;
+                store.push_wasm_values(results.iter().cloned())
+            })
+            .map_err(|error| match error {
+                Error::Trap(trap) => trap,
+                other => Trap::HostFunction(Box::new(other)),
+            })?;
         if TAIL {
             Ok(self.exec_return())
         } else {
@@ -1605,9 +1601,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let src = u32::stack_pop(&mut self.store.value_stack) as usize;
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array type").field.storage;
-        self.store.state.check_gc_allocation(type_addr, len)?;
         let data_addr = self.module.resolve_data_addr(data_index);
         let data = self.store.state.data[data_addr as usize].data.as_deref().unwrap_or(&[]);
+        data_range(storage, data, src, len)?;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let values = decode_data(storage, data, src, len)?;
         self.push_gc_object(type_addr, values)
     }
@@ -1617,9 +1614,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let len = u32::stack_pop(&mut self.store.value_stack) as usize;
         let src = u32::stack_pop(&mut self.store.value_stack) as usize;
         let type_addr = self.module.resolve_type_addr(type_index);
-        self.store.state.check_gc_allocation(type_addr, len)?;
         let elem_addr = self.module.resolve_elem_addr(elem_index);
         let items = self.store.state.elements[elem_addr as usize].items_range(src, len)?;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         values.extend(items.iter().copied().map(RuntimeValue::ValueRef));
