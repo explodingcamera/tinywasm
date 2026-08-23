@@ -65,7 +65,7 @@ fn exported_tables_and_globals_have_handle_and_helper_apis() -> Result<(), Box<d
     assert_eq!(table.get(&store, 0)?, WasmValue::Ref(tinywasm::types::RefValue::Null));
 
     let old_size = instance.table("t")?.grow(&mut store, 1, tinywasm::types::RefValue::Null.into())?;
-    assert_eq!(old_size, 1);
+    assert_eq!(old_size, Some(1));
     assert_eq!(instance.table("t")?.size(&store)?, 2);
 
     Ok(())

@@ -373,8 +373,9 @@ impl Table {
             return Err(Error::other("host tables cannot use module-relative concrete reference types"));
         }
         let init = table_value_to_element(&store.state, ty.element_type, init).map_err(Error::from)?;
+        let limiter = store.engine.config().resource_limiter.clone();
         let addr = store.state.tables.len() as TableAddr;
-        store.state.tables.push(TableInstance::new(ty, init)?);
+        store.state.tables.push(TableInstance::new(ty, init, limiter.as_deref())?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -435,15 +436,23 @@ impl Table {
         store.state.get_table_mut(self.0.addr).copy_within(dst, src, len)
     }
 
-    /// Grow the table and return the previous size.
-    pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<usize> {
+    /// Grows the table and returns the previous size.
+    ///
+    /// Returns `None` if growth fails or is rejected by the resource limiter. A limiter-provided
+    /// trap is returned as an error.
+    pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<Option<usize>> {
         self.0.validate_store(store)?;
         let table = store.state.get_table(self.0.addr);
         let old_size = table.size();
         let init = table_value_to_element(&store.state, table.kind.element_type, init)?;
-        let delta = usize::try_from(delta).map_err(|_| Trap::TableOutOfBounds { offset: 0, len: 1, max: old_size })?;
-        store.state.get_table_mut(self.0.addr).grow(delta, init)?;
-        Ok(old_size)
+        let Ok(delta) = usize::try_from(delta) else {
+            return Ok(None);
+        };
+        let limiter = store.engine.config().resource_limiter.clone();
+        match store.state.get_table_mut(self.0.addr).grow(delta, init, limiter.as_deref())? {
+            true => Ok(Some(old_size)),
+            false => Ok(None),
+        }
     }
 }
 

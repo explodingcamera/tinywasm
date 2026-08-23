@@ -1880,14 +1880,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let arch = self.store.state.get_table(table_addr).kind.arch();
         let n = self.pop_table_operand(arch)?;
         let val = <ValueRef>::stack_pop(&mut self.store.value_stack);
+        let limiter = self.store.engine.config().resource_limiter.as_deref();
         let table = self.store.state.get_table_mut(table_addr);
         let sz = table.size();
-        let result = table.grow(n, val);
-        match (arch, result) {
-            (MemoryArch::I32, Ok(())) => self.store.value_stack.push(sz as i32),
-            (MemoryArch::I32, Err(_)) => self.store.value_stack.push(-1_i32),
-            (MemoryArch::I64, Ok(())) => self.store.value_stack.push(sz as i64),
-            (MemoryArch::I64, Err(_)) => self.store.value_stack.push(-1_i64),
+        let grew = table.grow(n, val, limiter)?;
+        match (arch, grew) {
+            (MemoryArch::I32, true) => self.store.value_stack.push(sz as i32),
+            (MemoryArch::I32, false) => self.store.value_stack.push(-1_i32),
+            (MemoryArch::I64, true) => self.store.value_stack.push(sz as i64),
+            (MemoryArch::I64, false) => self.store.value_stack.push(-1_i64),
         }
     }
 

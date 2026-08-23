@@ -61,7 +61,7 @@ TinyWasm modules can be compiled to the internal `twasm` bytecode format, which 
 
 With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`[^libm], making it usable in `no_std + alloc` environments.
 
-Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, or the GC collection threshold. A `ResourceLimiter` attached to the engine's config bounds guest memory allocation and growth and can trap rejected requests.
+Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, or the GC collection threshold. A `ResourceLimiter` attached to the engine's config bounds guest memory and table allocation and growth and can trap rejected requests.
 
 [^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for floating-point math support in `no_std`.
 

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 - Added optional parse-time operand deduplication to reduce precompiled module and `.twasm` archive size.
-- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory allocation and growth.
+- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory and table allocation and growth.
 
 ### Changed
 
@@ -48,7 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
 - Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed. To limit initial memory allocation and growth, configure a `ResourceLimiter` with `Config::with_resource_limiter`.
 - Removed the local-memory allocation analysis (`LocalMemoryAllocation` and `ParserOptions::optimize_local_memory_allocation`). Local memories are always allocated eagerly.
-- Removed `Config::with_trap_on_oom`. A `ResourceLimiter` can return a trap when rejecting a memory allocation or growth request.
+- Removed `Config::with_trap_on_oom`. A `ResourceLimiter` can return a trap when rejecting a memory or table allocation or growth request.
+- `Table::grow` now returns `Result<Option<usize>>`, matching `Memory::grow`. Growth limits and allocation failures return `None`, while limiter-provided traps return an error.
 
 ## [0.10.0] - 2026-07-24
 

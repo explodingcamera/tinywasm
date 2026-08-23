@@ -46,7 +46,7 @@ Linear memory is a contiguous `Vec<u8>` allocation owned by a `MemoryInstance`. 
 
 Fixed-width loads and stores use a single const-generic `read_fixed::<N>` / `write_fixed::<N>` pair rather than per-width vtable methods. Scalar operations reduce to an effective-address computation, a bounds check, a slice access, and a `from_le_bytes` / `to_le_bytes` conversion, with out-of-bounds construction kept on cold paths. Bulk operations such as `fill` and `copy_within` map directly to native slice methods.
 
-Memory growth keeps the Wasm page count and limits on `MemoryInstance`. Before the backing storage is allocated or resized, the configured `ResourceLimiter` is consulted so a host can bound guest memory consumption. The limiter is shared across the stores created from one `Engine` and lives behind an `Arc`.
+Memory growth keeps the Wasm page count and limits on `MemoryInstance`. Before memory or table backing storage is allocated or resized, the configured `ResourceLimiter` is consulted so a host can bound guest resource consumption. The limiter is shared across the stores created from one `Engine` and lives behind an `Arc`.
 
 For conventional operating systems, a future mmap-backed storage could reserve virtual address space and use guard pages to move more bounds enforcement to the operating system, reducing explicit checks in linear-memory hot paths. This is the same broad approach described in [Wasmtime's linear-memory architecture](https://docs.wasmtime.dev/contributing-architecture.html#linear-memory), where virtual-memory reservations and guard regions eliminate or deduplicate explicit bounds checks.
 

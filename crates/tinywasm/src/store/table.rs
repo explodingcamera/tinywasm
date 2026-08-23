@@ -1,4 +1,4 @@
-use crate::{Result, Trap, interpreter::ValueRef};
+use crate::{ResourceLimiter, Result, Trap, interpreter::ValueRef};
 use alloc::vec::Vec;
 use core::ops::Range;
 use tinywasm_types::*;
@@ -16,9 +16,15 @@ pub(crate) struct TableInstance {
 
 impl TableInstance {
     /// Creates a table filled with the given initial reference.
-    pub(crate) fn new(kind: TableType, init: ValueRef) -> Result<Self> {
+    pub(crate) fn new(kind: TableType, init: ValueRef, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
         let size = cold_err!(usize::try_from(kind.size_initial)).map_err(|_| Trap::OutOfMemory)?;
         if size > MAX_TABLE_SIZE {
+            return Err(Trap::OutOfMemory.into());
+        }
+        if size != 0
+            && let Some(limiter) = limiter
+            && !limiter.table_growing(0, size, Self::maximum_size(kind))?
+        {
             return Err(Trap::OutOfMemory.into());
         }
         let mut elements = Vec::new();
@@ -74,17 +80,38 @@ impl TableInstance {
         Ok(())
     }
 
-    pub(crate) fn grow(&mut self, n: usize, init: ValueRef) -> Result<(), Trap> {
-        let len = n.checked_add(self.elements.len()).ok_or(Trap::OutOfMemory)?;
+    pub(crate) fn grow(
+        &mut self,
+        n: usize,
+        init: ValueRef,
+        limiter: Option<&dyn ResourceLimiter>,
+    ) -> Result<bool, Trap> {
+        let Some(len) = n.checked_add(self.elements.len()) else {
+            return Ok(false);
+        };
         let declared_max = self.kind.size_max.and_then(|max| usize::try_from(max).ok()).unwrap_or(usize::MAX);
         let max = declared_max.min(MAX_TABLE_SIZE);
         if len > max {
-            return Err(crate::Trap::TableOutOfBounds { offset: len, len: 1, max: self.elements.len() });
+            return Ok(false);
+        }
+        if len == self.elements.len() {
+            return Ok(true);
+        }
+        if let Some(limiter) = limiter
+            && !limiter.table_growing(self.elements.len(), len, Self::maximum_size(self.kind))?
+        {
+            return Ok(false);
         }
 
-        cold_err!(self.elements.try_reserve_exact(n)).map_err(|_| Trap::OutOfMemory)?;
+        if cold_err!(self.elements.try_reserve_exact(n)).is_err() {
+            return Ok(false);
+        }
         self.elements.resize(len, init);
-        Ok(())
+        Ok(true)
+    }
+
+    fn maximum_size(kind: TableType) -> Option<usize> {
+        kind.size_max.and_then(|maximum| usize::try_from(maximum).ok())
     }
 
     pub(crate) fn size(&self) -> usize {

@@ -35,8 +35,8 @@ static STORE_ID: AtomicU32 = AtomicU32::new(0);
 ///
 /// Configure a limiter with
 /// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). It currently
-/// controls guest linear-memory allocation and growth. It does not account for stacks, GC storage,
-/// runtime metadata, or other host allocations.
+/// controls guest linear-memory and table allocation and growth. It does not account for stacks,
+/// GC storage, runtime metadata, or other host allocations.
 ///
 /// # Example
 /// ```rust
@@ -69,13 +69,31 @@ pub trait ResourceLimiter: Send + Sync {
     ///
     /// Sizes are in bytes. `current` is zero for initial allocation, and `maximum` is `None` for an
     /// unbounded memory. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
-    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result.
+    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
+    /// default implementation allows the request.
     fn memory_growing(
         &self,
-        current: usize,
-        desired: usize,
-        maximum: Option<usize>,
-    ) -> core::result::Result<bool, Trap>;
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap> {
+        Ok(true)
+    }
+
+    /// Returns whether a table allocation or growth is allowed.
+    ///
+    /// Sizes are in elements. `current` is zero for initial allocation, and `maximum` is `None` for
+    /// an unbounded table. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
+    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
+    /// default implementation allows the request.
+    fn table_growing(
+        &self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap> {
+        Ok(true)
+    }
 }
 
 /// Runtime state used by WebAssembly instances and host functions.
@@ -281,6 +299,7 @@ impl Store {
         type_addrs: &[TypeAddr],
     ) -> Result<impl ExactSizeIterator<Item = TableAddr>> {
         let start = self.state.tables.len() as TableAddr;
+        let limiter = self.engine.config().resource_limiter.clone();
         self.state.tables.reserve_exact(tables.len());
         for table in tables {
             let init = match &table.init {
@@ -295,7 +314,7 @@ impl Store {
                 MemoryArch::I32 => TableType::new(element_type, table.ty.size_initial, table.ty.size_max),
                 MemoryArch::I64 => TableType::new64(element_type, table.ty.size_initial, table.ty.size_max),
             };
-            self.state.tables.push(TableInstance::new(ty, init)?);
+            self.state.tables.push(TableInstance::new(ty, init, limiter.as_deref())?);
         }
         Ok(start..start + tables.len() as TableAddr)
     }

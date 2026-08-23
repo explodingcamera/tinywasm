@@ -3,8 +3,8 @@ extern crate alloc;
 use alloc::sync::Arc;
 
 use tinywasm::engine::Config;
-use tinywasm::types::{MemoryArch, MemoryType};
-use tinywasm::{Engine, Memory, ModuleInstance, ResourceLimiter, Store, Trap};
+use tinywasm::types::{MemoryArch, MemoryType, RefType, RefValue, TableType};
+use tinywasm::{Engine, Memory, ModuleInstance, ResourceLimiter, Store, Table, Trap};
 
 type TestResult<T = ()> = Result<T, Box<dyn core::error::Error>>;
 
@@ -51,6 +51,10 @@ impl ResourceLimiter for DenyAll {
     fn memory_growing(&self, _current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
         Ok(false)
     }
+
+    fn table_growing(&self, _current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        Ok(false)
+    }
 }
 
 struct DenyGrowth;
@@ -59,12 +63,20 @@ impl ResourceLimiter for DenyGrowth {
     fn memory_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
         Ok(current == 0)
     }
+
+    fn table_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        Ok(current == 0)
+    }
 }
 
 struct TrapGrowth;
 
 impl ResourceLimiter for TrapGrowth {
     fn memory_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        if current == 0 { Ok(true) } else { Err(Trap::Unreachable) }
+    }
+
+    fn table_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
         if current == 0 { Ok(true) } else { Err(Trap::Unreachable) }
     }
 }
@@ -135,6 +147,33 @@ fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
     let result = ModuleInstance::instantiate(&mut store, &module, None);
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
+    Ok(())
+}
+
+#[test]
+fn resource_limiter_rejects_table_initial_size() {
+    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let result = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into());
+
+    assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
+}
+
+#[test]
+fn resource_limiter_can_reject_table_growth() -> TestResult {
+    let mut store = store_with_limiter(Arc::new(DenyGrowth));
+    let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
+
+    assert_eq!(table.grow(&mut store, 1, RefValue::Null.into())?, None);
+    assert_eq!(table.size(&store)?, 1);
+    Ok(())
+}
+
+#[test]
+fn resource_limiter_can_trap_table_growth() -> TestResult {
+    let mut store = store_with_limiter(Arc::new(TrapGrowth));
+    let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
+
+    assert!(matches!(table.grow(&mut store, 1, RefValue::Null.into()), Err(tinywasm::Error::Trap(Trap::Unreachable))));
     Ok(())
 }
 
