@@ -1,5 +1,6 @@
-/// Memory backend types and traits.
-pub use crate::store::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
+use alloc::sync::Arc;
+
+use crate::ResourceLimiter;
 
 /// Global configuration for the WebAssembly interpreter
 ///
@@ -88,21 +89,18 @@ impl StackConfig {
 ///
 /// ## Example
 /// ```rust
-/// use tinywasm::engine::{Config, FuelPolicy, MemoryBackend, StackConfig};
+/// use tinywasm::engine::{Config, FuelPolicy, StackConfig};
 ///
 /// let config = Config::new()
 ///     .with_fuel_policy(FuelPolicy::Weighted)
 ///     .with_value_stack_32(StackConfig::dynamic(1024, 36 * 1024))
 ///     .with_value_stack_64(StackConfig::dynamic(1024, 32 * 1024))
 ///     .with_value_stack_128(StackConfig::dynamic(256, 4 * 1024))
-///     .with_call_stack(StackConfig::dynamic(64, 1024))
-///     .with_memory_backend(MemoryBackend::paged(64 * 1024))
-///     .with_trap_on_oom(true);
+///     .with_call_stack(StackConfig::dynamic(64, 1024));
 ///
 /// assert!(matches!(config.fuel_policy(), FuelPolicy::Weighted));
 /// ```
 #[derive(Clone)]
-#[cfg_attr(feature = "debug", derive(Debug))]
 #[non_exhaustive]
 pub struct Config {
     /// Configuration for the 32-bit value stack (i32, f32, ref values).
@@ -118,11 +116,8 @@ pub struct Config {
     pub call_stack: StackConfig,
     /// Fuel accounting policy used by budgeted execution. Defaults to [`FuelPolicy::PerInstruction`].
     pub fuel_policy: FuelPolicy,
-    /// Backend used for runtime memories. Defaults to [`MemoryBackend::vec`].
-    pub memory_backend: MemoryBackend,
-    /// Whether memory and stack allocation failures should trap instead of degrading into normal operation failure modes.
-    /// Defaults to `false`.
-    pub trap_on_oom: bool,
+    /// Resource limiter shared across all stores created from this engine. Defaults to `None`.
+    pub resource_limiter: Option<Arc<dyn ResourceLimiter>>,
     /// Initial number of GC heap bytes that triggers collection.
     /// Defaults to 1 MiB.
     pub gc_collection_threshold: usize,
@@ -137,12 +132,6 @@ impl Config {
     /// Set the fuel accounting policy for budgeted execution.
     pub fn with_fuel_policy(mut self, fuel_policy: FuelPolicy) -> Self {
         self.fuel_policy = fuel_policy;
-        self
-    }
-
-    /// Set the backend used for runtime memories.
-    pub fn with_memory_backend(mut self, memory_backend: MemoryBackend) -> Self {
-        self.memory_backend = memory_backend;
         self
     }
 
@@ -178,9 +167,9 @@ impl Config {
         self
     }
 
-    /// Configure whether memory and stack allocation failures trap immediately.
-    pub fn with_trap_on_oom(mut self, trap_on_oom: bool) -> Self {
-        self.trap_on_oom = trap_on_oom;
+    /// Set the resource limiter shared across all stores created from this engine.
+    pub fn with_resource_limiter(mut self, limiter: Arc<dyn ResourceLimiter>) -> Self {
+        self.resource_limiter = Some(limiter);
         self
     }
 
@@ -194,15 +183,6 @@ impl Config {
     pub fn fuel_policy(&self) -> FuelPolicy {
         self.fuel_policy
     }
-
-    /// Get the current memory backend
-    pub fn memory_backend(&self) -> &MemoryBackend {
-        &self.memory_backend
-    }
-
-    pub(crate) const fn trap_on_oom(&self) -> bool {
-        self.trap_on_oom
-    }
 }
 
 impl Default for Config {
@@ -213,9 +193,23 @@ impl Default for Config {
             value_stack_128: StackConfig::fixed(DEFAULT_VALUE_STACK_128_SIZE),
             call_stack: StackConfig::fixed(DEFAULT_MAX_CALL_STACK_SIZE),
             fuel_policy: FuelPolicy::default(),
-            memory_backend: MemoryBackend::default(),
-            trap_on_oom: false,
+            resource_limiter: None,
             gc_collection_threshold: 1024 * 1024,
         }
+    }
+}
+
+#[cfg(feature = "debug")]
+impl core::fmt::Debug for Config {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Config")
+            .field("value_stack_32", &self.value_stack_32)
+            .field("value_stack_64", &self.value_stack_64)
+            .field("value_stack_128", &self.value_stack_128)
+            .field("call_stack", &self.call_stack)
+            .field("fuel_policy", &self.fuel_policy)
+            .field("resource_limiter", &self.resource_limiter.is_some())
+            .field("gc_collection_threshold", &self.gc_collection_threshold)
+            .finish()
     }
 }

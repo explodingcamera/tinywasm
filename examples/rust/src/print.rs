@@ -7,5 +7,7 @@ unsafe extern "C" {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn add_and_print(lh: i32, rh: i32) {
-    printi32(lh + rh);
+    unsafe {
+        printi32(lh + rh);
+    }
 }

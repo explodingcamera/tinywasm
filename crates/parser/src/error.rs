@@ -20,7 +20,7 @@ pub enum ParseError {
         /// The error message
         message: String,
         /// The offset in the module where the error occurred
-        offset: usize,
+        offset: u64,
     },
     /// An invalid encoding was encountered
     InvalidEncoding(Encoding),

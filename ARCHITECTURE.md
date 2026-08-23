@@ -1,6 +1,6 @@
 # TinyWasm Architecture
 
-TinyWasm follows the general runtime model described in the [WebAssembly specification](https://webassembly.github.io/spec/core/exec/runtime.html). It is a stack-based interpreter with a compact internal bytecode, width-specific value stacks, and configurable linear-memory backends.
+TinyWasm follows the general runtime model described in the [WebAssembly specification](https://webassembly.github.io/spec/core/exec/runtime.html). It is a stack-based interpreter with a compact internal bytecode, width-specific value stacks, and a contiguous `Vec`-backed linear memory.
 
 ## Execution Pipeline
 
@@ -40,28 +40,19 @@ The default runtime remains safe Rust throughout rather than relying on unchecke
 
 SIMD instructions have a portable safe-Rust implementation built from fixed-size arrays and lane operations, relying on the compiler to auto-vectorize where possible. Generated code is inspected with `cargo asm`, and benchmarks determine where architecture-specific alternatives are worthwhile. WebAssembly targets use native SIMD intrinsics where available, while the optional `simd-x86` feature provides selected x86 implementations for operations where the generic code produces worse results.
 
-## Memory Backends
+## Linear Memory
 
-Linear memory is implemented through the `LinearMemory` trait. The backend is selected with `engine::Config::with_memory_backend()`.
+Linear memory is a contiguous `Vec<u8>` allocation owned by a `MemoryInstance`. The interpreter accesses it through the internal `MemoryStorage` type, a small concrete boundary that keeps the `Vec` representation out of the executor so an mmap-backed storage can be substituted later without touching load and store paths.
 
-`LinearMemory` exposes separate fixed-width read and write methods for 8-, 16-, 32-, 64-, and 128-bit accesses. A const-generic method would not be callable through a `dyn LinearMemory` trait object, so each width is an explicit vtable entry that backends can optimize independently.
+Fixed-width loads and stores use a single const-generic `read_fixed::<N>` / `write_fixed::<N>` pair rather than per-width vtable methods. Scalar operations reduce to an effective-address computation, a bounds check, a slice access, and a `from_le_bytes` / `to_le_bytes` conversion, with out-of-bounds construction kept on cold paths. Bulk operations such as `fill` and `copy_within` map directly to native slice methods.
 
-This flexibility has a measurable cost: guest loads and stores cross the `dyn LinearMemory` boundary, adding an indirect call and generally preventing the backend operation from being inlined into the interpreter. The fixed-width methods keep the work behind that boundary as small and specialized as possible.
+Memory growth keeps the Wasm page count and limits on `MemoryInstance`. Before memory or table backing storage is allocated or resized, the configured `ResourceLimiter` is consulted so a host can bound guest resource consumption. The limiter is shared across the stores created from one `Engine` and lives behind an `Arc`.
 
-Available backends:
-
-- `VecMemory` - contiguous `Vec<u8>` backing and the default backend.
-- `PagedMemory` - sparse chunk-based allocation, with untouched chunks left unallocated and growth avoiding relocation of one contiguous buffer.
-- `LazyLinearMemory` - serves zero-filled reads without allocation and creates the configured backend on the first mutation or growth.
-- Custom backends through `MemoryBackend::custom()`.
-
-`VecMemory` growth may reallocate, though operating-system allocators can often grow page-backed allocations without copying the full buffer. Applications on conventional operating systems should generally keep it unless sparse allocation or non-relocating growth is specifically needed. Bounded dynamic stacks and sparse paged memory trade some runtime overhead for a smaller initial footprint on embedded and other resource-constrained systems.
+For conventional operating systems, a future mmap-backed storage could reserve virtual address space and use guard pages to move more bounds enforcement to the operating system, reducing explicit checks in linear-memory hot paths. This is the same broad approach described in [Wasmtime's linear-memory architecture](https://docs.wasmtime.dev/contributing-architecture.html#linear-memory), where virtual-memory reservations and guard regions eliminate or deduplicate explicit bounds checks.
 
 ## Future Experiments
 
 Future work may explore additional dispatch and code-generation strategies, including Rust's experimental `loop_match` state-machine work, a tail-call-based interpreter once Rust's explicit tail-call support matures, more aggressive superinstruction fusion, top-of-stack register allocation, or optional JIT compilation.
-
-For conventional operating systems, a future `mmap`-based memory backend could reserve virtual address space and use guard pages to move more bounds enforcement to the operating system, reducing explicit checks in linear-memory hot paths. This is the same broad approach described in [Wasmtime's linear-memory architecture](https://docs.wasmtime.dev/contributing-architecture.html#linear-memory), where virtual-memory reservations and guard regions eliminate or deduplicate explicit bounds checks.
 
 ## Important Modules
 
@@ -71,4 +62,4 @@ For conventional operating systems, a future `mmap`-based memory backend could r
 - [instructions.rs](./crates/types/src/instructions.rs) - internal instruction set
 - [value_stack.rs](./crates/tinywasm/src/interpreter/stack/value_stack.rs) - width-specific stacks
 - [call_stack.rs](./crates/tinywasm/src/interpreter/stack/call_stack.rs) - call frame stack
-- [memory/mod.rs](./crates/tinywasm/src/store/memory/mod.rs) - memory backend trait and implementations
+- [memory/mod.rs](./crates/tinywasm/src/store/memory/mod.rs) - linear memory storage

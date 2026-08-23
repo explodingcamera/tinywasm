@@ -1,10 +1,8 @@
-use alloc::format;
 use tinywasm_types::{MemoryArch, MemoryType};
 
-use crate::{Error, MemoryBackend, Result, Trap};
+use crate::{Error, ResourceLimiter, Result, Trap};
 
 use super::{MemoryStorage, memory_oob};
-use core::hint::cold_path;
 
 /// A WebAssembly Memory Instance
 ///
@@ -23,25 +21,17 @@ impl core::fmt::Debug for MemoryInstance {
 }
 
 impl MemoryInstance {
-    const COPY_CHUNK_SIZE: usize = 4 * 1024;
-
+    #[inline]
     fn host_size(kind: MemoryType, pages: u64) -> Result<usize> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            pages
-                .checked_mul(kind.page_size())
-                .map(|size| size as usize)
-                .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
-        }
+        let size = pages
+            .checked_mul(kind.page_size())
+            .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))?;
+        usize::try_from(size).map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))
+    }
 
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            let page_size = usize::try_from(kind.page_size())
-                .map_err(|_| Error::UnsupportedFeature("memory page size exceeds the host address space"))?;
-            let pages = usize::try_from(pages)
-                .map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))?;
-            pages.checked_mul(page_size).ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
-        }
+    #[inline]
+    fn maximum_size(kind: MemoryType) -> Option<usize> {
+        kind.page_count_max_declared().map(|pages| Self::host_size(kind, pages).unwrap_or(usize::MAX))
     }
 
     #[inline(always)]
@@ -67,7 +57,7 @@ impl MemoryInstance {
         }
     }
 
-    pub(crate) fn new(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
+    pub(crate) fn new(kind: MemoryType, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
         let initial_len = Self::host_size(kind, kind.page_count_initial())?;
 
         crate::log::debug!(
@@ -76,27 +66,14 @@ impl MemoryInstance {
             kind.page_size()
         );
 
-        let storage = backend.create(kind, initial_len)?;
-        if storage.len() != initial_len {
-            return Err(Error::Other(format!(
-                "memory backend returned {} bytes for a memory that requires {initial_len}",
-                storage.len()
-            )));
+        if initial_len != 0
+            && let Some(limiter) = limiter
+            && !limiter.memory_growing(0, initial_len, Self::maximum_size(kind))?
+        {
+            return cold!(Err(Trap::OutOfMemory.into()));
         }
 
-        Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
-    }
-
-    pub(crate) fn new_lazy(kind: MemoryType, backend: &MemoryBackend) -> Result<Self> {
-        let initial_len = Self::host_size(kind, kind.page_count_initial())?;
-
-        crate::log::debug!(
-            "initializing lazy memory with {} pages of {} bytes",
-            kind.page_count_initial(),
-            kind.page_size()
-        );
-
-        let storage = backend.create_lazy(kind, initial_len)?;
+        let storage = MemoryStorage::try_new(initial_len)?;
         Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
     }
 
@@ -111,82 +88,49 @@ impl MemoryInstance {
         src: usize,
         len: usize,
     ) -> Result<(), Trap> {
-        fn check_range(mem: &MemoryStorage, addr: usize, len: usize) -> Result<(), crate::Trap> {
-            let Some(end) = addr.checked_add(len) else {
-                return cold!(Err(memory_oob(addr, len, mem.len())));
-            };
-
-            if end > mem.len() || end < addr {
-                return cold!(Err(memory_oob(addr, len, mem.len())));
-            }
-            Ok(())
-        }
-
-        check_range(&src_memory.inner, src, len)?;
-        check_range(&self.inner, dst, len)?;
-
-        if len == 0 {
-            return Ok(());
-        }
-
-        let mut buf = [0u8; Self::COPY_CHUNK_SIZE];
-        let mut copied = 0;
-        while copied < len {
-            let chunk_len = buf.len().min(len - copied);
-            src_memory.inner.read_exact(src + copied, &mut buf[..chunk_len]).ok_or_else(|| {
-                cold_path();
-                memory_oob(src + copied, chunk_len, src_memory.inner.len())
-            })?;
-            self.inner.write_all(dst + copied, &buf[..chunk_len])?.ok_or_else(|| {
-                cold_path();
-                memory_oob(dst + copied, chunk_len, self.inner.len())
-            })?;
-            copied += chunk_len;
-        }
-
+        src_memory.inner.checked_range(src, len).ok_or_else(|| cold!(memory_oob(src, len, src_memory.inner.len())))?;
+        self.inner.checked_range(dst, len).ok_or_else(|| cold!(memory_oob(dst, len, self.inner.len())))?;
+        self.inner.copy_from(dst, &src_memory.inner, src, len);
         Ok(())
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
-        self.inner.copy_within(dst, src, len)?.ok_or_else(|| {
-            cold_path();
-            memory_oob(dst, len, self.inner.len())
-        })
+        self.inner.copy_within(dst, src, len).ok_or_else(|| cold!(memory_oob(dst, len, self.inner.len())))
     }
 
-    pub(crate) fn grow(&mut self, pages_delta: i64, trap_on_oom: bool) -> Result<Option<i64>, Trap> {
-        if pages_delta < 0 {
-            cold_path();
-            crate::log::debug!("memory.grow failed: negative delta {}", pages_delta);
-            return Ok(None);
-        }
-
+    pub(crate) fn grow(
+        &mut self,
+        pages_delta: i64,
+        limiter: Option<&dyn ResourceLimiter>,
+    ) -> Result<Option<i64>, Trap> {
         let current_pages = self.page_count;
-        let Some(pages_delta) = usize::try_from(pages_delta).ok() else {
-            return Ok(None);
-        };
-        let Some(new_pages) = current_pages.checked_add(pages_delta) else {
-            return Ok(None);
+        let Some(new_pages) = usize::try_from(pages_delta).ok().and_then(|delta| current_pages.checked_add(delta))
+        else {
+            return cold!(Ok(None));
         };
         let max_pages = self.kind.page_count_max().try_into().unwrap_or(usize::MAX);
 
         if new_pages > max_pages {
-            cold_path();
-            crate::log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
-            return Ok(None);
+            return cold!({
+                crate::log::debug!("memory.grow failed: new_pages={}, max_pages={}", new_pages, max_pages);
+                Ok(None)
+            });
         }
 
         let Ok(new_size) = Self::host_size(self.kind, new_pages as u64) else {
-            return Ok(None);
+            return cold!(Ok(None));
         };
         if new_size == self.inner.len() {
             return Ok(i64::try_from(current_pages).ok());
         }
 
-        if let Err(err) = self.inner.grow_to(new_size) {
-            if trap_on_oom {
-                return Err(err);
-            }
+        if let Some(limiter) = limiter
+            && !limiter.memory_growing(self.inner.len(), new_size, Self::maximum_size(self.kind))?
+        {
+            return cold!(Ok(None));
+        }
+
+        if cold_err!(self.inner.grow_to(new_size)).is_err() {
             return Ok(None);
         }
         self.page_count = new_pages;

@@ -1,6 +1,6 @@
 [package]
 name = "rust-wasm-examples"
-edition = "2021"
+edition = "2024"
 publish = false
 
 # treat this as an independent package
@@ -23,10 +23,6 @@ name = "tinywasm"
 path = "src/tinywasm.rs"
 
 [[bin]]
-name = "tinywasm_precompiled"
-path = "src/tinywasm_precompiled.rs"
-
-[[bin]]
 name = "tinywasm_no_std"
 path = "src/tinywasm_no_std.rs"
 
@@ -41,10 +37,10 @@ path = "src/argon2id.rs"
 [dependencies]
 argon2 = { version = "0.5" }
 dlmalloc = { version = "0.2", features = ["global"] }
-tinywasm = { path = "../../crates/tinywasm", default-features = false, features = [
-  "archive",
-  "parser"
-] }
+tinywasm = { path = "../../crates/tinywasm", default-features = false, features = ["archive", "parser"] }
+
+[lints.clippy]
+missing_safety_doc = "allow"
 
 [features]
 default = ["std"]

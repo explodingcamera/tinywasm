@@ -122,7 +122,7 @@ impl crate::std::io::Read for MemoryCursor<'_> {
 impl crate::std::io::Write for MemoryCursor<'_> {
     fn write(&mut self, buf: &[u8]) -> crate::std::io::Result<usize> {
         let offset = self.offset()?;
-        let written = self.memory.inner.write(offset, buf).map_err(Error::from)?;
+        let written = self.memory.inner.write(offset, buf);
         self.advance(written)?;
         Ok(written)
     }
@@ -163,7 +163,8 @@ impl Memory {
     /// Create a new memory in the given store.
     pub fn new(store: &mut Store, ty: MemoryType) -> Result<Self> {
         let addr = store.state.memories.len() as MemAddr;
-        store.state.memories.push(MemoryInstance::new(ty, &store.engine.config().memory_backend)?);
+        let limiter = store.engine.config().resource_limiter.clone();
+        store.state.memories.push(MemoryInstance::new(ty, limiter.as_deref())?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -230,19 +231,18 @@ impl Memory {
 
     /// Reads up to `dst.len()` bytes from memory and returns the number of bytes read.
     ///
-    /// Depending on the configured backend, this may return fewer bytes than requested even when
-    /// more data is available. Use [`Self::read_exact`] or [`Self::read_vec`] when you need a full
-    /// range.
+    /// This returns fewer bytes than requested when the range extends past the end of memory. Use
+    /// [`Self::read_exact`] or [`Self::read_vec`] when you need a full range.
     pub fn read(&self, store: &Store, offset: usize, dst: &mut [u8]) -> Result<usize> {
         Ok(self.instance(store)?.inner.read(offset, dst))
     }
 
     /// Writes up to `src.len()` bytes into memory and returns the number of bytes written.
     ///
-    /// Depending on the configured backend, this may return fewer bytes than requested even when
-    /// more space is available. Use [`Self::copy_from_slice`] when you need the full slice written.
+    /// This returns fewer bytes than requested when the range extends past the end of memory. Use
+    /// [`Self::copy_from_slice`] when you need the full slice written.
     pub fn write(&self, store: &mut Store, offset: usize, src: &[u8]) -> Result<usize> {
-        Ok(self.instance_mut(store)?.inner.write(offset, src)?)
+        Ok(self.instance_mut(store)?.inner.write(offset, src))
     }
 
     /// Reads exactly `dst.len()` bytes from memory.
@@ -263,9 +263,14 @@ impl Memory {
         })
     }
 
-    /// Grow the memory by the given number of pages.
+    /// Grows the memory by the given number of pages.
+    ///
+    /// Returns the previous size, or `None` if growth fails or is rejected by the resource limiter.
+    /// A limiter-provided trap is returned as an error.
     pub fn grow(&self, store: &mut Store, delta_pages: i64) -> Result<Option<i64>> {
-        self.instance_mut(store)?.grow(delta_pages, true).map_err(Into::into)
+        let limiter = store.engine.config().resource_limiter.clone();
+        let mem = self.instance_mut(store)?;
+        mem.grow(delta_pages, limiter.as_deref()).map_err(Into::into)
     }
 
     /// Get the current size of the memory in pages.
@@ -281,14 +286,14 @@ impl Memory {
 
     /// Fill a slice of memory with a value.
     pub fn fill(&self, store: &mut Store, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance_mut(store)?.inner.fill(offset, len, val)?.ok_or_else(|| {
+        self.instance_mut(store)?.inner.fill(offset, len, val).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds { offset, len, max: self.instance(store).unwrap().inner.len() })
         })
     }
 
     /// Copies a full slice into memory.
     pub fn copy_from_slice(&self, store: &mut Store, offset: usize, data: &[u8]) -> Result<()> {
-        self.instance_mut(store)?.inner.write_all(offset, data)?.ok_or_else(|| {
+        self.instance_mut(store)?.inner.write_all(offset, data).ok_or_else(|| {
             Error::Trap(crate::Trap::MemoryOutOfBounds {
                 offset,
                 len: data.len(),
@@ -368,8 +373,9 @@ impl Table {
             return Err(Error::other("host tables cannot use module-relative concrete reference types"));
         }
         let init = table_value_to_element(&store.state, ty.element_type, init).map_err(Error::from)?;
+        let limiter = store.engine.config().resource_limiter.clone();
         let addr = store.state.tables.len() as TableAddr;
-        store.state.tables.push(TableInstance::new(ty, init)?);
+        store.state.tables.push(TableInstance::new(ty, init, limiter.as_deref())?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -430,15 +436,23 @@ impl Table {
         store.state.get_table_mut(self.0.addr).copy_within(dst, src, len)
     }
 
-    /// Grow the table and return the previous size.
-    pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<usize> {
+    /// Grows the table and returns the previous size.
+    ///
+    /// Returns `None` if growth fails or is rejected by the resource limiter. A limiter-provided
+    /// trap is returned as an error.
+    pub fn grow(&self, store: &mut Store, delta: i32, init: WasmValue) -> Result<Option<usize>> {
         self.0.validate_store(store)?;
         let table = store.state.get_table(self.0.addr);
         let old_size = table.size();
         let init = table_value_to_element(&store.state, table.kind.element_type, init)?;
-        let delta = usize::try_from(delta).map_err(|_| Trap::TableOutOfBounds { offset: 0, len: 1, max: old_size })?;
-        store.state.get_table_mut(self.0.addr).grow(delta, init)?;
-        Ok(old_size)
+        let Ok(delta) = usize::try_from(delta) else {
+            return Ok(None);
+        };
+        let limiter = store.engine.config().resource_limiter.clone();
+        match store.state.get_table_mut(self.0.addr).grow(delta, init, limiter.as_deref())? {
+            true => Ok(Some(old_size)),
+            false => Ok(None),
+        }
     }
 }
 

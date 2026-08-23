@@ -151,29 +151,26 @@ pub(crate) fn convert_module_code(
     ty_idx: u32,
     options: &ParserOptions,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
-    let locals_reader = func.get_locals_reader()?;
-    #[cfg(feature = "validate")]
-    let locals_position = locals_reader.original_position();
+    let mut locals_reader = func.get_locals_reader()?;
     let signature = metadata.signature(ty_idx)?.clone();
     let mut local_types = signature.params.clone();
 
     #[cfg(feature = "validate")]
     let mut validator = validator;
 
-    #[cfg(feature = "validate")]
-    for (local_index, local) in locals_reader.into_iter().enumerate() {
-        let local = local?;
+    for _ in 0..locals_reader.get_count() {
+        #[cfg(feature = "validate")]
+        let position = locals_reader.original_position();
+        let local = locals_reader.read()?;
+        #[cfg(feature = "validate")]
         if let Some(validator) = validator.as_mut() {
-            validator.define_locals(locals_position + local_index, local.0, local.1)?;
+            validator.define_locals(position, local.0, local.1)?;
         }
         extend_local_types(&mut local_types, local.0, local.1)?;
     }
 
     #[cfg(not(feature = "validate"))]
-    for local in locals_reader {
-        let local = local?;
-        extend_local_types(&mut local_types, local.0, local.1)?;
-    }
+    let _ = validator;
 
     // maps a local's address to the index in the type's locals array
     let mut local_addr_map = Vec::with_capacity(local_types.len());

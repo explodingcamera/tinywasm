@@ -85,6 +85,17 @@ impl ModuleInstance {
         *self.0.mem_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid memory address: {addr}"))
     }
 
+    /// The resolved store address of the module's first memory, or `MemAddr::MAX` when the module
+    /// has none.
+    ///
+    /// The sentinel is never used in practice: validation guarantees a memory instruction can only
+    /// reference index 0 when the module declares a memory, so any read of the sentinel would trip
+    /// an out-of-bounds panic in the store lookup and surface a bug.
+    #[inline]
+    pub(crate) fn mem0_addr(&self) -> MemAddr {
+        self.0.mem_addrs.first().copied().unwrap_or(MemAddr::MAX)
+    }
+
     /// resolve a data address to the global store address
     #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
@@ -165,18 +176,10 @@ impl ModuleInstance {
         let imported_funcs = addrs.funcs.len();
         addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
-        match module.local_memory_allocation {
-            LocalMemoryAllocation::Skip => {
-                #[cfg(feature = "guest-debug")]
-                addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new_lazy)?);
-            }
-            LocalMemoryAllocation::Lazy => {
-                addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new_lazy)?)
-            }
-            LocalMemoryAllocation::Eager => {
-                addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new)?)
-            }
-        }
+        let limiter = store.engine.config().resource_limiter.clone();
+        addrs
+            .memories
+            .extend(store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?);
 
         store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
         addrs.tables.extend(store.init_tables(&module.tables, &addrs.globals, &addrs.funcs, &type_addrs)?);

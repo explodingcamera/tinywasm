@@ -61,8 +61,6 @@ pub struct ParserOptions {
     /// Disable this only for trusted input. Parsing without validation may produce
     /// a module that violates runtime assumptions.
     pub validation: bool,
-    /// Whether to optimize local memory allocation by skipping allocation of unused local memories.
-    pub optimize_local_memory_allocation: bool,
     /// Whether to run the peephole rewrite optimizer.
     pub optimize_rewrite: bool,
     /// Whether to deduplicate immutable function operands while parsing.
@@ -85,7 +83,6 @@ impl Default for ParserOptions {
     fn default() -> Self {
         Self {
             validation: cfg!(feature = "validate"),
-            optimize_local_memory_allocation: true,
             optimize_rewrite: true,
             deduplicate_operands: false,
             #[cfg(parallel_parser)]
@@ -115,17 +112,6 @@ impl ParserOptions {
     /// Returns whether WebAssembly validation is enabled.
     pub const fn validation(&self) -> bool {
         self.validation
-    }
-
-    /// Enable or disable the optimization that skips allocating unused local memories.
-    pub const fn with_local_memory_allocation_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_local_memory_allocation = enabled;
-        self
-    }
-
-    /// Returns whether unused local memory allocation optimization is enabled.
-    pub const fn optimize_local_memory_allocation(&self) -> bool {
-        self.optimize_local_memory_allocation
     }
 
     /// Enable or disable the peephole rewrite optimizer.
@@ -234,7 +220,7 @@ impl Parser {
         }
 
         reader.process_pending_functions(&self.options)?;
-        reader.into_module(&self.options)
+        reader.into_module()
     }
 
     #[cfg(feature = "std")]
@@ -263,7 +249,7 @@ impl Parser {
                         buffer.truncate(buffer.len() - buffer_offset);
                         buffer_offset = 0;
                     }
-                    let read_bytes = Self::read_more(&mut stream, &mut buffer, hint as usize)?;
+                    let read_bytes = Self::read_more(&mut stream, &mut buffer, hint)?;
                     eof = read_bytes == 0;
                 }
                 wasmparser::Chunk::Parsed { consumed, payload } => {
@@ -272,17 +258,12 @@ impl Parser {
 
                     match payload {
                         wasmparser::Payload::CodeSectionStart { count, range, size } => {
-                            let defer = reader.begin_code_section(
-                                count,
-                                range.clone(),
-                                size,
-                                validator.as_mut(),
-                                &self.options,
-                            )?;
+                            let defer =
+                                reader.begin_code_section(count, range, size, validator.as_mut(), &self.options)?;
 
                             #[cfg(parallel_parser)]
                             if defer {
-                                deferred_code_section = Some((count, range.end - size as usize, size as usize));
+                                deferred_code_section = Some((count, size as usize));
                             }
 
                             #[cfg(not(parallel_parser))]
@@ -298,21 +279,21 @@ impl Parser {
                     buffer_offset += consumed;
 
                     #[cfg(parallel_parser)]
-                    if let Some((count, body_offset, section_size)) = deferred_code_section {
+                    if let Some((count, section_size)) = deferred_code_section {
                         while buffer.len() - buffer_offset < section_size {
                             let remaining = section_size - (buffer.len() - buffer_offset);
                             let read_bytes = Self::read_more(&mut stream, &mut buffer, remaining)?;
                             if read_bytes == 0 {
                                 return Err(ParseError::ParseError {
                                     message: "unexpected end-of-file".into(),
-                                    offset: body_offset + buffer.len() - buffer_offset,
+                                    offset: parser.offset() + (buffer.len() - buffer_offset) as u64,
                                 });
                             }
                         }
 
                         let section_end = buffer_offset + section_size;
                         let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[buffer_offset..section_end].to_vec());
-                        reader.queue_owned_code_section(count, body_offset, section_bytes, validator.as_mut())?;
+                        reader.queue_owned_code_section(count, parser.offset(), section_bytes, validator.as_mut())?;
                         parser.skip_section();
                         buffer_offset = section_end;
                         continue;
@@ -335,7 +316,7 @@ impl Parser {
 
                     if reader.end_reached || eof {
                         reader.process_pending_functions(&self.options)?;
-                        return reader.into_module(&self.options);
+                        return reader.into_module();
                     }
                 }
             };
@@ -347,7 +328,7 @@ impl TryFrom<ModuleReader<'_>> for Module {
     type Error = ParseError;
 
     fn try_from(reader: ModuleReader<'_>) -> Result<Self> {
-        reader.into_module(&ParserOptions::default())
+        reader.into_module()
     }
 }
 

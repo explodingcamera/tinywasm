@@ -19,7 +19,6 @@ pub(crate) struct OptimizedFunctionCode {
     pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
-    pub uses_local_memory: bool,
 }
 
 pub(crate) fn optimize_function_code(
@@ -27,16 +26,11 @@ pub(crate) fn optimize_function_code(
     options: &ParserOptions,
     function_results: ValueCounts,
     self_func_addr: u32,
-    imported_memory_count: u32,
 ) -> Result<OptimizedFunctionCode> {
     let optimized =
         optimize::optimize_instructions(code.instructions, &mut code.data, options, function_results, self_func_addr)?;
     let data = code.data.finish();
-    let uses_local_memory = optimized
-        .instructions
-        .iter()
-        .any(|instruction| instruction.memory_addr(&data).is_some_and(|memory| memory >= imported_memory_count));
-    Ok(OptimizedFunctionCode { instructions: optimized.instructions, data, locals: code.locals, uses_local_memory })
+    Ok(OptimizedFunctionCode { instructions: optimized.instructions, data, locals: code.locals })
 }
 
 #[derive(Default)]
@@ -65,7 +59,6 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) elements: Box<[Element]>,
     pub(crate) end_reached: bool,
     imported_func_count: usize,
-    imported_memory_count: u32,
     global_types: Vec<WasmType>,
 
     #[cfg(parallel_parser)]
@@ -277,7 +270,6 @@ impl<'a> ModuleReader<'a> {
                             }
                             self.imported_func_count += 1;
                         }
-                        ImportKind::Memory(_) => self.imported_memory_count += 1,
                         ImportKind::Global(ty) => self.global_types.push(ty.ty),
                         ImportKind::Tag(tag) => {
                             let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
@@ -338,7 +330,7 @@ impl<'a> ModuleReader<'a> {
     pub(crate) fn begin_code_section(
         &mut self,
         count: u32,
-        range: Range<usize>,
+        range: Range<u64>,
         size: u32,
         validator: Option<&mut Validator>,
         options: &ParserOptions,
@@ -411,7 +403,6 @@ impl<'a> ModuleReader<'a> {
             options,
             self.code_results[self.code.len()],
             (self.imported_func_count + self.code.len()) as u32,
-            self.imported_memory_count,
         )?);
 
         self.func_validator_allocations = func_validator_allocs;
@@ -443,7 +434,7 @@ impl<'a> ModuleReader<'a> {
     pub(crate) fn queue_owned_code_section(
         &mut self,
         count: u32,
-        body_offset: usize,
+        body_offset: u64,
         section_bytes: Arc<[u8]>,
         validator: Option<&mut Validator>,
     ) -> Result<()> {
@@ -455,6 +446,8 @@ impl<'a> ModuleReader<'a> {
         for _ in 0..count {
             let body_reader = reader.read_reader()?;
             let body_range = body_reader.range();
+            let body_start = (body_range.start - body_offset) as usize;
+            let body_end = (body_range.end - body_offset) as usize;
             #[cfg(feature = "validate")]
             let func_to_validate = {
                 let function = wasmparser::FunctionBody::new(body_reader);
@@ -465,7 +458,7 @@ impl<'a> ModuleReader<'a> {
             self.queue_function(
                 crate::parallel::FunctionBodyInput::Owned(crate::parallel::OwnedFunctionBody {
                     section_bytes: section_bytes.clone(),
-                    body_range: (body_range.start - body_offset)..(body_range.end - body_offset),
+                    body_range: body_start..body_end,
                     body_offset: body_range.start,
                 }),
                 func_to_validate,
@@ -512,10 +505,8 @@ impl<'a> ModuleReader<'a> {
         };
 
         let imported_func_count = self.imported_func_count;
-        let imported_memory_count = self.imported_memory_count;
         let metadata = self.translation_metadata();
-        let code =
-            crate::parallel::process_pending(pending, metadata, options, imported_func_count, imported_memory_count)?;
+        let code = crate::parallel::process_pending(pending, metadata, options, imported_func_count)?;
         self.code.extend(code);
         Ok(())
     }
@@ -525,7 +516,7 @@ impl<'a> ModuleReader<'a> {
         Ok(())
     }
 
-    pub(crate) fn into_module(self, options: &ParserOptions) -> Result<Module> {
+    pub(crate) fn into_module(self) -> Result<Module> {
         if !self.end_reached {
             return Err(ParseError::EndNotReached);
         }
@@ -533,24 +524,6 @@ impl<'a> ModuleReader<'a> {
         if self.code_type_addrs.len() != self.code.len() {
             return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
         }
-
-        let import_mem_count = self.imported_memory_count;
-        let has_local_mem_export =
-            self.exports.iter().any(|export| export.kind == ExternalKind::Memory && export.index >= import_mem_count);
-        let has_active_data_segment_on_local_memory = self.data.iter().any(|data| match &data.kind {
-            DataKind::Active { mem, .. } => *mem >= import_mem_count,
-            DataKind::Passive => false,
-        });
-        let optimize_local_memory_allocation = options.optimize_local_memory_allocation();
-        let mut local_memory_allocation = if self.memory_types.is_empty() {
-            LocalMemoryAllocation::Skip
-        } else if !optimize_local_memory_allocation || has_active_data_segment_on_local_memory {
-            LocalMemoryAllocation::Eager
-        } else if has_local_mem_export {
-            LocalMemoryAllocation::Lazy
-        } else {
-            LocalMemoryAllocation::Skip
-        };
 
         let func_type_idxs = self
             .imports
@@ -571,9 +544,6 @@ impl<'a> ModuleReader<'a> {
                 let ty =
                     self.types.get(ty_idx).and_then(SubType::as_func).expect("function type was checked while parsing");
                 let params = ValueCounts::from_iter(ty.params());
-                if code.uses_local_memory {
-                    local_memory_allocation = LocalMemoryAllocation::Eager;
-                }
 
                 Ok(Arc::new(WasmFunction {
                     instructions: code.instructions.into_boxed_slice(),
@@ -598,7 +568,6 @@ impl<'a> ModuleReader<'a> {
             elements: self.elements,
             memory_types: self.memory_types,
             tags: self.tags,
-            local_memory_allocation,
         }
         .into())
     }

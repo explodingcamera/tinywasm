@@ -23,7 +23,6 @@ mod types;
 
 use const_expr::eval_const;
 pub(crate) use gc::{decode_data, default_value, pop_value, push_value};
-pub use memory::{LazyLinearMemory, LinearMemory, MemoryBackend, PagedMemory, VecMemory};
 pub(crate) use memory::{MemValue, MemoryInstance};
 pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
@@ -32,12 +31,72 @@ pub(crate) use {data::*, element::*, exception::*, function::*, global::*, table
 // global store id counter
 static STORE_ID: AtomicU32 = AtomicU32::new(0);
 
-/// Global state that can be manipulated by WebAssembly programs
+/// Controls resource usage by WebAssembly instances.
 ///
-/// Managed WebAssembly GC objects are collected automatically. Other Store
-/// instances, such as modules, functions, memories, and tables, live until the
-/// Store is dropped. GC references exposed through the copyable host value API
-/// are retained for the Store's lifetime.
+/// Configure a limiter with
+/// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). It currently
+/// controls guest linear-memory and table allocation and growth. It does not account for stacks,
+/// GC storage, runtime metadata, or other host allocations.
+///
+/// # Example
+/// ```rust
+/// use std::sync::Arc;
+/// use tinywasm::engine::Config;
+/// use tinywasm::types::{MemoryArch, MemoryType};
+/// use tinywasm::{Engine, Memory, ResourceLimiter, Store};
+///
+/// struct MemoryLimit(usize);
+///
+/// impl ResourceLimiter for MemoryLimit {
+///     fn memory_growing(
+///         &self,
+///         _current: usize,
+///         desired: usize,
+///         _maximum: Option<usize>,
+///     ) -> Result<bool, tinywasm::Trap> {
+///         Ok(desired <= self.0)
+///     }
+/// }
+///
+/// let config = Config::new().with_resource_limiter(Arc::new(MemoryLimit(64 * 1024)));
+/// let mut store = Store::new(Engine::new(config));
+/// let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
+/// assert_eq!(memory.grow(&mut store, 1)?, None);
+/// # Ok::<(), tinywasm::Error>(())
+/// ```
+pub trait ResourceLimiter: Send + Sync {
+    /// Returns whether a memory allocation or growth is allowed.
+    ///
+    /// Sizes are in bytes. `current` is zero for initial allocation, and `maximum` is `None` for an
+    /// unbounded memory. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
+    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
+    /// default implementation allows the request.
+    fn memory_growing(
+        &self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap> {
+        Ok(true)
+    }
+
+    /// Returns whether a table allocation or growth is allowed.
+    ///
+    /// Sizes are in elements. `current` is zero for initial allocation, and `maximum` is `None` for
+    /// an unbounded table. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
+    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
+    /// default implementation allows the request.
+    fn table_growing(
+        &self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap> {
+        Ok(true)
+    }
+}
+
+/// Runtime state used by WebAssembly instances and host functions.
 ///
 /// ## Example
 /// ```rust
@@ -240,6 +299,7 @@ impl Store {
         type_addrs: &[TypeAddr],
     ) -> Result<impl ExactSizeIterator<Item = TableAddr>> {
         let start = self.state.tables.len() as TableAddr;
+        let limiter = self.engine.config().resource_limiter.clone();
         self.state.tables.reserve_exact(tables.len());
         for table in tables {
             let init = match &table.init {
@@ -254,7 +314,7 @@ impl Store {
                 MemoryArch::I32 => TableType::new(element_type, table.ty.size_initial, table.ty.size_max),
                 MemoryArch::I64 => TableType::new64(element_type, table.ty.size_initial, table.ty.size_max),
             };
-            self.state.tables.push(TableInstance::new(ty, init)?);
+            self.state.tables.push(TableInstance::new(ty, init, limiter.as_deref())?);
         }
         Ok(start..start + tables.len() as TableAddr)
     }
@@ -263,12 +323,12 @@ impl Store {
     pub(crate) fn init_memories(
         &mut self,
         memories: &[MemoryType],
-        init: impl Fn(MemoryType, &MemoryBackend) -> Result<MemoryInstance>,
+        init: impl Fn(MemoryType) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
         let start = self.state.memories.len() as MemAddr;
         self.state.memories.reserve_exact(memories.len());
         for mem in memories {
-            self.state.memories.push(cold_err!(init(*mem, &self.engine.config().memory_backend))?);
+            self.state.memories.push(cold_err!(init(*mem))?);
         }
         Ok(start..start + memories.len() as MemAddr)
     }
@@ -428,7 +488,7 @@ impl Store {
                     };
 
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-                    match mem.inner.write_all(offset, &data.data)? {
+                    match mem.inner.write_all(offset, &data.data) {
                         Some(()) => None,
                         None => {
                             return Ok((

@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Args, ValueEnum};
 use tinywasm::{Engine, StackConfig, engine::FuelPolicy};
 
@@ -7,18 +7,6 @@ pub struct EngineFlags {
     /// Fuel accounting policy for budgeted execution APIs
     #[arg(long, value_enum)]
     pub fuel_policy: Option<FuelPolicyArg>,
-
-    /// Trap immediately on memory or stack allocation failure
-    #[arg(long)]
-    pub trap_on_oom: bool,
-
-    /// Memory backend to use for instantiated memories
-    #[arg(long, value_enum)]
-    pub memory_backend: Option<MemoryBackendArg>,
-
-    /// Chunk size in bytes for the paged memory backend
-    #[arg(long, default_value_t = 64 * 1024)]
-    pub memory_page_chunk_size: usize,
 
     /// Fixed value stack size for all value lanes
     #[arg(long, conflicts_with = "value_stack_dynamic")]
@@ -41,12 +29,6 @@ pub struct EngineFlags {
 pub enum FuelPolicyArg {
     PerInstruction,
     Weighted,
-}
-
-#[derive(Clone, Copy, ValueEnum)]
-pub enum MemoryBackendArg {
-    Vec,
-    Paged,
 }
 
 #[derive(Clone)]
@@ -86,18 +68,6 @@ impl EngineFlags {
             });
         }
 
-        if let Some(memory_backend) = self.memory_backend {
-            config = config.with_memory_backend(match memory_backend {
-                MemoryBackendArg::Vec => tinywasm::MemoryBackend::vec(),
-                MemoryBackendArg::Paged => {
-                    if self.memory_page_chunk_size == 0 {
-                        bail!("--memory-page-chunk-size must be greater than zero");
-                    }
-                    tinywasm::MemoryBackend::paged(self.memory_page_chunk_size)
-                }
-            });
-        }
-
         if let Some(value_stack_size) = self.value_stack_size {
             config = config.with_value_stack(StackConfig::fixed(value_stack_size));
         }
@@ -112,10 +82,6 @@ impl EngineFlags {
 
         if let Some(call_stack_dynamic) = self.call_stack_dynamic.clone() {
             config = config.with_call_stack(call_stack_dynamic.into_stack_config());
-        }
-
-        if self.trap_on_oom {
-            config = config.with_trap_on_oom(true);
         }
 
         Ok(Engine::new(config))
