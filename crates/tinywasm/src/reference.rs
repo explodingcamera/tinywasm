@@ -163,7 +163,8 @@ impl Memory {
     /// Create a new memory in the given store.
     pub fn new(store: &mut Store, ty: MemoryType) -> Result<Self> {
         let addr = store.state.memories.len() as MemAddr;
-        store.state.memories.push(MemoryInstance::new(ty)?);
+        let limiter = store.engine.config().resource_limiter.clone();
+        store.state.memories.push(MemoryInstance::new(ty, limiter.as_deref())?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -230,17 +231,16 @@ impl Memory {
 
     /// Reads up to `dst.len()` bytes from memory and returns the number of bytes read.
     ///
-    /// Depending on the configured backend, this may return fewer bytes than requested even when
-    /// more data is available. Use [`Self::read_exact`] or [`Self::read_vec`] when you need a full
-    /// range.
+    /// This returns fewer bytes than requested when the range extends past the end of memory. Use
+    /// [`Self::read_exact`] or [`Self::read_vec`] when you need a full range.
     pub fn read(&self, store: &Store, offset: usize, dst: &mut [u8]) -> Result<usize> {
         Ok(self.instance(store)?.inner.read(offset, dst))
     }
 
     /// Writes up to `src.len()` bytes into memory and returns the number of bytes written.
     ///
-    /// Depending on the configured backend, this may return fewer bytes than requested even when
-    /// more space is available. Use [`Self::copy_from_slice`] when you need the full slice written.
+    /// This returns fewer bytes than requested when the range extends past the end of memory. Use
+    /// [`Self::copy_from_slice`] when you need the full slice written.
     pub fn write(&self, store: &mut Store, offset: usize, src: &[u8]) -> Result<usize> {
         Ok(self.instance_mut(store)?.inner.write(offset, src))
     }

@@ -176,7 +176,10 @@ impl ModuleInstance {
         let imported_funcs = addrs.funcs.len();
         addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
-        addrs.memories.extend(store.init_memories(&module.memory_types, MemoryInstance::new)?);
+        let limiter = store.engine.config().resource_limiter.clone();
+        addrs
+            .memories
+            .extend(store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?);
 
         store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
         addrs.tables.extend(store.init_tables(&module.tables, &addrs.globals, &addrs.funcs, &type_addrs)?);

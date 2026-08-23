@@ -33,20 +33,21 @@ static STORE_ID: AtomicU32 = AtomicU32::new(0);
 
 /// Limits resource consumption within a [`Store`].
 ///
-/// The limiter is consulted before a memory grows, so a host can bound how much a guest may
-/// consume. This mirrors the shape of Wasmtime's `ResourceLimiter`; additional resource types can
-/// be added as the need arises.
+/// The limiter is consulted before a memory is created or grown, so a host can bound how much a
+/// guest may consume. This mirrors the shape of Wasmtime's `ResourceLimiter`; additional resource
+/// types can be added as the need arises.
 ///
 /// A limiter is shared across the stores created from one [`Engine`], so implementations must be
 /// `Send + Sync` and use interior mutability to track state.
 pub trait ResourceLimiter: Send + Sync {
-    /// Notifies the limiter that a linear memory is about to grow.
+    /// Notifies the limiter that a linear memory is about to be allocated or grown.
     ///
     /// `current` and `desired` are byte sizes and are always multiples of the memory's page size.
     /// `maximum` is the memory's declared maximum in bytes, or `None` when the memory is unbounded.
     ///
-    /// Return `Ok(true)` to allow the grow, `Ok(false)` to reject it (the guest observes
-    /// `memory.grow` returning -1), or `Err` to turn the grow into a trap.
+    /// For initial allocation, `current` is zero. Return `Ok(true)` to allow the allocation or grow,
+    /// `Ok(false)` to reject it, or `Err` to return the supplied trap. A rejected initial allocation
+    /// returns [`Trap::OutOfMemory`], while a rejected `memory.grow` returns -1 to the guest.
     fn memory_growing(&self, current: usize, desired: usize, maximum: Option<usize>) -> Result<bool, Trap>;
 }
 

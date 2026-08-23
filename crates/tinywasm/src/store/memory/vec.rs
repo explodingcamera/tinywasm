@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::ops::Range;
 
 use super::memory_oob;
 
@@ -23,6 +24,12 @@ impl VecMemory {
     #[inline(always)]
     pub(crate) fn len(&self) -> usize {
         self.data.len()
+    }
+
+    #[inline(always)]
+    pub(super) fn checked_range(&self, addr: usize, len: usize) -> Option<Range<usize>> {
+        let end = addr.checked_add(len)?;
+        (end <= self.data.len()).then_some(addr..end)
     }
 
     /// Grows the backing allocation to `new_len`. Only called after the Wasm limits and any user
@@ -54,7 +61,7 @@ impl VecMemory {
 
     /// Writes exactly `N` bytes from `bytes` at `addr`.
     #[inline(always)]
-    pub(crate) fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8]) -> Result<(), crate::Trap> {
+    pub(crate) fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8; N]) -> Result<(), crate::Trap> {
         self.check_fixed_addr::<N>(addr)?;
         self.data[addr..addr + N].copy_from_slice(bytes);
         Ok(())
@@ -85,7 +92,7 @@ impl VecMemory {
     /// Reads exactly `dst.len()` bytes starting at `addr`, returning `None` for an invalid range.
     #[inline(always)]
     pub(crate) fn read_exact(&self, addr: usize, dst: &mut [u8]) -> Option<()> {
-        dst.copy_from_slice(self.data.get(addr..addr.checked_add(dst.len())?)?);
+        dst.copy_from_slice(&self.data[self.checked_range(addr, dst.len())?]);
         Some(())
     }
 
@@ -93,24 +100,22 @@ impl VecMemory {
     /// invalid range.
     #[inline(always)]
     pub(crate) fn read_vec(&self, addr: usize, len: usize) -> Option<Vec<u8>> {
-        Some(self.data.get(addr..addr.checked_add(len)?)?.to_vec())
+        Some(self.data[self.checked_range(addr, len)?].to_vec())
     }
 
     /// Writes all of `src` at `addr`, returning `None` for an invalid range.
     #[inline(always)]
     pub(crate) fn write_all(&mut self, addr: usize, src: &[u8]) -> Option<()> {
-        let end = addr.checked_add(src.len())?;
-        let dst = self.data.get_mut(addr..end)?;
-        dst.copy_from_slice(src);
+        let range = self.checked_range(addr, src.len())?;
+        self.data[range].copy_from_slice(src);
         Some(())
     }
 
     /// Fills the range `[addr, addr + len)` with `val`, returning `None` for an invalid range.
     #[inline(always)]
     pub(crate) fn fill(&mut self, addr: usize, len: usize, val: u8) -> Option<()> {
-        let end = addr.checked_add(len)?;
-        let dst = self.data.get_mut(addr..end)?;
-        dst.fill(val);
+        let range = self.checked_range(addr, len)?;
+        self.data[range].fill(val);
         Some(())
     }
 
@@ -118,12 +123,15 @@ impl VecMemory {
     /// range.
     #[inline(always)]
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Option<()> {
-        let src_end = src.checked_add(len)?;
-        let dst_end = dst.checked_add(len)?;
-        if src_end > self.data.len() || dst_end > self.data.len() {
-            return None;
-        }
-        self.data.copy_within(src..src_end, dst);
+        let src = self.checked_range(src, len)?;
+        self.checked_range(dst, len)?;
+        self.data.copy_within(src, dst);
         Some(())
+    }
+
+    /// Copies a previously checked range from another memory.
+    #[inline(always)]
+    pub(super) fn copy_from(&mut self, dst: usize, src_memory: &Self, src: usize, len: usize) {
+        self.data[dst..dst + len].copy_from_slice(&src_memory.data[src..src + len]);
     }
 }

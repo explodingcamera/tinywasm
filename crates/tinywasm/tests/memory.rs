@@ -53,17 +53,25 @@ impl ResourceLimiter for DenyAll {
     }
 }
 
-struct TrapAll;
+struct DenyGrowth;
 
-impl ResourceLimiter for TrapAll {
-    fn memory_growing(&self, _current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
-        Err(Trap::Other("growth denied"))
+impl ResourceLimiter for DenyGrowth {
+    fn memory_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        Ok(current == 0)
+    }
+}
+
+struct TrapGrowth;
+
+impl ResourceLimiter for TrapGrowth {
+    fn memory_growing(&self, current: usize, _desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        if current == 0 { Ok(true) } else { Err(Trap::Other("growth denied")) }
     }
 }
 
 #[test]
 fn resource_limiter_can_reject_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let mut store = store_with_limiter(Arc::new(DenyGrowth));
     let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 
     assert_eq!(memory.grow(&mut store, 1)?, None);
@@ -73,7 +81,7 @@ fn resource_limiter_can_reject_growth() -> TestResult {
 
 #[test]
 fn resource_limiter_can_trap_on_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(TrapAll));
+    let mut store = store_with_limiter(Arc::new(TrapGrowth));
     let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 
     assert!(matches!(memory.grow(&mut store, 1).unwrap_err(), tinywasm::Error::Trap(Trap::Other("growth denied"))));
@@ -92,11 +100,30 @@ fn resource_limiter_rejects_guest_memory_grow() -> TestResult {
         "#,
     )?;
     let module = tinywasm::parse_bytes(&wasm)?;
-    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let mut store = store_with_limiter(Arc::new(DenyGrowth));
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let grow = instance.func::<(), i32>(&store, "grow")?;
     assert_eq!(grow.call(&mut store, ())?, -1);
+    Ok(())
+}
+
+#[test]
+fn resource_limiter_rejects_host_memory_initial_size() {
+    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let result = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None));
+
+    assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
+}
+
+#[test]
+fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
+    let wasm = wat::parse_str("(module (memory 1))")?;
+    let module = tinywasm::parse_bytes(&wasm)?;
+    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let result = ModuleInstance::instantiate(&mut store, &module, None);
+
+    assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
     Ok(())
 }
 

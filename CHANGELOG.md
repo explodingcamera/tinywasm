@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 - Added optional parse-time operand deduplication to reduce precompiled module and `.twasm` archive size.
-- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory growth.
+- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory allocation and growth.
 
 ### Changed
 
@@ -27,13 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
 - Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
 - Linear memory now uses a single contiguous `Vec`-backed storage with const-generic fixed-width loads and stores.
+- Increased the minimum supported Rust version from 1.95 to 1.98.
 
 ### Fixed
 
 - Directly defined imports now reject handles from a different `Store`.
 - Tail calls to host functions now return directly to the caller frame.
 - Fixed Memory64 bulk-memory operations and optimized stores using the wrong value-stack lane.
-- Fixed `memory.init` bounds checks, operand lowering, and local-memory allocation analysis.
+- Fixed `memory.init` bounds checks and operand lowering.
 - Fixed Memory64 default limits and host-size handling, including 32-bit targets.
 
 ### Breaking Changes
@@ -45,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `ModuleInstanceAddr` to `ModuleInstanceId`.
 - Removed `HostFunction::ty` and `WasmFunction::ty`. Use `Function::ty(&Store)` for runtime function types.
 - Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
-- Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed.
+- Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed. To limit initial memory allocation and growth, configure a `ResourceLimiter` with `Config::with_resource_limiter`.
 - Removed the local-memory allocation analysis (`LocalMemoryAllocation` and `ParserOptions::optimize_local_memory_allocation`). Local memories are always allocated eagerly.
 
 ## [0.10.0] - 2026-07-24
