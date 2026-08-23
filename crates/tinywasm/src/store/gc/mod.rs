@@ -18,7 +18,7 @@ pub(crate) fn default_value(storage: StorageType) -> TinyWasmValue {
             TinyWasmValue::Value32(0)
         }
         StorageType::Value(WasmType::I64 | WasmType::F64) => TinyWasmValue::Value64(0),
-        StorageType::Value(WasmType::V128) => TinyWasmValue::Value128(Value128::from([0; 16])),
+        StorageType::Value(WasmType::V128) => TinyWasmValue::Value128(Value128([0; 16])),
         StorageType::Value(WasmType::Ref(_)) => TinyWasmValue::ValueRef(ValueRef::NULL),
     }
 }
@@ -85,7 +85,7 @@ pub(crate) fn decode_data(
         2 => TinyWasmValue::Value32(u32::from(u16::from_le_bytes(bytes.try_into().unwrap()))),
         4 => TinyWasmValue::Value32(u32::from_le_bytes(bytes.try_into().unwrap())),
         8 => TinyWasmValue::Value64(u64::from_le_bytes(bytes.try_into().unwrap())),
-        16 => TinyWasmValue::Value128(Value128::from(<[u8; 16]>::try_from(bytes).unwrap())),
+        16 => TinyWasmValue::Value128(Value128(<[u8; 16]>::try_from(bytes).unwrap())),
         _ => unreachable!(),
     }));
     Ok(values)

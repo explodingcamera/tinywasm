@@ -42,18 +42,12 @@ impl VecMemory {
         Ok(())
     }
 
-    #[inline(always)]
-    fn check_fixed_addr<const N: usize>(&self, addr: usize) -> Result<(), crate::Trap> {
-        if N > self.data.len() || addr > self.data.len() - N {
-            return cold!(Err(memory_oob(addr, N, self.data.len())));
-        }
-        Ok(())
-    }
-
     /// Reads exactly `N` bytes at `addr` into a fixed-size array.
     #[inline(always)]
     pub(crate) fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
-        self.check_fixed_addr::<N>(addr)?;
+        if N > self.data.len() || addr > self.data.len() - N {
+            return cold!(Err(memory_oob(addr, N, self.data.len())));
+        }
         let mut bytes = [0u8; N];
         bytes.copy_from_slice(&self.data[addr..addr + N]);
         Ok(bytes)
@@ -62,7 +56,9 @@ impl VecMemory {
     /// Writes exactly `N` bytes from `bytes` at `addr`.
     #[inline(always)]
     pub(crate) fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8; N]) -> Result<(), crate::Trap> {
-        self.check_fixed_addr::<N>(addr)?;
+        if N > self.data.len() || addr > self.data.len() - N {
+            return cold!(Err(memory_oob(addr, N, self.data.len())));
+        }
         self.data[addr..addr + N].copy_from_slice(bytes);
         Ok(())
     }

@@ -6,18 +6,12 @@ use tinywasm_types::{GlobalAddr, LocalAddr, RefValue, WasmValue};
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// Packed internal representation of a WebAssembly reference.
 ///
 /// Unlike the public [`RefValue`], this stores no explicit reference category.
 /// Converting it back therefore requires the value's canonical reference type.
 pub(crate) struct ValueRef(u32);
-
-impl Default for ValueRef {
-    fn default() -> Self {
-        Self::NULL
-    }
-}
 
 impl ValueRef {
     const HOST_ANY_TAG: u32 = 1 << 30;
@@ -100,28 +94,16 @@ pub(crate) enum TinyWasmValue {
     ValueRef(ValueRef),
 }
 
-impl From<&WasmValue> for TinyWasmValue {
-    fn from(value: &WasmValue) -> Self {
-        match value {
-            WasmValue::I32(v) => Self::Value32(*v as u32),
-            WasmValue::I64(v) => Self::Value64(*v as u64),
-            WasmValue::F32(v) => Self::Value32(v.to_bits()),
-            WasmValue::F64(v) => Self::Value64(v.to_bits()),
-            WasmValue::Ref(value) => Self::ValueRef((*value).into()),
-            WasmValue::V128(v) => Self::Value128((*v).into()),
-        }
-    }
-}
-
 impl From<WasmValue> for TinyWasmValue {
     fn from(value: WasmValue) -> Self {
-        Self::from(&value)
-    }
-}
-
-impl From<[u8; 16]> for TinyWasmValue {
-    fn from(value: [u8; 16]) -> Self {
-        Self::Value128(Value128::from(value))
+        match value {
+            WasmValue::I32(v) => Self::Value32(v as u32),
+            WasmValue::I64(v) => Self::Value64(v as u64),
+            WasmValue::F32(v) => Self::Value32(v.to_bits()),
+            WasmValue::F64(v) => Self::Value64(v.to_bits()),
+            WasmValue::Ref(value) => Self::ValueRef(value.into()),
+            WasmValue::V128(v) => Self::Value128(Value128(v)),
+        }
     }
 }
 
@@ -148,22 +130,13 @@ pub(crate) trait InternalValue: sealed::Sealed + Copy + Default {
 macro_rules! impl_internalvalue {
     (
         $(
-            $variant:ident, $stack:ident, $stack_base:ident, $global_get:ident, $global_set:ident, $outer:ty,
-            |$to_value_v:ident| $to_value:expr,
+            $stack:ident, $stack_base:ident, $global_get:ident, $global_set:ident, $outer:ty,
             |$to_stack_v:ident| $to_stack:expr,
             |$from_stack_v:ident| $from_stack:expr
         )*
     ) => {
         $(
             impl sealed::Sealed for $outer {}
-
-            impl From<$outer> for TinyWasmValue {
-                #[inline(always)]
-                fn from(value: $outer) -> Self {
-                    let $to_value_v = value;
-                    TinyWasmValue::$variant($to_value)
-                }
-            }
 
             impl InternalValue for $outer {
                 #[inline(always)]
@@ -175,25 +148,31 @@ macro_rules! impl_internalvalue {
 
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
-                    let $from_stack_v = *stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize);
+                    let $from_stack_v =
+                        *stack.$stack.get(frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize);
                     $from_stack
                 }
 
                 #[inline(always)]
                 fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) -> Result<(), crate::Trap> {
-                    stack.$stack.push_copy(frame.locals_base.$stack_base as usize + index as usize)
+                    stack.$stack.push_copy(frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize)
                 }
 
                 #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
                     let $to_stack_v = value;
-                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
+                    let abs_index = frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize;
                     stack.$stack.set(abs_index, $to_stack);
                 }
 
                 #[inline(always)]
-                fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) {
-                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
+                fn local_update(
+                    stack: &mut ValueStack,
+                    frame: &CallFrame,
+                    index: LocalAddr,
+                    f: impl FnOnce(Self) -> Self,
+                ) {
+                    let abs_index = frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize;
                     let $from_stack_v = *stack.$stack.get(abs_index);
                     let $to_stack_v = f($from_stack);
                     stack.$stack.set(abs_index, $to_stack);
@@ -201,8 +180,9 @@ macro_rules! impl_internalvalue {
 
                 #[inline(always)]
                 fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr) {
-                    let base = frame.locals_base.$stack_base as usize;
-                    stack.$stack.copy(base + from as usize, base + to as usize);
+                    let from = frame.locals_base.$stack_base.wrapping_add(u32::from(from)) as usize;
+                    let to = frame.locals_base.$stack_base.wrapping_add(u32::from(to)) as usize;
+                    stack.$stack.copy(from, to);
                 }
 
                 #[inline(always)]
@@ -245,12 +225,12 @@ macro_rules! impl_internalvalue {
 }
 
 impl_internalvalue! {
-    Value32,  stack_32,  s32,  get_32,  set_32,  u32,      |v| v,               |v| v,               |v| v
-    Value64,  stack_64,  s64,  get_64,  set_64,  u64,      |v| v,               |v| v,               |v| v
-    Value32,  stack_32,  s32,  get_32,  set_32,  i32,      |v| v as u32,        |v| v as u32,        |v| v as i32
-    Value64,  stack_64,  s64,  get_64,  set_64,  i64,      |v| v as u64,        |v| v as u64,        |v| v as i64
-    Value32,  stack_32,  s32,  get_32,  set_32,  f32,      |v| f32::to_bits(v), |v| f32::to_bits(v), |v| f32::from_bits(v)
-    Value64,  stack_64,  s64,  get_64,  set_64,  f64,      |v| f64::to_bits(v), |v| f64::to_bits(v), |v| f64::from_bits(v)
-    ValueRef, stack_32,  s32,  get_32,  set_32,  ValueRef, |v| v,               |v| v.raw(),         |v| ValueRef(v)
-    Value128, stack_128, s128, get_128, set_128, Value128, |v| v,               |v| v,               |v| v
+    stack_32,  s32,  get_32,  set_32,  u32,      |v| v,               |v| v
+    stack_64,  s64,  get_64,  set_64,  u64,      |v| v,               |v| v
+    stack_32,  s32,  get_32,  set_32,  i32,      |v| v as u32,        |v| v as i32
+    stack_64,  s64,  get_64,  set_64,  i64,      |v| v as u64,        |v| v as i64
+    stack_32,  s32,  get_32,  set_32,  f32,      |v| f32::to_bits(v), |v| f32::from_bits(v)
+    stack_64,  s64,  get_64,  set_64,  f64,      |v| f64::to_bits(v), |v| f64::from_bits(v)
+    stack_32,  s32,  get_32,  set_32,  ValueRef, |v| v.raw(),         |v| ValueRef(v)
+    stack_128, s128, get_128, set_128, Value128, |v| v,               |v| v
 }

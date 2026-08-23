@@ -2,7 +2,7 @@ use alloc::{format, vec::Vec};
 use tinywasm_types::*;
 
 use super::{State, default_value};
-use crate::interpreter::{TinyWasmValue, ValueRef};
+use crate::interpreter::{TinyWasmValue, Value128, ValueRef};
 use crate::{Error, Result, Trap};
 
 fn resolve<T: Copy>(items: &[T], index: u32, kind: &str) -> Result<T> {
@@ -57,7 +57,7 @@ pub(super) fn eval_const(
             I64Const(value) => return Ok(TinyWasmValue::Value64(*value as u64)),
             F32Const(value) => return Ok(TinyWasmValue::Value32(value.to_bits())),
             F64Const(value) => return Ok(TinyWasmValue::Value64(value.to_bits())),
-            V128Const(value) => return Ok(TinyWasmValue::Value128((*value).into())),
+            V128Const(value) => return Ok(TinyWasmValue::Value128(Value128(*value))),
             GlobalGet32(index) => {
                 return Ok(TinyWasmValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
             }
@@ -87,7 +87,7 @@ pub(super) fn eval_const(
             I64Const(value) => stack.push(TinyWasmValue::Value64(*value as u64)),
             F32Const(value) => stack.push(TinyWasmValue::Value32(value.to_bits())),
             F64Const(value) => stack.push(TinyWasmValue::Value64(value.to_bits())),
-            V128Const(value) => stack.push(TinyWasmValue::Value128((*value).into())),
+            V128Const(value) => stack.push(TinyWasmValue::Value128(Value128(*value))),
             GlobalGet32(index) => {
                 stack.push(TinyWasmValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
             }

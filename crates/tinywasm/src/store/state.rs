@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::engine::Config;
+use crate::interpreter::Value128;
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -413,7 +414,7 @@ impl State {
             WasmType::F32 => WasmValue::F32(f32::from_bits(self.globals.get_32(addr))),
             WasmType::F64 => WasmValue::F64(f64::from_bits(self.globals.get_64(addr))),
             WasmType::Ref(ty) => WasmValue::Ref(self.to_ref_value(ValueRef::from_raw(self.globals.get_32(addr)), ty)),
-            WasmType::V128 => WasmValue::V128(self.globals.get_128(addr).to_le_bytes()),
+            WasmType::V128 => WasmValue::V128(self.globals.get_128(addr).0),
         }
     }
 
@@ -434,7 +435,7 @@ impl State {
             WasmValue::F32(value) => self.globals.set_32(addr, value.to_bits()),
             WasmValue::F64(value) => self.globals.set_64(addr, value.to_bits()),
             WasmValue::Ref(value) => self.globals.set_32(addr, ValueRef::from(value).raw()),
-            WasmValue::V128(value) => self.globals.set_128(addr, value.into()),
+            WasmValue::V128(value) => self.globals.set_128(addr, Value128(value)),
         }
         Ok(())
     }

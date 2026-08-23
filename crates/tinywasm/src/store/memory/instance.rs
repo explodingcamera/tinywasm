@@ -22,11 +22,8 @@ impl core::fmt::Debug for MemoryInstance {
 
 impl MemoryInstance {
     #[inline]
-    fn host_size(kind: MemoryType, pages: u64) -> Result<usize> {
-        let size = pages
-            .checked_mul(kind.page_size())
-            .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))?;
-        usize::try_from(size).map_err(|_| Error::UnsupportedFeature("memory size exceeds the host address space"))
+    fn host_size(kind: MemoryType, pages: u64) -> Option<usize> {
+        pages.checked_mul(kind.page_size()).and_then(|size| usize::try_from(size).ok())
     }
 
     #[inline]
@@ -58,7 +55,10 @@ impl MemoryInstance {
     }
 
     pub(crate) fn new(kind: MemoryType, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
-        let initial_len = Self::host_size(kind, kind.page_count_initial())?;
+        let initial_len = cold_err!(
+            Self::host_size(kind, kind.page_count_initial())
+                .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
+        )?;
 
         crate::log::debug!(
             "initializing memory with {} pages of {} bytes",
@@ -117,7 +117,7 @@ impl MemoryInstance {
             });
         }
 
-        let Ok(new_size) = Self::host_size(self.kind, new_pages as u64) else {
+        let Some(new_size) = Self::host_size(self.kind, new_pages as u64) else {
             return cold!(Ok(None));
         };
         if new_size == self.inner.len() {
@@ -130,8 +130,8 @@ impl MemoryInstance {
             return cold!(Ok(None));
         }
 
-        if cold_err!(self.inner.grow_to(new_size)).is_err() {
-            return Ok(None);
+        if self.inner.grow_to(new_size).is_err() {
+            return cold!(Ok(None));
         }
         self.page_count = new_pages;
         Ok(i64::try_from(current_pages).ok())

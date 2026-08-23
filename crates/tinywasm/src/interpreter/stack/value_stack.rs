@@ -153,9 +153,9 @@ impl<T: Copy + Default> Stack<T> {
             return;
         }
 
-        let keep = (len - n).min(end_keep);
-        self.data.copy_within(len - keep..len, n);
-        self.data.truncate(n + keep);
+        let keep = len.wrapping_sub(n).min(end_keep);
+        self.data.copy_within(len.wrapping_sub(keep)..len, n);
+        self.data.truncate(n.wrapping_add(keep));
     }
 
     #[inline(always)]
@@ -231,12 +231,12 @@ impl<T: Copy + Default> Stack<T> {
         }
 
         if !condition {
-            let dst = len - needed;
-            let src = len - count;
+            let dst = len.wrapping_sub(needed);
+            let src = len.wrapping_sub(count);
             self.data.copy_within(src..len, dst);
         }
 
-        self.data.truncate(len - count);
+        self.data.truncate(len.wrapping_sub(count));
     }
 }
 
@@ -400,7 +400,7 @@ impl ValueStack {
                 WasmValue::F32(v) => self.stack_32.push(v.to_bits())?,
                 WasmValue::F64(v) => self.stack_64.push(v.to_bits())?,
                 WasmValue::Ref(v) => self.stack_32.push(ValueRef::from(v).raw())?,
-                WasmValue::V128(v) => self.stack_128.push(v.into())?,
+                WasmValue::V128(v) => self.stack_128.push(Value128(v))?,
             }
         }
         Ok(())

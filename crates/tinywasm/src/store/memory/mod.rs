@@ -17,11 +17,8 @@ pub(crate) type MemoryStorage = VecMemory;
 pub(crate) trait MemValue<const N: usize>: Copy + Default {
     /// Store a value in memory.
     fn to_mem_bytes(self) -> [u8; N];
-
     fn from_mem_bytes(bytes: [u8; N]) -> Self;
-
     fn load_at(mem: &MemoryStorage, addr: usize) -> core::result::Result<Self, crate::Trap>;
-
     fn store_at(self, mem: &mut MemoryStorage, addr: usize) -> core::result::Result<(), crate::Trap>;
 }
 
