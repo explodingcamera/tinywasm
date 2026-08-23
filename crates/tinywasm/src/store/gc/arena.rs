@@ -63,7 +63,7 @@ pub(crate) struct Arena<T> {
     free_head: Option<u32>,
     worklist: Vec<u32>,
     len: usize,
-    allocated_bytes: usize,
+    pub(super) allocated_bytes: usize,
     collection_threshold: usize,
     next_collection: usize,
 }
@@ -86,7 +86,7 @@ impl<T> Arena<T> {
     ///
     /// The byte count must remain valid while the value is in the arena.
     pub(crate) fn alloc(&mut self, value: T, out_of_line_bytes: usize) -> Result<Handle, AllocError> {
-        let bytes = size_of::<Slot<T>>().checked_add(out_of_line_bytes).ok_or(AllocError)?;
+        let bytes = Self::allocation_size(out_of_line_bytes).ok_or(AllocError)?;
         let allocated_bytes = self.allocated_bytes.checked_add(bytes).ok_or(AllocError)?;
 
         let handle = if let Some(index) = self.free_head {
@@ -156,10 +156,13 @@ impl<T> Arena<T> {
 
     /// Returns whether an allocation of this size should trigger collection.
     pub(crate) fn should_collect(&self, out_of_line_bytes: usize) -> bool {
-        size_of::<Slot<T>>()
-            .checked_add(out_of_line_bytes)
+        Self::allocation_size(out_of_line_bytes)
             .and_then(|bytes| self.allocated_bytes.checked_add(bytes))
             .is_none_or(|bytes| bytes >= self.next_collection)
+    }
+
+    pub(super) fn allocation_size(out_of_line_bytes: usize) -> Option<usize> {
+        size_of::<Slot<T>>().checked_add(out_of_line_bytes)
     }
 }
 

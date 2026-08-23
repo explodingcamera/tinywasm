@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
 - Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
 - Added optional parse-time operand deduplication to reduce precompiled module and `.twasm` archive size.
-- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory and table allocation and growth.
+- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory, table, and logical GC heap growth.
 
 ### Changed
 

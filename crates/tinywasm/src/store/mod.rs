@@ -35,8 +35,8 @@ static STORE_ID: AtomicU32 = AtomicU32::new(0);
 ///
 /// Configure a limiter with
 /// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). It currently
-/// controls guest linear-memory and table allocation and growth. It does not account for stacks,
-/// GC storage, runtime metadata, or other host allocations.
+/// controls guest linear-memory, table, and GC heap growth. It does not account for stacks, runtime
+/// metadata, temporary buffers, backing-capacity overhead, or other host allocations.
 ///
 /// # Example
 /// ```rust
@@ -87,6 +87,20 @@ pub trait ResourceLimiter: Send + Sync {
     /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
     /// default implementation allows the request.
     fn table_growing(
+        &self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> core::result::Result<bool, Trap> {
+        Ok(true)
+    }
+
+    /// Returns whether a GC object allocation is allowed.
+    ///
+    /// Sizes are the logical bytes retained by live GC objects after collection. `maximum` is
+    /// currently always `None`. `Ok(false)` rejects the allocation with [`Trap::OutOfMemory`], while
+    /// `Err` returns the provided trap. The default implementation allows the request.
+    fn gc_growing(
         &self,
         _current: usize,
         _desired: usize,
@@ -150,7 +164,7 @@ impl Store {
     pub fn new(engine: Engine) -> Self {
         let id =
             STORE_ID.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1)).expect("too many stores");
-        let state = State::new(engine.config().gc_collection_threshold);
+        let state = State::new(engine.config());
         Self {
             id,
             module_instances: Vec::new(),

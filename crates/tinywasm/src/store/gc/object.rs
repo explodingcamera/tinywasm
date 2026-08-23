@@ -1,11 +1,13 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::cell::RefCell;
 use core::mem::size_of;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use tinywasm_types::TypeAddr;
 
+use crate::engine::Config;
 use crate::interpreter::{TinyWasmValue, ValueRef};
+use crate::{ResourceLimiter, Trap};
 
 use super::{AllocError, Arena, Handle, Trace};
 
@@ -29,18 +31,24 @@ pub(crate) struct GcHeap {
     objects: Arena<GcObject>,
     directory: Vec<(u32, Handle)>,
     pinned: RefCell<Vec<Handle>>,
+    resource_limiter: Option<Arc<dyn ResourceLimiter>>,
 }
 
 impl Default for GcHeap {
     fn default() -> Self {
-        Self::new(1024 * 1024)
+        Self::new(&Config::default())
     }
 }
 
 impl GcHeap {
     /// Creates a heap with the configured allocation threshold.
-    pub(crate) const fn new(collection_threshold: usize) -> Self {
-        Self { objects: Arena::new(collection_threshold), directory: Vec::new(), pinned: RefCell::new(Vec::new()) }
+    pub(crate) fn new(config: &Config) -> Self {
+        Self {
+            objects: Arena::new(config.gc_collection_threshold),
+            directory: Vec::new(),
+            pinned: RefCell::new(Vec::new()),
+            resource_limiter: config.resource_limiter.clone(),
+        }
     }
 
     #[inline]
@@ -67,15 +75,25 @@ impl GcHeap {
         type_addr: TypeAddr,
         values: Vec<TinyWasmValue>,
         trace_references: bool,
-    ) -> Result<ValueRef, AllocError> {
+    ) -> Result<ValueRef, Trap> {
+        let element_size = size_of::<TinyWasmValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
+        let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
+        let allocation_size = Arena::<GcObject>::allocation_size(out_of_line_bytes).ok_or(Trap::OutOfMemory)?;
+        let desired = self.objects.allocated_bytes.checked_add(allocation_size).ok_or(Trap::OutOfMemory)?;
+        if let Some(limiter) = &self.resource_limiter
+            && !limiter.gc_growing(self.objects.allocated_bytes, desired, None)?
+        {
+            return Err(Trap::OutOfMemory);
+        }
+
         let key =
             NEXT_GC_REF.try_update(Ordering::Relaxed, Ordering::Relaxed, |key| (key < (1 << 30)).then_some(key + 1));
         let Ok(key) = key else {
-            return Err(AllocError);
+            return Err(Trap::OutOfMemory);
         };
         let references = if trace_references {
             let mut references = Vec::new();
-            references.try_reserve_exact(values.len()).map_err(|_| AllocError)?;
+            references.try_reserve_exact(values.len()).map_err(|_| Trap::OutOfMemory)?;
             references.extend(values.iter().map(|value| match value {
                 TinyWasmValue::ValueRef(value) => self.handle(*value),
                 _ => None,
@@ -84,11 +102,9 @@ impl GcHeap {
         } else {
             None
         };
-        let element_size = size_of::<TinyWasmValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
-        let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(AllocError)?;
         let object = GcObject { type_addr, values: values.into_boxed_slice(), references };
-        self.directory.try_reserve(1).map_err(|_| AllocError)?;
-        let handle = self.objects.alloc(object, out_of_line_bytes)?;
+        self.directory.try_reserve(1).map_err(|_| Trap::OutOfMemory)?;
+        let handle = self.objects.alloc(object, out_of_line_bytes).map_err(|_| Trap::OutOfMemory)?;
         self.directory.push((key, handle));
         Ok(ValueRef::from_category_addr(key))
     }
@@ -149,8 +165,7 @@ impl GcHeap {
 
     pub(crate) fn should_collect(&self, value_count: usize, trace_references: bool) -> bool {
         let element_size = size_of::<TinyWasmValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
-        let bytes = value_count.saturating_mul(element_size);
-        self.objects.should_collect(bytes)
+        self.objects.should_collect(value_count.saturating_mul(element_size))
     }
 
     /// Reclaims objects unreachable from runtime and permanent host roots.

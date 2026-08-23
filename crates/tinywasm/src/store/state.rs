@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use super::*;
+use crate::engine::Config;
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -18,11 +19,11 @@ pub(crate) struct State {
     pub(crate) exceptions: Vec<ExceptionInstance>,
     pub(crate) elements: Vec<ElementInstance>,
     pub(crate) data: Vec<DataInstance>,
-    pub(crate) gc: Box<gc::GcHeap>,
+    pub(crate) gc: gc::GcHeap,
 }
 
 impl State {
-    pub(crate) fn new(gc_collection_threshold: usize) -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         Self {
             canonical_types: Vec::new(),
             canonical_rec_group_lengths: Vec::new(),
@@ -34,7 +35,7 @@ impl State {
             exceptions: Vec::new(),
             elements: Vec::new(),
             data: Vec::new(),
-            gc: Box::new(gc::GcHeap::new(gc_collection_threshold)),
+            gc: gc::GcHeap::new(config),
         }
     }
 
@@ -120,7 +121,7 @@ impl State {
                 }));
             cold_err!(self.gc.collect(roots)).map_err(|_| Trap::OutOfMemory)?;
         }
-        cold_err!(self.gc.alloc(type_addr, values, trace_references)).map_err(|_| Trap::OutOfMemory)
+        self.gc.alloc(type_addr, values, trace_references)
     }
 
     /// Pins a host-visible reference when it resolves to a managed GC object.
@@ -441,6 +442,6 @@ impl State {
 
 impl Default for State {
     fn default() -> Self {
-        Self::new(1024 * 1024)
+        Self::new(&Config::default())
     }
 }
