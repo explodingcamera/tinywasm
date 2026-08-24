@@ -17,6 +17,9 @@ pub(crate) struct TableInstance {
 impl TableInstance {
     /// Creates a table filled with the given initial reference.
     pub(crate) fn new(kind: TableType, init: ValueRef, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
+        if kind.size_max.is_some_and(|maximum| maximum < kind.size_initial) {
+            return Err(Trap::OutOfMemory.into());
+        }
         let size = cold_err!(usize::try_from(kind.size_initial)).map_err(|_| Trap::OutOfMemory)?;
         if size > MAX_TABLE_SIZE {
             return Err(Trap::OutOfMemory.into());

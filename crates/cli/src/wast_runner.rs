@@ -7,10 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error};
-use tinywasm::types::{
-    AbstractHeapType as TinyAbstractHeapType, AnyRef, ExternRef, FuncRef, MemoryType, RefType, RefValue, TableType,
-    WasmType, WasmValue,
-};
+use tinywasm::types::{MemoryType, RefType, RefValue, TableType, WasmType, WasmValue};
 use tinywasm::{ExecProgress, Global, HostFunction, Imports, Memory, Module, ModuleInstance, Store, Table};
 use wast::{QuoteWat, core::AbstractHeapType};
 
@@ -171,17 +168,18 @@ impl WastRunner {
     fn imports(store: &mut Store, modules: &HashMap<String, ModuleInstance>) -> Result<Imports> {
         let mut imports = Imports::new();
 
-        let table = Table::new(store, TableType::new(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
-        let table64 = Table::new(store, TableType::new64(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
-        let memory = Memory::new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
+        let table = Table::try_new(store, TableType::new(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
+        let table64 = Table::try_new(store, TableType::new64(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
+        let memory =
+            Memory::try_new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
         let global_i32 =
-            Global::new(store, tinywasm::types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
+            Global::try_new(store, tinywasm::types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
         let global_i64 =
-            Global::new(store, tinywasm::types::GlobalType::new(WasmType::I64, false), WasmValue::I64(666))?;
+            Global::try_new(store, tinywasm::types::GlobalType::new(WasmType::I64, false), WasmValue::I64(666))?;
         let global_f32 =
-            Global::new(store, tinywasm::types::GlobalType::new(WasmType::F32, false), WasmValue::F32(666.6))?;
+            Global::try_new(store, tinywasm::types::GlobalType::new(WasmType::F32, false), WasmValue::F32(666.6))?;
         let global_f64 =
-            Global::new(store, tinywasm::types::GlobalType::new(WasmType::F64, false), WasmValue::F64(666.6))?;
+            Global::try_new(store, tinywasm::types::GlobalType::new(WasmType::F64, false), WasmValue::F64(666.6))?;
 
         imports
             .define("spectest", "memory", memory)
@@ -227,6 +225,7 @@ impl WastRunner {
 
         let mut store = Store::default();
         let mut module_registry = ModuleRegistry::default();
+        let mut call_results = Vec::new();
 
         println!("running {} tests for group: {}", directives.len(), file.name());
         for (i, directive) in directives.into_iter().enumerate() {
@@ -333,9 +332,10 @@ impl WastRunner {
                 }
                 AssertExhaustion { call, message, span } => {
                     let module = module_registry.get_idx(call.module);
-                    let args = convert_wastargs(call.args)?;
-                    let res =
-                        catch_unwind_silent(|| exec_fn_instance(module, &mut store, call.name, &args).map(|_| ()));
+                    let args = convert_wastargs(&mut store, call.args)?;
+                    let res = catch_unwind_silent(|| {
+                        exec_fn_instance(module, &mut store, call.name, &args, &mut call_results)
+                    });
                     let Ok(Err(tinywasm::Error::Trap(trap))) = res else {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
@@ -368,9 +368,9 @@ impl WastRunner {
                             wast::WastExecute::Invoke(invoke) => invoke,
                         };
                         let module = module_registry.get_idx(invoke.module);
-                        let args =
-                            convert_wastargs(invoke.args).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
+                        let args = convert_wastargs(&mut store, invoke.args)
+                            .map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results)
                     });
                     match res {
                         Err(err) => test_group.add_result(
@@ -415,9 +415,9 @@ impl WastRunner {
                             wast::WastExecute::Invoke(invoke) => invoke,
                         };
                         let module = module_registry.get_idx(invoke.module);
-                        let args =
-                            convert_wastargs(invoke.args).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map(|_| ())
+                        let args = convert_wastargs(&mut store, invoke.args)
+                            .map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results)
                     });
                     let result = match res {
                         Err(err) => Err(anyhow!("test panicked: {}", try_downcast_panic(err))),
@@ -469,9 +469,9 @@ impl WastRunner {
                 Invoke(invoke) => {
                     let name = invoke.name;
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        let args = convert_wastargs(invoke.args)?;
+                        let args = convert_wastargs(&mut store, invoke.args)?;
                         let module = module_registry.get_idx(invoke.module);
-                        exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
+                        exec_fn_instance(module, &mut store, invoke.name, &args, &mut call_results).map_err(|e| {
                             error!("failed to execute function: {e:?}");
                             e
                         })?;
@@ -504,7 +504,7 @@ impl WastRunner {
                                 );
                                 continue;
                             };
-                            let module_global = match module.global_get(&store, global) {
+                            let module_global = match module.global_get(&mut store, global) {
                                 Ok(value) => value,
                                 Err(err) => {
                                     test_group.add_result(
@@ -518,7 +518,7 @@ impl WastRunner {
                             let expected = expected_alternatives
                                 .iter()
                                 .filter_map(|alts| alts.first())
-                                .find(|exp| exp.matches(&module_global, &store));
+                                .find(|exp| exp.matches(&module_global, &store, &module));
                             if expected.is_none() {
                                 test_group.add_result(
                                     &format!("AssertReturn(unsupported-{i})"),
@@ -552,25 +552,28 @@ impl WastRunner {
 
                     let invoke_name = invoke.name;
                     let res: Result<Result<()>, _> = catch_unwind_silent(|| {
-                        let args = convert_wastargs(invoke.args)?;
-                        let module = module_registry.get_idx(invoke.module);
-                        let outcomes = exec_fn_instance(module, &mut store, invoke.name, &args).map_err(|e| {
-                            error!("failed to execute function: {e:?}");
-                            e
-                        })?;
-                        if !expected_alternatives.iter().any(|expected| expected.len() == outcomes.len()) {
+                        let args = convert_wastargs(&mut store, invoke.args)?;
+                        let module = module_registry
+                            .get(invoke.module)
+                            .ok_or_else(|| anyhow!("module instance was not found"))?;
+                        exec_fn_instance(Some(module.id()), &mut store, invoke.name, &args, &mut call_results)
+                            .map_err(|e| {
+                                error!("failed to execute function: {e:?}");
+                                e
+                            })?;
+                        if !expected_alternatives.iter().any(|expected| expected.len() == call_results.len()) {
                             return Err(anyhow!(
                                 "expected {} results, got {}",
                                 expected_alternatives.first().map_or(0, |v| v.len()),
-                                outcomes.len()
+                                call_results.len()
                             ));
                         }
                         if expected_alternatives.iter().any(|expected| {
-                            expected.len() == outcomes.len()
-                                && outcomes
+                            expected.len() == call_results.len()
+                                && call_results
                                     .iter()
                                     .zip(expected.iter())
-                                    .all(|(outcome, exp)| exp.matches(outcome, &store))
+                                    .all(|(outcome, exp)| exp.matches(outcome, &store, &module))
                         }) {
                             Ok(())
                         } else {
@@ -715,12 +718,12 @@ fn exec_with_budget(
     func: &tinywasm::Function,
     store: &mut Store,
     args: &[WasmValue],
-) -> Result<Vec<WasmValue>, tinywasm::Error> {
-    let mut exec = func.call_resumable(store, args)?;
+    results: &mut [WasmValue],
+) -> Result<(), tinywasm::Error> {
+    let mut exec = func.call_resumable(store, args, results)?;
     for _ in 0..TEST_MAX_SUSPENSIONS {
-        match exec.resume_with_time_budget(TEST_TIME_SLICE)? {
-            ExecProgress::Completed(values) => return Ok(values),
-            ExecProgress::Suspended => {}
+        if let ExecProgress::Completed(()) = exec.resume_with_time_budget(TEST_TIME_SLICE)? {
+            return Ok(());
         }
     }
     Err(tinywasm::Error::Other(format!(
@@ -741,7 +744,8 @@ fn exec_fn_instance(
     store: &mut Store,
     name: &str,
     args: &[WasmValue],
-) -> Result<Vec<WasmValue>, tinywasm::Error> {
+    results: &mut Vec<WasmValue>,
+) -> Result<(), tinywasm::Error> {
     let Some(instance) = instance else {
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
@@ -749,7 +753,9 @@ fn exec_fn_instance(
         return Err(tinywasm::Error::Other("no instance found".to_string()));
     };
     let func = instance.func_untyped(store, name)?;
-    exec_with_budget(&func, store, args)
+    results.clear();
+    results.resize(func.ty(store)?.results().len(), WasmValue::I32(0));
+    exec_with_budget(&func, store, args, results)
 }
 
 fn catch_unwind_silent<R>(f: impl FnOnce() -> R) -> std::thread::Result<R> {
@@ -790,8 +796,8 @@ fn parse_quote_module(module: QuoteWat) -> Result<(Option<String>, Module)> {
     Ok((name, parse_module_bytes(&bytes)?))
 }
 
-fn convert_wastargs(args: Vec<wast::WastArg>) -> Result<Vec<WasmValue>> {
-    args.into_iter().map(wastarg2tinywasmvalue).collect()
+fn convert_wastargs(store: &mut Store, args: Vec<wast::WastArg>) -> Result<Vec<WasmValue>> {
+    args.into_iter().map(|arg| wastarg2tinywasmvalue(store, arg)).collect()
 }
 
 fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<Vec<Vec<ExpectedValue>>> {
@@ -802,7 +808,7 @@ fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<
         for prefix in alternatives {
             for choice in &choices {
                 let mut candidate = prefix.clone();
-                candidate.push(*choice);
+                candidate.push(choice.clone());
                 next.push(candidate);
             }
         }
@@ -811,7 +817,7 @@ fn convert_wastret<'a>(args: impl Iterator<Item = wast::WastRet<'a>>) -> Result<
     Ok(alternatives)
 }
 
-fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
+fn wastarg2tinywasmvalue(store: &mut Store, arg: wast::WastArg) -> Result<WasmValue> {
     let wast::WastArg::Core(arg) = arg else {
         bail!("unsupported arg type: Component");
     };
@@ -822,7 +828,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
         I32(i) => WasmValue::I32(i),
         I64(i) => WasmValue::I64(i),
         V128(i) => WasmValue::V128(i.to_le_bytes()),
-        RefExtern(v) => ExternRef::try_new(v).ok_or_else(|| anyhow!("external reference address is too large"))?.into(),
+        RefExtern(v) => tinywasm::ExternRef::try_new(store, v)?.into(),
         RefNull(t) => match t {
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Func } => RefValue::Null.into(),
             wast::core::HeapType::Abstract { shared: false, ty: AbstractHeapType::Extern | AbstractHeapType::Any } => {
@@ -832,10 +838,7 @@ fn wastarg2tinywasmvalue(arg: wast::WastArg) -> Result<WasmValue> {
                 bail!("unsupported arg type: refnull: {:?}", t);
             }
         },
-        RefHost(value) => {
-            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| anyhow!("host reference address is too large"))?)
-                .into()
-        }
+        RefHost(value) => RefValue::Any(tinywasm::ExternRef::try_new(store, value)?.to_any()).into(),
     })
 }
 
@@ -855,7 +858,7 @@ fn wast_v128_to_bytes(i: wast::core::V128Pattern) -> [u8; 16] {
     res.try_into().unwrap()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum ExpectedValue {
     Exact(WasmValue),
     RefNull,
@@ -866,24 +869,35 @@ enum ExpectedValue {
     RefI31,
     RefStruct,
     RefArray,
+    RefExternExact(u32),
+    RefFuncExact(u32),
+    RefHostExact(u32),
 }
 
 impl ExpectedValue {
-    fn matches(&self, value: &WasmValue, store: &Store) -> bool {
+    fn matches(&self, value: &WasmValue, store: &Store, module: &ModuleInstance) -> bool {
         match self {
             Self::Exact(expected) => value.eq_loose(expected),
             Self::RefNull => matches!(value, WasmValue::Ref(RefValue::Null)),
             Self::RefFunc => matches!(value, WasmValue::Ref(RefValue::Func(_))),
             Self::RefExtern => matches!(value, WasmValue::Ref(RefValue::Extern(_))),
             Self::RefAny => matches!(value, WasmValue::Ref(RefValue::Any(_))),
-            Self::RefEq => {
-                store.value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Eq)))
-            }
+            Self::RefEq => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_eq().is_some()),
             Self::RefI31 => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_i31().is_some()),
-            Self::RefStruct => store
-                .value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Struct))),
-            Self::RefArray => store
-                .value_matches_type(*value, WasmType::Ref(RefType::new_abstract(false, TinyAbstractHeapType::Array))),
+            Self::RefStruct => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_struct().is_some()),
+            Self::RefArray => matches!(value, WasmValue::Ref(RefValue::Any(value)) if value.as_array().is_some()),
+            Self::RefExternExact(expected) => match value {
+                WasmValue::Ref(RefValue::Extern(value)) => value.key(store) == Ok(*expected),
+                _ => false,
+            },
+            Self::RefHostExact(expected) => match value {
+                WasmValue::Ref(RefValue::Any(value)) => value.to_extern().key(store) == Ok(*expected),
+                _ => false,
+            },
+            Self::RefFuncExact(expected) => module
+                .func_by_index(store, *expected)
+                .and_then(|function| function.as_func_ref(store))
+                .is_ok_and(|expected| matches!(value, WasmValue::Ref(RefValue::Func(value)) if *value == expected)),
         }
     }
 }
@@ -912,11 +926,9 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         I64(i) => ExpectedValue::Exact(WasmValue::I64(i)),
         V128(i) => ExpectedValue::Exact(WasmValue::V128(wast_v128_to_bytes(i))),
         RefNull(_) => ExpectedValue::RefNull,
-        RefExtern(Some(v)) => ExpectedValue::Exact(
-            ExternRef::try_new(v).ok_or_else(|| anyhow!("external reference address is too large"))?.into(),
-        ),
+        RefExtern(Some(v)) => ExpectedValue::RefExternExact(v),
         RefExtern(None) => ExpectedValue::RefExtern,
-        RefFunc(Some(wast::token::Index::Num(n, _))) => ExpectedValue::Exact(FuncRef::new(n).into()),
+        RefFunc(Some(wast::token::Index::Num(n, _))) => ExpectedValue::RefFuncExact(n),
         RefFunc(None) => ExpectedValue::RefFunc,
         RefFunc(v) => {
             bail!("unsupported arg type: reffunc: {:?}", v);
@@ -926,10 +938,7 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         RefI31 | RefI31Shared => ExpectedValue::RefI31,
         RefStruct => ExpectedValue::RefStruct,
         RefArray => ExpectedValue::RefArray,
-        RefHost(value) => ExpectedValue::Exact(
-            RefValue::Any(AnyRef::from_host(value).ok_or_else(|| anyhow!("host reference address is too large"))?)
-                .into(),
-        ),
+        RefHost(value) => ExpectedValue::RefHostExact(value),
         a => {
             bail!("unsupported arg type {:?}", a);
         }

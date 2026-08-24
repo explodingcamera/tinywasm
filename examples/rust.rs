@@ -5,8 +5,8 @@ use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
 
 /// Examples of using WebAssembly compiled from Rust with tinywasm.
 ///
-/// These examples are meant to be run with `cargo run --example wasm-rust <example>`.
-/// For example, `cargo run --example wasm-rust hello`.
+/// These examples are meant to be run with `cargo run --example rust <example>`.
+/// For example, `cargo run --example rust hello`.
 ///
 /// To run these, you first need to compile the Rust examples to WebAssembly:
 ///
@@ -23,12 +23,12 @@ fn main() -> Result<()> {
     pretty_env_logger::init();
 
     if !std::path::Path::new("./examples/rust/out/").exists() {
-        return Err(anyhow!("No WebAssembly files found. See examples/wasm-rust.rs for instructions."));
+        return Err(anyhow!("No WebAssembly files found. See examples/rust.rs for instructions."));
     }
 
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 2 {
-        println!("Usage: cargo run --example wasm-rust <rust_example>");
+        println!("Usage: cargo run --example rust <rust_example>");
         println!("Available examples:");
         println!("  hello");
         println!("  printi32");
@@ -105,6 +105,7 @@ fn hello() -> Result<()> {
     let module = tinywasm::parse_file("./examples/rust/out/hello.opt.wasm")?;
     let mut store = Store::default();
 
+    // The host callback reads the guest's exported memory through FuncContext.
     let print_utf8 = HostFunction::from(|ctx: FuncContext<'_>, (ptr, len): (i64, i32)| {
         let mem = ctx.memory("memory")?;
         let string = mem.read_string(ctx.store(), ptr as usize, len as usize)?;
@@ -119,6 +120,7 @@ fn hello() -> Result<()> {
     let arg_ptr = instance.func::<(), i32>(&store, "arg_ptr")?.call(&mut store, ())?;
     let arg = b"world";
 
+    // Write the host argument into guest memory before calling the Rust export.
     instance.memory("memory")?.copy_from_slice(&mut store, arg_ptr as usize, arg)?;
     let hello = instance.func::<i32, ()>(&store, "hello")?;
     hello.call(&mut store, arg.len() as i32)?;

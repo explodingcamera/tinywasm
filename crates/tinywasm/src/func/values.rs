@@ -1,6 +1,8 @@
 use crate::{Error, Result};
-use alloc::{borrow::Cow, vec::Vec};
-use tinywasm_types::{ExternRef, FuncRef, WasmType, WasmValue};
+use alloc::borrow::Cow;
+use tinywasm_types::WasmType;
+
+use crate::{AnyRef, ArrayRef, EqRef, ExnRef, ExternRef, FuncRef, I31Ref, StructRef, WasmValue};
 
 /// Convert a Rust value or tuple into WebAssembly values.
 pub trait IntoWasmValues {
@@ -12,6 +14,15 @@ pub trait IntoWasmValues {
 pub trait FromWasmValues: Sized {
     /// Read this value from a flattened WebAssembly value iterator.
     fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self>;
+
+    /// Read one value and reject unconsumed iterator items.
+    fn from_wasm_values_exact(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
+        let result = Self::from_wasm_values(values)?;
+        if values.next().is_some() {
+            return Err(Error::other("typed conversion did not consume all WebAssembly values"));
+        }
+        Ok(result)
+    }
 }
 
 /// Describes the WebAssembly value types produced by a Rust value or tuple shape.
@@ -117,70 +128,28 @@ impl_scalar_wasm_traits!(
     i64 => WasmType::I64,
     f32 => WasmType::F32,
     f64 => WasmType::F64,
-    FuncRef => WasmType::Ref(tinywasm_types::RefType::FUNCREF),
-    ExternRef => WasmType::Ref(tinywasm_types::RefType::EXTERNREF),
+    [u8; 16] => WasmType::V128,
+    FuncRef => WasmType::Ref(tinywasm_types::RefType::FUNCREF.with_nullability(false)),
+    AnyRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Any)),
+    EqRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Eq)),
+    I31Ref => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::I31)),
+    StructRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Struct)),
+    ArrayRef => WasmType::Ref(tinywasm_types::RefType::new_abstract(false, tinywasm_types::AbstractHeapType::Array)),
+    ExternRef => WasmType::Ref(tinywasm_types::RefType::EXTERNREF.with_nullability(false)),
+    ExnRef => WasmType::Ref(tinywasm_types::RefType::EXNREF.with_nullability(false)),
+);
+
+impl_scalar_wasm_traits!(
+    Option<FuncRef> => WasmType::Ref(tinywasm_types::RefType::FUNCREF),
+    Option<AnyRef> => WasmType::Ref(tinywasm_types::RefType::new_abstract(true, tinywasm_types::AbstractHeapType::Any)),
+    Option<EqRef> => WasmType::Ref(tinywasm_types::RefType::new_abstract(true, tinywasm_types::AbstractHeapType::Eq)),
+    Option<I31Ref> => WasmType::Ref(tinywasm_types::RefType::new_abstract(true, tinywasm_types::AbstractHeapType::I31)),
+    Option<StructRef> => WasmType::Ref(tinywasm_types::RefType::new_abstract(true, tinywasm_types::AbstractHeapType::Struct)),
+    Option<ArrayRef> => WasmType::Ref(tinywasm_types::RefType::new_abstract(true, tinywasm_types::AbstractHeapType::Array)),
+    Option<ExternRef> => WasmType::Ref(tinywasm_types::RefType::EXTERNREF),
+    Option<ExnRef> => WasmType::Ref(tinywasm_types::RefType::EXNREF),
 );
 impl_tuple_traits!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20);
-
-/// Concatenates two typed parameter or result groups.
-///
-/// Direct tuple conversions are supported up to arity 20. Use untyped functions
-/// for larger signatures.
-#[deprecated(note = "direct tuples are supported up to arity 20, use untyped functions for larger signatures")]
-#[derive(Default)]
-pub struct WasmTupleChain<T1, T2>(T1, T2);
-
-#[allow(deprecated)]
-impl<T1, T2> WasmTupleChain<T1, T2> {
-    /// Create a new concatenated tuple wrapper.
-    pub const fn new(left: T1, right: T2) -> Self {
-        Self(left, right)
-    }
-
-    /// Split the wrapper back into its two component values.
-    pub fn into_inner(self) -> (T1, T2) {
-        (self.0, self.1)
-    }
-}
-
-#[allow(deprecated)]
-impl<T1, T2> From<(T1, T2)> for WasmTupleChain<T1, T2> {
-    fn from((left, right): (T1, T2)) -> Self {
-        Self::new(left, right)
-    }
-}
-
-#[allow(deprecated)]
-impl<T1: ToWasmTypes, T2: ToWasmTypes> ToWasmTypes for WasmTupleChain<T1, T2> {
-    const WASM_TYPES: Option<&'static [WasmType]> = None;
-
-    #[inline]
-    fn wasm_types() -> Cow<'static, [WasmType]> {
-        let mut types = Vec::new();
-        types.extend_from_slice(&T1::wasm_types());
-        types.extend_from_slice(&T2::wasm_types());
-        Cow::Owned(types)
-    }
-}
-
-#[allow(deprecated)]
-impl<T1: IntoWasmValues, T2: IntoWasmValues> IntoWasmValues for WasmTupleChain<T1, T2> {
-    #[inline]
-    fn into_wasm_values(self) -> impl Iterator<Item = WasmValue> {
-        let (left, right) = self.into_inner();
-        left.into_wasm_values().chain(right.into_wasm_values())
-    }
-}
-
-#[allow(deprecated)]
-impl<T1: FromWasmValues, T2: FromWasmValues> FromWasmValues for WasmTupleChain<T1, T2> {
-    #[inline]
-    fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
-        let left = T1::from_wasm_values(values)?;
-        let right = T2::from_wasm_values(values)?;
-        Ok(Self::new(left, right))
-    }
-}
 
 impl ToWasmTypes for () {
     const WASM_TYPES: Option<&'static [WasmType]> = Some(&[]);

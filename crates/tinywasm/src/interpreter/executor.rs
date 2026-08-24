@@ -913,58 +913,46 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.cf.instr_ptr = target_ip as usize;
     }
 
-    fn create_exception(&mut self, tag_index: TagAddr) -> Result<ExnAddr, Trap> {
+    fn create_exception(&mut self, tag_index: TagAddr) -> Result<ValueRef, Trap> {
         let tag_addr = self.module.resolve_tag_addr(tag_index);
         let type_addr = self.store.state.get_tag(tag_addr).type_addr;
-        let addr = cold_err!(u32::try_from(self.store.state.exceptions.len())).map_err(|_| Trap::OutOfMemory)?;
-        cold_err!(self.store.state.exceptions.try_reserve(1)).map_err(|_| Trap::OutOfMemory)?;
-        let params = self.store.state.get_canonical_func_type(type_addr).params();
+        let payload_len = self.store.state.get_canonical_func_type(type_addr).params().len();
+        self.store.state.gc.check_allocation(payload_len, true)?;
         let mut payload = Vec::new();
-        cold_err!(payload.try_reserve_exact(params.len())).map_err(|_| Trap::OutOfMemory)?;
+        cold_err!(payload.try_reserve_exact(payload_len)).map_err(|_| Trap::OutOfMemory)?;
         let value_stack = &mut self.store.value_stack;
-        for &ty in params.iter().rev() {
+        for index in (0..payload_len).rev() {
+            let ty = self.store.state.get_canonical_func_type(type_addr).params()[index];
             payload.push(match ty {
-                WasmType::I32 | WasmType::F32 => TinyWasmValue::Value32(Value32::stack_pop(value_stack)),
-                WasmType::I64 | WasmType::F64 => TinyWasmValue::Value64(Value64::stack_pop(value_stack)),
-                WasmType::V128 => TinyWasmValue::Value128(Value128::stack_pop(value_stack)),
-                WasmType::Ref(_) => TinyWasmValue::ValueRef(ValueRef::stack_pop(value_stack)),
+                WasmType::I32 | WasmType::F32 => RuntimeValue::Value32(Value32::stack_pop(value_stack)),
+                WasmType::I64 | WasmType::F64 => RuntimeValue::Value64(Value64::stack_pop(value_stack)),
+                WasmType::V128 => RuntimeValue::Value128(Value128::stack_pop(value_stack)),
+                WasmType::Ref(_) => RuntimeValue::ValueRef(ValueRef::stack_pop(value_stack)),
             });
         }
         payload.reverse();
-        let exception = crate::store::ExceptionInstance { tag_addr, payload: payload.into_boxed_slice() };
-        self.store.state.exceptions.push(exception);
-        Ok(addr)
+        let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
+        self.store.state.alloc_exception(tag_addr, payload, roots)
     }
 
     fn exec_throw(&mut self, tag_index: TagAddr) -> Result<()> {
         let exception = self.create_exception(tag_index)?;
-        let outcome = match self.dispatch_exception(exception) {
-            Ok(outcome) => outcome,
-            Err(trap) => {
-                _ = self.store.state.exceptions.pop();
-                return Err(trap.into());
-            }
-        };
-        match outcome {
-            Some(catch) if !catch.with_ref() => {
-                debug_assert_eq!(self.store.state.exceptions.len() - 1, exception as usize);
-                _ = self.store.state.exceptions.pop();
-                Ok(())
-            }
-            Some(_) => Ok(()),
-            None => Err(Error::Exception(ExnRef::new(exception))),
-        }
+        self.throw_exception(exception)
     }
 
     fn exec_throw_ref(&mut self) -> Result<()> {
         let exception = ValueRef::stack_pop(&mut self.store.value_stack);
-        let exception = exception
-            .addr()
-            .filter(|addr| self.store.state.exceptions.get(*addr as usize).is_some())
-            .ok_or(Trap::NullReference)?;
-        match self.dispatch_exception(exception)? {
-            Some(_) => Ok(()),
-            None => Err(Error::Exception(ExnRef::new(exception))),
+        if exception.is_null() {
+            return Err(Trap::NullReference.into());
+        }
+        self.throw_exception(exception)
+    }
+
+    fn throw_exception(&mut self, exception: ValueRef) -> Result<()> {
+        match self.dispatch_exception(exception) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => self.store.root_exception(exception).and_then(|exception| Err(Error::Exception(exception))),
+            Err(trap) => Err(trap.into()),
         }
     }
 
@@ -995,8 +983,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
     }
 
-    fn dispatch_exception(&mut self, exception_addr: ExnAddr) -> Result<Option<ExceptionCatch>, Trap> {
-        let tag_addr = self.store.state.exceptions[exception_addr as usize].tag_addr;
+    fn dispatch_exception(&mut self, exception: ValueRef) -> Result<Option<ExceptionCatch>, Trap> {
+        let object = self.store.state.gc.get(exception).ok_or(Trap::InvalidReference)?;
+        let crate::store::GcObjectKind::Exception(tag_addr) = object.kind else {
+            return Err(Trap::InvalidReference);
+        };
         let mut protected_ip = self.cf.instr_ptr;
         loop {
             if let Some(catch) = self.matching_catch(protected_ip, tag_addr) {
@@ -1013,12 +1004,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 self.store.value_stack.truncate_to_base(target);
                 if include_payload {
                     let Store { state, value_stack, .. } = self.store;
-                    for value in state.exceptions[exception_addr as usize].payload.iter().copied() {
+                    let object = state.gc.get(exception).ok_or(Trap::InvalidReference)?;
+                    for value in object.values.iter().copied() {
                         value_stack.push_dyn(value)?;
                     }
                 }
                 if with_ref {
-                    self.store.value_stack.push(ValueRef::from_category_addr(exception_addr))?;
+                    self.store.value_stack.push(exception)?;
                 }
                 self.cf.instr_ptr = landing_pad as usize;
                 return Ok(Some(catch));
@@ -1078,12 +1070,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
-    fn exec_call_host<const TAIL: bool>(
-        &mut self,
-        host_func: HostFunction,
-        type_addr: TypeAddr,
-        params_may_gc: bool,
-    ) -> Result<bool, Trap> {
+    fn exec_call_host<const TAIL: bool>(&mut self, host_func: HostFunction, type_addr: TypeAddr) -> Result<bool, Trap> {
         if let Some(host_func) = host_func.typed_callback() {
             cold_err!(host_func.call_stack(self.store, self.module.id(), type_addr))
                 .map_err(|error| Trap::HostFunction(Box::new(error)))?;
@@ -1094,23 +1081,28 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Ok(false);
         }
 
-        let param_types = self.store.state.get_canonical_func_type(type_addr).params();
-        let mut params = core::mem::take(&mut self.store.host_params);
-        debug_assert!(params.is_empty());
-        cold_err!(params.try_reserve_exact(param_types.len())).map_err(|_| Trap::OutOfMemory)?;
-        for &ty in param_types.iter().rev() {
-            params.push(self.store.value_stack.pop_wasmvalue(&self.store.state, ty));
-        }
-        params.reverse();
-        if params_may_gc {
-            self.store.state.pin_host_values(&params);
-        }
-        let result = host_func.call_values(self.store, self.module.id(), type_addr, &params);
-        params.clear();
-        self.store.host_params = params;
-        let res = cold_err!(result).map_err(|error| Trap::HostFunction(Box::new(error)))?;
-
-        self.store.value_stack.extend_wasmvalues(res.iter().copied())?;
+        let (param_count, result_count, base) = {
+            let ty = self.store.state.get_canonical_func_type(type_addr);
+            (ty.params().len(), ty.results().len(), self.store.value_stack.base_before(ty.params().iter().collect()))
+        };
+        let module_id = self.module.id();
+        self.store
+            .with_scratch_values(param_count + result_count, |store, values| {
+                let host_values = store.stack_value_iter(type_addr, crate::store::FuncValueTypes::Params, base)?;
+                for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
+                    *slot = value;
+                }
+                store.value_stack.truncate_to_base(base);
+                let (params, results) = values.split_at_mut(param_count);
+                host_func
+                    .call_values(store, module_id, type_addr, params, results)
+                    .map_err(|error| Error::Trap(Trap::HostFunction(Box::new(error))))?;
+                store.push_wasm_values(results.iter().cloned())
+            })
+            .map_err(|error| match error {
+                Error::Trap(trap) => trap,
+                other => Trap::HostFunction(Box::new(other)),
+            })?;
         if TAIL {
             Ok(self.exec_return())
         } else {
@@ -1128,7 +1120,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 self.exec_call(wasm_func.func.clone(), wasm_func.owner, addr)
             }
             crate::store::FunctionKind::Host(host_func) => {
-                self.exec_call_host::<false>(host_func.clone(), func.type_addr, func.gc.params)?;
+                self.exec_call_host::<false>(host_func.clone(), func.type_addr)?;
                 Ok(())
             }
         }
@@ -1144,7 +1136,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 Ok(false)
             }
             crate::store::FunctionKind::Host(host_func) => {
-                self.exec_call_host::<true>(host_func.clone(), func.type_addr, func.gc.params)
+                self.exec_call_host::<true>(host_func.clone(), func.type_addr)
             }
         }
     }
@@ -1174,7 +1166,6 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_call_indirect<const IS_RETURN_CALL: bool>(&mut self, index: OperandIdx<TwoU32>) -> Result<bool, Trap> {
         let TwoU32 { first: type_addr, second: table_addr } = index.get(&self.func.data);
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
-
         // verify that the table is of the right type, this should be validated by the parser already
         let table_addr = self.module.resolve_table_addr(table_addr);
         let table_idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
@@ -1209,7 +1200,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 false => self.exec_call(wasm_func.func.clone(), wasm_func.owner, func_addr),
             },
             crate::store::FunctionKind::Host(host_func) => {
-                return self.exec_call_host::<IS_RETURN_CALL>(host_func.clone(), func.type_addr, func.gc.params);
+                return self.exec_call_host::<IS_RETURN_CALL>(host_func.clone(), func.type_addr);
             }
         }?;
         Ok(false)
@@ -1438,22 +1429,34 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.store.value_stack.push(value)
     }
 
-    fn push_gc_object(&mut self, type_addr: TypeAddr, values: Vec<TinyWasmValue>) -> Result<(), Trap> {
-        let roots = (&self.store.value_stack.stack_32).into_iter().copied();
+    fn push_gc_object(&mut self, type_addr: TypeAddr, values: Vec<RuntimeValue>) -> Result<(), Trap> {
+        let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
         let reference = self.store.state.alloc_gc_object(type_addr, values, roots)?;
         self.store.value_stack.push(reference)
     }
 
     fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
         let type_addr = self.module.resolve_type_addr(type_index);
-        let fields = &self.store.state.get_type(type_addr).as_struct().expect("validated struct.new type").fields;
+        let field_count =
+            self.store.state.get_type(type_addr).as_struct().expect("validated struct.new type").fields.len();
+        self.store.state.check_gc_allocation(type_addr, field_count)?;
         let mut values = Vec::new();
-        cold_err!(values.try_reserve_exact(fields.len())).map_err(|_| Trap::OutOfMemory)?;
+        cold_err!(values.try_reserve_exact(field_count)).map_err(|_| Trap::OutOfMemory)?;
         if default {
-            values.extend(fields.iter().map(|field| default_value(field.storage)));
+            values.extend(
+                self.store
+                    .state
+                    .get_type(type_addr)
+                    .as_struct()
+                    .expect("validated struct.new type")
+                    .fields
+                    .iter()
+                    .map(|field| default_value(field.storage)),
+            );
         } else {
-            for field in fields.iter().rev() {
-                values.push(pop_value(&mut self.store.value_stack, field.storage));
+            for index in (0..field_count).rev() {
+                let storage = self.store.state.get_type(type_addr).as_struct().unwrap().fields[index].storage;
+                values.push(pop_value(&mut self.store.value_stack, storage));
             }
             values.reverse();
         }
@@ -1468,6 +1471,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             [field_index as usize]
             .storage;
         let object = self.store.state.gc_object(reference, type_addr)?;
+        let object = self.store.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
         let value = *object.values.get(field_index as usize).expect("validated struct field index");
         push_value(&mut self.store.value_stack, value, storage, signed)
     }
@@ -1480,8 +1484,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             .storage;
         let value = pop_value(&mut self.store.value_stack, storage);
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
-        self.store.state.gc_object(reference, type_addr)?;
-        self.store.state.gc.set(reference, field_index as usize, value).expect("live struct field");
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        self.store.state.gc.set(object, field_index as usize, value).expect("live struct field");
         Ok(())
     }
 
@@ -1489,6 +1493,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.new type").field.storage;
         let len = u32::stack_pop(&mut self.store.value_stack) as usize;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let value = if default { default_value(storage) } else { pop_value(&mut self.store.value_stack, storage) };
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
@@ -1502,6 +1507,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let storage =
             self.store.state.get_type(type_addr).as_array().expect("validated array.new_fixed type").field.storage;
         let len = len as usize;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         for _ in 0..len {
@@ -1517,6 +1523,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.get type").field.storage;
         let object = self.store.state.gc_object(reference, type_addr)?;
+        let object = self.store.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
         let value = *object.values.get(index).ok_or(Trap::ArrayOutOfBounds)?;
         push_value(&mut self.store.value_stack, value, storage, signed)
     }
@@ -1527,8 +1534,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let value = pop_value(&mut self.store.value_stack, storage);
         let index = u32::stack_pop(&mut self.store.value_stack) as usize;
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
-        self.store.state.gc_object(reference, type_addr)?;
-        self.store.state.gc.set(reference, index, value).ok_or(Trap::ArrayOutOfBounds)
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        self.store.state.gc.set(object, index, value).ok_or(Trap::ArrayOutOfBounds)
     }
 
     fn exec_array_len(&mut self) -> Result<(), Trap> {
@@ -1537,7 +1544,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return Err(Trap::NullArrayReference);
         }
         let object = self.store.state.gc.get(reference).ok_or(Trap::Other("invalid GC reference"))?;
-        if self.store.state.get_type(object.type_addr).as_array().is_none() {
+        let crate::store::GcObjectKind::Composite(type_addr) = object.kind else {
+            return Err(Trap::Other("GC reference is not an array"));
+        };
+        if self.store.state.get_type(type_addr).as_array().is_none() {
             return Err(Trap::Other("GC reference is not an array"));
         }
         self.store.value_stack.push(object.values.len() as i32)
@@ -1551,8 +1561,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let index = u32::stack_pop(&mut self.store.value_stack) as usize;
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
         let object = self.store.state.gc_object(reference, type_addr)?;
-        let end = index.checked_add(len).filter(|end| *end <= object.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
-        self.store.state.gc.fill(reference, index..end, value).expect("live array range");
+        let object_ref = self.store.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
+        let end = index.checked_add(len).filter(|end| *end <= object_ref.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
+        self.store.state.gc.fill(object, index..end, value).expect("live array range");
         Ok(())
     }
 
@@ -1565,16 +1576,22 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let dst = ValueRef::stack_pop(&mut self.store.value_stack);
         let dst_type = self.module.resolve_type_addr(dst_type);
         let src_type = self.module.resolve_type_addr(src_type);
-        let dst_len = self.store.state.gc_object(dst, dst_type)?.values.len();
-        let src_object = self.store.state.gc_object(src, src_type)?;
+        let dst_handle = self.store.state.gc_object(dst, dst_type)?;
+        let dst_len = self.store.state.gc.get_handle(dst_handle).expect("validated array").values.len();
+        let src_handle = self.store.state.gc_object(src, src_type)?;
+        let src_object = self.store.state.gc.get_handle(src_handle).expect("validated array");
         let src_end =
             src_index.checked_add(len).filter(|end| *end <= src_object.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
         dst_index.checked_add(len).filter(|end| *end <= dst_len).ok_or(Trap::ArrayOutOfBounds)?;
-        if src == dst {
-            self.store.state.gc.copy_within(dst, src_index..src_end, dst_index).expect("live array range");
+        if src_handle == dst_handle {
+            self.store.state.gc.copy_within(dst_handle, src_index..src_end, dst_index).expect("live array range");
             return Ok(());
         }
-        self.store.state.gc.copy_between(src, src_index..src_end, dst, dst_index).expect("live array ranges");
+        self.store
+            .state
+            .gc
+            .copy_between(src_handle, src_index..src_end, dst_handle, dst_index)
+            .expect("live array ranges");
         Ok(())
     }
 
@@ -1586,6 +1603,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array type").field.storage;
         let data_addr = self.module.resolve_data_addr(data_index);
         let data = self.store.state.data[data_addr as usize].data.as_deref().unwrap_or(&[]);
+        data_range(storage, data, src, len)?;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let values = decode_data(storage, data, src, len)?;
         self.push_gc_object(type_addr, values)
     }
@@ -1594,12 +1613,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let TwoU32 { first: type_index, second: elem_index } = index.get(&self.func.data);
         let len = u32::stack_pop(&mut self.store.value_stack) as usize;
         let src = u32::stack_pop(&mut self.store.value_stack) as usize;
+        let type_addr = self.module.resolve_type_addr(type_index);
         let elem_addr = self.module.resolve_elem_addr(elem_index);
         let items = self.store.state.elements[elem_addr as usize].items_range(src, len)?;
+        self.store.state.check_gc_allocation(type_addr, len)?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
-        values.extend(items.iter().copied().map(TinyWasmValue::ValueRef));
-        let type_addr = self.module.resolve_type_addr(type_index);
+        values.extend(items.iter().copied().map(RuntimeValue::ValueRef));
         self.push_gc_object(type_addr, values)
     }
 
@@ -1611,12 +1631,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array type").field.storage;
-        let object_len = self.store.state.gc_object(reference, type_addr)?.values.len();
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        let object_len = self.store.state.gc.get_handle(object).expect("validated array").values.len();
         dst.checked_add(len).filter(|end| *end <= object_len).ok_or(Trap::ArrayOutOfBounds)?;
         let data =
             self.store.state.data[self.module.resolve_data_addr(data_index) as usize].data.as_deref().unwrap_or(&[]);
         let values = decode_data(storage, data, src, len)?;
-        self.store.state.gc.set_slice(reference, dst, &values).expect("live array range");
+        self.store.state.gc.set_slice(object, dst, &values).expect("live array range");
         Ok(())
     }
 
@@ -1627,14 +1648,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let dst = u32::stack_pop(&mut self.store.value_stack) as usize;
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
         let type_addr = self.module.resolve_type_addr(type_index);
-        let object_len = self.store.state.gc_object(reference, type_addr)?.values.len();
+        let object = self.store.state.gc_object(reference, type_addr)?;
+        let object_len = self.store.state.gc.get_handle(object).expect("validated array").values.len();
         dst.checked_add(len).filter(|end| *end <= object_len).ok_or(Trap::ArrayOutOfBounds)?;
         let items =
             self.store.state.elements[self.module.resolve_elem_addr(elem_index) as usize].items_range(src, len)?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
-        values.extend(items.iter().copied().map(TinyWasmValue::ValueRef));
-        self.store.state.gc.set_slice(reference, dst, &values).expect("live array range");
+        values.extend(items.iter().copied().map(RuntimeValue::ValueRef));
+        self.store.state.gc.set_slice(object, dst, &values).expect("live array range");
         Ok(())
     }
 

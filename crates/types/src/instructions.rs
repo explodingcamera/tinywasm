@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 
 use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
 use crate::operands::sealed;
-use crate::{DataAddr, ElemAddr, MemAddr, Operand64, Operand128, OperandIdx, OperandType, RefType, RefValue};
+use crate::{DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand128, OperandIdx, OperandType, RefType};
 
 /// Represents a memory immediate in a WebAssembly memory instruction.
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -429,7 +429,8 @@ pub enum ConstInstruction {
     GlobalGet64(GlobalAddr),
     GlobalGet128(GlobalAddr),
     GlobalGetRef(GlobalAddr),
-    Ref(RefValue),
+    RefNull(RefType),
+    RefFunc(ModuleFuncIdx),
     RefI31,
     AnyConvertExtern,
     ExternConvertAny,
@@ -535,8 +536,6 @@ pub enum BinOp128 {
 /// These instructions are an internal, version-specific representation and do not
 /// map one-to-one to WebAssembly instructions. Their variants and serialized form
 /// may change between TinyWasm releases.
-///
-/// See <https://webassembly.github.io/spec/core/binary/instructions.html>
 #[rustfmt::skip]
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]

@@ -1,4 +1,4 @@
-use tinywasm::types::{FuncRef, RefType, TableType};
+use tinywasm::types::{RefType, TableType};
 use tinywasm::{HostFunction, Imports, ModuleInstance, Store, Table};
 
 #[test]
@@ -18,8 +18,9 @@ fn imported_table_uses_provided_init_value() -> Result<(), Box<dyn core::error::
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
     let mut imports = Imports::new();
-    let _function_at_zero = HostFunction::from(|_, ()| Ok(())).instantiate(&mut store)?;
-    let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 3, None), FuncRef::new(0).into())?;
+    let function_at_zero = HostFunction::from(|_, ()| Ok(())).instantiate(&mut store)?;
+    let init = function_at_zero.as_func_ref(&store)?.into();
+    let table = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 3, None), init)?;
     imports.define("host", "table", table);
 
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;

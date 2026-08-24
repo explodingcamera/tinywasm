@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use tinywasm_types::*;
 
-use crate::interpreter::{TinyWasmValue, Value32, Value64, Value128};
+use crate::interpreter::{RuntimeValue, Value32, Value64, Value128};
 
 struct GlobalLane<T> {
     values: Vec<T>,
@@ -98,18 +98,18 @@ impl Globals {
     }
 
     /// Adds a global and returns its packed store address.
-    pub(crate) fn push(&mut self, ty: GlobalType, value: TinyWasmValue) -> GlobalAddr {
+    pub(crate) fn push(&mut self, ty: GlobalType, value: RuntimeValue) -> GlobalAddr {
         match (ty.ty, value) {
-            (WasmType::I32 | WasmType::F32, TinyWasmValue::Value32(value)) => {
+            (WasmType::I32 | WasmType::F32, RuntimeValue::Value32(value)) => {
                 Self::addr(Self::LANE_32, self.globals_32.push(ty, value))
             }
-            (WasmType::Ref(_), TinyWasmValue::ValueRef(value)) => {
+            (WasmType::Ref(_), RuntimeValue::ValueRef(value)) => {
                 Self::addr(Self::LANE_32, self.globals_32.push(ty, value.raw()))
             }
-            (WasmType::I64 | WasmType::F64, TinyWasmValue::Value64(value)) => {
+            (WasmType::I64 | WasmType::F64, RuntimeValue::Value64(value)) => {
                 Self::addr(Self::LANE_64, self.globals_64.push(ty, value))
             }
-            (WasmType::V128, TinyWasmValue::Value128(value)) => {
+            (WasmType::V128, RuntimeValue::Value128(value)) => {
                 Self::addr(Self::LANE_128, self.globals_128.push(ty, value))
             }
             _ => unreachable!("global value does not match its declared type"),

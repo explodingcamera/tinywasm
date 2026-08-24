@@ -60,7 +60,9 @@ fn globals_use_typed_instructions_and_roundtrip_values() -> Result<(), Box<dyn c
         ("ref", WasmValue::Ref(RefValue::Null)),
     ];
     for (name, value) in cases {
-        assert_eq!(instance.func_untyped(&store, name)?.call(&mut store, &[value])?, vec![value]);
+        let mut results = [value.clone()];
+        instance.func_untyped(&store, name)?.call(&mut store, std::slice::from_ref(&value), &mut results)?;
+        assert_eq!(results, [value]);
     }
     assert_eq!(instance.func::<i32, i32>(&store, "add-i32")?.call(&mut store, 2)?, 13);
     assert_eq!(instance.func::<i64, i64>(&store, "add-i64")?.call(&mut store, 2)?, 15);
@@ -81,12 +83,12 @@ fn imported_global_keeps_its_typed_store_address() -> Result<(), Box<dyn core::e
     )?;
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = Store::default();
-    let global = Global::new(&mut store, GlobalType::new(WasmType::I64, true), WasmValue::I64(1))?;
+    let global = Global::try_new(&mut store, GlobalType::new(WasmType::I64, true), WasmValue::I64(1))?;
     let mut imports = Imports::default();
     imports.define("env", "g", global);
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
     assert_eq!(instance.func::<i64, i64>(&store, "roundtrip")?.call(&mut store, 42)?, 42);
-    assert_eq!(global.get(&store)?, WasmValue::I64(42));
+    assert_eq!(global.get(&mut store)?, WasmValue::I64(42));
     Ok(())
 }

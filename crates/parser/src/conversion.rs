@@ -342,12 +342,9 @@ pub(crate) fn process_const_operators(
         }
 
         let instr = match op {
-            wasmparser::Operator::RefNull { hty } => {
-                convert_heap_type(hty, false)?;
-                ConstInstruction::Ref(RefValue::Null)
-            }
+            wasmparser::Operator::RefNull { hty } => ConstInstruction::RefNull(convert_heap_type(hty, true)?),
             wasmparser::Operator::RefFunc { function_index } => {
-                ConstInstruction::Ref(RefValue::Func(FuncRef::new(function_index)))
+                ConstInstruction::RefFunc(ModuleFuncIdx::new(function_index))
             }
             wasmparser::Operator::RefI31 => ConstInstruction::RefI31,
             wasmparser::Operator::AnyConvertExtern => ConstInstruction::AnyConvertExtern,

@@ -1,6 +1,30 @@
 use std::fmt::Write;
-use tinywasm::types::{ExternRef, FuncType, RefType, RefValue, WasmType, WasmValue};
-use tinywasm::{FuncContext, HostFunction, Imports, Module, ModuleInstance, Store};
+use tinywasm::types::{FuncType, RefType, RefValue, WasmType, WasmValue};
+use tinywasm::{FuncContext, HostFunction, Imports, IntoWasmValues, Module, ModuleInstance, Store, ToWasmTypes};
+
+struct TooFewParams;
+
+impl ToWasmTypes for TooFewParams {
+    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::I32, WasmType::I32]);
+}
+
+impl IntoWasmValues for TooFewParams {
+    fn into_wasm_values(self) -> impl Iterator<Item = WasmValue> {
+        [WasmValue::I32(1)].into_iter()
+    }
+}
+
+struct TooManyParams;
+
+impl ToWasmTypes for TooManyParams {
+    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::I32, WasmType::I32]);
+}
+
+impl IntoWasmValues for TooManyParams {
+    fn into_wasm_values(self) -> impl Iterator<Item = WasmValue> {
+        [WasmValue::I32(1), WasmValue::I32(2), WasmValue::I32(3)].into_iter()
+    }
+}
 
 const VAL_LISTS: &[&[WasmValue]] = &[
     &[],
@@ -8,7 +32,6 @@ const VAL_LISTS: &[&[WasmValue]] = &[
     &[WasmValue::I32(0), WasmValue::I32(0)],
     &[WasmValue::I32(0), WasmValue::I32(0), WasmValue::F64(0.0)],
     &[WasmValue::I32(0), WasmValue::F64(0.0), WasmValue::I32(0)],
-    &[WasmValue::Ref(RefValue::Extern(ExternRef::new(0))), WasmValue::F64(0.0), WasmValue::I32(0)],
 ];
 
 fn module_cases() -> Vec<(Module, FuncType, Vec<WasmValue>)> {
@@ -32,7 +55,13 @@ fn test_return_invalid_type() -> Result<(), Box<dyn core::error::Error>> {
         for returned_values in VAL_LISTS {
             let mut store = Store::default();
             let mut imports = Imports::new();
-            let hfn = HostFunction::from_untyped(&ty, |_: FuncContext<'_>, _| Ok(returned_values.to_vec()));
+            let hfn = HostFunction::from_untyped(&ty, move |_: FuncContext<'_>, _, results| {
+                if results.len() != returned_values.len() {
+                    return Err(tinywasm::Error::Other("invalid fixture result count".into()));
+                }
+                results.clone_from_slice(returned_values);
+                Ok(())
+            });
             imports.define("host", "hfn", hfn);
 
             let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
@@ -40,7 +69,8 @@ fn test_return_invalid_type() -> Result<(), Box<dyn core::error::Error>> {
             // Return-type mismatch is only observable at call time.
             let should_succeed = returned_values.len() == ty.results().len()
                 && returned_values.iter().zip(ty.results()).all(|(value, ty)| value.matches_type(*ty));
-            let call_res = caller.call(&mut store, &args);
+            let mut results = vec![WasmValue::I32(0); ty.results().len()];
+            let call_res = caller.call(&mut store, &args, &mut results);
             assert_eq!(call_res.is_ok(), should_succeed);
         }
     }
@@ -54,7 +84,8 @@ fn test_linking_invalid_untyped_func() -> Result<(), Box<dyn core::error::Error>
     for (module, expected_func_ty, _) in &cases {
         for (_, ty, _) in &cases {
             let mut store = Store::default();
-            let tried_fn = HostFunction::from_untyped(ty, |_: FuncContext<'_>, _| panic!("not intended to be called"));
+            let tried_fn =
+                HostFunction::from_untyped(ty, |_: FuncContext<'_>, _, _| panic!("not intended to be called"));
             let mut imports = Imports::new();
             imports.define("host", "hfn", tried_fn);
 
@@ -105,7 +136,79 @@ fn test_linking_invalid_typed_func() -> Result<(), Box<dyn core::error::Error>> 
 }
 
 #[test]
-fn concrete_host_references_use_canonical_types() -> Result<(), Box<dyn core::error::Error>> {
+fn typed_v128_values_roundtrip() -> Result<(), Box<dyn core::error::Error>> {
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"
+            (module
+              (import "host" "identity" (func $identity (param v128) (result v128)))
+              (func (export "identity") (param v128) (result v128)
+                local.get 0
+                call $identity))
+            "#,
+    )?)?;
+    let mut store = Store::default();
+    let mut imports = Imports::new();
+    imports.define("host", "identity", HostFunction::from(|_, value: [u8; 16]| Ok(value)));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    let identity = instance.func::<[u8; 16], [u8; 16]>(&store, "identity")?;
+    let value = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+    assert_eq!(identity.call(&mut store, value)?, value);
+    Ok(())
+}
+
+#[test]
+fn untyped_host_callbacks_must_write_all_results() -> Result<(), Box<dyn core::error::Error>> {
+    let ty = FuncType::new(&[], &[WasmType::I32]);
+    let host = HostFunction::from_untyped(&ty, |_, _, _| Ok(()));
+    let mut store = Store::default();
+    let function = host.clone().instantiate(&mut store)?;
+    let mut results = [WasmValue::I32(7)];
+
+    assert!(function.call(&mut store, &[], &mut results).is_err());
+    assert!(function.call_resumable(&mut store, &[], &mut results).is_err());
+
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"
+            (module
+              (import "host" "value" (func $value (result i32)))
+              (func (export "value") (result i32) call $value))
+            "#,
+    )?)?;
+    let mut imports = Imports::new();
+    imports.define("host", "value", host);
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    let function = instance.func_untyped(&store, "value")?;
+
+    assert!(function.call(&mut store, &[], &mut results).is_err());
+    Ok(())
+}
+
+#[test]
+fn typed_untyped_bridge_rejects_inexact_parameter_iterators() -> Result<(), Box<dyn core::error::Error>> {
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"
+            (module
+              (import "host" "take" (func $take (param i32 i32)))
+              (export "take" (func $take)))
+            "#,
+    )?)?;
+    let mut store = Store::default();
+    let mut imports = Imports::new();
+    imports.define(
+        "host",
+        "take",
+        HostFunction::from_untyped(&FuncType::new(&[WasmType::I32, WasmType::I32], &[]), |_, _, _| Ok(())),
+    );
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+
+    assert!(instance.func::<TooFewParams, ()>(&store, "take")?.call(&mut store, TooFewParams).is_err());
+    assert!(instance.func::<TooManyParams, ()>(&store, "take")?.call(&mut store, TooManyParams).is_err());
+    Ok(())
+}
+
+#[test]
+fn standalone_host_functions_reject_concrete_types() -> Result<(), Box<dyn core::error::Error>> {
     let wasm = wat::parse_str(
         r#"
         (module
@@ -125,19 +228,11 @@ fn concrete_host_references_use_canonical_types() -> Result<(), Box<dyn core::er
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
-    let right_ref = instance.func_untyped(&store, "right-ref")?.call(&mut store, &[])?;
-    let wrong_ref = instance.func_untyped(&store, "wrong-ref")?.call(&mut store, &[])?;
     let return_ty = instance.func_untyped(&store, "right-ref")?.ty(&store)?.clone();
     let param_ty = instance.func_untyped(&store, "takes-a")?.ty(&store)?.clone();
 
-    let wrong_result = wrong_ref.clone();
-    let wrong_return =
-        HostFunction::from_untyped(&return_ty, move |_, _| Ok(wrong_result.clone())).instantiate(&mut store)?;
-    assert!(wrong_return.call(&mut store, &[]).is_err());
-
-    let accept_a = HostFunction::from_untyped(&param_ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
-    assert!(accept_a.call(&mut store, &wrong_ref).is_err());
-    assert!(accept_a.call(&mut store, &right_ref).is_ok());
+    assert!(HostFunction::from_untyped(&return_ty, |_, _, _| Ok(())).instantiate(&mut store).is_err());
+    assert!(HostFunction::from_untyped(&param_ty, |_, _, _| Ok(())).instantiate(&mut store).is_err());
 
     Ok(())
 }
@@ -157,9 +252,9 @@ fn imported_host_functions_resolve_concrete_types() -> Result<(), Box<dyn core::
     let module = tinywasm::parse_bytes(&wasm)?;
     let concrete = RefType::new_concrete(true, 0);
     let host_ty = FuncType::new(&[WasmType::Ref(concrete)], &[]);
-    let host = HostFunction::from_untyped(&host_ty, |_, args| {
+    let host = HostFunction::from_untyped(&host_ty, |_, args, _| {
         assert_eq!(args, &[WasmValue::Ref(RefValue::Null)]);
-        Ok(Vec::new())
+        Ok(())
     });
     let mut imports = Imports::new();
     imports.define("host", "inspect", host);
@@ -211,10 +306,12 @@ fn host_tail_calls_return_from_the_current_frame() -> Result<(), Box<dyn core::e
 fn host_calls_reject_unknown_function_references() -> Result<(), Box<dyn core::error::Error>> {
     let mut store = Store::default();
     let ty = FuncType::new(&[WasmType::Ref(tinywasm::types::RefType::FUNCREF)], &[]);
-    let host = HostFunction::from_untyped(&ty, |_, _| Ok(Vec::new())).instantiate(&mut store)?;
-    let invalid = WasmValue::Ref(RefValue::Func(tinywasm::types::FuncRef::new(u32::MAX)));
+    let host = HostFunction::from_untyped(&ty, |_, _, _| Ok(())).instantiate(&mut store)?;
+    let mut other_store = Store::default();
+    let other = HostFunction::from_untyped(&FuncType::new(&[], &[]), |_, _, _| Ok(())).instantiate(&mut other_store)?;
+    let invalid = WasmValue::Ref(RefValue::Func(other.as_func_ref(&other_store)?));
 
-    assert!(host.call(&mut store, &[invalid]).is_err());
+    assert!(host.call(&mut store, &[invalid], &mut []).is_err());
     Ok(())
 }
 

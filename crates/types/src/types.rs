@@ -3,6 +3,8 @@ use alloc::{boxed::Box, sync::Arc};
 use crate::{TypeAddr, WasmType};
 
 /// The dense type index space of a WebAssembly module.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-rectype>
 #[derive(Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -31,6 +33,8 @@ impl TypeSection {
 }
 
 /// A type with optional declared subtyping.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-subtype>
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -58,6 +62,8 @@ impl SubType {
 }
 
 /// A function, struct, or array type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-comptype>
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -123,6 +129,8 @@ impl FuncType {
 }
 
 /// A WebAssembly struct type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-structtype>
 #[derive(Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -131,6 +139,8 @@ pub struct StructType {
 }
 
 /// A WebAssembly array type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-arraytype>
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -139,6 +149,8 @@ pub struct ArrayType {
 }
 
 /// A struct field or array element type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-fieldtype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -148,6 +160,8 @@ pub struct FieldType {
 }
 
 /// A field's packed or unpacked storage type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-storagetype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -155,4 +169,14 @@ pub enum StorageType {
     I8,
     I16,
     Value(WasmType),
+}
+
+impl StorageType {
+    /// Returns the unpacked WebAssembly value type used on the stack.
+    pub const fn unpacked(self) -> WasmType {
+        match self {
+            Self::I8 | Self::I16 => WasmType::I32,
+            Self::Value(ty) => ty,
+        }
+    }
 }

@@ -1,7 +1,7 @@
 use super::stack::{CallFrame, ValueStack};
 use crate::store::Globals;
-use crate::{Result, interpreter::simd::Value128};
-use tinywasm_types::{GlobalAddr, LocalAddr, RefValue, WasmValue};
+use crate::{Error, Result, Store, WasmValue, interpreter::simd::Value128};
+use tinywasm_types::{GlobalAddr, LocalAddr, WasmType};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -32,6 +32,14 @@ impl ValueRef {
     #[inline]
     pub(crate) const fn from_i31(value: i32) -> Self {
         Self(((value as u32) << 1) | 1)
+    }
+
+    #[inline]
+    pub(crate) const fn try_from_host_any(addr: u32) -> Option<Self> {
+        if addr >= Self::HOST_ANY_TAG - 1 {
+            return None;
+        }
+        Some(Self::from_category_addr(addr | Self::HOST_ANY_TAG))
     }
 
     pub(crate) const fn is_host_any(self) -> bool {
@@ -69,21 +77,9 @@ impl ValueRef {
     }
 }
 
-impl From<RefValue> for ValueRef {
-    fn from(value: RefValue) -> Self {
-        match value {
-            RefValue::Null => Self::NULL,
-            RefValue::Func(value) => Self::from_category_addr(value.addr()),
-            RefValue::Extern(value) => Self::from_raw(value.raw()),
-            RefValue::Exn(value) => Self::from_category_addr(value.addr()),
-            RefValue::Any(value) => Self::from_raw(value.raw()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// An untyped internal WebAssembly value.
-pub(crate) enum TinyWasmValue {
+pub(crate) enum RuntimeValue {
     /// A 32-bit value.
     Value32(Value32),
     /// A 64-bit value.
@@ -94,16 +90,17 @@ pub(crate) enum TinyWasmValue {
     ValueRef(ValueRef),
 }
 
-impl From<WasmValue> for TinyWasmValue {
-    fn from(value: WasmValue) -> Self {
-        match value {
-            WasmValue::I32(v) => Self::Value32(v as u32),
-            WasmValue::I64(v) => Self::Value64(v as u64),
-            WasmValue::F32(v) => Self::Value32(v.to_bits()),
-            WasmValue::F64(v) => Self::Value64(v.to_bits()),
-            WasmValue::Ref(value) => Self::ValueRef(value.into()),
-            WasmValue::V128(v) => Self::Value128(Value128(v)),
-        }
+impl RuntimeValue {
+    pub(crate) fn into_wasm(self, store: &mut Store, ty: WasmType) -> Result<WasmValue> {
+        Ok(match (self, ty) {
+            (Self::Value32(value), WasmType::I32) => WasmValue::I32(value as i32),
+            (Self::Value32(value), WasmType::F32) => WasmValue::F32(f32::from_bits(value)),
+            (Self::Value64(value), WasmType::I64) => WasmValue::I64(value as i64),
+            (Self::Value64(value), WasmType::F64) => WasmValue::F64(f64::from_bits(value)),
+            (Self::Value128(value), WasmType::V128) => WasmValue::V128(value.0),
+            (Self::ValueRef(value), WasmType::Ref(ty)) => WasmValue::Ref(store.decode_ref(value, ty)?),
+            _ => return Err(Error::other("internal value does not match its WebAssembly type")),
+        })
     }
 }
 
@@ -233,4 +230,14 @@ impl_internalvalue! {
     stack_64,  s64,  get_64,  set_64,  f64,      |v| f64::to_bits(v), |v| f64::from_bits(v)
     stack_32,  s32,  get_32,  set_32,  ValueRef, |v| v.raw(),         |v| ValueRef(v)
     stack_128, s128, get_128, set_128, Value128, |v| v,               |v| v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValueRef;
+
+    #[test]
+    fn value_ref_remains_four_bytes() {
+        assert_eq!(core::mem::size_of::<ValueRef>(), 4);
+    }
 }

@@ -2,8 +2,10 @@ use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
+use tinywasm_types::FuncType;
 use tinywasm_types::archive::TwasmError;
-use tinywasm_types::{ExnRef, FuncType};
+
+use crate::{ExnRef, WasmValue};
 
 #[cfg(feature = "parser")]
 pub use tinywasm_parser::ParseError;
@@ -31,7 +33,7 @@ pub enum Error {
         /// The expected type
         expected: Box<FuncType>,
         /// The actual value
-        actual: Vec<tinywasm_types::WasmValue>,
+        actual: Vec<WasmValue>,
     },
 
     /// An invalid label type was encountered
@@ -105,9 +107,11 @@ impl Error {
     }
 }
 
-/// A WebAssembly trap
+/// An execution or runtime trap.
 ///
-/// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
+/// This includes WebAssembly traps and TinyWasm runtime failures.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#syntax-trap>
 #[non_exhaustive]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub enum Trap {
@@ -123,7 +127,7 @@ pub enum Trap {
         offset: usize,
         /// The size of the access
         len: usize,
-        /// The maximum size of the memory
+        /// The current memory length in bytes.
         max: usize,
     },
 
@@ -133,7 +137,7 @@ pub enum Trap {
         offset: usize,
         /// The size of the access
         len: usize,
-        /// The maximum size of the memory
+        /// The current table length in elements.
         max: usize,
     },
 
@@ -146,8 +150,11 @@ pub enum Trap {
     /// Invalid Integer Conversion
     InvalidConversionToInt,
 
-    /// The store is not the one that the module instance was instantiated in
+    /// A Store-owned handle or reference was used with a different Store.
     InvalidStore,
+
+    /// A reference does not identify a live value of the expected kind.
+    InvalidReference,
 
     /// Integer Overflow
     IntegerOverflow,
@@ -158,7 +165,7 @@ pub enum Trap {
     /// Value stack overflow
     ValueStackOverflow,
 
-    /// The runtime could not allocate memory for a stack or linear memory operation.
+    /// An allocation or requested resource size could not be satisfied.
     OutOfMemory,
 
     /// An undefined element was encountered
@@ -228,6 +235,7 @@ impl Trap {
             Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
             Self::HostFunction(_) => "host function trap",
             Self::InvalidStore => "invalid store",
+            Self::InvalidReference => "invalid reference",
             Self::Other(message) => message,
         }
     }
@@ -337,6 +345,7 @@ impl Display for Trap {
             Self::NullI31Reference => write!(f, "null i31 reference"),
             Self::CastFailure => write!(f, "cast failure"),
             Self::InvalidStore => write!(f, "invalid store"),
+            Self::InvalidReference => write!(f, "invalid reference"),
             #[cfg(feature = "debug")]
             Self::IndirectCallTypeMismatch { expected, actual } => {
                 write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")

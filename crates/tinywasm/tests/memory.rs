@@ -16,7 +16,7 @@ fn store_with_limiter(limiter: Arc<dyn ResourceLimiter>) -> Store {
 #[test]
 fn memory_read_write_roundtrip() -> TestResult {
     let mut store = Store::default();
-    let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
+    let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 
     memory.copy_from_slice(&mut store, 0, &[1, 2, 3, 4, 5])?;
     assert_eq!(memory.read_vec(&store, 0, 5)?, &[1, 2, 3, 4, 5]);
@@ -28,7 +28,7 @@ fn memory_read_write_roundtrip() -> TestResult {
 #[test]
 fn read_returns_short_count_at_end_of_memory() -> TestResult {
     let mut store = Store::default();
-    let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, Some(1), Some(4)))?;
+    let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, Some(1), Some(4)))?;
     memory.copy_from_slice(&mut store, 0, &[1, 2, 3, 4])?;
 
     let mut dst = [9; 8];
@@ -84,7 +84,7 @@ impl ResourceLimiter for TrapGrowth {
 #[test]
 fn resource_limiter_can_reject_growth() -> TestResult {
     let mut store = store_with_limiter(Arc::new(DenyGrowth));
-    let memory = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
+    let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 
     assert_eq!(memory.grow(&mut store, 1)?, None);
     assert_eq!(memory.page_count(&store)?, 1);
@@ -134,7 +134,7 @@ fn resource_limiter_can_trap_guest_memory_grow() -> TestResult {
 #[test]
 fn resource_limiter_rejects_host_memory_initial_size() {
     let mut store = store_with_limiter(Arc::new(DenyAll));
-    let result = Memory::new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None));
+    let result = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None));
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
 }
@@ -153,7 +153,15 @@ fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
 #[test]
 fn resource_limiter_rejects_table_initial_size() {
     let mut store = store_with_limiter(Arc::new(DenyAll));
-    let result = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into());
+    let result = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into());
+
+    assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
+}
+
+#[test]
+fn table_rejects_initial_size_above_maximum() {
+    let mut store = Store::default();
+    let result = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 2, Some(1)), RefValue::Null.into());
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
 }
@@ -161,7 +169,7 @@ fn resource_limiter_rejects_table_initial_size() {
 #[test]
 fn resource_limiter_can_reject_table_growth() -> TestResult {
     let mut store = store_with_limiter(Arc::new(DenyGrowth));
-    let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
+    let table = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
 
     assert_eq!(table.grow(&mut store, 1, RefValue::Null.into())?, None);
     assert_eq!(table.size(&store)?, 1);
@@ -171,7 +179,7 @@ fn resource_limiter_can_reject_table_growth() -> TestResult {
 #[test]
 fn resource_limiter_can_trap_table_growth() -> TestResult {
     let mut store = store_with_limiter(Arc::new(TrapGrowth));
-    let table = Table::new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
+    let table = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
 
     assert!(matches!(table.grow(&mut store, 1, RefValue::Null.into()), Err(tinywasm::Error::Trap(Trap::Unreachable))));
     Ok(())

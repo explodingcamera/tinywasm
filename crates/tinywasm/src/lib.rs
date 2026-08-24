@@ -18,47 +18,48 @@
 //!
 //! ## Getting started
 //!
-//! The easiest way to get started is to use the `parse_bytes` function to load a
-//! WebAssembly module from bytes. This will parse the module and validate it, returning
-//! a [`Module`] that can be used to instantiate the module.
+//! Use [`parse_bytes`] to parse and validate a WebAssembly module, then instantiate it
+//! in a [`Store`]. A module can be reused, while each store owns its runtime state.
 //!
 //! ```rust
 //! # #[cfg(feature = "parser")]
 //! # fn main() -> tinywasm::Result<()> {
 //! use tinywasm::{ModuleInstance, Store};
 //!
-//! // Load a module from bytes
 //! let wasm = include_bytes!("../../../examples/wasm/add.wasm");
 //! let module = tinywasm::parse_bytes(wasm)?;
 //!
-//! // # Create a new store
-//! // Stores are used to allocate objects like functions and globals
 //! let mut store = Store::default();
-//!
-//! // # Instantiate the module
-//! // This will allocate the module and its globals into the store
-//! // and execute the module's start function.
 //! let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 //!
-//! // # Get a typed handle to the exported "add" function
-//! // Alternatively, you can use `instance.func_untyped` to get an untyped handle
-//! // that takes and returns [`types::WasmValue`]s
-//! let func = instance.func::<(i32, i32), i32>(&store, "add")?;
-//! let res = func.call(&mut store, (1, 2))?;
+//! let add = instance.func::<(i32, i32), i32>(&store, "add")?;
+//! let result = add.call(&mut store, (1, 2))?;
 //!
-//! assert_eq!(res, 3);
+//! assert_eq!(result, 3);
 //! # Ok(())
 //! # }
 //! # #[cfg(not(feature = "parser"))]
 //! # fn main() {}
 //! ```
 //!
-//! For non-default runtime behavior, construct a [`Store`] with a custom [`Engine`]
-//! and [`engine::Config`] to control stack sizing and fuel accounting. A [`ResourceLimiter`] can be
-//! attached to the engine configuration to bound memory and table allocation and growth for stores
-//! created from that engine and to trap rejected requests.
+//! Typed functions convert Rust values directly. Use [`ModuleInstance::func_untyped`]
+//! and [`WasmValue`] when types are selected at runtime. References such as [`StructRef`]
+//! and [`ExternRef`] are owned handles tied to their store. Cloning a managed reference
+//! keeps its referent live.
 //!
-//! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/main/examples) directory.
+//! Construct a store with a custom [`Engine`] and [`engine::Config`] to configure
+//! stack limits, fuel, and GC collection. A [`ResourceLimiter`] can bound guest memory,
+//! table, and GC heap growth.
+//!
+//! ## References and GC
+//!
+//! Runtime references belong to a [`Store`]. Passing a reference to another store
+//! returns [`Trap::InvalidStore`]. Managed references are cloneable owned handles, and
+//! their referents become collectible after the last handle is dropped. Nullable typed
+//! parameters and results use `Option<T>`. Use [`RefValue`] for dynamic reference values
+//! and [`Store::gc`] to request collection explicitly.
+//!
+//! For more examples, see the [`examples`](https://github.com/explodingcamera/tinywasm/tree/next/examples) directory.
 //!
 //! ## Cargo features
 //!
@@ -67,7 +68,7 @@
 //! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 //! - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
 //! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-//! - **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
+//! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
 //! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 //! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
@@ -108,8 +109,6 @@ pub(crate) mod log {
 
 mod error;
 pub use error::*;
-#[allow(deprecated)]
-pub use func::WasmTupleChain;
 pub use func::{
     ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
     HostFunction, IntoWasmValues, ToWasmType, ToWasmTypes,
@@ -145,6 +144,7 @@ pub use parser::{parse_file, parse_stream};
 
 /// Re-export of [`tinywasm_types`].
 pub mod types {
+    pub use crate::{AnyRef, ArrayRef, EqRef, ExnRef, ExternRef, FuncRef, I31Ref, RefValue, StructRef, WasmValue};
     pub use tinywasm_types::*;
 }
 

@@ -47,11 +47,12 @@ pub mod archive {
     impl core::error::Error for TwasmError {}
 }
 
-/// A `TinyWasm` WebAssembly Module
+/// TinyWasm's parsed and lowered representation of a WebAssembly module.
 ///
-/// This is the internal representation of a WebAssembly module in `TinyWasm`.
 /// Modules produced by the parser are validated by default, but validation can be
 /// disabled for trusted input. Do not trust modules or archives from third parties.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -326,13 +327,35 @@ pub type TableAddr = Addr;
 pub type MemAddr = Addr;
 pub type GlobalAddr = Addr;
 pub type TagAddr = Addr;
-pub type ExnAddr = Addr;
 pub type ElemAddr = Addr;
 pub type DataAddr = Addr;
 pub type ExternAddr = Addr;
 pub type ConstIdx = Addr;
 
 // additional internal addresses
+/// A function index in a WebAssembly module's function index space.
+///
+/// This remains module-local until instantiation resolves it to a [`FuncAddr`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "archive", serde(transparent))]
+pub struct ModuleFuncIdx(u32);
+
+impl ModuleFuncIdx {
+    /// Creates a module-local function index.
+    #[inline]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// Returns the module-local function index.
+    #[inline]
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
 /// An address in the current type space.
 ///
 /// Parsed modules use module-local addresses; instantiated types use their store's canonical addresses.
@@ -484,6 +507,9 @@ pub struct Global {
     pub init: Box<[ConstInstruction]>,
 }
 
+/// A WebAssembly global type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-globaltype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -517,6 +543,9 @@ impl Default for GlobalType {
     }
 }
 
+/// A WebAssembly table type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-tabletype>
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -556,7 +585,9 @@ impl TableType {
     }
 }
 
-/// Represents a memory's type.
+/// A WebAssembly memory type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-memtype>
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -597,7 +628,7 @@ impl MemoryType {
         }
     }
 
-    /// The declared maximum page count, or `None` when the memory is unbounded.
+    /// Returns the declared maximum page count, or `None` if no maximum was declared.
     #[inline]
     pub const fn page_count_max_declared(&self) -> Option<u64> {
         self.page_count_max
@@ -648,6 +679,8 @@ pub enum MemoryArch {
 }
 
 /// A WebAssembly tag type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-tagtype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]

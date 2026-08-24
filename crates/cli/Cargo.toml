@@ -35,6 +35,7 @@ tinywasm = { workspace = true, features = [
   "archive",
   "canonicalize-nans",
   "debug",
+  "guest-debug",
   "log",
   "parallel-parser",
   "parser",

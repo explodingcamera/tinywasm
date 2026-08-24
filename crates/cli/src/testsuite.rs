@@ -7,8 +7,13 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 /// Result type used by the WAST test utilities.
 pub type TestResult<T> = core::result::Result<T, Box<dyn core::error::Error>>;
 
-#[derive(Debug)]
 struct TestFailure(String);
+
+impl core::fmt::Debug for TestFailure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 
 impl Display for TestFailure {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -89,13 +94,9 @@ impl TestSuite {
     }
 
     pub fn report_status(&self) -> TestResult<()> {
-        if self.runner.failed() {
-            println!();
-            Err(TestFailure(format!("{}:\n{self}", "failed one or more tests".red().bold())).into())
-        } else {
-            println!("{self}");
-            Ok(())
-        }
+        self.print_errors();
+        println!("{self}");
+        if self.runner.failed() { Err(TestFailure("failed one or more tests".into()).into()) } else { Ok(()) }
     }
 
     pub fn save_csv(&self, path: &str, version: &str) -> TestResult<()> {

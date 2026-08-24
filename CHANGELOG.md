@@ -9,47 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added support for the WebAssembly function-references proposal
-- Added basic support for the WebAssembly garbage-collection proposal
-- Added support for the WebAssembly exception-handling proposal, including tags, `try_table`, `throw`, and `throw_ref`
-- Added support for the WebAssembly compact-imports proposal
-- Added `WasmValue::ty` and `WasmValue::matches_type`
-- Added `ValueLane` for mapping WebAssembly value types to their physical 32-bit, 64-bit, or 128-bit storage lane.
-- Added a `validate` feature to `tinywasm` and `tinywasm-parser` (enabled by default) to optionally skip wasmparser validation for faster parsing of trusted modules.
-- Added optional parse-time operand deduplication to reduce precompiled module and `.twasm` archive size.
-- Added a `ResourceLimiter` trait, configurable through `engine::Config::with_resource_limiter`, to bound guest memory, table, and logical GC heap growth.
+- Support for the typed function references, garbage collection, exception handling, and compact import section proposals.
+- `ResourceLimiter` callbacks for memory and table allocation or growth
+- A default `validate` Cargo feature & parser option to skip wasm validation
+- Optional parse-time operand deduplication to reduce `.twasm` archive size
 
 ### Changed
 
-- `HostFunction` is now a reusable definition, and module instantiation borrows `Imports` so host imports can be shared across stores.
-- Host function callbacks now require `Send + Sync` so the same definition can be used safely with multiple stores.
-- Typed function tuples now support up to 20 parameters or results. `WasmTupleChain` is deprecated. Use untyped functions for larger signatures.
-- Module types now use one dense recursive type space, while function types are resolved through `Function::ty(&Store)`.
-- Globals are stored in separate 32-bit, 64-bit, and 128-bit value lanes, avoiding tagged value conversion during guest execution.
-- Linear memory now uses a single contiguous `Vec`-backed storage with const-generic fixed-width loads and stores.
-- Increased the minimum supported Rust version from 1.95 to 1.98.
+- Typed functions now support tuples up to arity 20 and `[u8; 16]` values for `v128`.
+- Module types now use one recursive type space. Runtime function types are available through `Function::ty(&Store)`.
+- Linear memory now uses contiguous `Vec`-backed storage.
+- The minimum supported Rust version increased from 1.95 to 1.98.
+- The internal instruction represetaions size was reduced from 16 to 8 bytes.
 
 ### Fixed
 
-- Directly defined imports now reject handles from a different `Store`.
+- Instantiation now rejects directly defined imports that contain handles from another `Store`.
 - Tail calls to host functions now return directly to the caller frame.
-- Fixed Memory64 bulk-memory operations and optimized stores using the wrong value-stack lane.
-- Fixed `memory.init` bounds checks and operand lowering.
-- Fixed Memory64 default limits and host-size handling, including 32-bit targets.
+- Memory64 bulk-memory operations and optimized stores now use the correct value-stack lanes.
+- `memory.init` now performs correct bounds checks and operand lowering.
+- Memory64 now uses the correct default limits and host-size conversions, including on 32-bit targets.
 
 ### Breaking Changes
 
-- `HostFunction::from` and `HostFunction::from_untyped` no longer take a `Store` and now return reusable `HostFunction` definitions
-- `ModuleInstance::instantiate` and `instantiate_no_start` now borrow `Imports`.
-- `Store::id` now returns `u32` instead of `usize`.
-- `Parser::new` now takes `ParserOptions`, use `Parser::default()` for default settings. `Parser::with_options` was removed.
-- Renamed `ModuleInstanceAddr` to `ModuleInstanceId`.
-- Removed `HostFunction::ty` and `WasmFunction::ty`. Use `Function::ty(&Store)` for runtime function types.
-- Changed `TableType::element_type` and `Element::ty` from `WasmType` to `RefType`, and replaced module `table_types` with `TableDefinition { ty, init }`.
-- Removed the pluggable memory backend system (`LinearMemory`, `MemoryBackend`, `VecMemory`, `PagedMemory`, `LazyLinearMemory`, and `Config::with_memory_backend`). Linear memory is always `Vec`-backed. To limit initial memory allocation and growth, configure a `ResourceLimiter` with `Config::with_resource_limiter`.
-- Removed the local-memory allocation analysis (`LocalMemoryAllocation` and `ParserOptions::optimize_local_memory_allocation`). Local memories are always allocated eagerly.
-- Removed `Config::with_trap_on_oom`. A `ResourceLimiter` can return a trap when rejecting a memory or table allocation or growth request.
-- `Table::grow` now returns `Result<Option<usize>>`, matching `Memory::grow`. Growth limits and allocation failures return `None`, while limiter-provided traps return an error.
+- `Function::call` and `Function::call_resumable` now write to caller-provided result slices. Untyped host callbacks also receive a result slice and return `Result<()>`.
+- Creating a `HostFunction` no longer requires a `Store`. Definitions require `Send + Sync` and can be reused across stores. Module instantiation now borrows `Imports` so the same imports can also be reused.
+- `HostFunction::ty` and `WasmFunction::ty` were removed. Use `Function::ty(&Store)` for runtime types.
+- Function and managed reference handles are tied to their originating `Store`. Managed references keep their referents live, so `WasmValue` is no longer `Copy`. Nullable typed references use `Option<T>`, while bare typed references are non-null.
+- The `Memory`, `Table`, `Global`, and `Tag` constructors were renamed from `new` to `try_new`.
+- `Store::id` now returns `u32`, and `ModuleInstanceAddr` was renamed to `ModuleInstanceId`.
+- Element types now use `RefType`, and module definitions use `TableDefinition { ty, init }`. `Table::grow` now returns `Result<Option<usize>>`, matching `Memory::grow`.
+- `Parser::new` now takes `ParserOptions`. Use `Parser::default()` for default settings. `Parser::with_options` was removed.
+- Pluggable memory backends and `Config::with_trap_on_oom` were removed for performance reasons. Linear memory is always `Vec`-backed. Use `ResourceLimiter` to allow, reject, or trap memory allocation and growth requests.
+- `WasmTupleChain` was removed. Use direct tuples up to arity 20 or untyped functions for larger signatures.
+- The `.twasm` format changed. Regenerate archives created by earlier TinyWasm versions.
 
 ## [0.10.0] - 2026-07-24
 

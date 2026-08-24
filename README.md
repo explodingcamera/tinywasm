@@ -3,13 +3,17 @@
 
 # <b>`tinywasm`</b>
 
-[![docs.rs](https://img.shields.io/docsrs/tinywasm?logo=rust&style=flat-square)](https://docs.rs/tinywasm) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue?style=flat-square)](https://docs.rs/tinywasm/latest/tinywasm/) [![Build](https://img.shields.io/github/actions/workflow/status/explodingcamera/tinywasm/test.yaml?branch=next&style=flat-square&label=build)](https://github.com/explodingcamera/tinywasm/actions/workflows/test.yaml?query=branch%3Anext) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
 
 ## Why `tinywasm`?
 
-- **Tiny**: Small by design, while still passing the full WebAssembly 3.0 core testsuite.
-- **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies, and can itself compile to WebAssembly.
-- **Safe**: Written in safe Rust, with optional `unsafe` limited to the `simd-x86` feature. Its sandbox is designed to prevent untrusted Wasm from accessing host memory or escaping the runtime.
+- **Tiny**: Small by design, while still passing the full WebAssembly 3.0 core test suite.
+- **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies[^dependencies], and can itself compile to WebAssembly.
+- **Safe by default**: Written entirely in safe Rust[^unsafe].
+
+[^dependencies]: The two main external components are [`wasmparser`](https://crates.io/crates/wasmparser) for WebAssembly parsing and validation, and [`postcard`](https://crates.io/crates/postcard) for `.twasm` archives.
+
+[^unsafe]: The optional `simd-x86` feature is the only exception. It uses `unsafe` internally for selected x86 SIMD intrinsics.
 
 ## Installation
 
@@ -42,38 +46,40 @@ assert_eq!(result, 3);
 
 See the [examples](./examples) directory and [documentation](https://docs.rs/tinywasm) for more information.
 
-## Precompiled Modules
-
-TinyWasm modules can be compiled to the internal `twasm` bytecode format, which stores the optimized instruction representation for faster loading and reuse.
-
 ## Cargo Features
 
 - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
 - **`log`:** Enables integration with the `log` crate. Enabled by default.
 - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
-- **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
+- **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through [`ParserOptions`](https://docs.rs/tinywasm/latest/tinywasm/parser/struct.ParserOptions.html).
 - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-- **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
+- **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
 - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 
-With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`[^libm], making it usable in `no_std + alloc` environments.
+With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`, making it usable in `no_std + alloc` environments.
 
-Use `Engine` and `engine::Config` when you need non-default runtime settings such as fuel accounting, stack sizing, or the GC collection threshold. A `ResourceLimiter` attached to the engine's config bounds guest memory, table, and GC heap growth and can trap rejected requests.
+Use [`Engine`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Engine.html) and [`engine::Config`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Config.html) for non-default fuel accounting, stack sizing, or GC collection thresholds. A configured `ResourceLimiter` can allow, reject, or trap memory and table allocation or growth requests, and GC object allocations.
 
-[^libm]: [rust-lang/rust#137578](https://github.com/rust-lang/rust/issues/137578) — tracking issue for floating-point math support in `no_std`.
+## Precompiled Modules
 
-## Safety
+TinyWasm can serialize a parsed module to its version-specific `.twasm` format. Loading an archive skips WebAssembly parsing, validation, and optimization.
 
-TinyWasm only uses safe Rust by default. The optional `simd-x86` feature enables x86-specific SIMD intrinsics and uses `unsafe` internally. WebAssembly input is validated by default through the `validate` feature. Disabling validation should not let Wasm access host memory or escape the sandbox, but malformed input may panic or otherwise crash the process, so only disable it for trusted input.
+Applications that only load `.twasm` can remove the parser and validator from their binary by only enabling the `archive` feature. Depending on the target and release profile, this can produce binaries smaller than 300 KB.
 
-The internal `twasm` bytecode format is not currently validated as an untrusted input format. Malformed `twasm` may panic, but should not compromise memory safety or allow sandbox escape. Only run trusted `twasm` bytecode, or generate it through TinyWasm from Wasm input.
+## Untrusted Input
 
-## Supported Proposals
+WebAssembly [validation](https://webassembly.github.io/spec/core/valid/index.html) is enabled by default through the `validate` feature. Keep this feature enabled and leave `ParserOptions::validation` enabled for modules from untrusted sources. Without validation, parsing can produce modules that violate runtime assumptions and may panic during instantiation or execution.
 
-TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.com/WebAssembly/proposals). JavaScript integrations and optional embedding or tooling APIs are not included here.
+Validation does not limit parsing or execution resources. Hosts that run untrusted code should also set input limits, configure stack and `ResourceLimiter` limits, and use fuel- or time-budgeted execution as needed.
+
+Loading `.twasm` checks the archive header and encoding but does not run WebAssembly validation or verify TinyWasm's runtime invariants. Load archives only from trusted sources. For untrusted input, parse a WebAssembly binary with validation enabled.
+
+## WebAssembly Proposal Support
+
+TinyWasm generally implements non-JavaScript core proposals at [phase 4](https://github.com/WebAssembly/proposals#phase-4---standardize-the-feature-wg) or later, with some proposals implemented earlier. The table shows current support and known exceptions.
 
 | Proposal                                                                                                         | Status | `tinywasm` Version |
 | ---------------------------------------------------------------------------------------------------------------- | ------ | ------------------ |
@@ -95,8 +101,8 @@ TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.
 | [**Typed Function References**](https://github.com/WebAssembly/function-references)                              | 🟢     | `next`             |
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | `next`             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | `next`             |
+| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | `next`             |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
-| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🌑     | -                  |
 | [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |
 
 **Legend**\
@@ -106,11 +112,13 @@ TinyWasm targets non-JavaScript core proposals through [phase 3](https://github.
 
 ## See Also
 
-If you need a more mature, production-tested, or performance-focused WebAssembly runtime today, consider one of these projects:
+If you're looking for a WebAssembly runtime with JIT compilation, better performance or other advanced features, check out these other runtimes:
 
 - [wasmi](https://github.com/wasmi-labs/wasmi) - efficient and versatile WebAssembly interpreter for embedded systems
 - [wasm3](https://github.com/wasm3/wasm3) - a fast WebAssembly interpreter written in C
 - [wazero](https://wazero.io/) - a zero-dependency WebAssembly interpreter written in Go
+- [wasmer](https://wasmer.io/) - a fast and secure WebAssembly runtime written in Rust
+- [wasmtime](https://wasmtime.dev/) - a fast and secure WebAssembly runtime written in Rust
 
 ## License
 

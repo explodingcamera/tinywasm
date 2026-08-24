@@ -66,17 +66,20 @@ impl_conv! {
 ///     Ok(())
 /// });
 ///
-/// let table = Table::new(
+/// let table = Table::try_new(
 ///     &mut store,
 ///     TableType::new(tinywasm::types::RefType::FUNCREF, 10, Some(20)),
 ///     tinywasm::types::RefValue::Null.into(),
 /// )?;
-/// let memory = Memory::new(
+/// let memory = Memory::try_new(
 ///     &mut store,
 ///     MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)),
 /// )?;
-/// let global_i32 =
-///     Global::new(&mut store, GlobalType::default().with_ty(WasmType::I32), WasmValue::I32(666))?;
+/// let global_i32 = Global::try_new(
+///     &mut store,
+///     GlobalType::default().with_ty(WasmType::I32),
+///     WasmValue::I32(666),
+/// )?;
 ///
 /// imports
 ///     .define("my_module", "print_i32", print_i32)

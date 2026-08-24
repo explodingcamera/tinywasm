@@ -21,7 +21,7 @@ fn func_handle_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>> 
     let func = instance.func_untyped(&owner_store, "add")?;
 
     let mut other_store = Store::default();
-    let err = func.call(&mut other_store, &[1.into(), 2.into()]).unwrap_err();
+    let err = func.call(&mut other_store, &[1.into(), 2.into()], &mut [0.into()]).unwrap_err();
     assert!(err.to_string().contains("invalid store"));
 
     Ok(())
@@ -58,8 +58,8 @@ fn global_access_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>
     let instance = ModuleInstance::instantiate(&mut owner_store, &module, None)?;
     let global = instance.global("g")?;
 
-    let other_store = Store::default();
-    let err = global.get(&other_store).unwrap_err();
+    let mut other_store = Store::default();
+    let err = global.get(&mut other_store).unwrap_err();
     assert_eq!(err, tinywasm::Error::Trap(tinywasm::Trap::InvalidStore));
 
     Ok(())
@@ -92,7 +92,7 @@ fn global_import_rejects_wrong_store() -> Result<(), Box<dyn core::error::Error>
     let wasm = wat::parse_str(r#"(module (import "env" "g" (global i32)))"#)?;
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut owner_store = Store::default();
-    let global = Global::new(&mut owner_store, GlobalType::new(WasmType::I32, false), 1.into())?;
+    let global = Global::try_new(&mut owner_store, GlobalType::new(WasmType::I32, false), 1.into())?;
     let mut imports = Imports::default();
     imports.define("env", "g", global);
 

@@ -11,10 +11,14 @@ const WASM: &str = r#"
 "#;
 
 fn main() -> Result<()> {
-    let wasm = wat::parse_str(WASM).expect("failed to parse wat");
+    let wasm = wat::parse_str(WASM)?;
     let module = tinywasm::parse_bytes(&wasm)?;
+
+    // Module is reusable, while Store owns the runtime state for this instance.
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+
+    // Typed handles validate parameters and results. Use func_untyped for dynamic values.
     let add = instance.func::<(i32, i32), i32>(&store, "add")?;
 
     assert_eq!(add.call(&mut store, (1, 2))?, 3);
