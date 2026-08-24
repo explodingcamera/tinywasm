@@ -1,6 +1,8 @@
 use crate::{RefType, StorageType};
 
 /// Type of a WebAssembly value.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-valtype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]

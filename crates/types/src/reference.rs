@@ -1,6 +1,8 @@
 /// An abstract WebAssembly heap type.
 ///
 /// This contains exactly the abstract heap types in core Wasm 3.0.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-absheaptype>
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -34,6 +36,8 @@ pub enum AbstractHeapType {
 /// For concrete types, `payload` is a module type index before instantiation
 /// and a canonical store type address at runtime.
 /// Otherwise, it is an [`AbstractHeapType`].
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-reftype>
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct RefType(u32);

@@ -39,6 +39,8 @@ impl StoreItem {
 
 /// A memory instance in a store.
 ///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
+///
 /// ## Example
 /// ```rust
 /// # fn main() -> tinywasm::Result<()> {
@@ -61,16 +63,22 @@ impl StoreItem {
 pub struct Memory(pub(crate) StoreItem);
 
 /// A table instance in a store.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#table-instances>
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Table(pub(crate) StoreItem);
 
 /// A global instance in a store.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#global-instances>
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Global(pub(crate) StoreItem);
 
 /// A tag instance in a store.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#tag-instances>
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub struct Tag(pub(crate) StoreItem);

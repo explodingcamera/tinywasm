@@ -27,12 +27,17 @@ pub(crate) use state::State;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
 pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 
-/// Controls resource usage by WebAssembly instances.
+/// Controls selected allocation requests from WebAssembly instances.
 ///
 /// Configure a limiter with
-/// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). It currently
-/// controls guest linear-memory, table, and GC heap growth. It does not account for stacks, runtime
+/// [`Config::with_resource_limiter`](crate::engine::Config::with_resource_limiter). The callbacks
+/// cover linear memory, tables, and the logical GC heap. They do not account for stacks, runtime
 /// metadata, temporary buffers, backing-capacity overhead, or other host allocations.
+///
+/// `Ok(true)` allows an allocation attempt, `Ok(false)` rejects it, and `Err` returns the supplied
+/// trap. Allowing a request does not guarantee that the backing allocation will succeed. Rejected
+/// growth uses the operation's normal failed-growth result. Rejected initial allocation and GC
+/// allocation produce [`Trap::OutOfMemory`].
 ///
 /// # Example
 /// ```rust
@@ -61,12 +66,12 @@ pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 /// # Ok::<(), tinywasm::Error>(())
 /// ```
 pub trait ResourceLimiter: Send + Sync {
-    /// Returns whether a memory allocation or growth is allowed.
+    /// Checks a nonzero memory allocation or growth request.
     ///
-    /// Sizes are in bytes. `current` is zero for initial allocation, and `maximum` is `None` for an
-    /// unbounded memory. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
-    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
-    /// default implementation allows the request.
+    /// Sizes are in bytes. `current` is zero for initial allocation. `maximum` is the declared
+    /// maximum in bytes, saturated to `usize::MAX` if needed, or `None` if no maximum was declared.
+    /// Growth limits are checked before this callback. The default implementation allows the
+    /// request.
     fn memory_growing(
         &self,
         _current: usize,
@@ -76,12 +81,11 @@ pub trait ResourceLimiter: Send + Sync {
         Ok(true)
     }
 
-    /// Returns whether a table allocation or growth is allowed.
+    /// Checks a nonzero table allocation or growth request.
     ///
-    /// Sizes are in elements. `current` is zero for initial allocation, and `maximum` is `None` for
-    /// an unbounded table. `Ok(false)` rejects the request, while `Err` traps. Rejected initial
-    /// allocations return [`Trap::OutOfMemory`], since they have no normal failure result. The
-    /// default implementation allows the request.
+    /// Sizes are in elements. `current` is zero for initial allocation. `maximum` is the declared
+    /// maximum element count when it fits `usize`, or `None` otherwise. Table limits are checked
+    /// before this callback. The default implementation allows the request.
     fn table_growing(
         &self,
         _current: usize,
@@ -91,11 +95,12 @@ pub trait ResourceLimiter: Send + Sync {
         Ok(true)
     }
 
-    /// Returns whether a GC object allocation is allowed.
+    /// Checks a GC object allocation request.
     ///
-    /// Sizes are logical allocated bytes before and after the requested allocation. Unreachable
-    /// objects remain included until collection. `maximum` is currently always `None`. `Ok(false)`
-    /// rejects the allocation with [`Trap::OutOfMemory`], while `Err` returns the provided trap.
+    /// Sizes are the current TinyWasm-accounted heap bytes and that count plus the requested
+    /// allocation. They include unreachable objects until collection but not all allocator
+    /// overhead. `maximum` is currently always `None`. This callback runs before threshold-triggered
+    /// collection.
     fn gc_growing(
         &self,
         _current: usize,
@@ -118,7 +123,7 @@ pub trait ResourceLimiter: Send + Sync {
 /// # _ = store;
 /// ```
 ///
-///  See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
     id: StoreId,
     pub(crate) module_instances: Vec<ModuleInstance>,

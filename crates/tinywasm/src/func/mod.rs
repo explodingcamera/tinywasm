@@ -26,7 +26,9 @@ fn write_typed_params(params: &mut [WasmValue], mut values: impl Iterator<Item =
     Ok(())
 }
 
-/// A function handle
+/// A handle to a function instance in a store.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#function-instances>
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 pub struct Function {

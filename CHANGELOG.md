@@ -9,44 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Support for the function-references, garbage-collection, exception-handling, and compact-imports proposals.
-- Store-aware owned references, explicit GC collection, and typed host access to GC objects and exceptions.
-- `WasmValue::ty`, `WasmValue::matches_type`, and `ValueLane` for inspecting value types and storage lanes.
-- `ResourceLimiter` for limiting guest memory, table, and logical GC heap growth.
-- A default `validate` Cargo feature that can be disabled when parsing trusted modules.
-- Optional parse-time operand deduplication for smaller `.twasm` archives.
+- Support for the typed function references, garbage collection, exception handling, and compact import section proposals.
+- `ResourceLimiter` callbacks for memory and table allocation or growth
+- A default `validate` Cargo feature & parser option to skip wasm validation
+- Optional parse-time operand deduplication to reduce `.twasm` archive size
 
 ### Changed
 
-- Typed functions support tuples up to arity 20 and `[u8; 16]` values for `v128`.
-- Module types use one recursive type space, with runtime function types available through `Function::ty(&Store)`.
-- Linear memory uses contiguous `Vec`-backed storage.
-- The minimum supported Rust version is 1.98.
+- Typed functions now support tuples up to arity 20 and `[u8; 16]` values for `v128`.
+- Module types now use one recursive type space. Runtime function types are available through `Function::ty(&Store)`.
+- Linear memory now uses contiguous `Vec`-backed storage.
+- The minimum supported Rust version increased from 1.95 to 1.98.
+- The internal instruction represetaions size was reduced from 16 to 8 bytes.
 
 ### Fixed
 
-- Directly defined imports now reject handles from a different `Store`.
+- Instantiation now rejects directly defined imports that contain handles from another `Store`.
 - Tail calls to host functions now return directly to the caller frame.
-- Fixed Memory64 bulk-memory operations and optimized stores using the wrong value-stack lane.
-- Fixed `memory.init` bounds checks and operand lowering.
-- Fixed Memory64 default limits and host-size handling, including 32-bit targets.
+- Memory64 bulk-memory operations and optimized stores now use the correct value-stack lanes.
+- `memory.init` now performs correct bounds checks and operand lowering.
+- Memory64 now uses the correct default limits and host-size conversions, including on 32-bit targets.
 
 ### Breaking Changes
 
-- Dynamic `Function::call` and `Function::call_resumable` calls write to caller-provided result slices. Untyped host callbacks also receive a result slice and return `Result<()>`.
-- `HostFunction` definitions are reusable, require `Send + Sync`, and no longer take a `Store`.
-- Module instantiation borrows `Imports`, allowing imports to be shared across stores.
+- `Function::call` and `Function::call_resumable` now write to caller-provided result slices. Untyped host callbacks also receive a result slice and return `Result<()>`.
+- Creating a `HostFunction` no longer requires a `Store`. Definitions require `Send + Sync` and can be reused across stores. Module instantiation now borrows `Imports` so the same imports can also be reused.
 - `HostFunction::ty` and `WasmFunction::ty` were removed. Use `Function::ty(&Store)` for runtime types.
-- Function and managed reference handles are Store-aware. Managed references keep their referents live, and `WasmValue` is no longer `Copy`.
-- Nullable typed reference parameters and results use `Option<T>`. Bare typed references are non-null.
-- Host references are created with `ExternRef::try_new` and `I31Ref::try_new`. Reference and GC object access is provided by methods on each reference type.
-- Fallible `Memory`, `Table`, `Global`, and `Tag` constructors are named `try_new`.
-- `Store::id` returns `u32`, and `ModuleInstanceAddr` is renamed to `ModuleInstanceId`.
-- Table element types use `RefType`, and module table definitions use `TableDefinition { ty, init }`.
-- `Parser::new` takes `ParserOptions`. Use `Parser::default()` for default settings. `Parser::with_options` and local-memory allocation analysis were removed.
-- Pluggable memory backends and `Config::with_trap_on_oom` were removed. Linear memory is always `Vec`-backed, and allocation limits use `ResourceLimiter`.
-- `Table::grow` returns `Result<Option<usize>>`, matching `Memory::grow`.
+- Function and managed reference handles are tied to their originating `Store`. Managed references keep their referents live, so `WasmValue` is no longer `Copy`. Nullable typed references use `Option<T>`, while bare typed references are non-null.
+- The `Memory`, `Table`, `Global`, and `Tag` constructors were renamed from `new` to `try_new`.
+- `Store::id` now returns `u32`, and `ModuleInstanceAddr` was renamed to `ModuleInstanceId`.
+- Element types now use `RefType`, and module definitions use `TableDefinition { ty, init }`. `Table::grow` now returns `Result<Option<usize>>`, matching `Memory::grow`.
+- `Parser::new` now takes `ParserOptions`. Use `Parser::default()` for default settings. `Parser::with_options` was removed.
+- Pluggable memory backends and `Config::with_trap_on_oom` were removed for performance reasons. Linear memory is always `Vec`-backed. Use `ResourceLimiter` to allow, reject, or trap memory allocation and growth requests.
 - `WasmTupleChain` was removed. Use direct tuples up to arity 20 or untyped functions for larger signatures.
+- The `.twasm` format changed. Regenerate archives created by earlier TinyWasm versions.
 
 ## [0.10.0] - 2026-07-24
 

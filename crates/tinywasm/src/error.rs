@@ -107,9 +107,11 @@ impl Error {
     }
 }
 
-/// A WebAssembly trap
+/// An execution or runtime trap.
 ///
-/// See <https://webassembly.github.io/spec/core/intro/overview.html#trap>
+/// This includes WebAssembly traps and TinyWasm runtime failures.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#syntax-trap>
 #[non_exhaustive]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub enum Trap {
@@ -125,7 +127,7 @@ pub enum Trap {
         offset: usize,
         /// The size of the access
         len: usize,
-        /// The maximum size of the memory
+        /// The current memory length in bytes.
         max: usize,
     },
 
@@ -135,7 +137,7 @@ pub enum Trap {
         offset: usize,
         /// The size of the access
         len: usize,
-        /// The maximum size of the memory
+        /// The current table length in elements.
         max: usize,
     },
 
@@ -163,7 +165,7 @@ pub enum Trap {
     /// Value stack overflow
     ValueStackOverflow,
 
-    /// The runtime could not allocate memory for a stack or linear memory operation.
+    /// An allocation or requested resource size could not be satisfied.
     OutOfMemory,
 
     /// An undefined element was encountered

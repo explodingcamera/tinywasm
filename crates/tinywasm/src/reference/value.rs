@@ -6,6 +6,8 @@ use crate::interpreter::{RuntimeValue, Value128};
 use crate::{AnyRef, ArrayRef, EqRef, ExnRef, ExternRef, FuncRef, I31Ref, RefValue, Result, Store, StructRef};
 
 /// A host-facing WebAssembly value.
+///
+/// See <https://webassembly.github.io/spec/core/exec/runtime.html#values>
 #[derive(Clone, PartialEq)]
 pub enum WasmValue {
     /// A 32-bit integer.

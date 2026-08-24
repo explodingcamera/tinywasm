@@ -68,7 +68,7 @@
 //! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 //! - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
 //! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-//! - **`canonicalize-nans`:** Canonicalizes NaN values. Enabled by default.
+//! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
 //! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 //! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).

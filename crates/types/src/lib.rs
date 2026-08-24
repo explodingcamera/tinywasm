@@ -47,11 +47,12 @@ pub mod archive {
     impl core::error::Error for TwasmError {}
 }
 
-/// A `TinyWasm` WebAssembly Module
+/// TinyWasm's parsed and lowered representation of a WebAssembly module.
 ///
-/// This is the internal representation of a WebAssembly module in `TinyWasm`.
 /// Modules produced by the parser are validated by default, but validation can be
 /// disabled for trusted input. Do not trust modules or archives from third parties.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/modules.html#syntax-module>
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -506,6 +507,9 @@ pub struct Global {
     pub init: Box<[ConstInstruction]>,
 }
 
+/// A WebAssembly global type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-globaltype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -539,6 +543,9 @@ impl Default for GlobalType {
     }
 }
 
+/// A WebAssembly table type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-tabletype>
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -578,7 +585,9 @@ impl TableType {
     }
 }
 
-/// Represents a memory's type.
+/// A WebAssembly memory type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-memtype>
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -619,7 +628,7 @@ impl MemoryType {
         }
     }
 
-    /// The declared maximum page count, or `None` when the memory is unbounded.
+    /// Returns the declared maximum page count, or `None` if no maximum was declared.
     #[inline]
     pub const fn page_count_max_declared(&self) -> Option<u64> {
         self.page_count_max
@@ -670,6 +679,8 @@ pub enum MemoryArch {
 }
 
 /// A WebAssembly tag type.
+///
+/// See <https://webassembly.github.io/spec/core/syntax/types.html#syntax-tagtype>
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
