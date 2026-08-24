@@ -1,61 +1,63 @@
 # Contributing
 
-Thank you for considering a contribution. For small fixes, feel free to open a pull request directly. For larger changes, please open an issue first so we can discuss the approach. Please target the `next` branch and [allow maintainers to edit your PR branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
+Thank you for contributing to TinyWasm. For small fixes, you can open a pull request directly. For larger changes, including new features and public API changes, open an issue first to discuss the approach.
 
-## Code of Conduct
+Pull requests should target the `next` branch. If you submit a pull request from a fork, [allow maintainers to edit the branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
 
-This project follows the [Contributor Covenant 3.0 Code of Conduct](https://www.contributor-covenant.org/version/3/0/code_of_conduct/).
+All contributors must follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## AI-assisted contributions
+
+You may use AI tools to help develop a contribution, but:
+
+- Write issue and pull request descriptions yourself. Do not submit AI-generated issue or pull request text.
+- Understand and review all code that you submit. You are responsible for its behavior and quality.
+- Keep the change focused on the issue. Do not include unrelated generated changes or refactors.
 
 ## Development
 
-This project mostly uses a pretty standard Rust setup. Some common tasks:
+Common commands:
 
 ```bash
-# Run a specific benchmark (run without arguments to see available benchmarks)
-$ cargo bench --bench {bench_name}
-
-# Run all tests
-$ cargo test
-
-# Run only the WebAssembly MVP (1.0) test suite
-$ cargo test-wasm-1
-
-# Run only the full WebAssembly 2.0 test suite
-$ cargo test-wasm-2
-
-# Run only the full WebAssembly 3.0 test suite
-$ cargo test-wasm-3
-
-# Run a single WAST test file
-$ cargo test-wast ./wasm-testsuite/data/wasm-v1/{file}.wast
-
-# Run custom wasm tests from crates/tinywasm/tests/wasm-custom
-$ cargo test-wasm-custom
-
-# Run a specific example (run without arguments to see available examples)
-#   The wasm test files required to run the `rust` example are not
-#   included in the main repository.
-#   To build these, you will need to install binaryen and wabt
-#   and run `./examples/rust/build.sh`.
-$ cargo run --example {example_name}
+cargo fmt --all -- --check
+cargo clippy --workspace
+cargo test --workspace
+cargo run --example basic
+cargo bench --bench tinywasm
 ```
 
-### Profiling
+WebAssembly test commands:
 
-Use [samply](https://github.com/mstange/samply/) for profiling.
+```bash
+cargo test-wasm-1
+cargo test-wasm-2
+cargo test-wasm-3
+cargo test-wasm-custom
+cargo test-wast crates/tinywasm/tests/wasm-custom/table-basics.wast
+```
 
-Example usage:
+Set `RUST_LOG=debug` when running `cargo test-wast` to see executor debug logs.
+
+The `rust` example requires the `wasm32-unknown-unknown` target, the `rust-src` component, [Binaryen](https://github.com/WebAssembly/binaryen), and [WABT](https://github.com/WebAssembly/wabt):
+
+```bash
+./examples/rust/build.sh
+cargo run --example rust -- hello
+```
+
+You can use [samply](https://github.com/mstange/samply/) for profiling:
 
 ```bash
 cargo install --locked samply
-samply record -- cargo run --release --example rust -- tinywasm
+samply record -- cargo run --profile samply --example rust -- tinywasm
 ```
+
+Keep changes focused and external dependencies to a minimum. Update public documentation, the README, and the unreleased changelog when applicable.
 
 ## Commits
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for commit messages. For pull requests, the commit messages will be squashed so you don't need to worry about this too much. However, it is still recommended to follow this convention for consistency.
+Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) when practical. Pull requests are squash-merged, so the pull request title is more important than individual commit messages.
 
-## Branches
+## Licensing
 
-- `main`: The main branch. This branch is used for the latest stable release.
-- `next`: The next branch. Development happens here.
+Unless you explicitly state otherwise, contributions are licensed under the repository's [MIT](./LICENSE-MIT) and [Apache-2.0](./LICENSE-APACHE) licenses.
