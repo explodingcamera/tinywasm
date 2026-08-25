@@ -36,9 +36,9 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, mut call_frame: CallFrame) -> Result<(), Trap> {
+    pub(crate) fn push(&mut self, mut call_frame: CallFrame, return_instr_ptr: usize) -> Result<(), Trap> {
         self.ensure_capacity_for(self.stack.len() + 1)?;
-        call_frame.incr_instr_ptr();
+        call_frame.instr_ptr = return_instr_ptr;
         self.stack.push(call_frame);
         Ok(())
     }
@@ -90,10 +90,5 @@ impl CallFrame {
             s64: self.locals_base.s64 + self.stack_offset.c64 as u32,
             s128: self.locals_base.s128 + self.stack_offset.c128 as u32,
         }
-    }
-
-    #[inline(always)]
-    pub(crate) fn incr_instr_ptr(&mut self) {
-        self.instr_ptr += 1;
     }
 }

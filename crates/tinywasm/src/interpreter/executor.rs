@@ -1,4 +1,5 @@
 use core::hint::cold_path;
+use core::ops::ControlFlow;
 
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
@@ -68,7 +69,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec(&mut self, instr_ptr: usize) -> Result<Option<()>> {
+    fn exec(&mut self, instr_ptr: usize) -> Result<ControlFlow<(), usize>> {
         macro_rules! exec_op {
             (binary_fallible $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
                 let $rhs = <$ty>::stack_pop(&mut self.store.value_stack);
@@ -219,78 +220,78 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             Select64 => Value64::stack_select(&mut self.store.value_stack),
             Select128 => Value128::stack_select(&mut self.store.value_stack),
             SelectMulti(counts) => self.store.value_stack.select_multi(*counts),
-            Call(v) => { self.exec_call_direct(*v)?; return Ok(None); }
-            CallSelf => { self.exec_call_self()?; return Ok(None); }
-            CallIndirect(idx) => { self.exec_call_indirect::<false>(*idx)?; return Ok(None); }
-            CallRef(ty) => { self.exec_call_ref::<false>(*ty)?; return Ok(None); }
-            ReturnCall(v) => { if self.exec_return_call_direct(*v)? { return Ok(Some(())); } return Ok(None); }
-            ReturnCallSelf => { self.exec_return_call_self()?; return Ok(None); }
-            ReturnCallIndirect(idx) => { if self.exec_call_indirect::<true>(*idx)? { return Ok(Some(())); } return Ok(None); }
-            ReturnCallRef(ty) => { if self.exec_call_ref::<true>(*ty)? { return Ok(Some(())); } return Ok(None); }
-            Throw(tag) => { self.exec_throw(*tag)?; return Ok(None); }
-            ThrowRef => { self.exec_throw_ref()?; return Ok(None); }
-            Jump(ip) => { self.cf.instr_ptr = *ip as usize; return Ok(None); }
-            JumpIfZero32(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| i32::stack_pop(&mut self.store.value_stack) == 0) { return Ok(None) },
-            JumpIfNonZero32(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| i32::stack_pop(&mut self.store.value_stack) != 0) { return Ok(None) },
-            JumpIfZero64(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| i64::stack_pop(&mut self.store.value_stack) == 0) { return Ok(None) },
-            JumpIfNonZero64(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| i64::stack_pop(&mut self.store.value_stack) != 0) { return Ok(None) },
-            JumpIfRefNull(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| {
+            Call(v) => { return Ok(self.exec_call_direct(*v, instr_ptr + 1)?); }
+            CallSelf => { self.exec_call_self(instr_ptr + 1)?; return Ok(ControlFlow::Continue(0)); }
+            CallIndirect(idx) => { return Ok(self.exec_call_indirect::<false>(*idx, instr_ptr + 1)?); }
+            CallRef(ty) => { return Ok(self.exec_call_ref::<false>(*ty, instr_ptr + 1)?); }
+            ReturnCall(v) => { return Ok(self.exec_return_call_direct(*v)?); }
+            ReturnCallSelf => { self.exec_return_call_self()?; return Ok(ControlFlow::Continue(0)); }
+            ReturnCallIndirect(idx) => { return Ok(self.exec_call_indirect::<true>(*idx, instr_ptr + 1)?); }
+            ReturnCallRef(ty) => { return Ok(self.exec_call_ref::<true>(*ty, instr_ptr + 1)?); }
+            Throw(tag) => { return Ok(ControlFlow::Continue(self.exec_throw(*tag, instr_ptr)?)); }
+            ThrowRef => { return Ok(ControlFlow::Continue(self.exec_throw_ref(instr_ptr)?)); }
+            Jump(ip) => { return Ok(ControlFlow::Continue(*ip as usize)); }
+            JumpIfZero32(ip) => if Self::exec_jump_if(&self.cf, |_| i32::stack_pop(&mut self.store.value_stack) == 0) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            JumpIfNonZero32(ip) => if Self::exec_jump_if(&self.cf, |_| i32::stack_pop(&mut self.store.value_stack) != 0) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            JumpIfZero64(ip) => if Self::exec_jump_if(&self.cf, |_| i64::stack_pop(&mut self.store.value_stack) == 0) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            JumpIfNonZero64(ip) => if Self::exec_jump_if(&self.cf, |_| i64::stack_pop(&mut self.store.value_stack) != 0) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            JumpIfRefNull(ip) => if Self::exec_jump_if(&self.cf, |_| {
                 let is_null = ValueRef::stack_peek(&self.store.value_stack).is_null();
                 if is_null { ValueRef::stack_pop(&mut self.store.value_stack); }
                 is_null
-            }) { return Ok(None) },
-            JumpIfRefNonNull(ip) => if Self::exec_jump_if(&mut self.cf, *ip, |_| {
+            }) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            JumpIfRefNonNull(ip) => if Self::exec_jump_if(&self.cf, |_| {
                 let is_non_null = !ValueRef::stack_peek(&self.store.value_stack).is_null();
                 if !is_non_null { ValueRef::stack_pop(&mut self.store.value_stack); }
                 is_non_null
-            }) { return Ok(None) },
-            BrOnCast(idx) => { let v = idx.get(&self.func.data); if !self.exec_ref_matches(v.ref_type()) { self.cf.instr_ptr = v.target as usize; return Ok(None); } },
-            BrOnCastFail(idx) => { let v = idx.get(&self.func.data); if self.exec_ref_matches(v.ref_type()) { self.cf.instr_ptr = v.target as usize; return Ok(None); } },
-            JumpIfLocalZero32(arg) => if Self::exec_jump_if(&mut self.cf, arg.target_ip, |cf| Value32::local_get(&self.store.value_stack, cf, arg.local) == 0) { return Ok(None) },
-            JumpIfLocalNonZero32(arg) => if Self::exec_jump_if(&mut self.cf, arg.target_ip, |cf| Value32::local_get(&self.store.value_stack, cf, arg.local) != 0) { return Ok(None) },
-            JumpIfLocalZero64(arg) => if Self::exec_jump_if(&mut self.cf, arg.target_ip, |cf| Value64::local_get(&self.store.value_stack, cf, arg.local) == 0) { return Ok(None) },
-            JumpIfLocalNonZero64(arg) => if Self::exec_jump_if(&mut self.cf, arg.target_ip, |cf| Value64::local_get(&self.store.value_stack, cf, arg.local) != 0) { return Ok(None) },
-            JumpCmpStackConst32(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |_| cmp_i32(i32::stack_pop(&mut self.store.value_stack), v.value, packed.op)) { return Ok(None) } },
-            JumpCmpStackConst64(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |_| cmp_i64(i64::stack_pop(&mut self.store.value_stack), v.value, packed.op)) { return Ok(None) } },
-            JumpCmpStackLocal32(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |cf| {
+            }) { return Ok(ControlFlow::Continue(*ip as usize)) },
+            BrOnCast(idx) => { let v = idx.get(&self.func.data); if !self.exec_ref_matches(v.ref_type()) { return Ok(ControlFlow::Continue(v.target as usize)); } },
+            BrOnCastFail(idx) => { let v = idx.get(&self.func.data); if self.exec_ref_matches(v.ref_type()) { return Ok(ControlFlow::Continue(v.target as usize)); } },
+            JumpIfLocalZero32(arg) => if Self::exec_jump_if(&self.cf, |cf| Value32::local_get(&self.store.value_stack, cf, arg.local) == 0) { return Ok(ControlFlow::Continue(arg.target_ip as usize)) },
+            JumpIfLocalNonZero32(arg) => if Self::exec_jump_if(&self.cf, |cf| Value32::local_get(&self.store.value_stack, cf, arg.local) != 0) { return Ok(ControlFlow::Continue(arg.target_ip as usize)) },
+            JumpIfLocalZero64(arg) => if Self::exec_jump_if(&self.cf, |cf| Value64::local_get(&self.store.value_stack, cf, arg.local) == 0) { return Ok(ControlFlow::Continue(arg.target_ip as usize)) },
+            JumpIfLocalNonZero64(arg) => if Self::exec_jump_if(&self.cf, |cf| Value64::local_get(&self.store.value_stack, cf, arg.local) != 0) { return Ok(ControlFlow::Continue(arg.target_ip as usize)) },
+            JumpCmpStackConst32(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&self.cf, |_| cmp_i32(i32::stack_pop(&mut self.store.value_stack), v.value, packed.op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpStackConst64(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&self.cf, |_| cmp_i64(i64::stack_pop(&mut self.store.value_stack), v.value, packed.op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpStackLocal32(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&self.cf, |cf| {
                 let lhs = i32::stack_pop(&mut self.store.value_stack);
                 cmp_i32(lhs, i32::local_get(&self.store.value_stack, cf, v.local), packed.op)
-            }) { return Ok(None) } },
-            JumpCmpStackLocal64(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |cf| {
+            }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpStackLocal64(packed) => { let v = packed.index.get(&self.func.data); if Self::exec_jump_if(&self.cf, |cf| {
                 let lhs = i64::stack_pop(&mut self.store.value_stack);
                 cmp_i64(lhs, i64::local_get(&self.store.value_stack, cf, v.local), packed.op)
-            }) { return Ok(None) } },
-            BinOpLocalConstJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| { let value = exec_binop_32(op, i32::local_get(&self.store.value_stack, cf, v.local) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, cf, v.local, value); (value == 0) == (v.on_zero != 0) }) { return Ok(None) } },
-            BinOpLocalConstJumpCmpLocal32(packed) => { let v = packed.index.get(&self.func.data); let (binop, cmp) = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| { let lhs = exec_binop_32(binop, i32::local_get(&self.store.value_stack, cf, v.local) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, cf, v.local, lhs); cmp_i32(lhs, i32::local_get(&self.store.value_stack, cf, v.right), cmp) }) { return Ok(None) } },
-            BinOpStackConstTeeLocalJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; let value = exec_binop_32(op, i32::stack_pop(&mut self.store.value_stack) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, &self.cf, v.local, value); i32::stack_push(&mut self.store.value_stack, value)?; if Self::exec_jump_if(&mut self.cf, v.target, |_| (value == 0) == (v.on_zero != 0)) { return Ok(None) } },
-            BinOpGlobalConstJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |_| {
+            }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            BinOpLocalConstJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| { let value = exec_binop_32(op, i32::local_get(&self.store.value_stack, cf, v.local) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, cf, v.local, value); (value == 0) == (v.on_zero != 0) }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            BinOpLocalConstJumpCmpLocal32(packed) => { let v = packed.index.get(&self.func.data); let (binop, cmp) = packed.op; if Self::exec_jump_if(&self.cf, |cf| { let lhs = exec_binop_32(binop, i32::local_get(&self.store.value_stack, cf, v.local) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, cf, v.local, lhs); cmp_i32(lhs, i32::local_get(&self.store.value_stack, cf, v.right), cmp) }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            BinOpStackConstTeeLocalJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; let value = exec_binop_32(op, i32::stack_pop(&mut self.store.value_stack) as u32, v.value as u32) as i32; i32::local_set(&mut self.store.value_stack, &self.cf, v.local, value); i32::stack_push(&mut self.store.value_stack, value)?; if Self::exec_jump_if(&self.cf, |_| (value == 0) == (v.on_zero != 0)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            BinOpGlobalConstJump32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |_| {
                 let global = self.module.resolve_global_addr(v.global);
                 let value = exec_binop_32(op, i32::global_get(&self.store.state.globals, global) as u32, v.value as u32) as i32;
                 i32::global_set(&mut self.store.state.globals, global, value);
                 (value == 0) == (v.on_zero != 0)
-            }) { return Ok(None) } },
-            IncLocalJump32(idx) => { let v = idx.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |cf| { let value = i32::local_get(&self.store.value_stack, cf, v.local).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, cf, v.local, value); (value == 0) == (v.on_zero != 0) }) { return Ok(None) } },
-            IncStackTeeLocalJump32(idx) => { let v = idx.get(&self.func.data); let value = i32::stack_pop(&mut self.store.value_stack).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, &self.cf, v.local, value); i32::stack_push(&mut self.store.value_stack, value)?; if Self::exec_jump_if(&mut self.cf, v.target, |_| (value == 0) == (v.on_zero != 0)) { return Ok(None) } },
-            IncGlobalJump32(idx) => { let v = idx.get(&self.func.data); if Self::exec_jump_if(&mut self.cf, v.target, |_| {
+            }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            IncLocalJump32(idx) => { let v = idx.get(&self.func.data); if Self::exec_jump_if(&self.cf, |cf| { let value = i32::local_get(&self.store.value_stack, cf, v.local).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, cf, v.local, value); (value == 0) == (v.on_zero != 0) }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            IncStackTeeLocalJump32(idx) => { let v = idx.get(&self.func.data); let value = i32::stack_pop(&mut self.store.value_stack).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, &self.cf, v.local, value); i32::stack_push(&mut self.store.value_stack, value)?; if Self::exec_jump_if(&self.cf, |_| (value == 0) == (v.on_zero != 0)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            IncGlobalJump32(idx) => { let v = idx.get(&self.func.data); if Self::exec_jump_if(&self.cf, |_| {
                 let global = self.module.resolve_global_addr(v.global);
                 let value = i32::global_get(&self.store.state.globals, global).wrapping_add(v.value);
                 i32::global_set(&mut self.store.state.globals, global, value);
                 (value == 0) == (v.on_zero != 0)
-            }) { return Ok(None) } },
-            IncLocalJumpCmpLocal32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| { let lhs = i32::local_get(&self.store.value_stack, cf, v.local).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, cf, v.local, lhs); cmp_i32(lhs, i32::local_get(&self.store.value_stack, cf, v.right), op) }) { return Ok(None) } },
-            JumpCmpLocalConst32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| cmp_i32(i32::local_get(&self.store.value_stack, cf, v.local), v.value, op)) { return Ok(None) } },
-            JumpCmpLocalConst64(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| cmp_i64(i64::local_get(&self.store.value_stack, cf, v.local), i64::from(v.value), op)) { return Ok(None) } },
-            JumpCmpLocalLocal32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| cmp_i32(i32::local_get(&self.store.value_stack, cf, v.left), i32::local_get(&self.store.value_stack, cf, v.right), op)) { return Ok(None) } },
-            JumpCmpLocalLocal64(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&mut self.cf, v.target, |cf| cmp_i64(i64::local_get(&self.store.value_stack, cf, v.left), i64::local_get(&self.store.value_stack, cf, v.right), op)) { return Ok(None) } },
+            }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            IncLocalJumpCmpLocal32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| { let lhs = i32::local_get(&self.store.value_stack, cf, v.local).wrapping_add(v.value); i32::local_set(&mut self.store.value_stack, cf, v.local, lhs); cmp_i32(lhs, i32::local_get(&self.store.value_stack, cf, v.right), op) }) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpLocalConst32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| cmp_i32(i32::local_get(&self.store.value_stack, cf, v.local), v.value, op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpLocalConst64(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| cmp_i64(i64::local_get(&self.store.value_stack, cf, v.local), i64::from(v.value), op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpLocalLocal32(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| cmp_i32(i32::local_get(&self.store.value_stack, cf, v.left), i32::local_get(&self.store.value_stack, cf, v.right), op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
+            JumpCmpLocalLocal64(packed) => { let v = packed.index.get(&self.func.data); let op = packed.op; if Self::exec_jump_if(&self.cf, |cf| cmp_i64(i64::local_get(&self.store.value_stack, cf, v.left), i64::local_get(&self.store.value_stack, cf, v.right), op)) { return Ok(ControlFlow::Continue(v.target as usize)) } },
             DropKeep32 { base, keep } => self.store.value_stack.stack_32.truncate_keep((self.cf.stack_base().s32 + u32::from(*base)) as usize, *keep as usize),
             DropKeep64 { base, keep } => self.store.value_stack.stack_64.truncate_keep((self.cf.stack_base().s64 + u32::from(*base)) as usize, *keep as usize),
             DropKeep128 { base, keep } => self.store.value_stack.stack_128.truncate_keep((self.cf.stack_base().s128 + u32::from(*base)) as usize, *keep as usize),
-            BranchTable(idx) => { self.exec_branch_table(*idx); return Ok(None); }
-            Return => { if self.exec_return() { return Ok(Some(())); } return Ok(None); }
-            ReturnVoid => { if self.exec_return_void() { return Ok(Some(())); } return Ok(None); }
-            Return32 => { if self.exec_return_32() { return Ok(Some(())); } return Ok(None); }
-            Return64 => { if self.exec_return_64() { return Ok(Some(())); } return Ok(None); }
-            Return128 => { if self.exec_return_128() { return Ok(Some(())); } return Ok(None); }
+            BranchTable(idx) => { return Ok(ControlFlow::Continue(self.exec_branch_table(*idx))); }
+            Return => { return Ok(self.exec_return()); }
+            ReturnVoid => { return Ok(self.exec_return_void()); }
+            Return32 => { return Ok(self.exec_return_32()); }
+            Return64 => { return Ok(self.exec_return_64()); }
+            Return128 => { return Ok(self.exec_return_128()); }
             LocalGet32(local_index) => Value32::local_push(&mut self.store.value_stack, &self.cf, *local_index)?,
             LocalGet64(local_index) => Value64::local_push(&mut self.store.value_stack, &self.cf, *local_index)?,
             LocalGet128(local_index) => Value128::local_push(&mut self.store.value_stack, &self.cf, *local_index)?,
@@ -887,21 +888,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             I32x4RelaxedTruncF64x2UZero => exec_op!(unary Value128 => Value128, |v| v.i32x4_relaxed_trunc_f64x2_u_zero()),
         };
 
-        self.cf.instr_ptr = instr_ptr + 1;
-
-        Ok(None)
+        Ok(ControlFlow::Continue(instr_ptr + 1))
     }
 
     #[inline(always)]
-    fn exec_jump_if(cf: &mut CallFrame, target_ip: u32, condition: impl FnOnce(&CallFrame) -> bool) -> bool {
-        let condition = condition(cf);
-        if condition {
-            cf.instr_ptr = target_ip as usize;
-        }
-        condition
+    fn exec_jump_if(cf: &CallFrame, condition: impl FnOnce(&CallFrame) -> bool) -> bool {
+        condition(cf)
     }
 
-    fn exec_branch_table(&mut self, index: OperandIdx<BranchTableArg>) {
+    fn exec_branch_table(&mut self, index: OperandIdx<BranchTableArg>) -> usize {
         let v = index.get(&self.func.data);
         let idx = <i32>::stack_pop(&mut self.store.value_stack);
         let target_ip = if idx >= 0 && (idx as u32) < v.len {
@@ -910,7 +905,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             v.target
         };
 
-        self.cf.instr_ptr = target_ip as usize;
+        target_ip as usize
     }
 
     fn create_exception(&mut self, tag_index: TagAddr) -> Result<ValueRef, Trap> {
@@ -935,22 +930,22 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.store.state.alloc_exception(tag_addr, payload, roots)
     }
 
-    fn exec_throw(&mut self, tag_index: TagAddr) -> Result<()> {
+    fn exec_throw(&mut self, tag_index: TagAddr, instr_ptr: usize) -> Result<usize> {
         let exception = self.create_exception(tag_index)?;
-        self.throw_exception(exception)
+        self.throw_exception(exception, instr_ptr)
     }
 
-    fn exec_throw_ref(&mut self) -> Result<()> {
+    fn exec_throw_ref(&mut self, instr_ptr: usize) -> Result<usize> {
         let exception = ValueRef::stack_pop(&mut self.store.value_stack);
         if exception.is_null() {
             return Err(Trap::NullReference.into());
         }
-        self.throw_exception(exception)
+        self.throw_exception(exception, instr_ptr)
     }
 
-    fn throw_exception(&mut self, exception: ValueRef) -> Result<()> {
-        match self.dispatch_exception(exception) {
-            Ok(Some(_)) => Ok(()),
+    fn throw_exception(&mut self, exception: ValueRef, protected_ip: usize) -> Result<usize> {
+        match self.dispatch_exception(exception, protected_ip) {
+            Ok(Some(landing_pad)) => Ok(landing_pad),
             Ok(None) => self.store.root_exception(exception).and_then(|exception| Err(Error::Exception(exception))),
             Err(trap) => Err(trap.into()),
         }
@@ -983,12 +978,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         }
     }
 
-    fn dispatch_exception(&mut self, exception: ValueRef) -> Result<Option<ExceptionCatch>, Trap> {
+    fn dispatch_exception(&mut self, exception: ValueRef, mut protected_ip: usize) -> Result<Option<usize>, Trap> {
         let object = self.store.state.gc.get(exception).ok_or(Trap::InvalidReference)?;
         let crate::store::GcObjectKind::Exception(tag_addr) = object.kind else {
             return Err(Trap::InvalidReference);
         };
-        let mut protected_ip = self.cf.instr_ptr;
         loop {
             if let Some(catch) = self.matching_catch(protected_ip, tag_addr) {
                 let (landing_pad, base, with_ref, include_payload) = match catch {
@@ -1012,8 +1006,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 if with_ref {
                     self.store.value_stack.push(exception)?;
                 }
-                self.cf.instr_ptr = landing_pad as usize;
-                return Ok(Some(catch));
+                return Ok(Some(landing_pad as usize));
             }
 
             self.store.value_stack.truncate_to_base(self.cf.locals_base);
@@ -1030,12 +1023,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         wasm_func: Arc<WasmFunction>,
         owner: ModuleInstanceId,
         func_addr: FuncAddr,
+        return_instr_ptr: usize,
     ) -> Result<(), Trap> {
         let Ok(locals_base) = self.store.value_stack.enter_locals(&wasm_func.params, &wasm_func.locals) else {
             return cold!(Err(Trap::CallStackOverflow));
         };
 
-        self.store.call_stack.push(self.cf)?;
+        self.store.call_stack.push(self.cf, return_instr_ptr)?;
         let locals = wasm_func.locals;
         if !Arc::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func;
@@ -1070,15 +1064,19 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
-    fn exec_call_host<const TAIL: bool>(&mut self, host_func: HostFunction, type_addr: TypeAddr) -> Result<bool, Trap> {
+    fn exec_call_host<const TAIL: bool>(
+        &mut self,
+        host_func: HostFunction,
+        type_addr: TypeAddr,
+        return_instr_ptr: usize,
+    ) -> Result<ControlFlow<(), usize>, Trap> {
         if let Some(host_func) = host_func.typed_callback() {
             cold_err!(host_func.call_stack(self.store, self.module.id(), type_addr))
                 .map_err(|error| Trap::HostFunction(Box::new(error)))?;
             if TAIL {
                 return Ok(self.exec_return());
             }
-            self.cf.instr_ptr += 1;
-            return Ok(false);
+            return Ok(ControlFlow::Continue(return_instr_ptr));
         }
 
         let (param_count, result_count, base) = {
@@ -1103,51 +1101,46 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 Error::Trap(trap) => trap,
                 other => Trap::HostFunction(Box::new(other)),
             })?;
-        if TAIL {
-            Ok(self.exec_return())
-        } else {
-            self.cf.instr_ptr += 1;
-            Ok(false)
-        }
+        if TAIL { Ok(self.exec_return()) } else { Ok(ControlFlow::Continue(return_instr_ptr)) }
     }
 
-    fn exec_call_direct(&mut self, v: u32) -> Result<(), Trap> {
+    fn exec_call_direct(&mut self, v: u32, return_instr_ptr: usize) -> Result<ControlFlow<(), usize>, Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         let func = self.store.state.get_func(addr);
         match &func.kind {
             crate::store::FunctionKind::Wasm(wasm_func) => {
-                self.exec_call(wasm_func.func.clone(), wasm_func.owner, addr)
+                self.exec_call(wasm_func.func.clone(), wasm_func.owner, addr, return_instr_ptr)?;
+                Ok(ControlFlow::Continue(0))
             }
             crate::store::FunctionKind::Host(host_func) => {
-                self.exec_call_host::<false>(host_func.clone(), func.type_addr)?;
-                Ok(())
+                self.exec_call_host::<false>(host_func.clone(), func.type_addr, return_instr_ptr)
             }
         }
     }
 
-    fn exec_return_call_direct(&mut self, v: u32) -> Result<bool, Trap> {
+    fn exec_return_call_direct(&mut self, v: u32) -> Result<ControlFlow<(), usize>, Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         let func = self.store.state.get_func(addr);
         match &func.kind {
             crate::store::FunctionKind::Wasm(wasm_func) => {
                 self.exec_return_call(wasm_func.func.clone(), wasm_func.owner, addr)?;
-                Ok(false)
+                Ok(ControlFlow::Continue(0))
             }
             crate::store::FunctionKind::Host(host_func) => {
-                self.exec_call_host::<true>(host_func.clone(), func.type_addr)
+                self.exec_call_host::<true>(host_func.clone(), func.type_addr, 0)
             }
         }
     }
 
-    fn exec_call_self(&mut self) -> Result<(), Trap> {
+    fn exec_call_self(&mut self, return_instr_ptr: usize) -> Result<(), Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
             return cold!(Err(Trap::CallStackOverflow));
         };
         let new = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
-        self.store.call_stack.push(core::mem::replace(&mut self.cf, new))?;
+        self.store.call_stack.push(core::mem::replace(&mut self.cf, new), return_instr_ptr)?;
 
         Ok(())
     }
@@ -1163,7 +1156,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         Ok(())
     }
 
-    fn exec_call_indirect<const IS_RETURN_CALL: bool>(&mut self, index: OperandIdx<TwoU32>) -> Result<bool, Trap> {
+    fn exec_call_indirect<const IS_RETURN_CALL: bool>(
+        &mut self,
+        index: OperandIdx<TwoU32>,
+        return_instr_ptr: usize,
+    ) -> Result<ControlFlow<(), usize>, Trap> {
         let TwoU32 { first: type_addr, second: table_addr } = index.get(&self.func.data);
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         // verify that the table is of the right type, this should be validated by the parser already
@@ -1179,14 +1176,15 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             return cold!(Err(Trap::UninitializedElement { index: table_idx }));
         };
 
-        self.exec_typed_call::<IS_RETURN_CALL>(func_ref, self.module.resolve_type_addr(type_addr))
+        self.exec_typed_call::<IS_RETURN_CALL>(func_ref, self.module.resolve_type_addr(type_addr), return_instr_ptr)
     }
 
     fn exec_typed_call<const IS_RETURN_CALL: bool>(
         &mut self,
         func_addr: FuncAddr,
         expected_type_addr: TypeAddr,
-    ) -> Result<bool, Trap> {
+        return_instr_ptr: usize,
+    ) -> Result<ControlFlow<(), usize>, Trap> {
         let func = self.store.state.get_func(func_addr);
         if !self.store.state.type_addr_is_subtype(func.type_addr, expected_type_addr) {
             return cold!(Err(Trap::IndirectCallTypeMismatch {
@@ -1197,51 +1195,56 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         match &func.kind {
             crate::store::FunctionKind::Wasm(wasm_func) => match IS_RETURN_CALL {
                 true => self.exec_return_call(wasm_func.func.clone(), wasm_func.owner, func_addr),
-                false => self.exec_call(wasm_func.func.clone(), wasm_func.owner, func_addr),
+                false => self.exec_call(wasm_func.func.clone(), wasm_func.owner, func_addr, return_instr_ptr),
             },
             crate::store::FunctionKind::Host(host_func) => {
-                return self.exec_call_host::<IS_RETURN_CALL>(host_func.clone(), func.type_addr);
+                return self.exec_call_host::<IS_RETURN_CALL>(host_func.clone(), func.type_addr, return_instr_ptr);
             }
         }?;
-        Ok(false)
+        Ok(ControlFlow::Continue(0))
     }
 
-    fn exec_call_ref<const IS_RETURN_CALL: bool>(&mut self, type_addr: u32) -> Result<bool, Trap> {
+    fn exec_call_ref<const IS_RETURN_CALL: bool>(
+        &mut self,
+        type_addr: u32,
+        return_instr_ptr: usize,
+    ) -> Result<ControlFlow<(), usize>, Trap> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let func_ref = ValueRef::stack_pop(&mut self.store.value_stack);
         let Some(func_addr) = func_ref.addr() else {
             return cold!(Err(Trap::NullFunctionReference));
         };
 
-        self.exec_typed_call::<IS_RETURN_CALL>(func_addr, self.module.resolve_type_addr(type_addr))
+        self.exec_typed_call::<IS_RETURN_CALL>(func_addr, self.module.resolve_type_addr(type_addr), return_instr_ptr)
     }
 
-    fn exec_return(&mut self) -> bool {
+    fn exec_return(&mut self) -> ControlFlow<(), usize> {
         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.results);
         self.finish_return()
     }
 
     #[inline(always)]
-    fn finish_return(&mut self) -> bool {
+    fn finish_return(&mut self) -> ControlFlow<(), usize> {
         let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
-            return true;
+            return ControlFlow::Break(());
         };
+        let instr_ptr = caller.instr_ptr;
         if caller.func_addr == self.cf.func_addr {
             self.cf = caller;
         } else {
             self.switch_to_frame(caller);
         }
-        false
+        ControlFlow::Continue(instr_ptr)
     }
 
     #[inline(always)]
-    fn exec_return_void(&mut self) -> bool {
+    fn exec_return_void(&mut self) -> ControlFlow<(), usize> {
         self.store.value_stack.truncate_to_base(self.cf.locals_base);
         self.finish_return()
     }
 
     #[inline(always)]
-    fn exec_return_32(&mut self) -> bool {
+    fn exec_return_32(&mut self) -> ControlFlow<(), usize> {
         self.store.value_stack.stack_32.truncate_to_one_tail(self.cf.locals_base.s32 as usize);
         self.store.value_stack.stack_64.truncate_to(self.cf.locals_base.s64 as usize);
         self.store.value_stack.stack_128.truncate_to(self.cf.locals_base.s128 as usize);
@@ -1249,7 +1252,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec_return_64(&mut self) -> bool {
+    fn exec_return_64(&mut self) -> ControlFlow<(), usize> {
         self.store.value_stack.stack_32.truncate_to(self.cf.locals_base.s32 as usize);
         self.store.value_stack.stack_64.truncate_to_one_tail(self.cf.locals_base.s64 as usize);
         self.store.value_stack.stack_128.truncate_to(self.cf.locals_base.s128 as usize);
@@ -1257,7 +1260,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     }
 
     #[inline(always)]
-    fn exec_return_128(&mut self) -> bool {
+    fn exec_return_128(&mut self) -> ControlFlow<(), usize> {
         self.store.value_stack.stack_32.truncate_to(self.cf.locals_base.s32 as usize);
         self.store.value_stack.stack_64.truncate_to(self.cf.locals_base.s64 as usize);
         self.store.value_stack.stack_128.truncate_to_one_tail(self.cf.locals_base.s128 as usize);
@@ -1934,10 +1937,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 impl<'store> Executor<'store, false> {
     #[inline(always)]
     pub(crate) fn run_to_completion(mut self) -> Result<()> {
-        // ideally we use `loop_match` / `become` once thats stabilized
+        let mut instr_ptr = self.cf.instr_ptr;
         loop {
-            if self.exec(self.cf.instr_ptr)?.is_some() {
-                return Ok(());
+            match self.exec(instr_ptr)? {
+                ControlFlow::Continue(next_instr_ptr) => instr_ptr = next_instr_ptr,
+                ControlFlow::Break(()) => return Ok(()),
             }
         }
     }
@@ -1951,14 +1955,17 @@ impl<'store> Executor<'store, false> {
             return Ok(ExecState::Suspended(self.cf));
         }
 
+        let mut instr_ptr = self.cf.instr_ptr;
         loop {
             for _ in 0..128 {
-                if self.exec(self.cf.instr_ptr)?.is_some() {
-                    return Ok(ExecState::Completed);
+                match self.exec(instr_ptr)? {
+                    ControlFlow::Continue(next_instr_ptr) => instr_ptr = next_instr_ptr,
+                    ControlFlow::Break(()) => return Ok(ExecState::Completed),
                 }
             }
 
             if start.elapsed() >= time_budget {
+                self.cf.instr_ptr = instr_ptr;
                 return Ok(ExecState::Suspended(self.cf));
             }
         }
@@ -1973,15 +1980,18 @@ impl<'store> Executor<'store, true> {
             return Ok(ExecState::Suspended(self.cf));
         }
 
+        let mut instr_ptr = self.cf.instr_ptr;
         loop {
             for _ in 0..128 {
-                if self.exec(self.cf.instr_ptr)?.is_some() {
-                    return Ok(ExecState::Completed);
+                match self.exec(instr_ptr)? {
+                    ControlFlow::Continue(next_instr_ptr) => instr_ptr = next_instr_ptr,
+                    ControlFlow::Break(()) => return Ok(ExecState::Completed),
                 }
             }
 
             self.store.execution_fuel = self.store.execution_fuel.saturating_sub(128);
             if self.store.execution_fuel == 0 {
+                self.cf.instr_ptr = instr_ptr;
                 return Ok(ExecState::Suspended(self.cf));
             }
         }
