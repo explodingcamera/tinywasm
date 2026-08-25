@@ -17,7 +17,18 @@ wasmparser = { workspace = true, features = ["simd"] }
 
 [features]
 default = ["log", "parallel", "std", "validate"]
+
+# enable integration with the log crate
 log = ["dep:log"]
+
+# parse and validate function bodies in parallel (requires std)
 parallel = ["std"]
+
+# support targets without native atomic CAS
+portable-atomic = ["tinywasm-types/portable-atomic"]
+
+# enable standard library support
 std = ["tinywasm-types/std", "wasmparser/std"]
+
+# validate WebAssembly while parsing
 validate = ["wasmparser/features", "wasmparser/validate"]

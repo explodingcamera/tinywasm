@@ -62,18 +62,17 @@ impl Function {
         store.enter_execution()?;
         let result: Result<FuncExecutionState> = (|| {
             let func_instance = store.state.get_func(self.addr()).clone();
-            match &func_instance.kind {
-                crate::store::FunctionKind::Host(host_func) => {
+            match &func_instance.inner {
+                crate::store::FunctionInstanceInner::Host(host_func) => {
                     host_func.clone().call_values(store, self.module_id, func_instance.type_addr, params, results)?;
                     Ok(FuncExecutionState::Completed(Some(CallResult::Written)))
                 }
-                crate::store::FunctionKind::Wasm(wasm_func) => {
+                crate::store::FunctionInstanceInner::Wasm(wasm_func) => {
                     store.call_stack.clear();
                     store.value_stack.clear();
-                    let locals = wasm_func.func.locals;
                     store.push_wasm_values(params.iter().cloned())?;
-                    let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &locals)?;
-                    let callframe = CallFrame::new(self.addr(), locals_base, locals);
+                    let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
+                    let callframe = CallFrame::new(self.addr(), locals_base, wasm_func.func.locals);
 
                     Ok(FuncExecutionState::Running { callframe, root_func_addr: self.addr() })
                 }
@@ -205,7 +204,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     pub fn call_resumable<'store>(&self, store: &'store mut Store, params: P) -> Result<FuncExecutionTyped<'store, R>> {
         self.func.item.validate_store(store)?;
         let func = store.state.get_func(self.func.addr()).clone();
-        if matches!(&func.kind, crate::store::FunctionKind::Host(host) if host.typed_callback().is_none()) {
+        if matches!(&func.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none()) {
             let result = self.call(store, params)?;
             let execution = ExecutionCore { store, state: FuncExecutionState::Completed(None) };
             return Ok(FuncExecutionTyped { execution, result: Some(result) });

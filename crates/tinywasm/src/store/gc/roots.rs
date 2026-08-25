@@ -1,4 +1,5 @@
-use alloc::{sync::Arc, sync::Weak, vec::Vec};
+use alloc::vec::Vec;
+use tinywasm_types::{Shared, WeakShared};
 
 use crate::Trap;
 use crate::interpreter::ValueRef;
@@ -10,7 +11,7 @@ pub(crate) struct Roots {
 
 struct Root {
     value: ValueRef,
-    token: Weak<()>,
+    token: WeakShared<()>,
 }
 
 impl Roots {
@@ -24,7 +25,7 @@ impl Roots {
         self.entries.try_reserve(needed).map_err(|_| Trap::OutOfMemory)
     }
 
-    pub(crate) fn insert(&mut self, value: ValueRef) -> Result<Arc<()>, Trap> {
+    pub(crate) fn insert(&mut self, value: ValueRef) -> Result<Shared<()>, Trap> {
         if self.free.is_empty() && self.entries.len() == self.entries.capacity() {
             self.remove_dead();
         }
@@ -37,8 +38,8 @@ impl Roots {
             index
         };
 
-        let token = Arc::new(());
-        self.entries[index as usize] = Some(Root { value, token: Arc::downgrade(&token) });
+        let token = Shared::new(());
+        self.entries[index as usize] = Some(Root { value, token: Shared::downgrade(&token) });
         Ok(token)
     }
 

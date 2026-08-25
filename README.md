@@ -57,9 +57,10 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
+- **`send`:** Makes stores and store-local handles movable across threads
 - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 
-With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`, making it usable in `no_std + alloc` environments.
+With default features disabled, `tinywasm` supports `no_std + alloc` and depends only on `libm`.
 
 Use [`Engine`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Engine.html) and [`engine::Config`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Config.html) for non-default fuel accounting, stack sizing, or GC collection thresholds. A configured `ResourceLimiter` can allow, reject, or trap memory and table allocation or growth requests, and GC object allocations.
 

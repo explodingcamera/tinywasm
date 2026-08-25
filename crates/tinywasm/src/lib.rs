@@ -90,6 +90,9 @@ mod macros;
 mod std;
 extern crate alloc;
 
+#[cfg(all(not(feature = "portable-atomic"), not(target_has_atomic = "32")))]
+compile_error!("tinywasm requires native 32-bit atomics; enable the `portable-atomic` feature");
+
 // log for logging (optional).
 #[cfg(feature = "log")]
 #[expect(clippy::single_component_path_imports)]
@@ -111,7 +114,7 @@ mod error;
 pub use error::*;
 pub use func::{
     ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
-    HostFunction, IntoWasmValues, ToWasmType, ToWasmTypes,
+    HostFunction, HostFunctionCallback, IntoWasmValues, ToWasmType, ToWasmTypes,
 };
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};
@@ -122,6 +125,7 @@ mod func;
 mod imports;
 mod instance;
 mod reference;
+mod shared;
 mod store;
 
 mod interpreter;

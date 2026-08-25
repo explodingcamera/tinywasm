@@ -3,7 +3,7 @@ use crate::log::debug;
 use crate::validation::{FuncToValidate, ValidatorResources};
 use crate::validation::{FuncValidatorAllocations, Validator};
 use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
-use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
@@ -37,7 +37,7 @@ pub(crate) fn optimize_function_code(
 pub(crate) struct ModuleReader<'a> {
     func_validator_allocations: Option<FuncValidatorAllocations>,
     operators_reader_allocations: Option<OperatorsReaderAllocations>,
-    translation_metadata: Option<Arc<crate::visit::ModuleMetadata>>,
+    translation_metadata: Option<crate::visit::ModuleMetadata>,
 
     has_code_section: bool,
     has_type_section: bool,
@@ -48,7 +48,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) types: TypeSection,
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
-    pub(crate) exports: Arc<[Export]>,
+    pub(crate) exports: Shared<[Export]>,
     pub(crate) code: Vec<OptimizedFunctionCode>,
     pub(crate) globals: Box<[Global]>,
     pub(crate) tables: Box<[TableDefinition]>,
@@ -68,7 +68,7 @@ pub(crate) struct ModuleReader<'a> {
 impl<'a> ModuleReader<'a> {
     fn translation_metadata(&mut self) -> &crate::visit::ModuleMetadata {
         if self.translation_metadata.is_none() {
-            self.translation_metadata = Some(Arc::new(crate::visit::ModuleMetadata::new(
+            self.translation_metadata = Some(crate::visit::ModuleMetadata::new(
                 &self.types,
                 &self.code_type_addrs,
                 &self.imports,
@@ -76,9 +76,9 @@ impl<'a> ModuleReader<'a> {
                 &self.memory_types,
                 &self.tables,
                 &self.tags,
-            )));
+            ));
         }
-        self.translation_metadata.as_deref().unwrap()
+        self.translation_metadata.as_ref().unwrap()
     }
 
     pub(crate) fn process_payload(&mut self, payload: Payload<'_>, validator: Option<&mut Validator>) -> Result<()> {
@@ -435,7 +435,7 @@ impl<'a> ModuleReader<'a> {
         &mut self,
         count: u32,
         body_offset: u64,
-        section_bytes: Arc<[u8]>,
+        section_bytes: Shared<[u8]>,
         validator: Option<&mut Validator>,
     ) -> Result<()> {
         #[cfg(feature = "validate")]
@@ -545,7 +545,7 @@ impl<'a> ModuleReader<'a> {
                     self.types.get(ty_idx).and_then(SubType::as_func).expect("function type was checked while parsing");
                 let params = ValueCounts::from_iter(ty.params());
 
-                Ok(Arc::new(WasmFunction {
+                Ok(Shared::new(WasmFunction {
                     instructions: code.instructions.into_boxed_slice(),
                     data: code.data,
                     locals: code.locals,

@@ -1,11 +1,11 @@
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use core::mem::size_of;
-use core::sync::atomic::{AtomicU32, Ordering};
 
 use tinywasm_types::{TagAddr, TypeAddr};
 
 use crate::engine::Config;
 use crate::interpreter::{RuntimeValue, ValueRef};
+use crate::shared::{AtomicU32, Ordering, StoreShared};
 use crate::{ResourceLimiter, Trap};
 
 use super::{AllocError, Arena, Handle, Trace};
@@ -35,7 +35,7 @@ impl Trace for GcObject {
 pub(crate) struct GcHeap {
     objects: Arena<GcObject>,
     directory: Vec<(u32, Handle)>,
-    resource_limiter: Option<Arc<dyn ResourceLimiter>>,
+    resource_limiter: Option<StoreShared<dyn ResourceLimiter>>,
 }
 
 impl Default for GcHeap {
@@ -114,11 +114,10 @@ impl GcHeap {
     ) -> Result<ValueRef, Trap> {
         let element_size = size_of::<RuntimeValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
         let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
-        let key =
-            NEXT_GC_REF.try_update(Ordering::Relaxed, Ordering::Relaxed, |key| (key < (1 << 30)).then_some(key + 1));
-        let Ok(key) = key else {
+        let key = NEXT_GC_REF.fetch_add(1, Ordering::Relaxed);
+        if key >= 1 << 30 {
             return Err(Trap::OutOfMemory);
-        };
+        }
         let references = if trace_references {
             let mut references = Vec::new();
             references.try_reserve_exact(values.len()).map_err(|_| Trap::OutOfMemory)?;

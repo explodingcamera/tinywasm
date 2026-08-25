@@ -1,7 +1,7 @@
-use alloc::sync::Arc;
-use core::sync::atomic::{AtomicU32, Ordering};
+use tinywasm_types::Shared;
 
 use crate::interpreter::ValueRef;
+use crate::shared::{AtomicU32, Ordering};
 use crate::{Result, Store, Trap};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -10,19 +10,14 @@ pub(crate) struct StoreId(u32);
 impl StoreId {
     pub(crate) fn fresh() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
-        next_store_id(&NEXT)
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        assert_ne!(id, u32::MAX, "Store identity space exhausted");
+        StoreId(id)
     }
 
     pub(crate) const fn get(self) -> u32 {
         self.0
     }
-}
-
-fn next_store_id(counter: &AtomicU32) -> StoreId {
-    let id = counter
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-        .expect("Store identity space exhausted");
-    StoreId(id)
 }
 
 #[cfg(feature = "debug")]
@@ -47,7 +42,7 @@ pub(crate) struct RootedItem {
     pub(crate) store: StoreId,
     pub(crate) value: ValueRef,
     pub(crate) kind: ReferentKind,
-    pub(crate) _token: Option<Arc<()>>,
+    pub(crate) _token: Option<Shared<()>>,
 }
 
 impl PartialEq for RootedItem {
@@ -219,14 +214,6 @@ impl I31Ref {
 mod tests {
     extern crate std;
     use super::*;
-
-    #[test]
-    fn exhausted_store_identity_counter_never_wraps() {
-        let counter = AtomicU32::new(u32::MAX - 1);
-        assert_eq!(next_store_id(&counter).get(), u32::MAX - 1);
-        assert!(std::panic::catch_unwind(|| next_store_id(&counter)).is_err());
-        assert!(std::panic::catch_unwind(|| next_store_id(&counter)).is_err());
-    }
 
     #[test]
     fn host_reference_key_fits_internal_encoding() {

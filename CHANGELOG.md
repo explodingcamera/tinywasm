@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ResourceLimiter` callbacks for memory and table allocation or growth
 - A default `validate` Cargo feature & parser option to skip wasm validation
 - Optional parse-time operand deduplication to reduce `.twasm` archive size
+- Optional `send` support for moving stores and store-local handles across threads
+- Optional portable atomic shared pointers and counters for targets without native compare-and-swap
 
 ### Changed
 

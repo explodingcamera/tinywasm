@@ -9,8 +9,26 @@
 //! Types used by [`tinywasm`](https://docs.rs/tinywasm) and [`tinywasm_parser`](https://docs.rs/tinywasm_parser).
 
 extern crate alloc;
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use core::ops::{Deref, Range};
+
+#[cfg(all(not(feature = "portable-atomic"), not(target_has_atomic = "ptr")))]
+compile_error!(
+    "this target does not support atomic operations, enable the `portable-atomic` feature to use `portable-atomic`"
+);
+
+/// An atomically reference-counted pointer.
+#[cfg(not(feature = "portable-atomic"))]
+pub use alloc::sync::Arc as Shared;
+/// A non-owning pointer paired with [`Shared`].
+#[cfg(not(feature = "portable-atomic"))]
+pub use alloc::sync::Weak as WeakShared;
+/// An atomically reference-counted pointer.
+#[cfg(feature = "portable-atomic")]
+pub use portable_atomic_util::Arc as Shared;
+/// A non-owning pointer paired with [`Shared`].
+#[cfg(feature = "portable-atomic")]
+pub use portable_atomic_util::Weak as WeakShared;
 
 // Memory defaults
 const MEM_PAGE_SIZE: u64 = 65536;
@@ -56,11 +74,11 @@ pub mod archive {
 #[derive(Clone, Default, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct Module(Arc<ModuleInner>);
+pub struct Module(Shared<ModuleInner>);
 
 impl From<ModuleInner> for Module {
     fn from(inner: ModuleInner) -> Self {
-        Self(Arc::new(inner))
+        Self(Shared::new(inner))
     }
 }
 
@@ -85,7 +103,7 @@ pub struct ModuleInner {
     /// Optimized WebAssembly functions
     ///
     /// Contains data from to the `code`, `func`, and `type` sections of the original WebAssembly module.
-    pub funcs: Box<[Arc<WasmFunction>]>,
+    pub funcs: Box<[Shared<WasmFunction>]>,
 
     /// The dense type definitions, indexed by `TypeAddr`.
     ///
@@ -98,7 +116,7 @@ pub struct ModuleInner {
     /// Exported items of the WebAssembly module.
     ///
     /// Corresponds to the `export` section of the original WebAssembly module.
-    pub exports: Arc<[Export]>,
+    pub exports: Shared<[Export]>,
 
     /// Global components of the WebAssembly module.
     ///

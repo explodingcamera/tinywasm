@@ -13,6 +13,8 @@ mod resume;
 mod values;
 pub use context::FuncContext;
 pub use host::HostFunction;
+#[doc(hidden)]
+pub use host::HostFunctionCallback;
 pub use resume::{ExecProgress, FuncExecution, FuncExecutionTyped};
 pub use values::{FromWasmValues, IntoWasmValues, ToWasmType, ToWasmTypes};
 
@@ -122,12 +124,12 @@ impl Function {
     ) -> Result<()> {
         let instance = store.state.get_func(self.addr());
         let type_addr = instance.type_addr;
-        match &instance.kind {
-            crate::store::FunctionKind::Host(host) => {
+        match &instance.inner {
+            crate::store::FunctionInstanceInner::Host(host) => {
                 let host = host.clone();
                 host.call_values(store, self.module_id, type_addr, params, results)
             }
-            crate::store::FunctionKind::Wasm(wasm) => {
+            crate::store::FunctionInstanceInner::Wasm(wasm) => {
                 let wasm_params = wasm.func.params;
                 let wasm_locals = wasm.func.locals;
                 store
@@ -156,15 +158,15 @@ impl Function {
         stack_base: StackBase,
     ) -> Result<Option<CallFrame>> {
         store.push_typed_values::<false>(instance.type_addr, params, stack_base)?;
-        match &instance.kind {
-            crate::store::FunctionKind::Wasm(wasm) => {
+        match &instance.inner {
+            crate::store::FunctionInstanceInner::Wasm(wasm) => {
                 let locals_base = store
                     .value_stack
                     .enter_locals(&wasm.func.params, &wasm.func.locals)
                     .inspect_err(|_| store.value_stack.truncate_to_base(stack_base))?;
                 Ok(Some(CallFrame::new(self.addr(), locals_base, wasm.func.locals)))
             }
-            crate::store::FunctionKind::Host(host) => {
+            crate::store::FunctionInstanceInner::Host(host) => {
                 host.typed_callback()
                     .expect("typed host function")
                     .call_stack(store, self.module_id, instance.type_addr)
@@ -209,7 +211,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         self.func.item.validate_store(store)?;
         let func = store.state.get_func(self.func.addr()).clone();
-        if matches!(&func.kind, crate::store::FunctionKind::Host(host) if host.typed_callback().is_none()) {
+        if matches!(&func.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none()) {
             let ty = store.state.get_canonical_func_type(func.type_addr);
             let (param_count, result_count) = (ty.params().len(), ty.results().len());
             store.with_scratch_values(param_count + result_count, |store, values| {

@@ -1,10 +1,12 @@
-use alloc::sync::Arc;
+use alloc::boxed::Box;
 
 use crate::ResourceLimiter;
+use crate::shared::StoreShared;
 
 /// Global configuration for the WebAssembly interpreter
 ///
-/// Can be cheaply cloned and shared across multiple executions and threads.
+/// Can be cheaply cloned across stores. With the `send` feature, it can also be
+/// moved and shared across threads.
 ///
 /// ## Example
 /// ```rust
@@ -117,7 +119,7 @@ pub struct Config {
     /// Fuel accounting policy used by budgeted execution. Defaults to [`FuelPolicy::PerInstruction`].
     pub fuel_policy: FuelPolicy,
     /// Resource limiter shared across all stores created from this engine. Defaults to `None`.
-    pub resource_limiter: Option<Arc<dyn ResourceLimiter>>,
+    pub resource_limiter: Option<StoreShared<dyn ResourceLimiter>>,
     /// Initial number of GC heap bytes that triggers collection.
     /// Defaults to 1 MiB.
     pub gc_collection_threshold: usize,
@@ -168,8 +170,11 @@ impl Config {
     }
 
     /// Set the resource limiter shared across all stores created from this engine.
-    pub fn with_resource_limiter(mut self, limiter: Arc<dyn ResourceLimiter>) -> Self {
-        self.resource_limiter = Some(limiter);
+    ///
+    /// The limiter is converted to TinyWasm's internal shared pointer. Pass the
+    /// limiter value directly rather than wrapping it in `Rc` or `Arc`.
+    pub fn with_resource_limiter(mut self, limiter: impl ResourceLimiter + 'static) -> Self {
+        self.resource_limiter = Some(StoreShared::from(Box::new(limiter) as Box<dyn ResourceLimiter>));
         self
     }
 

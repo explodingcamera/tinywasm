@@ -309,8 +309,8 @@ impl State {
 
     /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
     pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
-        match self.funcs.get(addr as usize).map(|func| &func.kind) {
-            Some(FunctionKind::Wasm(wasm_func)) => wasm_func,
+        match self.funcs.get(addr as usize).map(|func| &func.inner) {
+            Some(FunctionInstanceInner::Wasm(wasm_func)) => wasm_func,
             _ => unreachable!("invalid wasm function address: {addr}"),
         }
     }

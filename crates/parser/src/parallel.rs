@@ -1,10 +1,9 @@
 use crate::module::{OptimizedFunctionCode, optimize_function_code};
 use crate::validation::{FuncToValidate, FuncValidatorAllocations, ValidatorResources};
 use crate::{ParseError, ParserOptions, Result, conversion};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Range;
-use tinywasm_types::ValueCounts;
+use tinywasm_types::{Shared, ValueCounts};
 use wasmparser::OperatorsReaderAllocations;
 
 pub(crate) enum FunctionBodyInput<'a> {
@@ -15,7 +14,7 @@ pub(crate) enum FunctionBodyInput<'a> {
 pub(crate) struct OwnedFunctionBody {
     // A deferred stream code section is copied once, then shared by all queued
     // function jobs from that section.
-    pub section_bytes: Arc<[u8]>,
+    pub section_bytes: Shared<[u8]>,
     pub body_range: Range<usize>,
     pub body_offset: u64,
 }

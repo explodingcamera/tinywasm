@@ -119,7 +119,8 @@ impl FuncContext<'_> {
         }
         func.func.item.validate_store(self.store)?;
         let func_instance = self.store.state.get_func(func.func.addr()).clone();
-        if matches!(&func_instance.kind, crate::store::FunctionKind::Host(host) if host.typed_callback().is_none()) {
+        if matches!(&func_instance.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none())
+        {
             let ty = self.store.state.get_canonical_func_type(func_instance.type_addr);
             let (param_count, result_count) = (ty.params().len(), ty.results().len());
             self.store.with_scratch_values(param_count + result_count, |store, values| {

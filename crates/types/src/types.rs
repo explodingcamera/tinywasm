@@ -1,6 +1,6 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 
-use crate::{TypeAddr, WasmType};
+use crate::{Shared, TypeAddr, WasmType};
 
 /// The dense type index space of a WebAssembly module.
 ///
@@ -106,7 +106,7 @@ impl CompositeType {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct FuncType {
-    data: Arc<[WasmType]>,
+    data: Shared<[WasmType]>,
     param_count: u16,
 }
 

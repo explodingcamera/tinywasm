@@ -125,8 +125,7 @@ impl ResourceLimiter for GcUsage {
 #[test]
 fn dropped_exception_roots_release_counted_gc_bytes() {
     let usage = Arc::new(Mutex::new(Vec::new()));
-    let config =
-        Config::new().with_gc_collection_threshold(usize::MAX).with_resource_limiter(Arc::new(GcUsage(usage.clone())));
+    let config = Config::new().with_gc_collection_threshold(usize::MAX).with_resource_limiter(GcUsage(usage.clone()));
     let mut store = Store::new(Engine::new(config));
     let instance = instantiate(&mut store);
     let catch = instance.func_untyped(&store, "catch-scalar").unwrap();

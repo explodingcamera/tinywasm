@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, format, rc::Rc, sync::Arc};
+use alloc::{boxed::Box, format};
 use core::hint::cold_path;
 use tinywasm_types::*;
 
 use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};
 use crate::reference::StoreId;
+use crate::shared::StoreShared;
 use crate::store::MemoryInstance;
 use crate::{
     Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap, WasmValue,
@@ -41,12 +42,12 @@ pub enum ExternItem {
 /// # }
 /// ```
 ///
-/// Backed by an Rc, so cloning is cheap
+/// Cloning an instance handle is cheap.
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#module-instances>
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-pub struct ModuleInstance(Rc<ModuleInstanceInner>);
+pub struct ModuleInstance(StoreShared<ModuleInstanceInner>);
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 struct ModuleInstanceInner {
@@ -61,7 +62,7 @@ struct ModuleInstanceInner {
     elem_addrs: Box<[ElemAddr]>,
     data_addrs: Box<[DataAddr]>,
     func_start: Option<FuncAddr>,
-    exports: Arc<[Export]>,
+    exports: Shared<[Export]>,
 }
 
 impl ModuleInstance {
@@ -206,7 +207,7 @@ impl ModuleInstance {
             exports: module.exports.clone(),
         };
 
-        let instance = ModuleInstance(Rc::new(instance));
+        let instance = ModuleInstance(StoreShared::new(instance));
         store.add_instance(instance.clone());
 
         if let Some(trap) = elem_trapped.or(data_trapped) {

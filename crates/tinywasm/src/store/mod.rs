@@ -41,7 +41,6 @@ pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 ///
 /// # Example
 /// ```rust
-/// use std::sync::Arc;
 /// use tinywasm::engine::Config;
 /// use tinywasm::types::{MemoryArch, MemoryType};
 /// use tinywasm::{Engine, Memory, ResourceLimiter, Store};
@@ -59,7 +58,7 @@ pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 ///     }
 /// }
 ///
-/// let config = Config::new().with_resource_limiter(Arc::new(MemoryLimit(64 * 1024)));
+/// let config = Config::new().with_resource_limiter(MemoryLimit(64 * 1024));
 /// let mut store = Store::new(Engine::new(config));
 /// let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 /// assert_eq!(memory.grow(&mut store, 1)?, None);
@@ -506,7 +505,7 @@ impl Store {
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
-        funcs: &[alloc::sync::Arc<WasmFunction>],
+        funcs: &[Shared<WasmFunction>],
         owner: ModuleInstanceId,
         module_type_idxs: &[TypeAddr],
         type_addrs: &[TypeAddr],
@@ -516,9 +515,10 @@ impl Store {
         self.state.funcs.reserve_exact(funcs.len());
         for (func, &type_idx) in funcs.iter().cloned().zip(module_type_idxs) {
             let type_addr = type_addrs[type_idx as usize];
-            self.state
-                .funcs
-                .push(FunctionInstance { type_addr, kind: FunctionKind::Wasm(WasmFunctionInstance { func, owner }) });
+            self.state.funcs.push(FunctionInstance {
+                type_addr,
+                inner: FunctionInstanceInner::Wasm(WasmFunctionInstance { func, owner }),
+            });
         }
         start..start + funcs.len() as FuncAddr
     }

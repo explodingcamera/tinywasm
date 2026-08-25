@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use tinywasm_types::*;
 
 use crate::func::HostFunction;
@@ -10,12 +9,12 @@ use crate::func::HostFunction;
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct FunctionInstance {
     pub(crate) type_addr: TypeAddr,
-    pub(crate) kind: FunctionKind,
+    pub(crate) inner: FunctionInstanceInner,
 }
 
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) enum FunctionKind {
+pub(crate) enum FunctionInstanceInner {
     /// A host function
     Host(HostFunction),
 
@@ -26,6 +25,6 @@ pub(crate) enum FunctionKind {
 #[derive(Clone)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub(crate) struct WasmFunctionInstance {
-    pub(crate) func: Arc<WasmFunction>,
+    pub(crate) func: Shared<WasmFunction>,
     pub(crate) owner: ModuleInstanceId,
 }

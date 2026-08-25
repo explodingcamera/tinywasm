@@ -66,10 +66,10 @@ mod tests {
     use super::*;
     use crate::{
         AbstractHeapType, ConstInstruction, Global, GlobalType, Instruction, ModuleFuncIdx, ModuleInner, RefType,
-        V128Operand, WasmFunction, WasmType,
+        Shared, V128Operand, WasmFunction, WasmType,
     };
     use crate::{OperandIdx, OperandType};
-    use alloc::{boxed::Box, sync::Arc, vec};
+    use alloc::boxed::Box;
 
     #[test]
     fn test_invalid_magic() {
@@ -92,9 +92,9 @@ mod tests {
         let bytes = [0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xfe, 0xff, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x90];
         let mut function = WasmFunction::default();
         let constant = OperandIdx::new(0);
-        function.data.operands128 = vec![V128Operand { value: bytes }.encode()].into_boxed_slice();
-        function.instructions = vec![Instruction::Const128(constant), Instruction::I8x16Shuffle(constant)].into();
-        let module = Module::from(ModuleInner { funcs: Box::new([Arc::new(function)]), ..ModuleInner::default() });
+        function.data.operands128 = Box::new([V128Operand { value: bytes }.encode()]);
+        function.instructions = Box::new([Instruction::Const128(constant), Instruction::I8x16Shuffle(constant)]);
+        let module = Module::from(ModuleInner { funcs: Box::new([Shared::new(function)]), ..ModuleInner::default() });
 
         let archive = module.serialize_twasm().expect("serialize archive");
         assert_eq!(&archive[..6], b"TWAS06");
@@ -114,21 +114,20 @@ mod tests {
     fn const_reference_expressions_round_trip_archive() {
         let null_type = RefType::new_abstract(true, AbstractHeapType::Extern);
         let module = Module::from(ModuleInner {
-            globals: vec![
+            globals: Box::new([
                 Global {
                     ty: GlobalType::new(WasmType::Ref(null_type), false),
-                    init: vec![ConstInstruction::RefNull(null_type)].into_boxed_slice(),
+                    init: Box::new([ConstInstruction::RefNull(null_type)]),
                 },
                 Global {
                     ty: GlobalType::new(WasmType::Ref(RefType::FUNCREF), false),
-                    init: vec![ConstInstruction::RefFunc(ModuleFuncIdx::new(7))].into_boxed_slice(),
+                    init: Box::new([ConstInstruction::RefFunc(ModuleFuncIdx::new(7))]),
                 },
                 Global {
                     ty: GlobalType::new(WasmType::Ref(RefType::new_abstract(false, AbstractHeapType::I31)), false),
-                    init: vec![ConstInstruction::I32Const(42), ConstInstruction::RefI31].into_boxed_slice(),
+                    init: Box::new([ConstInstruction::I32Const(42), ConstInstruction::RefI31]),
                 },
-            ]
-            .into_boxed_slice(),
+            ]),
             ..ModuleInner::default()
         });
 

@@ -1,18 +1,38 @@
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 
 use super::{FromWasmValues, FuncContext, IntoWasmValues, ToWasmTypes};
+use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
 use crate::{Function, FunctionInstance, Result, Store, WasmValue};
 
+/// Trait bounds required for a host callback in the current build mode.
+#[doc(hidden)]
+#[cfg(not(feature = "send"))]
+pub trait HostFunctionCallback {}
+#[cfg(not(feature = "send"))]
+impl<T: ?Sized> HostFunctionCallback for T {}
+
+/// Trait bounds required for a host callback in the current build mode.
+#[doc(hidden)]
+#[cfg(feature = "send")]
+pub trait HostFunctionCallback: Send + Sync {}
+#[cfg(feature = "send")]
+impl<T: Send + Sync + ?Sized> HostFunctionCallback for T {}
+
 /// A reusable host function definition.
+///
+/// Host functions accept thread-local callback state by default. With the
+/// `send` feature, callbacks must implement `Send + Sync` and host function
+/// definitions can be moved and shared across threads.
 #[derive(Clone)]
-pub struct HostFunction(Arc<HostFunctionInner>);
+pub struct HostFunction(StoreShared<HostFunctionInner>);
 
 impl HostFunction {
     /// Instantiates the function with an already registered canonical type.
     pub(crate) fn instantiate_registered(&self, store: &mut Store, type_addr: TypeAddr) -> Function {
-        let addr = store.add_func(FunctionInstance { type_addr, kind: crate::store::FunctionKind::Host(self.clone()) });
+        let addr = store
+            .add_func(FunctionInstance { type_addr, inner: crate::store::FunctionInstanceInner::Host(self.clone()) });
         Function { item: crate::StoreItem::new(store.store_id(), addr), module_id: 0 }
     }
 
@@ -155,11 +175,11 @@ impl HostFunction {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn from_untyped(
-        ty: &FuncType,
-        func: impl Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()> + Send + Sync + 'static,
-    ) -> Self {
-        Self(Arc::new(HostFunctionInner { ty: ty.clone(), callback: HostCallback::Untyped(Box::new(func)) }))
+    pub fn from_untyped<F>(ty: &FuncType, func: F) -> Self
+    where
+        F: Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()> + HostFunctionCallback + 'static,
+    {
+        Self(StoreShared::new(HostFunctionInner { ty: ty.clone(), callback: HostCallback::Untyped(Box::new(func)) }))
     }
 
     /// Create a new typed host function.
@@ -190,14 +210,15 @@ impl HostFunction {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn from<P, R>(func: impl Fn(FuncContext<'_>, P) -> Result<R> + Send + Sync + 'static) -> Self
+    pub fn from<F, P, R>(func: F) -> Self
     where
+        F: Fn(FuncContext<'_>, P) -> Result<R> + HostFunctionCallback + 'static,
         P: FromWasmValues + ToWasmTypes + 'static,
         R: IntoWasmValues + ToWasmTypes + 'static,
     {
         let ty = FuncType::new(&P::wasm_types(), &R::wasm_types());
         let func = TypedHostCallbackImpl { func, marker: core::marker::PhantomData };
-        Self(Arc::new(HostFunctionInner { ty, callback: HostCallback::Typed(Box::new(func)) }))
+        Self(StoreShared::new(HostFunctionInner { ty, callback: HostCallback::Typed(Box::new(func)) }))
     }
 }
 
@@ -211,8 +232,17 @@ enum HostCallback {
     Typed(Box<dyn TypedHostCallback>),
 }
 
+#[cfg(not(feature = "send"))]
+type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()>;
+#[cfg(feature = "send")]
 type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()> + Send + Sync;
 
+#[cfg(not(feature = "send"))]
+pub(crate) trait TypedHostCallback {
+    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
+    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
+}
+#[cfg(feature = "send")]
 pub(crate) trait TypedHostCallback: Send + Sync {
     fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
     fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
@@ -225,7 +255,7 @@ struct TypedHostCallbackImpl<F, P, R> {
 
 impl<F, P, R> TypedHostCallback for TypedHostCallbackImpl<F, P, R>
 where
-    F: Fn(FuncContext<'_>, P) -> Result<R> + Send + Sync,
+    F: Fn(FuncContext<'_>, P) -> Result<R> + HostFunctionCallback,
     P: FromWasmValues,
     R: IntoWasmValues,
 {

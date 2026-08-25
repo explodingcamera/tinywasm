@@ -88,6 +88,7 @@ name = "test-wasm-wide-arithmetic"
 [dependencies]
 libm = { version = "0.2", default-features = false }
 log = { workspace = true, optional = true }
+portable-atomic = { version = "1.15.0", default-features = false, optional = true }
 tinywasm-parser = { workspace = true, optional = true }
 tinywasm-types = { workspace = true }
 
@@ -111,6 +112,9 @@ default = [
 log = ["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std = ["tinywasm-parser?/std", "tinywasm-types/std"]
 
+# make stores, instances, references, and host callbacks movable across threads
+send = []
+
 # support for parsing WebAssembly
 parser = ["dep:tinywasm-parser"]
 
@@ -119,6 +123,9 @@ validate = ["parser", "tinywasm-parser/validate"]
 
 # parallelize function parsing/validation across threads (requires std)
 parallel-parser = ["parser", "tinywasm-parser?/parallel"]
+
+# support targets without native atomic CAS
+portable-atomic = ["dep:portable-atomic", "tinywasm-parser?/portable-atomic", "tinywasm-types/portable-atomic"]
 
 # support for "archiving" tinywasm bytecode
 archive = ["tinywasm-types/archive"]

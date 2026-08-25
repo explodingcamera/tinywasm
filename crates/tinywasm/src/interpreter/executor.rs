@@ -8,7 +8,6 @@ use super::no_std_floats::NoStdFloatExt;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use alloc::sync::Arc;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
@@ -24,7 +23,7 @@ const FUEL_COST_CALL_TOTAL: u32 = 5;
 
 pub(crate) struct Executor<'store, const BUDGETED: bool> {
     cf: CallFrame,
-    func: Arc<WasmFunction>,
+    func: Shared<WasmFunction>,
     module: ModuleInstance,
     store: &'store mut Store,
     call_stack_base: u32,
@@ -1020,7 +1019,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_call(
         &mut self,
-        wasm_func: Arc<WasmFunction>,
+        wasm_func: Shared<WasmFunction>,
         owner: ModuleInstanceId,
         func_addr: FuncAddr,
         return_instr_ptr: usize,
@@ -1030,11 +1029,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         };
 
         self.store.call_stack.push(self.cf, return_instr_ptr)?;
-        let locals = wasm_func.locals;
-        if !Arc::ptr_eq(&self.func, &wasm_func) {
+        self.cf = CallFrame::new(func_addr, locals_base, wasm_func.locals);
+        if !Shared::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func;
         }
-        self.cf = CallFrame::new(func_addr, locals_base, locals);
         if owner != self.module.id() {
             self.set_module(owner);
         }
@@ -1044,7 +1042,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_return_call(
         &mut self,
-        wasm_func: Arc<WasmFunction>,
+        wasm_func: Shared<WasmFunction>,
         owner: ModuleInstanceId,
         func_addr: FuncAddr,
     ) -> Result<(), Trap> {
@@ -1052,11 +1050,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let Ok(locals_base) = self.store.value_stack.enter_locals(&wasm_func.params, &wasm_func.locals) else {
             return cold!(Err(Trap::CallStackOverflow));
         };
-        let locals = wasm_func.locals;
-        if !Arc::ptr_eq(&self.func, &wasm_func) {
+        self.cf = CallFrame::new(func_addr, locals_base, wasm_func.locals);
+        if !Shared::ptr_eq(&self.func, &wasm_func) {
             self.func = wasm_func;
         }
-        self.cf = CallFrame::new(func_addr, locals_base, locals);
         if owner != self.module.id() {
             self.set_module(owner);
         }
@@ -1108,12 +1105,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         let func = self.store.state.get_func(addr);
-        match &func.kind {
-            crate::store::FunctionKind::Wasm(wasm_func) => {
+        match &func.inner {
+            crate::store::FunctionInstanceInner::Wasm(wasm_func) => {
                 self.exec_call(wasm_func.func.clone(), wasm_func.owner, addr, return_instr_ptr)?;
                 Ok(ControlFlow::Continue(0))
             }
-            crate::store::FunctionKind::Host(host_func) => {
+            crate::store::FunctionInstanceInner::Host(host_func) => {
                 self.exec_call_host::<false>(host_func.clone(), func.type_addr, return_instr_ptr)
             }
         }
@@ -1123,12 +1120,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let addr = self.module.resolve_func_addr(v);
         let func = self.store.state.get_func(addr);
-        match &func.kind {
-            crate::store::FunctionKind::Wasm(wasm_func) => {
+        match &func.inner {
+            crate::store::FunctionInstanceInner::Wasm(wasm_func) => {
                 self.exec_return_call(wasm_func.func.clone(), wasm_func.owner, addr)?;
                 Ok(ControlFlow::Continue(0))
             }
-            crate::store::FunctionKind::Host(host_func) => {
+            crate::store::FunctionInstanceInner::Host(host_func) => {
                 self.exec_call_host::<true>(host_func.clone(), func.type_addr, 0)
             }
         }
@@ -1192,12 +1189,12 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                 expected: Box::new(self.store.state.get_canonical_func_type(expected_type_addr).clone()),
             }));
         }
-        match &func.kind {
-            crate::store::FunctionKind::Wasm(wasm_func) => match IS_RETURN_CALL {
+        match &func.inner {
+            crate::store::FunctionInstanceInner::Wasm(wasm_func) => match IS_RETURN_CALL {
                 true => self.exec_return_call(wasm_func.func.clone(), wasm_func.owner, func_addr),
                 false => self.exec_call(wasm_func.func.clone(), wasm_func.owner, func_addr, return_instr_ptr),
             },
-            crate::store::FunctionKind::Host(host_func) => {
+            crate::store::FunctionInstanceInner::Host(host_func) => {
                 return self.exec_call_host::<IS_RETURN_CALL>(host_func.clone(), func.type_addr, return_instr_ptr);
             }
         }?;

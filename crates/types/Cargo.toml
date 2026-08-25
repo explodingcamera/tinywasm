@@ -12,13 +12,24 @@ categories.workspace = true
 
 [dependencies]
 log = { workspace = true, optional = true }
+portable-atomic-util = { version = "0.2.7", default-features = false, features = ["alloc"], optional = true }
 postcard = { version = "1.1", default-features = false, features = ["alloc"], optional = true }
-serde = { version = "1.0", default-features = false, features = ["alloc", "rc"], optional = true }
+serde = { version = "1.0", default-features = false, features = ["alloc"], optional = true }
 
 [features]
 default = ["archive", "debug", "log", "std"]
 
-archive = ["dep:postcard", "dep:serde"]
+# support serializing and deserializing twasm archives
+archive = ["dep:postcard", "dep:serde", "serde/rc", "portable-atomic-util?/serde"]
+
+# derive Debug for runtime and module types
 debug = []
+
+# enable integration with the log crate
 log = ["dep:log"]
+
+# enable standard library support
 std = ["serde?/std"]
+
+# support targets without native atomic CAS
+portable-atomic = ["dep:portable-atomic-util"]

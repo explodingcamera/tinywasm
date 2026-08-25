@@ -1,14 +1,10 @@
-extern crate alloc;
-
-use alloc::sync::Arc;
-
 use tinywasm::engine::Config;
 use tinywasm::types::{MemoryArch, MemoryType, RefType, RefValue, TableType};
 use tinywasm::{Engine, Memory, ModuleInstance, ResourceLimiter, Store, Table, Trap};
 
 type TestResult<T = ()> = Result<T, Box<dyn core::error::Error>>;
 
-fn store_with_limiter(limiter: Arc<dyn ResourceLimiter>) -> Store {
+fn store_with_limiter(limiter: impl ResourceLimiter + 'static) -> Store {
     let engine = Engine::new(Config::new().with_resource_limiter(limiter));
     Store::new(engine)
 }
@@ -83,7 +79,7 @@ impl ResourceLimiter for TrapGrowth {
 
 #[test]
 fn resource_limiter_can_reject_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(DenyGrowth));
+    let mut store = store_with_limiter(DenyGrowth);
     let memory = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None))?;
 
     assert_eq!(memory.grow(&mut store, 1)?, None);
@@ -103,7 +99,7 @@ fn resource_limiter_rejects_guest_memory_grow() -> TestResult {
         "#,
     )?;
     let module = tinywasm::parse_bytes(&wasm)?;
-    let mut store = store_with_limiter(Arc::new(DenyGrowth));
+    let mut store = store_with_limiter(DenyGrowth);
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let grow = instance.func::<(), i32>(&store, "grow")?;
@@ -123,7 +119,7 @@ fn resource_limiter_can_trap_guest_memory_grow() -> TestResult {
         "#,
     )?;
     let module = tinywasm::parse_bytes(&wasm)?;
-    let mut store = store_with_limiter(Arc::new(TrapGrowth));
+    let mut store = store_with_limiter(TrapGrowth);
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
 
     let grow = instance.func::<(), i32>(&store, "grow")?;
@@ -133,7 +129,7 @@ fn resource_limiter_can_trap_guest_memory_grow() -> TestResult {
 
 #[test]
 fn resource_limiter_rejects_host_memory_initial_size() {
-    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let mut store = store_with_limiter(DenyAll);
     let result = Memory::try_new(&mut store, MemoryType::new(MemoryArch::I32, 1, None, None));
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
@@ -143,7 +139,7 @@ fn resource_limiter_rejects_host_memory_initial_size() {
 fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
     let wasm = wat::parse_str("(module (memory 1))")?;
     let module = tinywasm::parse_bytes(&wasm)?;
-    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let mut store = store_with_limiter(DenyAll);
     let result = ModuleInstance::instantiate(&mut store, &module, None);
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
@@ -152,7 +148,7 @@ fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
 
 #[test]
 fn resource_limiter_rejects_table_initial_size() {
-    let mut store = store_with_limiter(Arc::new(DenyAll));
+    let mut store = store_with_limiter(DenyAll);
     let result = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into());
 
     assert!(matches!(result, Err(tinywasm::Error::Trap(Trap::OutOfMemory))));
@@ -168,7 +164,7 @@ fn table_rejects_initial_size_above_maximum() {
 
 #[test]
 fn resource_limiter_can_reject_table_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(DenyGrowth));
+    let mut store = store_with_limiter(DenyGrowth);
     let table = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
 
     assert_eq!(table.grow(&mut store, 1, RefValue::Null.into())?, None);
@@ -178,7 +174,7 @@ fn resource_limiter_can_reject_table_growth() -> TestResult {
 
 #[test]
 fn resource_limiter_can_trap_table_growth() -> TestResult {
-    let mut store = store_with_limiter(Arc::new(TrapGrowth));
+    let mut store = store_with_limiter(TrapGrowth);
     let table = Table::try_new(&mut store, TableType::new(RefType::FUNCREF, 1, None), RefValue::Null.into())?;
 
     assert!(matches!(table.grow(&mut store, 1, RefValue::Null.into()), Err(tinywasm::Error::Trap(Trap::Unreachable))));

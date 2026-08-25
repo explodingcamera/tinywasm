@@ -292,7 +292,8 @@ impl Parser {
                         }
 
                         let section_end = buffer_offset + section_size;
-                        let section_bytes = alloc::sync::Arc::<[u8]>::from(buffer[buffer_offset..section_end].to_vec());
+                        let section_bytes =
+                            tinywasm_types::Shared::<[u8]>::from(buffer[buffer_offset..section_end].to_vec());
                         reader.queue_owned_code_section(count, parser.offset(), section_bytes, validator.as_mut())?;
                         parser.skip_section();
                         buffer_offset = section_end;
