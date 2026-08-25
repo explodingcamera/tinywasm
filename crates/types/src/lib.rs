@@ -750,7 +750,7 @@ impl From<&ImportKind> for ExternalKind {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct Data {
-    pub data: Box<[u8]>,
+    pub data: Shared<[u8]>,
     pub range: Range<u64>,
     pub kind: DataKind,
 }

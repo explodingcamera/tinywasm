@@ -55,7 +55,7 @@ pub(crate) fn convert_module_data(
     global_types: &[WasmType],
 ) -> Result<tinywasm_types::Data> {
     Ok(tinywasm_types::Data {
-        data: data.data.to_vec().into_boxed_slice(),
+        data: data.data.into(),
         range: data.range,
         kind: match data.kind {
             wasmparser::DataKind::Active { memory_index, offset_expr } => {

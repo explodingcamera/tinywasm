@@ -747,7 +747,7 @@ impl Store {
                         }
                     }
                 }
-                tinywasm_types::DataKind::Passive => Some(data.data.to_vec()),
+                tinywasm_types::DataKind::Passive => Some(data.data.clone()),
             };
 
             self.state.data.push(DataInstance { data: data_val });
