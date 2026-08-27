@@ -11,7 +11,7 @@ fn private_items_are_accessible_by_index() -> Result<(), Box<dyn core::error::Er
         (module
           (func (result i32)
             i32.const 7)
-          (memory 1)
+          (memory (export "memory") 1)
           (global (mut i32) (i32.const 11))
           (table 2 funcref)
           (elem (i32.const 0) func 0)

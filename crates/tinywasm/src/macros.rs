@@ -19,18 +19,15 @@ macro_rules! cold_err {
 
 macro_rules! unwrap_or_unreachable {
     ($value:expr) => {{
-        unwrap_or_unreachable!($value, "entered unreachable code")
-    }};
-    ($value:expr, $($message:tt)+) => {{
         match $value {
             Some(value) => value,
-            None => $crate::macros::unwrap_unreachable(format_args!($($message)+)),
+            None => cold!(unreachable!()),
         }
     }};
-}
-
-#[cold]
-#[inline(never)]
-pub(crate) fn unwrap_unreachable(message: core::fmt::Arguments<'_>) -> ! {
-    unreachable!("{message}")
+    ($value:expr, $($arg:tt)+) => {{
+        match $value {
+            Some(value) => value,
+            None => cold!(unreachable!($($arg)+)),
+        }
+    }};
 }

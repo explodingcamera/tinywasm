@@ -137,7 +137,7 @@ fn resource_limiter_rejects_host_memory_initial_size() {
 
 #[test]
 fn resource_limiter_rejects_module_memory_initial_size() -> TestResult {
-    let wasm = wat::parse_str("(module (memory 1))")?;
+    let wasm = wat::parse_str("(module (memory (export \"memory\") 1))")?;
     let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = store_with_limiter(DenyAll);
     let result = ModuleInstance::instantiate(&mut store, &module, None);

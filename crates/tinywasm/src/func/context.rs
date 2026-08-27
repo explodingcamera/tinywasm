@@ -24,8 +24,7 @@ impl FuncContext<'_> {
     pub fn module(&self) -> crate::ModuleInstance {
         unwrap_or_unreachable!(
             self.store.get_module_instance(self.module_id),
-            "invalid module instance id in host function context: {}",
-            self.module_id
+            "invalid module instance id in host function context"
         )
         .clone()
     }
