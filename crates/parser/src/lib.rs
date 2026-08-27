@@ -61,11 +61,11 @@ pub struct ParserOptions {
     /// Disable this only for trusted input. Parsing without validation may produce
     /// a module that violates runtime assumptions.
     pub validation: bool,
+
     /// Whether to run the peephole rewrite optimizer.
     pub optimize_rewrite: bool,
+
     /// Whether to deduplicate immutable function operands while parsing.
-    ///
-    /// This uses more parse CPU to reduce precompiled module and archive size.
     pub deduplicate_operands: bool,
 
     #[cfg(parallel_parser)]

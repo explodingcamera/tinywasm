@@ -489,15 +489,14 @@ impl Store {
     }
 
     /// Reads typed results from the value stack and restores its previous base.
+    #[inline]
     pub(crate) fn take_typed_results<R: FromWasmValues>(
         &mut self,
         type_addr: TypeAddr,
         stack_base: StackBase,
     ) -> Result<R> {
-        let result = {
-            let mut values = self.stack_value_iter(type_addr, FuncValueTypes::Results, stack_base)?;
-            R::from_wasm_values_exact(&mut values)
-        };
+        let mut values = cold_err!(self.stack_value_iter(type_addr, FuncValueTypes::Results, stack_base))?;
+        let result = cold_err!(R::from_wasm_values_exact(&mut values));
         self.value_stack.truncate_to_base(stack_base);
         result
     }

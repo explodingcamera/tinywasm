@@ -261,13 +261,13 @@ where
 {
     fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let mut values = args.iter().cloned();
-        let params = P::from_wasm_values_exact(&mut values)?;
+        let params = cold_err!(P::from_wasm_values_exact(&mut values))?;
         let mut values = (self.func)(ctx, params)?.into_wasm_values();
         for result in results {
-            *result = values.next().ok_or_else(|| crate::Error::other("not enough typed function results"))?;
+            *result = cold_err!(values.next().ok_or_else(|| crate::Error::other("not enough typed function results")))?;
         }
         if values.next().is_some() {
-            return Err(crate::Error::other("too many typed function results"));
+            return cold!(Err(crate::Error::other("too many typed function results")));
         }
         Ok(())
     }
@@ -279,10 +279,10 @@ where
         };
         let params = {
             let mut values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
-            P::from_wasm_values_exact(&mut values)
+            cold_err!(P::from_wasm_values_exact(&mut values))
         };
         store.value_stack.truncate_to_base(base);
-        let result = (self.func)(FuncContext { store, module_id }, params?)?;
+        let result = cold_err!((self.func)(FuncContext { store, module_id }, params?))?;
         store.push_typed_values::<true>(type_addr, result.into_wasm_values(), base)
     }
 }

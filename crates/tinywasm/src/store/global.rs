@@ -30,16 +30,16 @@ impl<T: Copy> GlobalLane<T> {
 
     #[inline(always)]
     fn get(&self, index: usize, addr: GlobalAddr) -> T {
-        *self.values.get(index).unwrap_or_else(|| unreachable!("invalid global address: {addr}"))
+        *unwrap_or_unreachable!(self.values.get(index), "invalid global address: {addr}")
     }
 
     #[inline(always)]
     fn set(&mut self, index: usize, addr: GlobalAddr, value: T) {
-        *self.values.get_mut(index).unwrap_or_else(|| unreachable!("invalid global address: {addr}")) = value;
+        *unwrap_or_unreachable!(self.values.get_mut(index), "invalid global address: {addr}") = value;
     }
 
     fn ty(&self, index: usize, addr: GlobalAddr) -> GlobalType {
-        *self.types.get(index).unwrap_or_else(|| unreachable!("invalid global address: {addr}"))
+        *unwrap_or_unreachable!(self.types.get(index), "invalid global address: {addr}")
     }
 }
 

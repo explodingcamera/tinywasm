@@ -5,9 +5,9 @@ use crate::{
 };
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
 use tinywasm_types::{
-    BranchTableArg, CastBranch, ExceptionHandler, Global, I64Operand, Import, ImportKind, Instruction, MemoryArg,
-    MemoryType, Operand64, Operand128, OperandIdx, OperandType, StorageType, TableDefinition, TagType, TwoU32,
-    TypeSection, V128Operand, ValueCounts, ValueLane, WasmFunctionData,
+    BranchTableOperand, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType, Operand64, Operand64Idx,
+    Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts, ValueLane,
+    WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -51,6 +51,7 @@ pub(crate) struct ModuleMetadata {
     tables: Vec<ValueLane>,
     tags: Vec<u32>,
     aggregate_fields: Vec<AggregateFields>,
+    imported_memories: u32,
 }
 
 pub(crate) struct FunctionDataBuilder {
@@ -61,42 +62,6 @@ pub(crate) struct FunctionDataBuilder {
     deduplicate64: Option<BTreeMap<Operand64, u32>>,
     deduplicate128: Option<BTreeMap<Operand128, u32>>,
 }
-
-pub(crate) trait BuilderRawOperand: tinywasm_types::RawOperand + Ord {
-    fn push(builder: &mut FunctionDataBuilder, raw: Self, deduplicate: bool) -> Result<u32>;
-    fn get(builder: &FunctionDataBuilder, index: u32) -> Self;
-    fn set(builder: &mut FunctionDataBuilder, index: u32, raw: Self);
-}
-
-macro_rules! builder_raw_operand {
-    ($raw:ty, $lane:ident, $map:ident) => {
-        impl BuilderRawOperand for $raw {
-            fn push(builder: &mut FunctionDataBuilder, raw: Self, deduplicate: bool) -> Result<u32> {
-                if deduplicate && let Some(index) = builder.$map.as_ref().and_then(|map| map.get(&raw)) {
-                    return Ok(*index);
-                }
-                let index = u32::try_from(builder.$lane.len())
-                    .map_err(|_| crate::ParseError::Other("instruction operand index overflow".into()))?;
-                builder.$lane.push(raw);
-                if deduplicate && let Some(map) = &mut builder.$map {
-                    map.insert(raw, index);
-                }
-                Ok(index)
-            }
-
-            fn get(builder: &FunctionDataBuilder, index: u32) -> Self {
-                *builder.$lane.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
-            }
-
-            fn set(builder: &mut FunctionDataBuilder, index: u32, raw: Self) {
-                *builder.$lane.get_mut(index as usize).unwrap_or_else(|| unreachable!("invalid operand index")) = raw;
-            }
-        }
-    };
-}
-
-builder_raw_operand!(Operand64, operands64, deduplicate64);
-builder_raw_operand!(Operand128, operands128, deduplicate128);
 
 impl FunctionDataBuilder {
     pub(crate) fn new(deduplicate_operands: bool) -> Self {
@@ -110,32 +75,56 @@ impl FunctionDataBuilder {
         }
     }
 
-    pub(crate) fn push_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
-    where
-        T::Raw: BuilderRawOperand,
-    {
-        <T::Raw as BuilderRawOperand>::push(self, operand.encode(), true).map(OperandIdx::new)
+    pub(crate) fn push_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+        let operand = operand.cast();
+        if let Some(index) = self.deduplicate64.as_ref().and_then(|map| map.get(&operand)) {
+            return Ok(Operand64Idx::new(*index));
+        }
+        let index = self.operands64.len() as u32;
+        self.operands64.push(operand);
+        if let Some(map) = &mut self.deduplicate64 {
+            map.insert(operand, index);
+        }
+        Ok(Operand64Idx::new(index))
     }
 
-    pub(crate) fn push_target_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
-    where
-        T::Raw: BuilderRawOperand,
-    {
-        <T::Raw as BuilderRawOperand>::push(self, operand.encode(), false).map(OperandIdx::new)
+    pub(crate) fn push_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+        let operand = operand.cast();
+        if let Some(index) = self.deduplicate128.as_ref().and_then(|map| map.get(&operand)) {
+            return Ok(Operand128Idx::new(*index));
+        }
+        let index = self.operands128.len() as u32;
+        self.operands128.push(operand);
+        if let Some(map) = &mut self.deduplicate128 {
+            map.insert(operand, index);
+        }
+        Ok(Operand128Idx::new(index))
     }
 
-    pub(crate) fn operand<T: OperandType>(&self, index: OperandIdx<T>) -> T
-    where
-        T::Raw: BuilderRawOperand,
-    {
-        T::decode(<T::Raw as BuilderRawOperand>::get(self, index.index()))
+    pub(crate) fn push_target_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+        self.operands64.push(operand.cast());
+        Ok(Operand64Idx::new(self.operands64.len() as u32 - 1))
     }
 
-    pub(crate) fn set_operand<T: OperandType>(&mut self, index: OperandIdx<T>, operand: T)
-    where
-        T::Raw: BuilderRawOperand,
-    {
-        <T::Raw as BuilderRawOperand>::set(self, index.index(), operand.encode())
+    pub(crate) fn push_target_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+        self.operands128.push(operand.cast());
+        Ok(Operand128Idx::new(self.operands128.len() as u32 - 1))
+    }
+
+    pub(crate) fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
+        self.operands64[index.index()].cast()
+    }
+
+    pub(crate) fn operand128<T>(&self, index: Operand128Idx<T>) -> Operand128<T> {
+        self.operands128[index.index()].cast()
+    }
+
+    pub(crate) fn set_operand64<T>(&mut self, index: Operand64Idx<T>, operand: Operand64<T>) {
+        self.operands64[index.index()] = operand.cast();
+    }
+
+    pub(crate) fn set_operand128<T>(&mut self, index: Operand128Idx<T>, operand: Operand128<T>) {
+        self.operands128[index.index()] = operand.cast();
     }
 
     pub(crate) fn finish(self) -> WasmFunctionData {
@@ -163,6 +152,7 @@ pub(crate) struct FunctionBuilder<'a> {
     metadata: &'a ModuleMetadata,
     local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
+    uses_local_memory: bool,
 }
 
 impl<'a> FunctionBuilder<'a> {
@@ -195,25 +185,31 @@ impl<'a> FunctionBuilder<'a> {
             }],
             operand_stack: Vec::new(),
             lane_counts: ValueCounts::default(),
+            uses_local_memory: false,
         }
+    }
+
+    fn mark_memory(&mut self, memory: u32) {
+        self.uses_local_memory |= memory >= self.metadata.imported_memories;
     }
 
     fn visit_struct_get_impl(
         &mut self,
         type_index: u32,
         field_index: u32,
-        instruction: fn(OperandIdx<TwoU32>) -> Instruction,
+        instruction: fn(Operand64Idx<(u32, u32)>) -> Instruction,
     ) -> Result<()> {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        let operand = self.push_operand(TwoU32 { first: type_index, second: field_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
         self.emit(&[ValueLane::S32], &[size], instruction(operand))
     }
 
-    fn push_operand<T: OperandType>(&mut self, operand: T) -> Result<OperandIdx<T>>
-    where
-        T::Raw: BuilderRawOperand,
-    {
-        self.data.push_operand(operand)
+    fn push_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+        self.data.push_operand64(operand)
+    }
+
+    fn push_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+        self.data.push_operand128(operand)
     }
 }
 
@@ -246,6 +242,8 @@ impl ModuleMetadata {
         let mut memory_sizes = Vec::with_capacity(imports.len() + memories.len());
         let mut table_sizes = Vec::with_capacity(imports.len() + tables.len());
         let mut tag_types = Vec::with_capacity(imports.len() + tags.len());
+        let imported_memories =
+            imports.iter().filter(|import| matches!(import.kind, ImportKind::Memory(_))).count() as u32;
 
         for import in imports {
             match &import.kind {
@@ -294,6 +292,7 @@ impl ModuleMetadata {
             tables: table_sizes,
             tags: tag_types,
             aggregate_fields,
+            imported_memories,
         }
     }
 
@@ -378,6 +377,7 @@ impl ModuleMetadata {
 impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
     type Output = Result<()>;
 
+    #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
     wasmparser::for_each_visit_operator!(validate_then_visit);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
@@ -387,6 +387,7 @@ impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
 
 #[cfg(feature = "validate")]
 impl VisitSimdOperator<'_> for ValidateThenVisit<'_, '_> {
+    #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
     wasmparser::for_each_visit_simd_operator!(validate_then_visit_simd);
 }
 
@@ -397,7 +398,7 @@ pub(crate) fn process_operators(
     ty_idx: u32,
     allocs: OperatorsReaderAllocations,
     deduplicate_operands: bool,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, OperatorsReaderAllocations)> {
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -419,7 +420,7 @@ pub(crate) fn process_operators(
     }
 
     reader.finish()?;
-    Ok((builder.instructions, builder.data, reader.into_allocations()))
+    Ok((builder.instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
@@ -431,7 +432,7 @@ pub(crate) fn process_operators_and_validate(
     ty_idx: u32,
     allocs: OperatorsReaderAllocations,
     deduplicate_operands: bool,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, FuncValidatorAllocations, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -453,7 +454,13 @@ pub(crate) fn process_operators_and_validate(
     }
 
     reader.finish()?;
-    Ok((builder.instructions, builder.data, validator.into_allocations(), reader.into_allocations()))
+    Ok((
+        builder.instructions,
+        builder.data,
+        builder.uses_local_memory,
+        validator.into_allocations(),
+        reader.into_allocations(),
+    ))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
@@ -612,7 +619,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        let operand = self.push_operand(TwoU32 { first: type_index, second: field_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
         self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(operand))
     }
 
@@ -622,7 +629,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             self.pop_expect(size)?;
         }
         self.push_sizes(&[ValueLane::S32])?;
-        let operand = self.push_operand(TwoU32 { first: type_index, second: array_size })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, array_size))?;
         self.instructions.push(Instruction::ArrayNewFixed(operand));
         Ok(())
     }
@@ -634,7 +641,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
         let table_size = self.metadata.table_size(table_index)?;
-        let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
         let signature = self.metadata.signature(type_index)?;
         self.pop_expect(table_size)?;
         self.emit(&signature.params, &signature.results, Instruction::CallIndirect(operand))
@@ -660,7 +667,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.pop_expect(table_size)?;
         self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
-        let operand = self.push_operand(TwoU32 { first: type_index, second: table_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
         self.instructions.push(Instruction::ReturnCallIndirect(operand));
         Ok(())
     }
@@ -933,7 +940,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let header_ip = self.instructions.len();
         let branch_table_start = self.data.branch_table_targets.len() as u32;
         let branch_operand =
-            self.data.push_target_operand(BranchTableArg { target: 0, start: branch_table_start, len })?;
+            self.data.push_target_operand128(Operand128::<BranchTableOperand>::new(0, branch_table_start, len))?;
         self.instructions.push(Instruction::BranchTable(branch_operand));
 
         struct PadInfo {
@@ -978,9 +985,8 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             .find(|pad| pad.depth == default_depth)
             .ok_or_else(|| crate::ParseError::Other("missing default branch table target".into()))?;
         if let Instruction::BranchTable(index) = self.instructions[header_ip] {
-            let mut operand = self.data.operand(index);
-            operand.target = default_pad.pad_start as u32;
-            self.data.set_operand(index, operand);
+            let operand = self.data.operand128(index);
+            self.data.set_operand128(index, operand.with_target(default_pad.pad_start as u32));
         }
 
         for pad in &pads {
@@ -1006,12 +1012,12 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        let operand = self.push_operand(I64Operand { value: val.bits() as i64 })?;
+        let operand = self.push_operand64(Operand64::<i64>::new(val.bits() as i64))?;
         self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
     }
 
     fn visit_i64_const(&mut self, value: i64) -> Self::Output {
-        let operand = self.push_operand(I64Operand { value })?;
+        let operand = self.push_operand64(Operand64::<i64>::new(value))?;
         self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
     }
 
@@ -1019,52 +1025,55 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let dst = self.metadata.table_size(dst_table)?;
         let src = self.metadata.table_size(src_table)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        let operand = self.push_operand(TwoU32 { first: dst_table, second: src_table })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(dst_table, src_table))?;
         self.emit(&[dst, src, len], &[], Instruction::TableCopy(operand))
     }
 
     fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
         let dst = self.metadata.memory_size(dst_mem)?;
         let src = self.metadata.memory_size(src_mem)?;
+        self.mark_memory(dst_mem);
+        self.mark_memory(src_mem);
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        let operand = self.push_operand(TwoU32 { first: dst_mem, second: src_mem })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(dst_mem, src_mem))?;
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy(operand))
     }
 
     fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Self::Output {
         let dst = self.metadata.memory_size(memory)?;
-        let operand = self.push_operand(TwoU32 { first: data_index, second: memory })?;
+        self.mark_memory(memory);
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(data_index, memory))?;
         self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(operand))
     }
 
     fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Self::Output {
         let address = self.metadata.table_size(table)?;
-        let operand = self.push_operand(TwoU32 { first: elem_index, second: table })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(elem_index, table))?;
         self.emit(&[address, ValueLane::S32, ValueLane::S32], &[], Instruction::TableInit(operand))
     }
 
     fn visit_array_new_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
-        let operand = self.push_operand(TwoU32 { first: type_index, second: data_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
         self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewData(operand))
     }
 
     fn visit_array_new_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
-        let operand = self.push_operand(TwoU32 { first: type_index, second: elem_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
         self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewElem(operand))
     }
 
     fn visit_array_init_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
-        let operand = self.push_operand(TwoU32 { first: type_index, second: data_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
         self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitData(operand))
     }
 
     fn visit_array_init_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
-        let operand = self.push_operand(TwoU32 { first: type_index, second: elem_index })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
         self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitElem(operand))
     }
 
     fn visit_array_copy(&mut self, type_index_dst: u32, type_index_src: u32) -> Self::Output {
-        let operand = self.push_operand(TwoU32 { first: type_index_dst, second: type_index_src })?;
+        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index_dst, type_index_src))?;
         self.emit(&[ValueLane::S32; 5], &[], Instruction::ArrayCopy(operand))
     }
 
@@ -1312,12 +1321,12 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
     }
 
     fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
-        let index = self.push_operand(V128Operand { value: lanes })?;
+        let index = self.push_operand128(Operand128::<[u8; 16]>::new(lanes))?;
         self.emit(&[ValueLane::S128, ValueLane::S128], &[ValueLane::S128], Instruction::I8x16Shuffle(index))
     }
 
     fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        let index = self.push_operand(V128Operand { value: *value.bytes() })?;
+        let index = self.push_operand128(Operand128::<[u8; 16]>::new(*value.bytes()))?;
         self.emit(&[], &[ValueLane::S128], Instruction::Const128(index))
     }
 }
@@ -1332,7 +1341,7 @@ impl FunctionBuilder<'_> {
         self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
         let conditional_ip = self.instructions.len();
-        let operand = self.data.push_target_operand(CastBranch { target: 0, ref_type_bits: target.to_bits() })?;
+        let operand = self.data.push_target_operand64(Operand64::<(u32, u32)>::new(0, target.to_bits()))?;
         self.instructions.push(if branch_on_fail {
             Instruction::BrOnCastFail(operand)
         } else {
@@ -1502,9 +1511,8 @@ impl FunctionBuilder<'_> {
                 *ip = target as u32;
             }
             Instruction::BrOnCast(index) | Instruction::BrOnCastFail(index) => {
-                let mut operand = self.data.operand(*index);
-                operand.target = target as u32;
-                self.data.set_operand(*index, operand);
+                let operand = self.data.operand64(*index);
+                self.data.set_operand64(*index, operand.with_target(target as u32));
             }
             _ => {}
         }

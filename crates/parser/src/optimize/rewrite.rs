@@ -5,11 +5,9 @@ use crate::{ParserOptions, Result};
 use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
 use tinywasm_types::{
-    BinOp, BinOp128, CmpOp, CompactMemoryArg, GlobalConst32, GlobalConst64, GlobalUpdate, GlobalV128, I32LocalArg,
-    I64Operand, Instruction, LocalConst64, LocalConstCmp, LocalConstSet32, LocalConstSet64, LocalConstSetV128,
-    LocalLocalCmp, LocalTripleArg, LocalU32, LocalUpdate, LocalUpdateCmp, LocalV128, MemoryArg, MemoryFillConstOp,
-    MemoryLocalArg, OperandIdx, PackedOp, StackConst32, StackConst64, TargetLocal, TargetLocalArg, V128Operand,
-    ValueCounts,
+    BinOp, BinOp128, CmpOp, CompactMemoryArg, CompactMemoryOperand, GlobalUpdateOperand, I32LocalArg, Instruction,
+    LocalTripleArg, LocalUpdateCmpOperand, LocalUpdateOperand, MemoryFillOperand, MemoryLocalArg, MemoryOperand,
+    Operand64, Operand64Idx, Operand128, Operand128Idx, PackedOp, TargetLocalArg, ValueCounts,
 };
 
 pub(crate) struct OptimizeResult {
@@ -19,18 +17,6 @@ pub(crate) struct OptimizeResult {
 struct CompactOutput {
     instructions: Vec<Instruction>,
     block_start: usize,
-}
-
-macro_rules! operand {
-    ($data:expr, $value:expr) => {
-        $data.push_operand($value)
-    };
-}
-
-macro_rules! target_operand {
-    ($data:expr, $value:expr) => {
-        $data.push_target_operand($value)
-    };
 }
 
 impl Deref for CompactOutput {
@@ -229,7 +215,7 @@ fn rewrite(
                 }
             }
             MemoryFill(memory) => rewrite!(output, read, [Const32(value), Const32(size)] => {
-                let index = operand!(data, MemoryFillConstOp { memory, byte: value as u8, value: size })?;
+                let index = data.push_operand128(Operand128::<MemoryFillOperand>::new(memory, value as u8, size))?;
                 replace!(output, read, 2 => MemoryFillConst(index));
             }),
             GlobalGet32(dst) => rewrite!(output, read, [GlobalSet32(src)] if (src == dst) => GlobalTee32(src)),
@@ -290,14 +276,13 @@ fn rewrite(
     for instruction in &mut output.instructions {
         match *instruction {
             Instruction::Const64(index) => {
-                let value = data.operand(index).value;
+                let value = data.operand64(index).value();
                 if value == i64::from(value as i32) {
                     *instruction = Instruction::Const64Imm(value as i32);
                 }
             }
             Instruction::Const128(index) => {
-                let value = u128::from_le_bytes(data.operand(index).value);
-                if let Ok(value) = u32::try_from(value) {
+                if let Ok(value) = u32::try_from(u128::from_le_bytes(data.operand128(index).value())) {
                     *instruction = Instruction::Const128Imm(value);
                 }
             }
@@ -315,8 +300,8 @@ fn local_const32(data: &WasmFunctionData, instruction: Instruction) -> Option<(B
         Instruction::SubLocalConst32(arg) => Some((BinOp::ISub, arg.local, arg.value)),
         Instruction::MulLocalConst32(arg) => Some((BinOp::IMul, arg.local, arg.value)),
         Instruction::BinOpLocalConst32(packed) => {
-            let value = data.operand(packed.index);
-            Some((packed.op, value.local, value.value as i32))
+            let value = data.operand64(packed.index);
+            Some((packed.op, value.a(), value.b() as i32))
         }
         _ => None,
     }
@@ -324,25 +309,25 @@ fn local_const32(data: &WasmFunctionData, instruction: Instruction) -> Option<(B
 
 fn local_const64(data: &WasmFunctionData, instruction: Instruction) -> Option<(BinOp, u16, i64)> {
     let Instruction::BinOpLocalConst64(packed) = instruction else { return None };
-    let value = data.operand(packed.index);
-    Some((packed.op, value.local, value.value as i64))
+    let value = data.operand128(packed.index);
+    Some((packed.op, value.a(), value.b() as i64))
 }
 
 fn local_const128(
     data: &WasmFunctionData,
     instruction: Instruction,
-) -> Option<(BinOp128, u16, OperandIdx<V128Operand>)> {
+) -> Option<(BinOp128, u16, Operand128Idx<[u8; 16]>)> {
     let Instruction::BinOpLocalConst128(packed) = instruction else { return None };
-    let value = data.operand(packed.index);
-    Some((packed.op, value.local, value.value))
+    let value = data.operand64(packed.index);
+    Some((packed.op, value.a(), value.b()))
 }
 
 fn compact_memory_arg(
     data: &mut WasmFunctionData,
-    index: OperandIdx<MemoryArg>,
-) -> Result<Option<OperandIdx<CompactMemoryArg>>> {
-    let Ok(arg) = CompactMemoryArg::try_from(data.operand(index)) else { return Ok(None) };
-    Ok(Some(operand!(data, arg)?))
+    index: Operand128Idx<MemoryOperand>,
+) -> Result<Option<Operand64Idx<CompactMemoryOperand>>> {
+    let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index)) else { return Ok(None) };
+    Ok(Some(data.push_operand64(Operand64::from(arg))?))
 }
 
 fn rewrite_scalar_const32(
@@ -365,12 +350,12 @@ fn rewrite_scalar_const32(
                 BinOp::IMul => Instruction::MulLocalConst32(arg),
                 _ => Instruction::BinOpLocalConst32(PackedOp::new(
                     op,
-                    operand!(data, LocalU32 { local: *local, value: *value as u32 })?,
+                    data.push_operand64(Operand64::<(u16, u32)>::new(*local, *value as u32))?,
                 )),
             }
         }
         [Instruction::GlobalGet32(global), Instruction::Const32(value)] => Instruction::BinOpGlobalConst32(
-            PackedOp::new(op, operand!(data, GlobalConst32 { global: *global, value: *value as u32 })?),
+            PackedOp::new(op, data.push_operand64(Operand64::<(u32, u32)>::new(*global, *value as u32))?),
         ),
         [Instruction::Const32(value), Instruction::LocalGet32(local)] if commutative => {
             let arg = I32LocalArg { value: *value, local: *local };
@@ -379,14 +364,14 @@ fn rewrite_scalar_const32(
                 BinOp::IMul => Instruction::MulLocalConst32(arg),
                 _ => Instruction::BinOpLocalConst32(PackedOp::new(
                     op,
-                    operand!(data, LocalU32 { local: *local, value: *value as u32 })?,
+                    data.push_operand64(Operand64::<(u16, u32)>::new(*local, *value as u32))?,
                 )),
             }
         }
         [Instruction::Const32(value), Instruction::GlobalGet32(global)] if commutative => {
             Instruction::BinOpGlobalConst32(PackedOp::new(
                 op,
-                operand!(data, GlobalConst32 { global: *global, value: *value as u32 })?,
+                data.push_operand64(Operand64::<(u32, u32)>::new(*global, *value as u32))?,
             ))
         }
         _ => return Ok(false),
@@ -409,18 +394,24 @@ fn rewrite_scalar_const64(
     let replacement = match previous {
         [Instruction::LocalGet64(local), Instruction::Const64(index)] => Instruction::BinOpLocalConst64(PackedOp::new(
             op,
-            operand!(data, LocalConst64 { local, value: data.operand(index).value as u64 })?,
+            data.push_operand128(Operand128::<(u16, u64)>::new(local, data.operand64(index).value() as u64))?,
         )),
-        [Instruction::GlobalGet64(global), Instruction::Const64(index)] => Instruction::BinOpGlobalConst64(
-            PackedOp::new(op, operand!(data, GlobalConst64 { global, value: data.operand(index).value as u64 })?),
-        ),
-        [Instruction::Const64(index), Instruction::LocalGet64(local)] if commutative => Instruction::BinOpLocalConst64(
-            PackedOp::new(op, operand!(data, LocalConst64 { local, value: data.operand(index).value as u64 })?),
-        ),
+        [Instruction::GlobalGet64(global), Instruction::Const64(index)] => {
+            Instruction::BinOpGlobalConst64(PackedOp::new(
+                op,
+                data.push_operand128(Operand128::<(u32, u64)>::new(global, data.operand64(index).value() as u64))?,
+            ))
+        }
+        [Instruction::Const64(index), Instruction::LocalGet64(local)] if commutative => {
+            Instruction::BinOpLocalConst64(PackedOp::new(
+                op,
+                data.push_operand128(Operand128::<(u16, u64)>::new(local, data.operand64(index).value() as u64))?,
+            ))
+        }
         [Instruction::Const64(index), Instruction::GlobalGet64(global)] if commutative => {
             Instruction::BinOpGlobalConst64(PackedOp::new(
                 op,
-                operand!(data, GlobalConst64 { global, value: data.operand(index).value as u64 })?,
+                data.push_operand128(Operand128::<(u32, u64)>::new(global, data.operand64(index).value() as u64))?,
             ))
         }
         _ => return Ok(false),
@@ -455,7 +446,7 @@ fn rewrite_sign_extend64(output: &mut CompactOutput, read: &mut usize, data: &Wa
     }
     if let Some((BinOp::IShl, local, shift)) = local_const64(data, output[*read - 2])
         && let Instruction::Const64(index) = output[*read - 1]
-        && shift == data.operand(index).value
+        && shift == data.operand64(index).value()
     {
         let instruction = match shift {
             56 => Instruction::I64Extend8S,
@@ -482,17 +473,26 @@ fn rewrite_vector_binop(
         let previous = [output[*read - 2], output[*read - 1]];
         let replacement = match previous {
             [Instruction::LocalGet128(a), Instruction::LocalGet128(b)] => Instruction::BinOpLocalLocal128(op, a, b),
-            [Instruction::LocalGet128(local), Instruction::Const128(value)] => {
-                Instruction::BinOpLocalConst128(PackedOp::new(op, operand!(data, LocalV128 { local, value })?))
-            }
+            [Instruction::LocalGet128(local), Instruction::Const128(value)] => Instruction::BinOpLocalConst128(
+                PackedOp::new(op, data.push_operand64(Operand64::<(u16, Operand128Idx<[u8; 16]>)>::new(local, value))?),
+            ),
             [Instruction::GlobalGet128(global), Instruction::Const128(value)] => {
-                Instruction::BinOpGlobalConst128(PackedOp::new(op, operand!(data, GlobalV128 { global, value })?))
+                Instruction::BinOpGlobalConst128(PackedOp::new(
+                    op,
+                    data.push_operand64(Operand64::<(u32, Operand128Idx<[u8; 16]>)>::new(global, value))?,
+                ))
             }
             [Instruction::Const128(value), Instruction::LocalGet128(local)] if commutative => {
-                Instruction::BinOpLocalConst128(PackedOp::new(op, operand!(data, LocalV128 { local, value })?))
+                Instruction::BinOpLocalConst128(PackedOp::new(
+                    op,
+                    data.push_operand64(Operand64::<(u16, Operand128Idx<[u8; 16]>)>::new(local, value))?,
+                ))
             }
             [Instruction::Const128(value), Instruction::GlobalGet128(global)] if commutative => {
-                Instruction::BinOpGlobalConst128(PackedOp::new(op, operand!(data, GlobalV128 { global, value })?))
+                Instruction::BinOpGlobalConst128(PackedOp::new(
+                    op,
+                    data.push_operand64(Operand64::<(u32, Operand128Idx<[u8; 16]>)>::new(global, value))?,
+                ))
             }
             _ => return Ok(()),
         };
@@ -505,9 +505,13 @@ fn rewrite_store32(
     output: &mut CompactOutput,
     read: &mut usize,
     data: &mut WasmFunctionData,
-    index: OperandIdx<MemoryArg>,
+    index: Operand128Idx<MemoryOperand>,
 ) -> Result<()> {
-    let compact_arg = CompactMemoryArg::try_from(data.operand(index)).ok();
+    let compact_arg = CompactMemoryArg::try_from(data.operand128(index)).ok();
+    if *read > output.block_start && output[*read - 1] == Instruction::Select32 {
+        replace!(output, *read, 1 => Instruction::SelectStore32(index));
+        return Ok(());
+    }
     if *read >= output.block_start + 3 {
         let previous = [output[*read - 3], output[*read - 2], output[*read - 1]];
         if let [
@@ -515,7 +519,7 @@ fn rewrite_store32(
             Instruction::LoadLocal32(arg),
             Instruction::AddConst32(1),
         ] = previous
-            && { compact_arg == Some(data.operand(arg.memory_arg_idx)) }
+            && { compact_arg.map(Operand64::from) == Some(data.operand64(arg.memory_arg_idx)) }
             && addr == u16::from(arg.local1)
         {
             replace!(output, *read, 3 => Instruction::IncMemoryLocal32(arg));
@@ -526,12 +530,12 @@ fn rewrite_store32(
         let previous = [output[*read - 2], output[*read - 1]];
         match previous {
             [Instruction::F32Mul, Instruction::F32Add]
-                if let Ok(arg) = CompactMemoryArg::try_from(data.operand(index)) =>
+                if let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index)) =>
             {
                 replace!(output, *read, 2 => Instruction::FMaStoreF32(arg));
             }
             [Instruction::BinOpStackLocal32(BinOp::FMul, local), Instruction::F32Add]
-                if let Ok(arg) = CompactMemoryArg::try_from(data.operand(index)) =>
+                if let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index)) =>
             {
                 replace!(output, *read, 2 => [Instruction::LocalGet32(local), Instruction::FMaStoreF32(arg)]);
             }
@@ -539,7 +543,7 @@ fn rewrite_store32(
                 if let (Ok(addr), Ok(value), Some(memory_arg)) =
                     (u8::try_from(addr), u8::try_from(value), compact_arg) =>
             {
-                let memory_arg_idx = operand!(data, memory_arg)?;
+                let memory_arg_idx = data.push_operand64(Operand64::from(memory_arg))?;
                 replace!(output, *read, 2 => Instruction::StoreLocalLocal32(MemoryLocalArg { memory_arg_idx, local1: addr, local2: value }));
             }
             _ => {}
@@ -552,9 +556,13 @@ fn rewrite_store64(
     output: &mut CompactOutput,
     read: &mut usize,
     data: &mut WasmFunctionData,
-    index: OperandIdx<MemoryArg>,
+    index: Operand128Idx<MemoryOperand>,
 ) -> Result<()> {
-    let compact_arg = CompactMemoryArg::try_from(data.operand(index)).ok();
+    let compact_arg = CompactMemoryArg::try_from(data.operand128(index)).ok();
+    if *read > output.block_start && output[*read - 1] == Instruction::Select64 {
+        replace!(output, *read, 1 => Instruction::SelectStore64(index));
+        return Ok(());
+    }
     if *read >= output.block_start + 3 {
         let previous = [output[*read - 3], output[*read - 2], output[*read - 1]];
         if let [
@@ -562,9 +570,9 @@ fn rewrite_store64(
             Instruction::LoadLocal64(arg),
             Instruction::Const64(one),
         ] = previous
-            && { compact_arg == Some(data.operand(arg.memory_arg_idx)) }
+            && { compact_arg.map(Operand64::from) == Some(data.operand64(arg.memory_arg_idx)) }
             && addr == u16::from(arg.local1)
-            && data.operand(one).value == 1
+            && data.operand64(one).value() == 1
         {
             replace!(output, *read, 3 => Instruction::IncMemoryLocal64(arg));
             return Ok(());
@@ -573,7 +581,7 @@ fn rewrite_store64(
     if *read >= output.block_start + 2 {
         match [output[*read - 2], output[*read - 1]] {
             [Instruction::F64Mul, Instruction::F64Add]
-                if let Ok(arg) = CompactMemoryArg::try_from(data.operand(index)) =>
+                if let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index)) =>
             {
                 replace!(output, *read, 2 => Instruction::FMaStoreF64(arg));
             }
@@ -581,7 +589,7 @@ fn rewrite_store64(
                 if let (Ok(addr), Ok(value), Some(memory_arg)) =
                     (u8::try_from(addr), u8::try_from(value), compact_arg) =>
             {
-                let memory_arg_idx = operand!(data, memory_arg)?;
+                let memory_arg_idx = data.push_operand64(Operand64::from(memory_arg))?;
                 replace!(output, *read, 2 => Instruction::StoreLocalLocal64(MemoryLocalArg { memory_arg_idx, local1: addr, local2: value }));
             }
             _ => {}
@@ -592,7 +600,7 @@ fn rewrite_store64(
 
 macro_rules! local_const_set {
     ($data:expr, 32, $op:expr, $src:expr, $dst:expr, $value:expr, $tee:expr) => {{
-        let index = operand!($data, LocalConstSet32 { local: $src, dst: $dst, value: $value as u32 })?;
+        let index = $data.push_operand64(Operand64::<(u16, u16, u32)>::new($src, $dst, $value as u32))?;
         if $tee {
             Instruction::BinOpLocalConstTee32(PackedOp::new($op, index))
         } else {
@@ -600,7 +608,7 @@ macro_rules! local_const_set {
         }
     }};
     ($data:expr, 64, $op:expr, $src:expr, $dst:expr, $value:expr, $tee:expr) => {{
-        let index = operand!($data, LocalConstSet64 { local: $src, dst: $dst, value: $value as u64 })?;
+        let index = $data.push_operand128(Operand128::<(u16, u16, u64)>::new($src, $dst, $value as u64))?;
         if $tee {
             Instruction::BinOpLocalConstTee64(PackedOp::new($op, index))
         } else {
@@ -608,7 +616,7 @@ macro_rules! local_const_set {
         }
     }};
     ($data:expr, 128, $op:expr, $src:expr, $dst:expr, $value:expr, $tee:expr) => {{
-        let index = operand!($data, LocalConstSetV128 { local: $src, dst: $dst, value: $value })?;
+        let index = $data.push_operand64(Operand64::<(u16, u16, Operand128Idx<[u8; 16]>)>::new($src, $dst, $value))?;
         if $tee {
             Instruction::BinOpLocalConstTee128(PackedOp::new($op, index))
         } else {
@@ -653,7 +661,7 @@ fn rewrite_local_set32(
                 } else {
                     Instruction::BinOpLocalLocalSet32(PackedOp::new(
                         op,
-                        operand!(data, LocalTripleArg { left, right, dst })?,
+                        data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?,
                     ))
                 };
                 replace!(output, *read, 1 => replacement);
@@ -728,13 +736,13 @@ fn rewrite_local_set64(
                 replace!(output, *read, 1 => Instruction::SetLocalConst64(PackedOp::new(dst, index)));
             }
             Instruction::BinOpLocalLocal64(op, left, right) => {
-                let index = operand!(data, LocalTripleArg { left, right, dst })?;
+                let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalSet64(PackedOp::new(op, index)));
             }
             instruction if let Some((op, src, value)) = local_const64(data, instruction) => {
                 if src == dst && matches!(op, BinOp::IAdd | BinOp::ISub) {
                     let delta = if op == BinOp::IAdd { value } else { value.wrapping_neg() };
-                    let index = operand!(data, I64Operand { value: delta })?;
+                    let index = data.push_operand64(Operand64::<i64>::new(delta))?;
                     replace!(output, *read, 1 => Instruction::IncLocal64(PackedOp::new(dst, index)));
                 } else {
                     let replacement = local_const_set!(data, 64, op, src, dst, value, false);
@@ -756,9 +764,9 @@ fn rewrite_local_set128(
     if *read >= output.block_start + 2
         && let [Instruction::LocalGet32(local), Instruction::V128Load(index)] = [output[*read - 2], output[*read - 1]]
         && let (Ok(local), Ok(dst), Ok(memory_arg)) =
-            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand(index)))
+            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(index)))
     {
-        let memory_arg_idx = operand!(data, memory_arg)?;
+        let memory_arg_idx = data.push_operand64(Operand64::from(memory_arg))?;
         replace!(output, *read, 2 => Instruction::LoadLocalSet128(MemoryLocalArg {
             memory_arg_idx,
             local1: local,
@@ -778,7 +786,7 @@ fn rewrite_local_set128(
                 replace!(output, *read, 1 => Instruction::SetLocalConst128(PackedOp::new(dst, value)))
             }
             Instruction::BinOpLocalLocal128(op, left, right) => {
-                let index = operand!(data, LocalTripleArg { left, right, dst })?;
+                let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalSet128(PackedOp::new(op, index)));
             }
             instruction if let Some((op, src, value)) = local_const128(data, instruction) => {
@@ -819,7 +827,7 @@ fn rewrite_local_tee32(
                 } else {
                     Instruction::BinOpLocalLocalTee32(PackedOp::new(
                         op,
-                        operand!(data, LocalTripleArg { left, right, dst })?,
+                        data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?,
                     ))
                 };
                 replace!(output, *read, 1 => replacement);
@@ -880,7 +888,7 @@ fn rewrite_local_tee64(
         match output[*read - 1] {
             Instruction::LocalGet64(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet64(src)),
             Instruction::BinOpLocalLocal64(op, left, right) => {
-                let index = operand!(data, LocalTripleArg { left, right, dst })?;
+                let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalTee64(PackedOp::new(op, index)));
             }
             instruction if let Some((op, src, value)) = local_const64(data, instruction) => {
@@ -902,9 +910,9 @@ fn rewrite_local_tee128(
     if *read >= output.block_start + 2
         && let [Instruction::LocalGet32(local), Instruction::V128Load(index)] = [output[*read - 2], output[*read - 1]]
         && let (Ok(local), Ok(dst), Ok(memory_arg)) =
-            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand(index)))
+            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(index)))
     {
-        let memory_arg_idx = operand!(data, memory_arg)?;
+        let memory_arg_idx = data.push_operand64(Operand64::from(memory_arg))?;
         replace!(output, *read, 2 => Instruction::LoadLocalTee128(MemoryLocalArg {
             memory_arg_idx,
             local1: local,
@@ -916,7 +924,7 @@ fn rewrite_local_tee128(
         match output[*read - 1] {
             Instruction::LocalGet128(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet128(src)),
             Instruction::BinOpLocalLocal128(op, left, right) => {
-                let index = operand!(data, LocalTripleArg { left, right, dst })?;
+                let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalTee128(PackedOp::new(op, index)));
             }
             instruction if let Some((op, src, value)) = local_const128(data, instruction) => {
@@ -995,7 +1003,7 @@ fn jump_cmp_local_local(
     op: CmpOp,
     width64: bool,
 ) -> Result<Instruction> {
-    let index = target_operand!(data, LocalLocalCmp { target, left, right })?;
+    let index = data.push_target_operand64(Operand64::<(u32, u16, u16)>::new(target, left, right))?;
     Ok(if width64 {
         Instruction::JumpCmpLocalLocal64(PackedOp::new(op, index))
     } else {
@@ -1017,17 +1025,17 @@ fn rewrite_jump(
     if let Some(instruction) = source.get(target as usize).copied() {
         match instruction {
             Instruction::JumpCmpLocalLocal32(side)
-                if resolve_jump_target(source, data, data.operand(side.index).target) == exit && body > target =>
+                if resolve_jump_target(source, data, data.operand64(side.index).a()) == exit && body > target =>
             {
-                let value = data.operand(side.index);
-                output[index] = jump_cmp_local_local(data, body, value.left, value.right, side.op.inverse(), false)?;
+                let value = data.operand64(side.index);
+                output[index] = jump_cmp_local_local(data, body, value.b(), value.c(), side.op.inverse(), false)?;
                 return Ok(());
             }
             Instruction::JumpCmpLocalLocal64(side)
-                if resolve_jump_target(source, data, data.operand(side.index).target) == exit && body > target =>
+                if resolve_jump_target(source, data, data.operand64(side.index).a()) == exit && body > target =>
             {
-                let value = data.operand(side.index);
-                output[index] = jump_cmp_local_local(data, body, value.left, value.right, side.op.inverse(), true)?;
+                let value = data.operand64(side.index);
+                output[index] = jump_cmp_local_local(data, body, value.b(), value.c(), side.op.inverse(), true)?;
                 return Ok(());
             }
             _ => {}
@@ -1048,7 +1056,7 @@ fn jump_cmp_stack_local(
     op: CmpOp,
     width64: bool,
 ) -> Result<Instruction> {
-    let index = target_operand!(data, TargetLocal { target, local })?;
+    let index = data.push_target_operand64(Operand64::<(u32, u16)>::new(target, local))?;
     Ok(if width64 {
         Instruction::JumpCmpStackLocal64(PackedOp::new(op, index))
     } else {
@@ -1069,13 +1077,13 @@ fn jump_cmp_local_const32(
             CmpOp::Ne => Instruction::JumpIfLocalNonZero32(TargetLocalArg { target_ip: target, local }),
             _ => Instruction::JumpCmpLocalConst32(PackedOp::new(
                 op,
-                target_operand!(data, LocalConstCmp { target, value, local })?,
+                data.push_target_operand128(Operand128::<(u32, i32, u16)>::new(target, value, local))?,
             )),
         });
     }
     Ok(Instruction::JumpCmpLocalConst32(PackedOp::new(
         op,
-        target_operand!(data, LocalConstCmp { target, value, local })?,
+        data.push_target_operand128(Operand128::<(u32, i32, u16)>::new(target, value, local))?,
     )))
 }
 
@@ -1095,7 +1103,7 @@ fn jump_cmp_local_const64(
     }
     Ok(Instruction::JumpCmpLocalConst64(PackedOp::new(
         op,
-        target_operand!(data, LocalConstCmp { target, value, local })?,
+        data.push_target_operand128(Operand128::<(u32, i32, u16)>::new(target, value, local))?,
     )))
 }
 
@@ -1107,7 +1115,10 @@ fn jump_cmp_stack_const32(data: &mut WasmFunctionData, target: u32, value: i32, 
             _ => {}
         }
     }
-    Ok(Instruction::JumpCmpStackConst32(PackedOp::new(op, target_operand!(data, StackConst32 { target, value })?)))
+    Ok(Instruction::JumpCmpStackConst32(PackedOp::new(
+        op,
+        data.push_target_operand64(Operand64::<(u32, i32)>::new(target, value))?,
+    )))
 }
 
 fn jump_cmp_stack_const64(data: &mut WasmFunctionData, target: u32, value: i64, op: CmpOp) -> Result<Instruction> {
@@ -1118,7 +1129,10 @@ fn jump_cmp_stack_const64(data: &mut WasmFunctionData, target: u32, value: i64, 
             _ => {}
         }
     }
-    Ok(Instruction::JumpCmpStackConst64(PackedOp::new(op, target_operand!(data, StackConst64 { target, value })?)))
+    Ok(Instruction::JumpCmpStackConst64(PackedOp::new(
+        op,
+        data.push_target_operand128(Operand128::<(u32, i64)>::new(target, value))?,
+    )))
 }
 
 fn update_jump(
@@ -1132,32 +1146,34 @@ fn update_jump(
 ) -> Result<Instruction> {
     if let Some(delta) = op.inc_delta(immediate) {
         Ok(if global {
-            Instruction::IncGlobalJump32(target_operand!(
-                data,
-                GlobalUpdate { target, value: delta, global: address, on_zero: u8::from(on_zero) }
-            )?)
+            Instruction::IncGlobalJump32(
+                data.push_target_operand128(Operand128::<GlobalUpdateOperand>::new(target, delta, address, on_zero))?,
+            )
         } else {
-            Instruction::IncLocalJump32(target_operand!(
-                data,
-                LocalUpdate { target, value: delta, local: address as u16, on_zero: u8::from(on_zero) }
-            )?)
+            Instruction::IncLocalJump32(data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(
+                target,
+                delta,
+                address as u16,
+                on_zero,
+            ))?)
         })
     } else {
         Ok(if global {
             Instruction::BinOpGlobalConstJump32(PackedOp::new(
                 op,
-                target_operand!(
-                    data,
-                    GlobalUpdate { target, value: immediate, global: address, on_zero: u8::from(on_zero) }
-                )?,
+                data.push_target_operand128(Operand128::<GlobalUpdateOperand>::new(
+                    target, immediate, address, on_zero,
+                ))?,
             ))
         } else {
             Instruction::BinOpLocalConstJump32(PackedOp::new(
                 op,
-                target_operand!(
-                    data,
-                    LocalUpdate { target, value: immediate, local: address as u16, on_zero: u8::from(on_zero) }
-                )?,
+                data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(
+                    target,
+                    immediate,
+                    address as u16,
+                    on_zero,
+                ))?,
             ))
         })
     }
@@ -1175,10 +1191,10 @@ fn rewrite_conditional(
     if *read > output.block_start
         && let Instruction::BinOpLocalConstTee32(packed) = output[*read - 1]
     {
-        let value = data.operand(packed.index);
-        if value.local == value.dst {
+        let value = data.operand64(packed.index);
+        if value.a() == value.b() {
             let replacement =
-                update_jump(data, target, value.value as i32, u32::from(value.local), packed.op, on_zero, false)?;
+                update_jump(data, target, value.c() as i32, u32::from(value.a()), packed.op, on_zero, false)?;
             replace!(output, *read, 1 => replacement);
             return Ok(());
         }
@@ -1187,9 +1203,9 @@ fn rewrite_conditional(
         && let [Instruction::BinOpGlobalConst32(packed), Instruction::GlobalTee32(dst)] =
             [output[*read - 2], output[*read - 1]]
     {
-        let value = data.operand(packed.index);
-        if value.global == dst {
-            let replacement = update_jump(data, target, value.value as i32, dst, packed.op, on_zero, true)?;
+        let value = data.operand64(packed.index);
+        if value.a() == dst {
+            let replacement = update_jump(data, target, value.b() as i32, dst, packed.op, on_zero, true)?;
             replace!(output, *read, 2 => replacement);
             return Ok(());
         }
@@ -1199,10 +1215,10 @@ fn rewrite_conditional(
             [output[*read - 3], output[*read - 2], output[*read - 1]]
         && local == cond
     {
-        let replacement = Instruction::IncStackTeeLocalJump32(target_operand!(
-            data,
-            LocalUpdate { target, value, local, on_zero: u8::from(on_zero) }
-        )?);
+        let replacement =
+            Instruction::IncStackTeeLocalJump32(
+                data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(target, value, local, on_zero))?,
+            );
         replace!(output, *read, 3 => replacement);
         return Ok(());
     }
@@ -1220,13 +1236,12 @@ fn rewrite_conditional(
             let replacement = if let Some(op) = op {
                 Instruction::BinOpStackConstTeeLocalJump32(PackedOp::new(
                     op,
-                    target_operand!(data, LocalUpdate { target, value, local, on_zero: u8::from(on_zero) })?,
+                    data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(target, value, local, on_zero))?,
                 ))
             } else {
-                Instruction::IncStackTeeLocalJump32(target_operand!(
-                    data,
-                    LocalUpdate { target, value, local, on_zero: u8::from(on_zero) }
-                )?)
+                Instruction::IncStackTeeLocalJump32(
+                    data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(target, value, local, on_zero))?,
+                )
             };
             replace!(output, *read, 2 => replacement);
             return Ok(());
@@ -1237,23 +1252,30 @@ fn rewrite_conditional(
             [output[*read - 3], output[*read - 2], output[*read - 1]]
         && let Some(mut cmp) = cmp_op(raw_cmp)
     {
-        let value = data.operand(packed.index);
-        if value.local == value.dst {
+        let value = data.operand64(packed.index);
+        if value.a() == value.b() {
             if on_zero {
                 cmp = cmp.inverse();
             }
-            let replacement = if let Some(delta) = packed.op.inc_delta(value.value as i32) {
+            let replacement = if let Some(delta) = packed.op.inc_delta(value.c() as i32) {
                 Instruction::IncLocalJumpCmpLocal32(PackedOp::new(
                     cmp,
-                    target_operand!(data, LocalUpdateCmp { target, value: delta, local: value.local, right })?,
+                    data.push_target_operand128(Operand128::<LocalUpdateCmpOperand>::new(
+                        target,
+                        delta,
+                        value.a(),
+                        right,
+                    ))?,
                 ))
             } else {
                 Instruction::BinOpLocalConstJumpCmpLocal32(PackedOp::new(
                     (packed.op, cmp),
-                    target_operand!(
-                        data,
-                        LocalUpdateCmp { target, value: value.value as i32, local: value.local, right }
-                    )?,
+                    data.push_target_operand128(Operand128::<LocalUpdateCmpOperand>::new(
+                        target,
+                        value.c() as i32,
+                        value.a(),
+                        right,
+                    ))?,
                 ))
             };
             replace!(output, *read, 3 => replacement);
@@ -1334,7 +1356,7 @@ fn rewrite_conditional(
                     Some(jump_cmp_local_const32(data, target, local, value, op)?)
                 }
                 [Instruction::LocalGet64(local), Instruction::Const64(index)]
-                    if let Ok(value) = i32::try_from(data.operand(index).value) =>
+                    if let Ok(value) = i32::try_from(data.operand64(index).value()) =>
                 {
                     Some(jump_cmp_local_const64(data, target, local, value, op)?)
                 }
@@ -1363,7 +1385,7 @@ fn rewrite_conditional(
                 Instruction::LocalGet64(local) => Some(jump_cmp_stack_local(data, target, local, op, true)?),
                 Instruction::Const32(value) => Some(jump_cmp_stack_const32(data, target, value, op)?),
                 Instruction::Const64(index) => {
-                    Some(jump_cmp_stack_const64(data, target, data.operand(index).value, op)?)
+                    Some(jump_cmp_stack_const64(data, target, data.operand64(index).value(), op)?)
                 }
                 _ => None,
             };

@@ -12,6 +12,10 @@ wasmopt_features="--enable-simd --enable-relaxed-simd --enable-tail-call --enabl
 # ensure out dir exists
 mkdir -p "$dest_dir"
 
+# Keep the embedded archive synchronized with the current archive version and instruction layout.
+cargo run --quiet --manifest-path "../../Cargo.toml" --package tinywasm-cli -- \
+    compile "src/print.wasm" --output "src/print.twasm" --force || exit
+
 # build no_std
 RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=core,alloc,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm_no_std --no-default-features
 cp "$out_dir/tinywasm_no_std.wasm" "$dest_dir/"

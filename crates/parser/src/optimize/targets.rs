@@ -1,35 +1,7 @@
-use crate::visit::{BuilderRawOperand, FunctionDataBuilder};
+use crate::visit::FunctionDataBuilder;
 use crate::{ParseError, Result};
 use alloc::vec::Vec;
-use tinywasm_types::{
-    BranchTableArg, CastBranch, GlobalUpdate, Instruction, LocalConstCmp, LocalLocalCmp, LocalUpdate, LocalUpdateCmp,
-    OperandIdx, OperandType, PackedOp, StackConst32, StackConst64, TargetLocal,
-};
-
-pub(super) trait TargetOperand: OperandType {
-    fn set_target(&mut self, target: u32);
-}
-
-macro_rules! target_operands {
-    ($($name:ty),+ $(,)?) => {$(
-        impl TargetOperand for $name {
-            fn set_target(&mut self, target: u32) { self.target = target; }
-        }
-    )+};
-}
-
-target_operands!(
-    TargetLocal,
-    CastBranch,
-    StackConst32,
-    StackConst64,
-    LocalUpdate,
-    GlobalUpdate,
-    LocalUpdateCmp,
-    LocalConstCmp,
-    LocalLocalCmp,
-    BranchTableArg,
-);
+use tinywasm_types::{Instruction, PackedOp};
 
 pub(super) fn resolve_jump_target(instructions: &[Instruction], data: &FunctionDataBuilder, target: u32) -> u32 {
     let mut index = target as usize;
@@ -50,58 +22,37 @@ pub(super) fn set_rewrite_target(
     data: &mut FunctionDataBuilder,
     target: u32,
 ) -> Result<()> {
+    macro_rules! rewrite_target {
+        ($slot:ident, operand64) => {{ data.push_target_operand64(data.operand64(*$slot).with_target(target))? }};
+        ($slot:ident, operand128) => {{ data.push_target_operand128(data.operand128(*$slot).with_target(target))? }};
+        ($slot:ident, packed64) => {{ PackedOp::new($slot.op, data.push_target_operand64(data.operand64($slot.index).with_target(target))?) }};
+        ($slot:ident, packed128) => {{ PackedOp::new($slot.op, data.push_target_operand128(data.operand128($slot.index).with_target(target))?) }};
+    }
+
     use Instruction::*;
     match instruction {
-        JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => {
-            *packed = push_packed_target_copy(data, *packed, target)?
-        }
-        BrOnCast(index) | BrOnCastFail(index) => *index = push_target_copy(data, *index, target)?,
-        JumpCmpStackConst32(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
-        JumpCmpStackConst64(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
-        BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => {
-            *packed = push_packed_target_copy(data, *packed, target)?
-        }
-        BinOpLocalConstJumpCmpLocal32(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
-        BinOpGlobalConstJump32(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
-        IncLocalJump32(index) | IncStackTeeLocalJump32(index) => *index = push_target_copy(data, *index, target)?,
-        IncGlobalJump32(index) => *index = push_target_copy(data, *index, target)?,
-        IncLocalJumpCmpLocal32(packed) => *packed = push_packed_target_copy(data, *packed, target)?,
-        JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => {
-            *packed = push_packed_target_copy(data, *packed, target)?
-        }
-        JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => {
-            *packed = push_packed_target_copy(data, *packed, target)?
-        }
-        BranchTable(index) => *index = push_target_copy(data, *index, target)?,
+        JumpCmpStackLocal32(packed) => *packed = rewrite_target!(packed, packed64),
+        JumpCmpStackLocal64(packed) => *packed = rewrite_target!(packed, packed64),
+        BrOnCast(index) | BrOnCastFail(index) => *index = rewrite_target!(index, operand64),
+        JumpCmpStackConst32(packed) => *packed = rewrite_target!(packed, packed64),
+        JumpCmpStackConst64(packed) => *packed = rewrite_target!(packed, packed128),
+        BinOpStackConstTeeLocalJump32(packed) => *packed = rewrite_target!(packed, packed128),
+        BinOpLocalConstJump32(packed) => *packed = rewrite_target!(packed, packed128),
+        BinOpLocalConstJumpCmpLocal32(packed) => *packed = rewrite_target!(packed, packed128),
+        BinOpGlobalConstJump32(packed) => *packed = rewrite_target!(packed, packed128),
+        IncLocalJump32(index) => *index = rewrite_target!(index, operand128),
+        IncStackTeeLocalJump32(index) => *index = rewrite_target!(index, operand128),
+        IncGlobalJump32(index) => *index = rewrite_target!(index, operand128),
+        IncLocalJumpCmpLocal32(packed) => *packed = rewrite_target!(packed, packed128),
+        JumpCmpLocalConst32(packed) => *packed = rewrite_target!(packed, packed128),
+        JumpCmpLocalConst64(packed) => *packed = rewrite_target!(packed, packed128),
+        JumpCmpLocalLocal32(packed) => *packed = rewrite_target!(packed, packed64),
+        JumpCmpLocalLocal64(packed) => *packed = rewrite_target!(packed, packed64),
+        BranchTable(index) => *index = rewrite_target!(index, operand128),
         _ => set_target(instruction, data, target),
     }
+
     Ok(())
-}
-
-fn push_target_copy<T: TargetOperand>(
-    data: &mut FunctionDataBuilder,
-    index: OperandIdx<T>,
-    target: u32,
-) -> Result<OperandIdx<T>>
-where
-    T::Raw: BuilderRawOperand,
-{
-    let mut value = data.operand(index);
-    value.set_target(target);
-    data.push_target_operand(value)
-}
-
-fn push_packed_target_copy<Op: Copy, T: TargetOperand>(
-    data: &mut FunctionDataBuilder,
-    packed: PackedOp<Op, T>,
-    target: u32,
-) -> Result<PackedOp<Op, T>>
-where
-    T::Raw: BuilderRawOperand,
-{
-    let mut value = data.operand(packed.index);
-    value.set_target(target);
-    Ok(PackedOp::new(packed.op, data.push_target_operand(value)?))
 }
 
 fn instruction_target(data: &FunctionDataBuilder, instruction: Instruction) -> Option<u32> {
@@ -117,24 +68,31 @@ fn instruction_target(data: &FunctionDataBuilder, instruction: Instruction) -> O
         JumpIfLocalZero32(arg) | JumpIfLocalNonZero32(arg) | JumpIfLocalZero64(arg) | JumpIfLocalNonZero64(arg) => {
             arg.target_ip
         }
-        JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => data.operand(packed.index).target,
-        BrOnCast(index) | BrOnCastFail(index) => data.operand(index).target,
-        JumpCmpStackConst32(packed) => data.operand(packed.index).target,
-        JumpCmpStackConst64(packed) => data.operand(packed.index).target,
-        BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => data.operand(packed.index).target,
-        BinOpLocalConstJumpCmpLocal32(packed) => data.operand(packed.index).target,
-        BinOpGlobalConstJump32(packed) => data.operand(packed.index).target,
-        IncLocalJump32(index) | IncStackTeeLocalJump32(index) => data.operand(index).target,
-        IncGlobalJump32(index) => data.operand(index).target,
-        IncLocalJumpCmpLocal32(packed) => data.operand(packed.index).target,
-        JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => data.operand(packed.index).target,
-        JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => data.operand(packed.index).target,
-        BranchTable(index) => data.operand(index).target,
+        JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => data.operand64(packed.index).target(),
+        BrOnCast(index) | BrOnCastFail(index) => data.operand64(index).target(),
+        JumpCmpStackConst32(packed) => data.operand64(packed.index).target(),
+        JumpCmpStackConst64(packed) => data.operand128(packed.index).target(),
+        BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => data.operand128(packed.index).target(),
+        BinOpLocalConstJumpCmpLocal32(packed) => data.operand128(packed.index).target(),
+        BinOpGlobalConstJump32(packed) => data.operand128(packed.index).target(),
+        IncLocalJump32(index) | IncStackTeeLocalJump32(index) => data.operand128(index).target(),
+        IncGlobalJump32(index) => data.operand128(index).target(),
+        IncLocalJumpCmpLocal32(packed) => data.operand128(packed.index).target(),
+        JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => data.operand128(packed.index).target(),
+        JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => data.operand64(packed.index).target(),
+        BranchTable(index) => data.operand128(index).target(),
         _ => return None,
     })
 }
 
 fn set_target(instruction: &mut Instruction, data: &mut FunctionDataBuilder, target: u32) {
+    macro_rules! set_target {
+        ($index:expr, operand64) => {{ data.set_operand64($index, data.operand64($index).with_target(target)) }};
+        ($index:expr, operand128) => {{ data.set_operand128($index, data.operand128($index).with_target(target)) }};
+        ($packed:expr, packed64) => {{ data.set_operand64($packed.index, data.operand64($packed.index).with_target(target)) }};
+        ($packed:expr, packed128) => {{ data.set_operand128($packed.index, data.operand128($packed.index).with_target(target)) }};
+    }
+
     use Instruction::*;
     match instruction {
         Jump(value)
@@ -144,53 +102,32 @@ fn set_target(instruction: &mut Instruction, data: &mut FunctionDataBuilder, tar
         | JumpIfNonZero64(value)
         | JumpIfRefNull(value)
         | JumpIfRefNonNull(value) => *value = target,
+
         JumpIfLocalZero32(arg) | JumpIfLocalNonZero32(arg) | JumpIfLocalZero64(arg) | JumpIfLocalNonZero64(arg) => {
             arg.target_ip = target
         }
-        JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => set_packed_operand_target(data, *packed, target),
-        BrOnCast(index) | BrOnCastFail(index) => set_operand_target(data, *index, target),
-        JumpCmpStackConst32(packed) => set_packed_operand_target(data, *packed, target),
-        JumpCmpStackConst64(packed) => set_packed_operand_target(data, *packed, target),
-        BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => {
-            set_packed_operand_target(data, *packed, target)
-        }
-        BinOpLocalConstJumpCmpLocal32(packed) => set_packed_operand_target(data, *packed, target),
-        BinOpGlobalConstJump32(packed) => set_packed_operand_target(data, *packed, target),
-        IncLocalJump32(index) | IncStackTeeLocalJump32(index) => set_operand_target(data, *index, target),
-        IncGlobalJump32(index) => set_operand_target(data, *index, target),
-        IncLocalJumpCmpLocal32(packed) => set_packed_operand_target(data, *packed, target),
-        JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => set_packed_operand_target(data, *packed, target),
-        JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => set_packed_operand_target(data, *packed, target),
-        BranchTable(index) => set_operand_target(data, *index, target),
+        JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => set_target!(*packed, packed64),
+        BrOnCast(index) | BrOnCastFail(index) => set_target!(*index, operand64),
+        JumpCmpStackConst32(packed) => set_target!(*packed, packed64),
+        JumpCmpStackConst64(packed) => set_target!(*packed, packed128),
+        BinOpLocalConstJump32(packed) => set_target!(*packed, packed128),
+        BinOpStackConstTeeLocalJump32(packed) => set_target!(*packed, packed128),
+        BinOpLocalConstJumpCmpLocal32(packed) => set_target!(*packed, packed128),
+        BinOpGlobalConstJump32(packed) => set_target!(*packed, packed128),
+        IncLocalJump32(index) | IncStackTeeLocalJump32(index) => set_target!(*index, operand128),
+        IncGlobalJump32(index) => set_target!(*index, operand128),
+        IncLocalJumpCmpLocal32(packed) => set_target!(*packed, packed128),
+        JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => set_target!(*packed, packed128),
+        JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => set_target!(*packed, packed64),
+        BranchTable(index) => set_target!(*index, operand128),
         _ => {}
     }
 }
 
-fn set_operand_target<T: TargetOperand>(data: &mut FunctionDataBuilder, index: OperandIdx<T>, target: u32)
-where
-    T::Raw: BuilderRawOperand,
-{
-    let mut value = data.operand(index);
-    value.set_target(target);
-    data.set_operand(index, value);
-}
-
-fn set_packed_operand_target<Op: Copy, T: TargetOperand>(
-    data: &mut FunctionDataBuilder,
-    packed: PackedOp<Op, T>,
-    target: u32,
-) where
-    T::Raw: BuilderRawOperand,
-{
-    let mut value = data.operand(packed.index);
-    value.set_target(target);
-    data.set_operand(packed.index, value);
-}
-
 fn branch_table_range(data: &FunctionDataBuilder, instruction: Instruction) -> Option<(u32, u32)> {
     let Instruction::BranchTable(index) = instruction else { return None };
-    let operand = data.operand(index);
-    Some((operand.start, operand.len))
+    let operand = data.operand128(index);
+    Some((operand.start(), operand.size()))
 }
 
 pub(super) fn target_boundaries(instructions: &[Instruction], data: &FunctionDataBuilder) -> Result<Vec<bool>> {

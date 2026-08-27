@@ -1,18 +1,22 @@
 use core::marker::PhantomData;
 
-use crate::WasmFunctionData;
-
 /// An index into the operand lane used by `T`.
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "archive", serde(transparent))]
 #[repr(transparent)]
-pub struct OperandIdx<T> {
+pub struct OperandIdx<T, const WIDTH: usize> {
     index: u32,
     #[cfg_attr(feature = "archive", serde(skip))]
     marker: PhantomData<T>,
 }
 
-impl<T> OperandIdx<T> {
+/// An index into the 64-bit operand lane.
+pub type Operand64Idx<T> = OperandIdx<T, 8>;
+
+/// An index into the 128-bit operand lane.
+pub type Operand128Idx<T> = OperandIdx<T, 16>;
+
+impl<T, const WIDTH: usize> OperandIdx<T, WIDTH> {
     #[inline]
     #[doc(hidden)]
     pub const fn new(index: u32) -> Self {
@@ -21,157 +25,329 @@ impl<T> OperandIdx<T> {
 
     /// Returns the underlying lane index.
     #[inline]
-    pub const fn index(self) -> u32 {
-        self.index
+    pub const fn index(self) -> usize {
+        self.index as usize
     }
 }
 
-impl<T: OperandType> OperandIdx<T> {
-    /// Returns the typed operand at this index.
-    ///
-    /// Panics if the index is outside its statically selected operand lane.
-    #[inline(always)]
-    pub fn get(self, data: &WasmFunctionData) -> T {
-        T::decode(T::Raw::get(data, self.index))
-    }
-}
-
-impl<T> Copy for OperandIdx<T> {}
-
-impl<T> Clone for OperandIdx<T> {
+impl<T, const WIDTH: usize> Copy for OperandIdx<T, WIDTH> {}
+impl<T, const WIDTH: usize> Clone for OperandIdx<T, WIDTH> {
     fn clone(&self) -> Self {
         *self
     }
 }
-
-impl<T> PartialEq for OperandIdx<T> {
+impl<T, const WIDTH: usize> PartialEq for OperandIdx<T, WIDTH> {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index
     }
 }
-
-impl<T> Eq for OperandIdx<T> {}
+impl<T, const WIDTH: usize> Eq for OperandIdx<T, WIDTH> {}
 
 #[cfg(feature = "debug")]
-impl<T> core::fmt::Debug for OperandIdx<T> {
+impl<T, const WIDTH: usize> core::fmt::Debug for OperandIdx<T, WIDTH> {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.index.fmt(formatter)
     }
 }
 
-pub(crate) mod sealed {
-    pub trait Sealed {}
-}
-
-/// A typed view stored in one of the per-function operand lanes.
-pub trait OperandType: sealed::Sealed + Copy {
-    #[doc(hidden)]
-    type Raw: RawOperand;
-
-    #[doc(hidden)]
-    fn decode(raw: Self::Raw) -> Self;
-    #[doc(hidden)]
-    fn encode(self) -> Self::Raw;
-}
-
-#[doc(hidden)]
-pub trait RawOperand: sealed::Sealed + Copy {
-    fn get(data: &WasmFunctionData, index: u32) -> Self;
-}
-
 macro_rules! define_operand {
-    ($name:ident, $len:literal, $lane:ident) => {
-        #[doc = concat!("Raw fields stored in a per-function ", $len, "-byte operand lane.")]
-        #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
-        #[cfg_attr(feature = "debug", derive(Debug))]
-        #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-        #[repr(transparent)]
-        pub struct $name([u8; $len]);
+    ($name:ident, $len:literal) => {
+        #[doc = concat!("A typed packed ", $len, "-byte operand value.")]
+        #[repr(C)]
+        pub struct $name<T = ()> {
+            pub(crate) bytes: [u8; $len],
+            marker: PhantomData<T>,
+        }
 
-        impl sealed::Sealed for $name {}
+        #[allow(dead_code)]
+        impl<T> $name<T> {
+            #[inline]
+            pub(crate) fn write_u8<const OFFSET: usize>(&mut self, value: u8) {
+                const { assert!(OFFSET < $len) };
+                self.bytes[OFFSET] = value;
+            }
 
-        impl RawOperand for $name {
+            #[inline]
+            pub(crate) fn write_u16<const OFFSET: usize>(&mut self, value: u16) {
+                const { assert!(OFFSET + 2 <= $len) };
+                self.bytes[OFFSET..OFFSET + 2].copy_from_slice(&value.to_le_bytes());
+            }
+
+            #[inline]
+            pub(crate) fn write_u32<const OFFSET: usize>(&mut self, value: u32) {
+                const { assert!(OFFSET + 4 <= $len) };
+                self.bytes[OFFSET..OFFSET + 4].copy_from_slice(&value.to_le_bytes());
+            }
+
+            #[inline]
+            pub(crate) fn write_u64<const OFFSET: usize>(&mut self, value: u64) {
+                const { assert!(OFFSET + 8 <= $len) };
+                self.bytes[OFFSET..OFFSET + 8].copy_from_slice(&value.to_le_bytes());
+            }
+
             #[inline(always)]
-            fn get(data: &WasmFunctionData, index: u32) -> Self {
-                *data.$lane.get(index as usize).unwrap_or_else(|| unreachable!("invalid operand index"))
+            #[doc(hidden)]
+            pub fn cast<U>(self) -> $name<U> {
+                $name { bytes: self.bytes, marker: PhantomData }
             }
         }
 
-        impl $name {
-            /// Returns the byte at `OFFSET`.
-            #[inline]
-            pub fn u8<const OFFSET: usize>(self) -> u8 {
-                const { assert!(OFFSET < $len) };
-                self.0[OFFSET]
+        impl<T> Copy for $name<T> {}
+        impl<T> Clone for $name<T> {
+            fn clone(&self) -> Self {
+                *self
             }
-
-            /// Returns the little-endian `u16` at `OFFSET`.
-            #[inline]
-            pub fn u16<const OFFSET: usize>(self) -> u16 {
-                const { assert!(OFFSET + 2 <= $len) };
-                u16::from_le_bytes(self.0[OFFSET..OFFSET + 2].try_into().unwrap_or_else(|_| unreachable!()))
+        }
+        impl<T> PartialEq for $name<T> {
+            fn eq(&self, other: &Self) -> bool {
+                self.bytes == other.bytes
             }
-
-            /// Returns the little-endian `u32` at `OFFSET`.
-            #[inline]
-            pub fn u32<const OFFSET: usize>(self) -> u32 {
-                const { assert!(OFFSET + 4 <= $len) };
-                u32::from_le_bytes(self.0[OFFSET..OFFSET + 4].try_into().unwrap_or_else(|_| unreachable!()))
+        }
+        impl<T> Eq for $name<T> {}
+        impl<T> PartialOrd for $name<T> {
+            fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+                Some(self.cmp(other))
             }
-
-            /// Returns the little-endian `u64` at `OFFSET`.
-            #[inline]
-            pub fn u64<const OFFSET: usize>(self) -> u64 {
-                const { assert!(OFFSET + 8 <= $len) };
-                u64::from_le_bytes(self.0[OFFSET..OFFSET + 8].try_into().unwrap_or_else(|_| unreachable!()))
+        }
+        impl<T> Ord for $name<T> {
+            fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+                self.bytes.cmp(&other.bytes)
             }
-
-            /// Builds an operand from its raw little-endian bytes.
-            #[inline]
-            pub fn from_le_bytes(value: [u8; $len]) -> Self {
-                Self(value)
+        }
+        impl<T> Default for $name<T> {
+            fn default() -> Self {
+                Self { bytes: [0; $len], marker: PhantomData }
             }
+        }
 
-            /// Returns the raw little-endian bytes.
-            #[inline]
-            pub fn to_le_bytes(self) -> [u8; $len] {
-                self.0
+        #[cfg(feature = "debug")]
+        impl<T> core::fmt::Debug for $name<T> {
+            fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                self.bytes.fmt(formatter)
             }
+        }
 
-            /// Writes `value` at `OFFSET` and returns the updated operand.
-            #[inline]
-            pub fn with_u8<const OFFSET: usize>(mut self, value: u8) -> Self {
-                const { assert!(OFFSET < $len) };
-                self.0[OFFSET] = value;
-                self
+        #[cfg(feature = "archive")]
+        impl<T> serde::Serialize for $name<T> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.bytes.serialize(serializer)
             }
+        }
 
-            /// Writes `value` at `OFFSET` and returns the updated operand.
-            #[inline]
-            pub fn with_u16<const OFFSET: usize>(mut self, value: u16) -> Self {
-                const { assert!(OFFSET + 2 <= $len) };
-                self.0[OFFSET..OFFSET + 2].copy_from_slice(&value.to_le_bytes());
-                self
-            }
-
-            /// Writes `value` at `OFFSET` and returns the updated operand.
-            #[inline]
-            pub fn with_u32<const OFFSET: usize>(mut self, value: u32) -> Self {
-                const { assert!(OFFSET + 4 <= $len) };
-                self.0[OFFSET..OFFSET + 4].copy_from_slice(&value.to_le_bytes());
-                self
-            }
-
-            /// Writes `value` at `OFFSET` and returns the updated operand.
-            #[inline]
-            pub fn with_u64<const OFFSET: usize>(mut self, value: u64) -> Self {
-                const { assert!(OFFSET + 8 <= $len) };
-                self.0[OFFSET..OFFSET + 8].copy_from_slice(&value.to_le_bytes());
-                self
+        #[cfg(feature = "archive")]
+        impl<'de, T> serde::Deserialize<'de> for $name<T> {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Ok(Self { bytes: <[u8; $len]>::deserialize(deserializer)?, marker: PhantomData })
             }
         }
     };
 }
 
-define_operand!(Operand64, 8, operands64);
-define_operand!(Operand128, 16, operands128);
+define_operand!(Operand64, 8);
+define_operand!(Operand128, 16);
+
+macro_rules! unwrap_or_unreachable {
+    ($value:expr) => {{ unwrap_or_unreachable!($value, "entered unreachable code") }};
+    ($value:expr, $message:literal) => {{
+        match $value {
+            Some(value) => value,
+            None => operand_unreachable($message),
+        }
+    }};
+}
+
+#[cold]
+#[inline(never)]
+pub(crate) fn operand_unreachable(message: &'static str) -> ! {
+    unreachable!("{message}")
+}
+
+impl<T> Operand64Idx<T> {
+    /// Resolves this index to a copied 64-bit packed operand.
+    #[inline(always)]
+    pub fn resolve(self, data: &crate::WasmFunctionData) -> Operand64<T> {
+        (*unwrap_or_unreachable!(data.operands64.get(self.index()), "invalid 64-bit operand index")).cast()
+    }
+}
+
+impl<T> Operand128Idx<T> {
+    /// Resolves this index to a copied 128-bit packed operand.
+    #[inline(always)]
+    pub fn resolve(self, data: &crate::WasmFunctionData) -> Operand128<T> {
+        (*unwrap_or_unreachable!(data.operands128.get(self.index()), "invalid 128-bit operand index")).cast()
+    }
+}
+
+macro_rules! field_ty {
+    (u8) => { u8 }; (u16) => { u16 }; (u32) => { u32 }; (u64) => { u64 };
+    (i32) => { i32 }; (i64) => { i64 }; (idx128) => { Operand128Idx<[u8; 16]> };
+}
+macro_rules! field_size {
+    (u8) => {{ 1 }};
+    (u16) => {{ 2 }};
+    (u32) => {{ 4 }};
+    (u64) => {{ 8 }};
+    (i32) => {{ 4 }};
+    (i64) => {{ 8 }};
+    (idx128) => {{ 4 }};
+}
+
+macro_rules! read_field {
+    ($self:ident, u8, $offset:expr) => {{ $self.bytes[$offset] }};
+    ($self:ident, u16, $offset:expr) => {{ u16::from_le_bytes($crate::operands::read_bytes!($self, $offset, 2)) }};
+    ($self:ident, u32, $offset:expr) => {{ u32::from_le_bytes($crate::operands::read_bytes!($self, $offset, 4)) }};
+    ($self:ident, u64, $offset:expr) => {{ u64::from_le_bytes($crate::operands::read_bytes!($self, $offset, 8)) }};
+    ($self:ident, i32, $offset:expr) => {{ read_field!($self, u32, $offset) as i32 }};
+    ($self:ident, i64, $offset:expr) => {{ read_field!($self, u64, $offset) as i64 }};
+    ($self:ident, idx128, $offset:expr) => {{ Operand128Idx::new(read_field!($self, u32, $offset)) }};
+}
+pub(crate) use read_field;
+
+macro_rules! read_bytes {
+    ($self:ident, $offset:expr, $len:literal) => {{
+        match <[u8; $len]>::try_from(&$self.bytes[$offset..$offset + $len]) {
+            Ok(bytes) => bytes,
+            Err(_) => $crate::operands::operand_unreachable("invalid operand field"),
+        }
+    }};
+}
+pub(crate) use read_bytes;
+macro_rules! write_field {
+    ($self:ident, u8, $offset:expr, $value:expr) => {{ $self.write_u8::<{ $offset }>($value) }};
+    ($self:ident, u16, $offset:expr, $value:expr) => {{ $self.write_u16::<{ $offset }>($value) }};
+    ($self:ident, u32, $offset:expr, $value:expr) => {{ $self.write_u32::<{ $offset }>($value) }};
+    ($self:ident, u64, $offset:expr, $value:expr) => {{ $self.write_u64::<{ $offset }>($value) }};
+    ($self:ident, i32, $offset:expr, $value:expr) => {{ $self.write_u32::<{ $offset }>($value as u32) }};
+    ($self:ident, i64, $offset:expr, $value:expr) => {{ $self.write_u64::<{ $offset }>($value as u64) }};
+    ($self:ident, idx128, $offset:expr, $value:expr) => {{ $self.write_u32::<{ $offset }>($value.index) }};
+}
+
+impl<T> Operand64<T> {
+    /// Returns the jump target stored at the start of a retargetable operand.
+    #[inline(always)]
+    pub fn target(&self) -> u32 {
+        read_field!(self, u32, 0)
+    }
+
+    /// Replaces the jump target stored at the start of a retargetable operand.
+    #[inline]
+    pub fn with_target(mut self, target: u32) -> Self {
+        self.write_u32::<0>(target);
+        self
+    }
+}
+
+impl<T> Operand128<T> {
+    /// Returns the jump target stored at the start of a retargetable operand.
+    #[inline(always)]
+    pub fn target(&self) -> u32 {
+        read_field!(self, u32, 0)
+    }
+
+    /// Replaces the jump target stored at the start of a retargetable operand.
+    #[inline]
+    pub fn with_target(mut self, target: u32) -> Self {
+        self.write_u32::<0>(target);
+        self
+    }
+}
+
+macro_rules! packed_layout {
+    ($operand:ident, $lane:ident, $field:tt) => {
+        impl $operand<field_ty!($field)> {
+            #[inline]
+            pub fn new(value: field_ty!($field)) -> Self {
+                let mut operand = Self::default();
+                write_field!(operand, $field, 0, value);
+                operand
+            }
+            #[inline(always)]
+            pub fn value(&self) -> field_ty!($field) {
+                read_field!(self, $field, 0)
+            }
+        }
+    };
+    ($operand:ident, $lane:ident, $a:tt, $b:tt) => {
+        impl $operand<(field_ty!($a), field_ty!($b))> {
+            #[inline]
+            pub fn new(a: field_ty!($a), b: field_ty!($b)) -> Self {
+                let mut operand = Self::default();
+                write_field!(operand, $a, 0, a);
+                write_field!(operand, $b, field_size!($a), b);
+                operand
+            }
+            #[inline(always)]
+            pub fn a(&self) -> field_ty!($a) {
+                read_field!(self, $a, 0)
+            }
+            #[inline(always)]
+            pub fn b(&self) -> field_ty!($b) {
+                read_field!(self, $b, field_size!($a))
+            }
+        }
+    };
+    ($operand:ident, $lane:ident, $a:tt, $b:tt, $c:tt) => {
+        impl $operand<(field_ty!($a), field_ty!($b), field_ty!($c))> {
+            #[inline]
+            pub fn new(a: field_ty!($a), b: field_ty!($b), c: field_ty!($c)) -> Self {
+                let mut operand = Self::default();
+                write_field!(operand, $a, 0, a);
+                write_field!(operand, $b, field_size!($a), b);
+                write_field!(operand, $c, field_size!($a) + field_size!($b), c);
+                operand
+            }
+            #[inline(always)]
+            pub fn a(&self) -> field_ty!($a) {
+                read_field!(self, $a, 0)
+            }
+            #[inline(always)]
+            pub fn b(&self) -> field_ty!($b) {
+                read_field!(self, $b, field_size!($a))
+            }
+            #[inline(always)]
+            pub fn c(&self) -> field_ty!($c) {
+                read_field!(self, $c, field_size!($a) + field_size!($b))
+            }
+        }
+    };
+}
+
+packed_layout!(Operand64, operands64, i64);
+packed_layout!(Operand64, operands64, u32, u32);
+packed_layout!(Operand64, operands64, u16, u32);
+packed_layout!(Operand64, operands64, u32, u16);
+packed_layout!(Operand64, operands64, u16, u16, u16);
+packed_layout!(Operand64, operands64, u16, u16, u32);
+packed_layout!(Operand64, operands64, u32, i32);
+packed_layout!(Operand64, operands64, u32, u16, u16);
+packed_layout!(Operand64, operands64, u16, idx128);
+packed_layout!(Operand64, operands64, u32, idx128);
+packed_layout!(Operand64, operands64, u16, u16, idx128);
+
+packed_layout!(Operand128, operands128, u16, u64);
+packed_layout!(Operand128, operands128, u32, u64);
+packed_layout!(Operand128, operands128, u16, u16, u64);
+packed_layout!(Operand128, operands128, u32, i64);
+packed_layout!(Operand128, operands128, u32, i32, u16);
+
+impl Operand128<[u8; 16]> {
+    #[inline]
+    pub fn new(value: [u8; 16]) -> Self {
+        Self { bytes: value, marker: PhantomData }
+    }
+    #[inline(always)]
+    pub fn value(&self) -> [u8; 16] {
+        self.bytes
+    }
+}
+const _: () = {
+    assert!(core::mem::size_of::<Operand64Idx<i64>>() == 4);
+    assert!(core::mem::size_of::<Operand64>() == 8);
+    assert!(core::mem::size_of::<Operand128>() == 16);
+};

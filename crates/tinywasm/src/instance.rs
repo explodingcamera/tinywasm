@@ -68,25 +68,25 @@ struct ModuleInstanceInner {
 impl ModuleInstance {
     #[inline]
     pub(crate) fn resolve_type_addr(&self, type_addr: TypeAddr) -> TypeAddr {
-        *self.0.type_addrs.get(type_addr as usize).unwrap_or_else(|| unreachable!("invalid type address: {type_addr}"))
+        *unwrap_or_unreachable!(self.0.type_addrs.get(type_addr as usize), "invalid type address: {type_addr}")
     }
 
     /// resolve a function address to the global store address
     #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        *self.0.func_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid function address: {addr}"))
+        *unwrap_or_unreachable!(self.0.func_addrs.get(addr as usize), "invalid function address: {addr}")
     }
 
     /// resolve a table address to the global store address
     #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        *self.0.table_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid table address: {addr}"))
+        *unwrap_or_unreachable!(self.0.table_addrs.get(addr as usize), "invalid table address: {addr}")
     }
 
     /// resolve a memory address to the global store address
     #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        *self.0.mem_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid memory address: {addr}"))
+        *unwrap_or_unreachable!(self.0.mem_addrs.get(addr as usize), "invalid memory address: {addr}")
     }
 
     /// The resolved store address of the module's first memory, or `MemAddr::MAX` when the module
@@ -103,24 +103,24 @@ impl ModuleInstance {
     /// resolve a data address to the global store address
     #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
-        *self.0.data_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid data address: {addr}"))
+        *unwrap_or_unreachable!(self.0.data_addrs.get(addr as usize), "invalid data address: {addr}")
     }
 
     /// resolve an element address to the global store address
     #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        *self.0.elem_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid element address: {addr}"))
+        *unwrap_or_unreachable!(self.0.elem_addrs.get(addr as usize), "invalid element address: {addr}")
     }
 
     /// resolve a global address to the global store address
     #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
-        *self.0.global_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid global address: {addr}"))
+        *unwrap_or_unreachable!(self.0.global_addrs.get(addr as usize), "invalid global address: {addr}")
     }
 
     #[inline]
     pub(crate) fn resolve_tag_addr(&self, addr: TagAddr) -> TagAddr {
-        *self.0.tag_addrs.get(addr as usize).unwrap_or_else(|| unreachable!("invalid tag address: {addr}"))
+        *unwrap_or_unreachable!(self.0.tag_addrs.get(addr as usize), "invalid tag address: {addr}")
     }
 
     #[inline]
@@ -181,9 +181,11 @@ impl ModuleInstance {
         addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         let limiter = store.engine.config().resource_limiter.clone();
-        addrs
-            .memories
-            .extend(store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?);
+        if !module.skip_local_memory_allocation {
+            addrs
+                .memories
+                .extend(store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?);
+        }
 
         store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
         addrs.tables.extend(store.init_tables(&module.tables, &addrs.globals, &addrs.funcs, &type_addrs)?);

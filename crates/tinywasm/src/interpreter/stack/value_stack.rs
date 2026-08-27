@@ -62,12 +62,12 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        self.data.pop().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"))
+        unwrap_or_unreachable!(self.data.pop(), "ValueStack underflow, this is a bug")
     }
 
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        self.data.last().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"))
+        unwrap_or_unreachable!(self.data.last(), "ValueStack underflow, this is a bug")
     }
 
     #[inline(always)]
@@ -107,7 +107,7 @@ impl<T: Copy + Default> Stack<T> {
     #[inline(always)]
     pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
         debug_assert!(n < self.data.len());
-        let last = self.data.pop().unwrap_or_else(|| unreachable!("ValueStack underflow, this is a bug"));
+        let last = unwrap_or_unreachable!(self.data.pop(), "ValueStack underflow, this is a bug");
         self.data.truncate(n);
         self.data.push(last);
     }
@@ -164,7 +164,7 @@ impl<T: Copy + Default> Stack<T> {
         }
 
         let len = self.data.len();
-        let needed = count.checked_mul(2).unwrap_or_else(|| unreachable!("Stack underflow, this is a bug"));
+        let needed = unwrap_or_unreachable!(count.checked_mul(2), "Stack underflow, this is a bug");
 
         if len < needed {
             unreachable!("Stack underflow, this is a bug");

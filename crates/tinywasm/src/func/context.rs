@@ -22,10 +22,12 @@ impl FuncContext<'_> {
 
     /// Get the module instance.
     pub fn module(&self) -> crate::ModuleInstance {
-        self.store
-            .get_module_instance(self.module_id)
-            .unwrap_or_else(|| unreachable!("invalid module instance id in host function context: {}", self.module_id))
-            .clone()
+        unwrap_or_unreachable!(
+            self.store.get_module_instance(self.module_id),
+            "invalid module instance id in host function context: {}",
+            self.module_id
+        )
+        .clone()
     }
 
     /// Get a memory export.

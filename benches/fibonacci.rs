@@ -44,7 +44,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("fibonacci_from_twasm", |b| b.iter(|| fibonacci_from_twasm(&twasm)));
 
     group.measurement_time(std::time::Duration::from_secs(10));
-    group.bench_function("fibonacci_iterative_60", |b| b.iter(|| fibonacci_run(module.clone(), false, 60)));
+    group.bench_function("fibonacci_iterative_100", |b| b.iter(|| fibonacci_run(module.clone(), false, 100)));
     group.bench_function("fibonacci_recursive_26", |b| b.iter(|| fibonacci_run(module.clone(), true, 26)));
 }
 

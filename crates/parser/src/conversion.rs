@@ -186,9 +186,9 @@ pub(crate) fn convert_module_code(
     }
 
     #[cfg(feature = "validate")]
-    let (body, data, validator_allocs, reader_allocs) = match validator {
+    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = match validator {
         Some(validator) => {
-            let (body, data, validator_allocs, reader_allocs) = process_operators_and_validate(
+            let (body, data, uses_local_memory, validator_allocs, reader_allocs) = process_operators_and_validate(
                 validator,
                 func,
                 (local_types, local_addr_map),
@@ -197,10 +197,10 @@ pub(crate) fn convert_module_code(
                 reader_allocs,
                 options.deduplicate_operands(),
             )?;
-            (body, data, Some(validator_allocs), reader_allocs)
+            (body, data, uses_local_memory, Some(validator_allocs), reader_allocs)
         }
         None => {
-            let (body, data, reader_allocs) = process_operators(
+            let (body, data, uses_local_memory, reader_allocs) = process_operators(
                 func,
                 (local_types, local_addr_map),
                 metadata,
@@ -208,13 +208,13 @@ pub(crate) fn convert_module_code(
                 reader_allocs,
                 options.deduplicate_operands(),
             )?;
-            (body, data, None, reader_allocs)
+            (body, data, uses_local_memory, None, reader_allocs)
         }
     };
     #[cfg(not(feature = "validate"))]
-    let (body, data, validator_allocs, reader_allocs) = {
+    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = {
         let _ = validator;
-        let (body, data, reader_allocs) = process_operators(
+        let (body, data, uses_local_memory, reader_allocs) = process_operators(
             func,
             (local_types, local_addr_map),
             metadata,
@@ -222,9 +222,13 @@ pub(crate) fn convert_module_code(
             reader_allocs,
             options.deduplicate_operands(),
         )?;
-        (body, data, None, reader_allocs)
+        (body, data, uses_local_memory, None, reader_allocs)
     };
-    Ok((FunctionCode { instructions: body, data, locals: local_counts }, validator_allocs, reader_allocs))
+    Ok((
+        FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory },
+        validator_allocs,
+        reader_allocs,
+    ))
 }
 
 pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, types: &mut Vec<SubType>) -> Result<u32> {

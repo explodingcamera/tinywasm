@@ -69,7 +69,8 @@ impl RefType {
     }
 
     #[inline]
-    pub(crate) const fn from_bits(bits: u32) -> Option<Self> {
+    #[doc(hidden)]
+    pub const fn from_bits(bits: u32) -> Option<Self> {
         let ty = Self(bits);
         if ty.is_concrete() || ty.abstract_heap_type().is_some() { Some(ty) } else { None }
     }

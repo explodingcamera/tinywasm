@@ -1,18 +1,31 @@
 use alloc::boxed::Box;
 
 use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
-use crate::operands::sealed;
-use crate::{DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand128, OperandIdx, OperandType, RefType};
+use crate::operands::read_field;
+use crate::{
+    DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand64Idx, Operand128, Operand128Idx, OperandIdx, RefType,
+};
 
-/// Represents a memory immediate in a WebAssembly memory instruction.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct MemoryArg {
-    offset: u64,
-    mem_addr: MemAddr,
-}
+/// Identifies the packed full-width memory operand layout.
+pub enum MemoryOperand {}
+
+/// Identifies the packed compact memory operand layout.
+pub enum CompactMemoryOperand {}
+
+/// Identifies a packed branch-table operand.
+pub enum BranchTableOperand {}
+
+/// Identifies a packed constant memory-fill operand.
+pub enum MemoryFillOperand {}
+
+/// Identifies a packed local update and branch operand.
+pub enum LocalUpdateOperand {}
+
+/// Identifies a packed global update and branch operand.
+pub enum GlobalUpdateOperand {}
+
+/// Identifies a packed local update, comparison, and branch operand.
+pub enum LocalUpdateCmpOperand {}
 
 /// A compact memory immediate used by optimized instructions.
 ///
@@ -33,7 +46,7 @@ pub struct CompactMemoryArg {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[repr(Rust, packed)]
 pub struct MemoryLocalArg {
-    pub memory_arg_idx: OperandIdx<CompactMemoryArg>,
+    pub memory_arg_idx: Operand64Idx<CompactMemoryOperand>,
     pub local1: u8,
     pub local2: u8,
 }
@@ -44,7 +57,7 @@ pub struct MemoryLocalArg {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[repr(Rust, packed)]
 pub struct MemoryLaneArg {
-    pub memory_arg_idx: OperandIdx<MemoryArg>,
+    pub memory_arg_idx: Operand128Idx<MemoryOperand>,
     pub lane: u8,
 }
 
@@ -68,22 +81,6 @@ pub struct LocalTripleArg {
     pub dst: LocalAddr,
 }
 
-impl sealed::Sealed for LocalTripleArg {}
-
-impl OperandType for LocalTripleArg {
-    type Raw = Operand64;
-
-    #[inline(always)]
-    fn decode(raw: Self::Raw) -> Self {
-        Self { left: raw.u16::<0>(), right: raw.u16::<2>(), dst: raw.u16::<4>() }
-    }
-
-    #[inline]
-    fn encode(self) -> Self::Raw {
-        Operand64::default().with_u16::<0>(self.left).with_u16::<2>(self.right).with_u16::<4>(self.dst)
-    }
-}
-
 /// A branch target and local operand that fit in an instruction payload.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -94,194 +91,55 @@ pub struct TargetLocalArg {
     pub local: LocalAddr,
 }
 
-macro_rules! operand_view {
-    ($name:ident, $lane:ident, $raw:ty, { $($field:ident : $ty:ty = $read:ident / $write:ident ($offset:expr)),+ $(,)? }) => {
-        #[derive(Copy, Clone, PartialEq, Eq)]
-        #[cfg_attr(feature = "debug", derive(Debug))]
-        pub struct $name {
-            $(pub $field: $ty),+
-        }
-
-        impl sealed::Sealed for $name {}
-
-        impl OperandType for $name {
-            type Raw = $raw;
-
-            #[inline(always)]
-            fn decode(raw: Self::Raw) -> Self {
-                Self { $($field: raw.$read::<$offset>() as $ty),+ }
-            }
-
-            #[inline]
-            fn encode(self) -> Self::Raw {
-                <$raw>::default()$(.$write::<$offset>(self.$field as _))+
-            }
-        }
-    };
-}
-
-operand_view!(I64Operand, operands64, Operand64, { value: i64 = u64 / with_u64(0) });
-operand_view!(TwoU32, operands64, Operand64, {
-    first: u32 = u32 / with_u32(0), second: u32 = u32 / with_u32(4)
-});
-operand_view!(LocalU32, operands64, Operand64, {
-    local: u16 = u16 / with_u16(0), value: u32 = u32 / with_u32(2)
-});
-operand_view!(TargetLocal, operands64, Operand64, {
-    target: u32 = u32 / with_u32(0), local: u16 = u16 / with_u16(4)
-});
-
-operand_view!(LocalConst64, operands128, Operand128, {
-    local: u16 = u16 / with_u16(0), value: u64 = u64 / with_u64(2)
-});
-operand_view!(GlobalConst32, operands64, Operand64, {
-    global: u32 = u32 / with_u32(0), value: u32 = u32 / with_u32(4)
-});
-operand_view!(GlobalConst64, operands128, Operand128, {
-    global: u32 = u32 / with_u32(0), value: u64 = u64 / with_u64(4)
-});
-operand_view!(LocalConstSet32, operands64, Operand64, {
-    local: u16 = u16 / with_u16(0), dst: u16 = u16 / with_u16(2), value: u32 = u32 / with_u32(4)
-});
-operand_view!(LocalConstSet64, operands128, Operand128, {
-    local: u16 = u16 / with_u16(0), dst: u16 = u16 / with_u16(2), value: u64 = u64 / with_u64(4)
-});
-operand_view!(MemoryFillConstOp, operands128, Operand128, {
-    memory: u32 = u32 / with_u32(0), byte: u8 = u8 / with_u8(4), value: i32 = u32 / with_u32(5)
-});
-operand_view!(CastBranch, operands64, Operand64, {
-    target: u32 = u32 / with_u32(0), ref_type_bits: u32 = u32 / with_u32(4)
-});
-operand_view!(BranchTableArg, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), start: u32 = u32 / with_u32(4), len: u32 = u32 / with_u32(8)
-});
-operand_view!(StackConst32, operands64, Operand64, {
-    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4)
-});
-operand_view!(StackConst64, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i64 = u64 / with_u64(4)
-});
-operand_view!(LocalConstCmp, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8)
-});
-operand_view!(LocalLocalCmp, operands64, Operand64, {
-    target: u32 = u32 / with_u32(0), left: u16 = u16 / with_u16(4), right: u16 = u16 / with_u16(6)
-});
-operand_view!(LocalUpdate, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8), on_zero: u8 = u8 / with_u8(10)
-});
-operand_view!(GlobalUpdate, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), global: u32 = u32 / with_u32(8), on_zero: u8 = u8 / with_u8(12)
-});
-operand_view!(LocalUpdateCmp, operands128, Operand128, {
-    target: u32 = u32 / with_u32(0), value: i32 = u32 / with_u32(4), local: u16 = u16 / with_u16(8), right: u16 = u16 / with_u16(10)
-});
-
 /// An operation packed inline with an indexed operand.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
     feature = "archive",
     serde(bound(serialize = "Op: Copy + serde::Serialize", deserialize = "Op: Copy + serde::de::DeserializeOwned",))
 )]
 #[repr(Rust, packed)]
-pub struct PackedOp<Op, T> {
+pub struct PackedOp<Op, T, const WIDTH: usize> {
     pub op: Op,
-    pub index: OperandIdx<T>,
+    pub index: OperandIdx<T, WIDTH>,
 }
 
-impl<Op, T> PackedOp<Op, T> {
+/// An operation packed with an index into the 64-bit operand lane.
+pub type PackedOp64<Op, T> = PackedOp<Op, T, 8>;
+
+/// An operation packed with an index into the 128-bit operand lane.
+pub type PackedOp128<Op, T> = PackedOp<Op, T, 16>;
+
+impl<Op: Copy, T, const WIDTH: usize> Copy for PackedOp<Op, T, WIDTH> {}
+
+impl<Op: Copy, T, const WIDTH: usize> Clone for PackedOp<Op, T, WIDTH> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Op: Copy + PartialEq, T, const WIDTH: usize> PartialEq for PackedOp<Op, T, WIDTH> {
+    fn eq(&self, other: &Self) -> bool {
+        let (op, index) = (self.op, self.index);
+        let (other_op, other_index) = (other.op, other.index);
+        op == other_op && index == other_index
+    }
+}
+
+impl<Op: Copy + Eq, T, const WIDTH: usize> Eq for PackedOp<Op, T, WIDTH> {}
+
+#[cfg(feature = "debug")]
+impl<Op: Copy + core::fmt::Debug, T, const WIDTH: usize> core::fmt::Debug for PackedOp<Op, T, WIDTH> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (op, index) = (self.op, self.index);
+        formatter.debug_struct("PackedOp").field("op", &op).field("index", &index).finish()
+    }
+}
+
+impl<Op, T, const WIDTH: usize> PackedOp<Op, T, WIDTH> {
     /// Creates a packed operation from an operator and operand index.
     #[inline]
-    pub const fn new(op: Op, index: OperandIdx<T>) -> Self {
+    pub const fn new(op: Op, index: OperandIdx<T, WIDTH>) -> Self {
         Self { op, index }
-    }
-}
-
-/// A SIMD value stored in the 128-bit operand lane.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct V128Operand {
-    pub value: [u8; 16],
-}
-
-/// A local SIMD operation with an indexed constant.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct LocalV128 {
-    pub local: u16,
-    pub value: OperandIdx<V128Operand>,
-}
-
-/// A global SIMD operation with an indexed constant.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct GlobalV128 {
-    pub global: u32,
-    pub value: OperandIdx<V128Operand>,
-}
-
-/// A local SIMD operation, indexed constant, and destination local.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub struct LocalConstSetV128 {
-    pub local: u16,
-    pub dst: u16,
-    pub value: OperandIdx<V128Operand>,
-}
-
-macro_rules! operand_raw_view {
-    ($name:ident, $raw:ty, $decode:expr, $encode:expr) => {
-        impl sealed::Sealed for $name {}
-
-        impl OperandType for $name {
-            type Raw = $raw;
-
-            #[inline(always)]
-            fn decode(raw: Self::Raw) -> Self {
-                $decode(raw)
-            }
-
-            #[inline]
-            fn encode(self) -> Self::Raw {
-                $encode(self)
-            }
-        }
-    };
-}
-
-operand_raw_view!(V128Operand, Operand128, |raw: Operand128| Self { value: raw.to_le_bytes() }, |value: Self| {
-    Operand128::from_le_bytes(value.value)
-});
-operand_raw_view!(
-    LocalV128,
-    Operand64,
-    |raw: Operand64| Self { local: raw.u16::<0>(), value: OperandIdx::new(raw.u32::<2>()) },
-    |value: Self| { Operand64::default().with_u16::<0>(value.local).with_u32::<2>(value.value.index()) }
-);
-operand_raw_view!(
-    GlobalV128,
-    Operand64,
-    |raw: Operand64| Self { global: raw.u32::<0>(), value: OperandIdx::new(raw.u32::<4>()) },
-    |value: Self| { Operand64::default().with_u32::<0>(value.global).with_u32::<4>(value.value.index()) }
-);
-operand_raw_view!(
-    LocalConstSetV128,
-    Operand64,
-    |raw: Operand64| Self { local: raw.u16::<0>(), dst: raw.u16::<2>(), value: OperandIdx::new(raw.u32::<4>()) },
-    |value: Self| {
-        Operand64::default().with_u16::<0>(value.local).with_u16::<2>(value.dst).with_u32::<4>(value.value.index())
-    }
-);
-
-impl CastBranch {
-    #[inline]
-    pub const fn ref_type(self) -> RefType {
-        match RefType::from_bits(self.ref_type_bits) {
-            Some(value) => value,
-            None => unreachable!(),
-        }
     }
 }
 
@@ -325,36 +183,163 @@ pub struct ExceptionHandler {
     pub catches: Box<[ExceptionCatch]>,
 }
 
-impl MemoryArg {
+impl Operand128<MemoryOperand> {
+    /// Creates a full-width memory operand.
     #[inline]
-    pub const fn new(offset: u64, mem_addr: MemAddr) -> Self {
-        Self { offset, mem_addr }
+    pub fn new(offset: u64, memory: MemAddr) -> Self {
+        let mut operand = Self::default();
+        operand.write_u64::<0>(offset);
+        operand.write_u32::<8>(memory);
+        operand
     }
 
-    #[inline]
-    pub const fn offset(self) -> u64 {
-        self.offset
+    /// Returns the static byte offset.
+    #[inline(always)]
+    pub fn offset(&self) -> u64 {
+        read_field!(self, u64, 0)
     }
 
-    #[inline]
-    pub const fn mem_addr(self) -> MemAddr {
-        self.mem_addr
+    /// Returns the module-local memory index.
+    #[inline(always)]
+    pub fn memory(&self) -> MemAddr {
+        read_field!(self, u32, 8)
     }
 }
 
-impl sealed::Sealed for MemoryArg {}
-
-impl OperandType for MemoryArg {
-    type Raw = Operand128;
-
-    #[inline(always)]
-    fn decode(raw: Self::Raw) -> Self {
-        Self::new(raw.u64::<0>(), raw.u32::<8>())
+impl Operand64<CompactMemoryOperand> {
+    /// Creates a compact memory operand.
+    #[inline]
+    pub fn new(offset: u32, memory: u16) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(offset);
+        operand.write_u16::<4>(memory);
+        operand
     }
 
+    /// Returns the static byte offset.
+    #[inline(always)]
+    pub fn offset(&self) -> u32 {
+        read_field!(self, u32, 0)
+    }
+
+    /// Returns the module-local memory index.
+    #[inline(always)]
+    pub fn memory(&self) -> u16 {
+        read_field!(self, u16, 4)
+    }
+}
+
+impl Operand128<BranchTableOperand> {
     #[inline]
-    fn encode(self) -> Self::Raw {
-        Operand128::default().with_u64::<0>(self.offset).with_u32::<8>(self.mem_addr)
+    pub fn new(target: u32, start: u32, len: u32) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(target);
+        operand.write_u32::<4>(start);
+        operand.write_u32::<8>(len);
+        operand
+    }
+    #[inline(always)]
+    pub fn start(&self) -> u32 {
+        read_field!(self, u32, 4)
+    }
+    #[inline(always)]
+    pub fn size(&self) -> u32 {
+        read_field!(self, u32, 8)
+    }
+}
+
+impl Operand128<MemoryFillOperand> {
+    #[inline]
+    pub fn new(memory: MemAddr, byte: u8, value: i32) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(memory);
+        operand.write_u8::<4>(byte);
+        operand.write_u32::<5>(value as u32);
+        operand
+    }
+    #[inline(always)]
+    pub fn memory(&self) -> MemAddr {
+        read_field!(self, u32, 0)
+    }
+    #[inline(always)]
+    pub fn byte(&self) -> u8 {
+        read_field!(self, u8, 4)
+    }
+    #[inline(always)]
+    pub fn value(&self) -> i32 {
+        read_field!(self, i32, 5)
+    }
+}
+
+impl Operand128<LocalUpdateOperand> {
+    #[inline]
+    pub fn new(target: u32, value: i32, local: LocalAddr, on_zero: bool) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(target);
+        operand.write_u32::<4>(value as u32);
+        operand.write_u16::<8>(local);
+        operand.write_u8::<10>(u8::from(on_zero));
+        operand
+    }
+    #[inline(always)]
+    pub fn value(&self) -> i32 {
+        read_field!(self, i32, 4)
+    }
+    #[inline(always)]
+    pub fn local(&self) -> LocalAddr {
+        read_field!(self, u16, 8)
+    }
+    #[inline(always)]
+    pub fn on_zero(&self) -> bool {
+        read_field!(self, u8, 10) != 0
+    }
+}
+
+impl Operand128<GlobalUpdateOperand> {
+    #[inline]
+    pub fn new(target: u32, value: i32, global: GlobalAddr, on_zero: bool) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(target);
+        operand.write_u32::<4>(value as u32);
+        operand.write_u32::<8>(global);
+        operand.write_u8::<12>(u8::from(on_zero));
+        operand
+    }
+    #[inline(always)]
+    pub fn value(&self) -> i32 {
+        read_field!(self, i32, 4)
+    }
+    #[inline(always)]
+    pub fn global(&self) -> GlobalAddr {
+        read_field!(self, u32, 8)
+    }
+    #[inline(always)]
+    pub fn on_zero(&self) -> bool {
+        read_field!(self, u8, 12) != 0
+    }
+}
+
+impl Operand128<LocalUpdateCmpOperand> {
+    #[inline]
+    pub fn new(target: u32, value: i32, local: LocalAddr, right: LocalAddr) -> Self {
+        let mut operand = Self::default();
+        operand.write_u32::<0>(target);
+        operand.write_u32::<4>(value as u32);
+        operand.write_u16::<8>(local);
+        operand.write_u16::<10>(right);
+        operand
+    }
+    #[inline(always)]
+    pub fn value(&self) -> i32 {
+        read_field!(self, i32, 4)
+    }
+    #[inline(always)]
+    pub fn local(&self) -> LocalAddr {
+        read_field!(self, u16, 8)
+    }
+    #[inline(always)]
+    pub fn right(&self) -> LocalAddr {
+        read_field!(self, u16, 10)
     }
 }
 
@@ -372,43 +357,27 @@ impl CompactMemoryArg {
     }
 }
 
-impl sealed::Sealed for CompactMemoryArg {}
-
-impl OperandType for CompactMemoryArg {
-    type Raw = Operand64;
-
-    #[inline(always)]
-    fn decode(raw: Self::Raw) -> Self {
-        Self { offset: raw.u32::<0>(), mem_addr: raw.u16::<4>() }
-    }
-
-    #[inline]
-    fn encode(self) -> Self::Raw {
-        Operand64::default().with_u32::<0>(self.offset).with_u16::<4>(self.mem_addr)
-    }
-}
-
-impl TryFrom<MemoryArg> for CompactMemoryArg {
+impl TryFrom<Operand128<MemoryOperand>> for CompactMemoryArg {
     type Error = ();
 
     #[inline]
-    fn try_from(arg: MemoryArg) -> Result<Self, Self::Error> {
+    fn try_from(arg: Operand128<MemoryOperand>) -> Result<Self, Self::Error> {
         Ok(Self {
             offset: u32::try_from(arg.offset()).map_err(|_| ())?,
-            mem_addr: u16::try_from(arg.mem_addr()).map_err(|_| ())?,
+            mem_addr: u16::try_from(arg.memory()).map_err(|_| ())?,
         })
     }
 }
 
-impl From<CompactMemoryArg> for MemoryArg {
+impl From<CompactMemoryArg> for Operand64<CompactMemoryOperand> {
     #[inline]
     fn from(arg: CompactMemoryArg) -> Self {
-        Self::new(arg.offset(), arg.mem_addr())
+        Self::new(arg.offset, arg.mem_addr)
     }
 }
 
 const _: () = {
-    assert!(core::mem::size_of::<OperandIdx<I64Operand>>() == 4);
+    assert!(core::mem::size_of::<Operand64Idx<i64>>() == 4);
     assert!(core::mem::size_of::<Operand64>() == 8);
     assert!(core::mem::size_of::<Operand128>() == 16);
     assert!(core::mem::size_of::<CompactMemoryArg>() == 6);
@@ -542,28 +511,28 @@ pub enum BinOp128 {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
-    AddConst32(i32), AddConst64(OperandIdx<I64Operand>),
-    IncLocal32(I32LocalArg), IncLocal64(PackedOp<LocalAddr, I64Operand>),
+    AddConst32(i32), AddConst64(Operand64Idx<i64>),
+    IncLocal32(I32LocalArg), IncLocal64(PackedOp64<LocalAddr, i64>),
     // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
     BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
     BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
     CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
     AddLocalLocalSet32(LocalTripleArg), AddLocalLocalTee32(LocalTripleArg),
-    BinOpLocalLocalSet32(PackedOp<BinOp, LocalTripleArg>), BinOpLocalLocalSet64(PackedOp<BinOp, LocalTripleArg>), BinOpLocalLocalSet128(PackedOp<BinOp128, LocalTripleArg>),
-    BinOpLocalLocalTee32(PackedOp<BinOp, LocalTripleArg>), BinOpLocalLocalTee64(PackedOp<BinOp, LocalTripleArg>), BinOpLocalLocalTee128(PackedOp<BinOp128, LocalTripleArg>),
+    BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet128(PackedOp64<BinOp128, (u16, u16, u16)>),
+    BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee128(PackedOp64<BinOp128, (u16, u16, u16)>),
     AddLocalConst32(I32LocalArg), SubLocalConst32(I32LocalArg), MulLocalConst32(I32LocalArg),
-    BinOpLocalConst32(PackedOp<BinOp, LocalU32>), BinOpLocalConst64(PackedOp<BinOp, LocalConst64>),
-    BinOpGlobalConst32(PackedOp<BinOp, GlobalConst32>), BinOpGlobalConst64(PackedOp<BinOp, GlobalConst64>),
-    BinOpGlobalConst128(PackedOp<BinOp128, GlobalV128>), BinOpLocalConst128(PackedOp<BinOp128, LocalV128>),
-    BinOpLocalConstSet32(PackedOp<BinOp, LocalConstSet32>), BinOpLocalConstSet64(PackedOp<BinOp, LocalConstSet64>), BinOpLocalConstSet128(PackedOp<BinOp128, LocalConstSetV128>),
-    BinOpLocalConstTee32(PackedOp<BinOp, LocalConstSet32>), BinOpLocalConstTee64(PackedOp<BinOp, LocalConstSet64>), BinOpLocalConstTee128(PackedOp<BinOp128, LocalConstSetV128>),
+    BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>),
+    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
+    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>), BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
+    BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstSet128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
+    BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstTee128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
     BinOpStackLocal32(BinOp, LocalAddr),
     BinOpStackLocalSet32(BinOp, LocalAddr, LocalAddr),
     BinOpStackLocalTee32(BinOp, LocalAddr, LocalAddr),
     BinOpStackLocal128(BinOp128, LocalAddr),
     BinOpStackGlobal32(BinOp, u32),
     BinOpStackGlobal64(BinOp, u32),
-    SetLocalConst32(I32LocalArg), SetLocalConst64(PackedOp<LocalAddr, I64Operand>), SetLocalConst128(PackedOp<LocalAddr, V128Operand>),
+    SetLocalConst32(I32LocalArg), SetLocalConst64(PackedOp64<LocalAddr, i64>), SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>),
     IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
     StoreLocalLocal32(MemoryLocalArg), StoreLocalLocal64(MemoryLocalArg), StoreLocalLocal128(MemoryLocalArg),
     LoadLocal32(MemoryLocalArg), LoadLocal64(MemoryLocalArg),
@@ -576,7 +545,7 @@ pub enum Instruction {
     LoadLocalSet16S32(MemoryLocalArg), LoadLocalSet16U32(MemoryLocalArg),
     LoadLocalTee128(MemoryLocalArg), LoadLocalSet128(MemoryLocalArg),
     AndConstTee32(I32LocalArg), SubConstTee32(I32LocalArg),
-    AndConstTee64(PackedOp<LocalAddr, I64Operand>), SubConstTee64(PackedOp<LocalAddr, I64Operand>),
+    AndConstTee64(PackedOp64<LocalAddr, i64>), SubConstTee64(PackedOp64<LocalAddr, i64>),
     MulAccLocal32(LocalAddr), MulAccLocal64(LocalAddr),
     FMulAccLocal32(LocalAddr), FMulAccLocal64(LocalAddr),
     I32Add3,
@@ -596,14 +565,14 @@ pub enum Instruction {
     JumpIfRefNonNull(u32),
     JumpIfLocalZero32(TargetLocalArg), JumpIfLocalNonZero32(TargetLocalArg),
     JumpIfLocalZero64(TargetLocalArg), JumpIfLocalNonZero64(TargetLocalArg),
-    JumpCmpStackConst32(PackedOp<CmpOp, StackConst32>), JumpCmpStackConst64(PackedOp<CmpOp, StackConst64>),
-    JumpCmpStackLocal32(PackedOp<CmpOp, TargetLocal>), JumpCmpStackLocal64(PackedOp<CmpOp, TargetLocal>),
-    BinOpLocalConstJump32(PackedOp<BinOp, LocalUpdate>), BinOpLocalConstJumpCmpLocal32(PackedOp<(BinOp, CmpOp), LocalUpdateCmp>),
-    BinOpStackConstTeeLocalJump32(PackedOp<BinOp, LocalUpdate>), BinOpGlobalConstJump32(PackedOp<BinOp, GlobalUpdate>),
-    IncLocalJump32(OperandIdx<LocalUpdate>), IncStackTeeLocalJump32(OperandIdx<LocalUpdate>), IncGlobalJump32(OperandIdx<GlobalUpdate>),
-    IncLocalJumpCmpLocal32(PackedOp<CmpOp, LocalUpdateCmp>), JumpCmpLocalConst32(PackedOp<CmpOp, LocalConstCmp>), JumpCmpLocalConst64(PackedOp<CmpOp, LocalConstCmp>),
-    JumpCmpLocalLocal32(PackedOp<CmpOp, LocalLocalCmp>), JumpCmpLocalLocal64(PackedOp<CmpOp, LocalLocalCmp>),
-    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(OperandIdx<BranchTableArg>),
+    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>), JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>),
+    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>), JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>),
+    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>), BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>),
+    BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>), BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>),
+    IncLocalJump32(Operand128Idx<LocalUpdateOperand>), IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>), IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>),
+    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>), JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>), JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>),
+    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>), JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>),
+    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>),
     Return,
     ReturnVoid,
     Return32,
@@ -611,11 +580,11 @@ pub enum Instruction {
     Return128,
     Call(FuncAddr),
     CallSelf,
-    CallIndirect(OperandIdx<TwoU32>),
+    CallIndirect(Operand64Idx<(u32, u32)>),
     CallRef(TypeAddr),
     ReturnCall(FuncAddr),
     ReturnCallSelf,
-    ReturnCallIndirect(OperandIdx<TwoU32>),
+    ReturnCallIndirect(Operand64Idx<(u32, u32)>),
     ReturnCallRef(TypeAddr),
     Throw(TagAddr),
     ThrowRef,
@@ -634,18 +603,18 @@ pub enum Instruction {
     GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr), GlobalTee128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr),
 
     // > Memory Instructions
-    I32Load(OperandIdx<MemoryArg>), I64Load(OperandIdx<MemoryArg>), F32Load(OperandIdx<MemoryArg>), F64Load(OperandIdx<MemoryArg>),
-    I32Load8S(OperandIdx<MemoryArg>), I32Load8U(OperandIdx<MemoryArg>), I32Load16S(OperandIdx<MemoryArg>), I32Load16U(OperandIdx<MemoryArg>),
-    I64Load8S(OperandIdx<MemoryArg>), I64Load8U(OperandIdx<MemoryArg>), I64Load16S(OperandIdx<MemoryArg>), I64Load16U(OperandIdx<MemoryArg>), I64Load32S(OperandIdx<MemoryArg>), I64Load32U(OperandIdx<MemoryArg>),
-    I32Store(OperandIdx<MemoryArg>), I64Store(OperandIdx<MemoryArg>), F32Store(OperandIdx<MemoryArg>), F64Store(OperandIdx<MemoryArg>),
-    I32Store8(OperandIdx<MemoryArg>), I32Store16(OperandIdx<MemoryArg>), I64Store8(OperandIdx<MemoryArg>), I64Store16(OperandIdx<MemoryArg>), I64Store32(OperandIdx<MemoryArg>),
+    I32Load(Operand128Idx<MemoryOperand>), I64Load(Operand128Idx<MemoryOperand>), F32Load(Operand128Idx<MemoryOperand>), F64Load(Operand128Idx<MemoryOperand>),
+    I32Load8S(Operand128Idx<MemoryOperand>), I32Load8U(Operand128Idx<MemoryOperand>), I32Load16S(Operand128Idx<MemoryOperand>), I32Load16U(Operand128Idx<MemoryOperand>),
+    I64Load8S(Operand128Idx<MemoryOperand>), I64Load8U(Operand128Idx<MemoryOperand>), I64Load16S(Operand128Idx<MemoryOperand>), I64Load16U(Operand128Idx<MemoryOperand>), I64Load32S(Operand128Idx<MemoryOperand>), I64Load32U(Operand128Idx<MemoryOperand>),
+    I32Store(Operand128Idx<MemoryOperand>), I64Store(Operand128Idx<MemoryOperand>), F32Store(Operand128Idx<MemoryOperand>), F64Store(Operand128Idx<MemoryOperand>),
+    I32Store8(Operand128Idx<MemoryOperand>), I32Store16(Operand128Idx<MemoryOperand>), I64Store8(Operand128Idx<MemoryOperand>), I64Store16(Operand128Idx<MemoryOperand>), I64Store32(Operand128Idx<MemoryOperand>),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
 
     // > Constants
     Const32(i32),
     Const64Imm(i32),
-    Const64(OperandIdx<I64Operand>),
+    Const64(Operand64Idx<i64>),
 
     // > Reference Types
     RefNull(RefType),
@@ -658,24 +627,24 @@ pub enum Instruction {
     RefEq,
     RefTest(RefType),
     RefCast(RefType),
-    BrOnCast(OperandIdx<CastBranch>),
-    BrOnCastFail(OperandIdx<CastBranch>),
+    BrOnCast(Operand64Idx<(u32, u32)>),
+    BrOnCastFail(Operand64Idx<(u32, u32)>),
 
     // > GC Objects
     StructNew(TypeAddr),
     StructNewDefault(TypeAddr),
-    StructGet(OperandIdx<TwoU32>), StructGetS(OperandIdx<TwoU32>), StructGetU(OperandIdx<TwoU32>), StructSet(OperandIdx<TwoU32>),
+    StructGet(Operand64Idx<(u32, u32)>), StructGetS(Operand64Idx<(u32, u32)>), StructGetU(Operand64Idx<(u32, u32)>), StructSet(Operand64Idx<(u32, u32)>),
     ArrayNew(TypeAddr),
     ArrayNewDefault(TypeAddr),
-    ArrayNewFixed(OperandIdx<TwoU32>),
-    ArrayNewData(OperandIdx<TwoU32>), ArrayNewElem(OperandIdx<TwoU32>),
+    ArrayNewFixed(Operand64Idx<(u32, u32)>),
+    ArrayNewData(Operand64Idx<(u32, u32)>), ArrayNewElem(Operand64Idx<(u32, u32)>),
     ArrayGet(TypeAddr),
     ArrayGetS(TypeAddr),
     ArrayGetU(TypeAddr),
     ArraySet(TypeAddr),
     ArrayLen,
     ArrayFill(TypeAddr),
-    ArrayCopy(OperandIdx<TwoU32>), ArrayInitData(OperandIdx<TwoU32>), ArrayInitElem(OperandIdx<TwoU32>),
+    ArrayCopy(Operand64Idx<(u32, u32)>), ArrayInitData(Operand64Idx<(u32, u32)>), ArrayInitElem(Operand64Idx<(u32, u32)>),
 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
@@ -705,18 +674,18 @@ pub enum Instruction {
     I64TruncSatF32S, I64TruncSatF32U, I64TruncSatF64S, I64TruncSatF64U,
 
     // > Table Instructions
-    TableInit(OperandIdx<TwoU32>),
+    TableInit(Operand64Idx<(u32, u32)>),
     TableGet(TableAddr),
     TableSet(TableAddr),
-    TableCopy(OperandIdx<TwoU32>),
+    TableCopy(Operand64Idx<(u32, u32)>),
     TableGrow(TableAddr),
     TableSize(TableAddr),
     TableFill(TableAddr),
 
     // > Bulk Memory Instructions
-    MemoryInit(OperandIdx<TwoU32>), MemoryCopy(OperandIdx<TwoU32>),
+    MemoryInit(Operand64Idx<(u32, u32)>), MemoryCopy(Operand64Idx<(u32, u32)>),
     MemoryFill(MemAddr),
-    MemoryFillConst(OperandIdx<MemoryFillConstOp>),
+    MemoryFillConst(Operand128Idx<MemoryFillOperand>),
     DataDrop(DataAddr),
     ElemDrop(ElemAddr),
 
@@ -724,18 +693,18 @@ pub enum Instruction {
     I64Add128, I64Sub128, I64MulWideS, I64MulWideU,
 
     // > SIMD
-    V128Load(OperandIdx<MemoryArg>), V128Load8x8S(OperandIdx<MemoryArg>), V128Load8x8U(OperandIdx<MemoryArg>),
-    V128Load16x4S(OperandIdx<MemoryArg>), V128Load16x4U(OperandIdx<MemoryArg>), V128Load32x2S(OperandIdx<MemoryArg>), V128Load32x2U(OperandIdx<MemoryArg>),
+    V128Load(Operand128Idx<MemoryOperand>), V128Load8x8S(Operand128Idx<MemoryOperand>), V128Load8x8U(Operand128Idx<MemoryOperand>),
+    V128Load16x4S(Operand128Idx<MemoryOperand>), V128Load16x4U(Operand128Idx<MemoryOperand>), V128Load32x2S(Operand128Idx<MemoryOperand>), V128Load32x2U(Operand128Idx<MemoryOperand>),
 
-    V128Load8Splat(OperandIdx<MemoryArg>), V128Load16Splat(OperandIdx<MemoryArg>), V128Load32Splat(OperandIdx<MemoryArg>), V128Load64Splat(OperandIdx<MemoryArg>),
+    V128Load8Splat(Operand128Idx<MemoryOperand>), V128Load16Splat(Operand128Idx<MemoryOperand>), V128Load32Splat(Operand128Idx<MemoryOperand>), V128Load64Splat(Operand128Idx<MemoryOperand>),
     V128Load8Lane(MemoryLaneArg), V128Load16Lane(MemoryLaneArg), V128Load32Lane(MemoryLaneArg), V128Load64Lane(MemoryLaneArg),
 
-    V128Load32Zero(OperandIdx<MemoryArg>), V128Load64Zero(OperandIdx<MemoryArg>),
+    V128Load32Zero(Operand128Idx<MemoryOperand>), V128Load64Zero(Operand128Idx<MemoryOperand>),
 
-    V128Store(OperandIdx<MemoryArg>), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
+    V128Store(Operand128Idx<MemoryOperand>), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
 
-    I8x16Shuffle(OperandIdx<V128Operand>),
-    Const128Imm(u32), Const128(OperandIdx<V128Operand>),
+    I8x16Shuffle(Operand128Idx<[u8; 16]>),
+    Const128Imm(u32), Const128(Operand128Idx<[u8; 16]>),
 
     I8x16ExtractLaneS(u8), I8x16ExtractLaneU(u8), I8x16ReplaceLane(u8),
     I16x8ExtractLaneS(u8), I16x8ExtractLaneU(u8), I16x8ReplaceLane(u8),
@@ -794,6 +763,8 @@ pub enum Instruction {
     I16x8RelaxedQ15mulrS,
     I16x8RelaxedDotI8x16I7x16S,
     I32x4RelaxedDotI8x16I7x16AddS,
+
+    SelectStore32(Operand128Idx<MemoryOperand>), SelectStore64(Operand128Idx<MemoryOperand>),
 }
 
 const _: () = assert!(core::mem::size_of::<Instruction>() == 8);
@@ -814,43 +785,40 @@ mod tests {
 
     #[test]
     fn operand_lanes_round_trip_max_values() {
-        let memory = MemoryArg::new(u64::MAX, u32::MAX);
-        assert_eq!(MemoryArg::decode(memory.encode()), memory);
+        let memory = Operand128::<MemoryOperand>::new(u64::MAX, u32::MAX);
+        assert_eq!(memory.offset(), u64::MAX);
+        assert_eq!(memory.memory(), u32::MAX);
 
-        let value = Operand128::default()
-            .with_u8::<0>(u8::MAX)
-            .with_u16::<1>(u16::MAX)
-            .with_u32::<3>(u32::MAX)
-            .with_u64::<7>(u64::MAX);
-        assert_eq!(
-            (value.u8::<0>(), value.u16::<1>(), value.u32::<3>(), value.u64::<7>()),
-            (u8::MAX, u16::MAX, u32::MAX, u64::MAX)
-        );
-
-        let bytes = [u8::MAX; 16];
-        assert_eq!(Operand128::from_le_bytes(bytes).to_le_bytes(), bytes);
+        let value = Operand128::<LocalUpdateOperand>::new(u32::MAX, i32::MIN, u16::MAX, true);
+        assert_eq!(value.target(), u32::MAX);
+        assert_eq!(value.value(), i32::MIN);
+        assert_eq!(value.local(), u16::MAX);
+        assert!(value.on_zero());
     }
 
     #[test]
     fn v128_operand_views_round_trip_max_bytes() {
-        let value = OperandIdx::<V128Operand>::new(0);
-        let local = OperandIdx::<LocalV128>::new(0);
-        let global = OperandIdx::<GlobalV128>::new(1);
-        let set = OperandIdx::<LocalConstSetV128>::new(2);
+        let value = Operand128Idx::<[u8; 16]>::new(0);
+        let local = Operand64Idx::<(u16, Operand128Idx<[u8; 16]>)>::new(0);
+        let global = Operand64Idx::<(u32, Operand128Idx<[u8; 16]>)>::new(1);
+        let set = Operand64Idx::<(u16, u16, Operand128Idx<[u8; 16]>)>::new(2);
         let data = super::super::WasmFunctionData {
-            operands128: vec![V128Operand { value: [u8::MAX; 16] }.encode()].into_boxed_slice(),
+            operands128: vec![Operand128::<[u8; 16]>::new([u8::MAX; 16]).cast()].into_boxed_slice(),
             operands64: vec![
-                LocalV128 { local: u16::MAX, value }.encode(),
-                GlobalV128 { global: u32::MAX, value }.encode(),
-                LocalConstSetV128 { local: u16::MAX, dst: u16::MAX, value }.encode(),
+                Operand64::<(u16, Operand128Idx<[u8; 16]>)>::new(u16::MAX, value).cast(),
+                Operand64::<(u32, Operand128Idx<[u8; 16]>)>::new(u32::MAX, value).cast(),
+                Operand64::<(u16, u16, Operand128Idx<[u8; 16]>)>::new(u16::MAX, u16::MAX, value).cast(),
             ]
             .into_boxed_slice(),
             ..Default::default()
         };
 
-        assert_eq!(value.get(&data).value, [u8::MAX; 16]);
-        assert_eq!(local.get(&data), LocalV128 { local: u16::MAX, value });
-        assert_eq!(global.get(&data), GlobalV128 { global: u32::MAX, value });
-        assert_eq!(set.get(&data), LocalConstSetV128 { local: u16::MAX, dst: u16::MAX, value });
+        assert_eq!(value.resolve(&data).value(), [u8::MAX; 16]);
+        assert_eq!((local.resolve(&data).a(), local.resolve(&data).b()), (u16::MAX, value));
+        assert_eq!((global.resolve(&data).a(), global.resolve(&data).b()), (u32::MAX, value));
+        assert_eq!(
+            (set.resolve(&data).a(), set.resolve(&data).b(), set.resolve(&data).c()),
+            (u16::MAX, u16::MAX, value)
+        );
     }
 }

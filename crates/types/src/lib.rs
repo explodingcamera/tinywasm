@@ -133,6 +133,9 @@ pub struct ModuleInner {
     /// Corresponds to the `memory` section of the original WebAssembly module.
     pub memory_types: Box<[MemoryType]>,
 
+    /// Whether instantiation should omit unexported local memories that guest code cannot access.
+    pub skip_local_memory_allocation: bool,
+
     /// Tag components of the WebAssembly module.
     ///
     /// Corresponds to the `tag` section of the original WebAssembly module.

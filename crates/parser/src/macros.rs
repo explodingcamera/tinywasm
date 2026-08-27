@@ -72,7 +72,10 @@ pub(crate) mod visit {
         ) => {
             fn $visit(&mut self, memarg: wasmparser::MemArg $(, $lane: $ty)?) -> Self::Output {
                 let address = self.metadata.memory_size(memarg.memory)?;
-                let memory_arg_idx = self.push_operand(MemoryArg::new(memarg.offset, memarg.memory))?;
+                self.mark_memory(memarg.memory);
+                let memory_arg_idx = self.push_operand128(tinywasm_types::Operand128::<
+                    tinywasm_types::MemoryOperand,
+                >::new(memarg.offset, memarg.memory))?;
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
                     lowering_ops!(@memory_instruction $instr memory_arg_idx $(, $lane)?))
             }
@@ -87,7 +90,17 @@ pub(crate) mod visit {
             lowering_ops!(@resolved global_size $inputs => $outputs $($operator)*);
         };
         (@memory_index $inputs:tt => $outputs:tt $($operator:tt)*) => {
-            lowering_ops!(@resolved memory_size $inputs => $outputs $($operator)*);
+            lowering_ops!(@memory_index_impl $inputs => $outputs $($operator)*);
+        };
+        (@memory_index_impl [$($input:ident),*] => [$($output:ident),*]
+            $visit:ident($index:ident: $ty:ty) => $instr:ident
+        ) => {
+            fn $visit(&mut self, $index: $ty) -> Self::Output {
+                let address = self.metadata.memory_size($index)?;
+                self.mark_memory($index);
+                lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
+                    Instruction::$instr($index).into())
+            }
         };
         (@table $inputs:tt => $outputs:tt $($operator:tt)*) => {
             lowering_ops!(@resolved table_size $inputs => $outputs $($operator)*);

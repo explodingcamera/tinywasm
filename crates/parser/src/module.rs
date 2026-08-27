@@ -13,12 +13,14 @@ pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
     pub data: crate::visit::FunctionDataBuilder,
     pub locals: ValueCounts,
+    pub uses_local_memory: bool,
 }
 
 pub(crate) struct OptimizedFunctionCode {
     pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
+    pub uses_local_memory: bool,
 }
 
 pub(crate) fn optimize_function_code(
@@ -30,7 +32,12 @@ pub(crate) fn optimize_function_code(
     let optimized =
         optimize::optimize_instructions(code.instructions, &mut code.data, options, function_results, self_func_addr)?;
     let data = code.data.finish();
-    Ok(OptimizedFunctionCode { instructions: optimized.instructions, data, locals: code.locals })
+    Ok(OptimizedFunctionCode {
+        instructions: optimized.instructions,
+        data,
+        locals: code.locals,
+        uses_local_memory: code.uses_local_memory,
+    })
 }
 
 #[derive(Default)]
@@ -535,6 +542,20 @@ impl<'a> ModuleReader<'a> {
             .chain(self.code_type_addrs.iter().copied())
             .collect();
 
+        let imported_memory_count =
+            self.imports.iter().filter(|import| matches!(import.kind, ImportKind::Memory(_))).count();
+        let uses_local_memory = self.code.iter().any(|code| code.uses_local_memory);
+        let exports_local_memory = self
+            .exports
+            .iter()
+            .any(|export| export.kind == ExternalKind::Memory && export.index as usize >= imported_memory_count);
+        let initializes_local_memory = self
+            .data
+            .iter()
+            .any(|data| matches!(data.kind, DataKind::Active { mem, .. } if mem as usize >= imported_memory_count));
+        let skip_local_memory_allocation =
+            !self.memory_types.is_empty() && !uses_local_memory && !exports_local_memory && !initializes_local_memory;
+
         let funcs = self
             .code
             .into_iter()
@@ -567,6 +588,7 @@ impl<'a> ModuleReader<'a> {
             exports: self.exports,
             elements: self.elements,
             memory_types: self.memory_types,
+            skip_local_memory_allocation,
             tags: self.tags,
         }
         .into())

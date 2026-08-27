@@ -1,7 +1,8 @@
+use super::num_helpers::TinywasmFloatExt;
 use super::stack::{CallFrame, ValueStack};
 use crate::store::Globals;
 use crate::{Error, Result, Store, WasmValue, interpreter::simd::Value128};
-use tinywasm_types::{GlobalAddr, LocalAddr, WasmType};
+use tinywasm_types::{BinOp, BinOp128, CmpOp, GlobalAddr, LocalAddr, WasmType};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
@@ -114,14 +115,24 @@ pub(crate) trait InternalValue: sealed::Sealed + Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
+    fn stack_update(stack: &mut ValueStack, f: impl FnOnce(Self) -> Self) -> Result<Self, crate::Trap> {
+        let value = f(Self::stack_pop(stack));
+        Self::stack_push(stack, value)?;
+        Ok(value)
+    }
     fn stack_select(stack: &mut ValueStack);
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
     fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) -> Result<(), crate::Trap>;
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
-    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self);
+    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) -> Self;
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
     fn global_get(globals: &Globals, addr: GlobalAddr) -> Self;
     fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self);
+    fn global_update(globals: &mut Globals, addr: GlobalAddr, f: impl FnOnce(Self) -> Self) -> Self {
+        let value = f(Self::global_get(globals, addr));
+        Self::global_set(globals, addr, value);
+        value
+    }
 }
 
 macro_rules! impl_internalvalue {
@@ -136,13 +147,6 @@ macro_rules! impl_internalvalue {
             impl sealed::Sealed for $outer {}
 
             impl InternalValue for $outer {
-                #[inline(always)]
-                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
-                    let $to_stack_v = value;
-                    cold_err!(stack.$stack.push($to_stack))?;
-                    Ok(())
-                }
-
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
                     let $from_stack_v =
@@ -168,11 +172,13 @@ macro_rules! impl_internalvalue {
                     frame: &CallFrame,
                     index: LocalAddr,
                     f: impl FnOnce(Self) -> Self,
-                ) {
+                ) -> Self {
                     let abs_index = frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize;
                     let $from_stack_v = *stack.$stack.get(abs_index);
-                    let $to_stack_v = f($from_stack);
+                    let value = f($from_stack);
+                    let $to_stack_v = value;
                     stack.$stack.set(abs_index, $to_stack);
+                    value
                 }
 
                 #[inline(always)]
@@ -192,6 +198,13 @@ macro_rules! impl_internalvalue {
                 fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self) {
                     let $to_stack_v = value;
                     globals.$global_set(addr, $to_stack);
+                }
+
+                #[inline(always)]
+                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
+                    let $to_stack_v = value;
+                    cold_err!(stack.$stack.push($to_stack))?;
+                    Ok(())
                 }
 
                 #[inline(always)]
@@ -231,6 +244,105 @@ impl_internalvalue! {
     stack_32,  s32,  get_32,  set_32,  ValueRef, |v| v.raw(),         |v| ValueRef(v)
     stack_128, s128, get_128, set_128, Value128, |v| v,               |v| v
 }
+
+pub(crate) trait BinOpExt<T>: Copy {
+    fn exec(self, lhs: T, rhs: T) -> T;
+}
+
+impl BinOpExt<Value32> for BinOp {
+    #[inline(always)]
+    fn exec(self, lhs: Value32, rhs: Value32) -> Value32 {
+        match self {
+            BinOp::IAdd => lhs.wrapping_add(rhs),
+            BinOp::ISub => lhs.wrapping_sub(rhs),
+            BinOp::IMul => lhs.wrapping_mul(rhs),
+            BinOp::IAnd => lhs & rhs,
+            BinOp::IOr => lhs | rhs,
+            BinOp::IXor => lhs ^ rhs,
+            BinOp::IShl => (lhs as i32).wrapping_shl(rhs) as u32,
+            BinOp::IShrS => (lhs as i32).wrapping_shr(rhs) as u32,
+            BinOp::IShrU => lhs.wrapping_shr(rhs),
+            BinOp::IRotl => (lhs as i32).rotate_left(rhs) as u32,
+            BinOp::IRotr => (lhs as i32).rotate_right(rhs) as u32,
+            BinOp::FAdd => (f32::from_bits(lhs) + f32::from_bits(rhs)).to_bits(),
+            BinOp::FSub => (f32::from_bits(lhs) - f32::from_bits(rhs)).to_bits(),
+            BinOp::FMul => (f32::from_bits(lhs) * f32::from_bits(rhs)).to_bits(),
+            BinOp::FDiv => (f32::from_bits(lhs) / f32::from_bits(rhs)).to_bits(),
+            BinOp::FMin => f32::from_bits(lhs).tw_minimum(f32::from_bits(rhs)).to_bits(),
+            BinOp::FMax => f32::from_bits(lhs).tw_maximum(f32::from_bits(rhs)).to_bits(),
+            BinOp::FCopysign => f32::from_bits(lhs).copysign(f32::from_bits(rhs)).to_bits(),
+        }
+    }
+}
+
+impl BinOpExt<Value64> for BinOp {
+    #[inline(always)]
+    fn exec(self, lhs: Value64, rhs: Value64) -> Value64 {
+        match self {
+            BinOp::IAdd => lhs.wrapping_add(rhs),
+            BinOp::ISub => lhs.wrapping_sub(rhs),
+            BinOp::IMul => lhs.wrapping_mul(rhs),
+            BinOp::IAnd => lhs & rhs,
+            BinOp::IOr => lhs | rhs,
+            BinOp::IXor => lhs ^ rhs,
+            BinOp::IShl => (lhs as i64).wrapping_shl(rhs as u32) as u64,
+            BinOp::IShrS => (lhs as i64).wrapping_shr(rhs as u32) as u64,
+            BinOp::IShrU => lhs.wrapping_shr(rhs as u32),
+            BinOp::IRotl => (lhs as i64).rotate_left(rhs as u32) as u64,
+            BinOp::IRotr => (lhs as i64).rotate_right(rhs as u32) as u64,
+            BinOp::FAdd => (f64::from_bits(lhs) + f64::from_bits(rhs)).to_bits(),
+            BinOp::FSub => (f64::from_bits(lhs) - f64::from_bits(rhs)).to_bits(),
+            BinOp::FMul => (f64::from_bits(lhs) * f64::from_bits(rhs)).to_bits(),
+            BinOp::FDiv => (f64::from_bits(lhs) / f64::from_bits(rhs)).to_bits(),
+            BinOp::FMin => f64::from_bits(lhs).tw_minimum(f64::from_bits(rhs)).to_bits(),
+            BinOp::FMax => f64::from_bits(lhs).tw_maximum(f64::from_bits(rhs)).to_bits(),
+            BinOp::FCopysign => f64::from_bits(lhs).copysign(f64::from_bits(rhs)).to_bits(),
+        }
+    }
+}
+
+impl BinOpExt<Value128> for BinOp128 {
+    #[inline(always)]
+    fn exec(self, lhs: Value128, rhs: Value128) -> Value128 {
+        match self {
+            BinOp128::And => lhs.v128_and(rhs),
+            BinOp128::AndNot => lhs.v128_andnot(rhs),
+            BinOp128::Or => lhs.v128_or(rhs),
+            BinOp128::Xor => lhs.v128_xor(rhs),
+            BinOp128::I64x2Add => lhs.i64x2_add(rhs),
+            BinOp128::I64x2Mul => lhs.i64x2_mul(rhs),
+        }
+    }
+}
+
+pub(crate) trait CmpOpExt<T>: Copy {
+    fn cmp(self, lhs: T, rhs: T) -> bool;
+}
+
+macro_rules! impl_cmp_value {
+    ($ty:ty, $unsigned:ty) => {
+        impl CmpOpExt<$ty> for CmpOp {
+            #[inline(always)]
+            fn cmp(self, lhs: $ty, rhs: $ty) -> bool {
+                match self {
+                    CmpOp::Eq => lhs == rhs,
+                    CmpOp::Ne => lhs != rhs,
+                    CmpOp::LtS => lhs < rhs,
+                    CmpOp::LtU => (lhs as $unsigned) < (rhs as $unsigned),
+                    CmpOp::GtS => lhs > rhs,
+                    CmpOp::GtU => (lhs as $unsigned) > (rhs as $unsigned),
+                    CmpOp::LeS => lhs <= rhs,
+                    CmpOp::LeU => (lhs as $unsigned) <= (rhs as $unsigned),
+                    CmpOp::GeS => lhs >= rhs,
+                    CmpOp::GeU => (lhs as $unsigned) >= (rhs as $unsigned),
+                }
+            }
+        }
+    };
+}
+
+impl_cmp_value!(i32, u32);
+impl_cmp_value!(i64, u64);
 
 #[cfg(test)]
 mod tests {

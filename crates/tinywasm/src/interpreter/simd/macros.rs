@@ -183,18 +183,17 @@ macro_rules! lane_read {
     (f64, $bytes:expr, $offset:expr) => { f64::from_bits(u64::from_le_bytes([$bytes[$offset], $bytes[$offset + 1], $bytes[$offset + 2], $bytes[$offset + 3], $bytes[$offset + 4], $bytes[$offset + 5], $bytes[$offset + 6], $bytes[$offset + 7]])) };
 }
 
-#[rustfmt::skip]
 macro_rules! lane_write {
-    (i8,  $value:expr) => { [$value as u8] };
-    (u8,  $value:expr) => { [$value] };
-    (i16, $value:expr) => { $value.to_le_bytes() };
-    (u16, $value:expr) => { $value.to_le_bytes() };
-    (i32, $value:expr) => { $value.to_le_bytes() };
-    (u32, $value:expr) => { $value.to_le_bytes() };
-    (i64, $value:expr) => { $value.to_le_bytes() };
-    (u64, $value:expr) => { $value.to_le_bytes() };
-    (f32, $value:expr) => { $value.to_bits().to_le_bytes() };
-    (f64, $value:expr) => { $value.to_bits().to_le_bytes() };
+    (i8,  $value:expr) => {{ [$value as u8] }};
+    (u8,  $value:expr) => {{ [$value] }};
+    (i16, $value:expr) => {{ $value.to_le_bytes() }};
+    (u16, $value:expr) => {{ $value.to_le_bytes() }};
+    (i32, $value:expr) => {{ $value.to_le_bytes() }};
+    (u32, $value:expr) => {{ $value.to_le_bytes() }};
+    (i64, $value:expr) => {{ $value.to_le_bytes() }};
+    (u64, $value:expr) => {{ $value.to_le_bytes() }};
+    (f32, $value:expr) => {{ $value.to_bits().to_le_bytes() }};
+    (f64, $value:expr) => {{ $value.to_bits().to_le_bytes() }};
 }
 
 macro_rules! impl_lane_accessors {

@@ -284,11 +284,11 @@ impl State {
     }
 
     pub(super) fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
-        items.get(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
+        unwrap_or_unreachable!(items.get(addr as usize), "invalid {kind} address: {addr}")
     }
 
     fn get_mut<'a, T>(items: &'a mut [T], addr: Addr, kind: &str) -> &'a mut T {
-        items.get_mut(addr as usize).unwrap_or_else(|| unreachable!("invalid {kind} address: {addr}"))
+        unwrap_or_unreachable!(items.get_mut(addr as usize), "invalid {kind} address: {addr}")
     }
 
     fn get_disjoint_mut<'a, T>(items: &'a mut [T], addr: Addr, addr2: Addr, kind: &str) -> (&'a mut T, &'a mut T) {

@@ -7,25 +7,22 @@ pub(crate) trait TinywasmIntExt: Sized {
 /// we need to check for overflow. This macro generates the min/max values
 /// for a specific conversion, which are then used in the actual conversion.
 /// Rust sadly doesn't have wrapping casts for floats yet.
-#[rustfmt::skip]
 macro_rules! float_min_max {
-    (f32, i32) => {(i32::MIN as f32 - (1 << 8) as f32, i32::MAX as f32 + 1.0)}; // 2^8: f32 precision margin
-    (f64, i32) => {(i32::MIN as f64 - 1.0, i32::MAX as f64 + 1.0)};
-    (f32, u32) => {(-1.0_f32, u32::MAX as f32 + 1.0)};
-    (f64, u32) => {(-1.0_f64, u32::MAX as f64 + 1.0)};
-    (f32, i64) => {(i64::MIN as f32 - (1i64 << 40) as f32, i64::MAX as f32 + 1.0)}; // 2^40: f32 has 23 mantissa bits
-    (f64, i64) => {(i64::MIN as f64 - (1i64 << 11) as f64, i64::MAX as f64 + 1.0)}; // 2^11: f64 precision margin
-    (f32, u64) => {(-1.0_f32, u64::MAX as f32 + 1.0)};
-    (f64, u64) => {(-1.0_f64, u64::MAX as f64 + 1.0)};
-    ($from:ty, $to:ty) => {compile_error!("invalid float conversion")};
+    (f32, i32) => {{ (i32::MIN as f32 - (1 << 8) as f32, i32::MAX as f32 + 1.0) }}; // 2^8: f32 precision margin
+    (f64, i32) => {{ (i32::MIN as f64 - 1.0, i32::MAX as f64 + 1.0) }};
+    (f32, u32) => {{ (-1.0_f32, u32::MAX as f32 + 1.0) }};
+    (f64, u32) => {{ (-1.0_f64, u32::MAX as f64 + 1.0) }};
+    (f32, i64) => {{ (i64::MIN as f32 - (1i64 << 40) as f32, i64::MAX as f32 + 1.0) }}; // 2^40: f32 has 23 mantissa bits
+    (f64, i64) => {{ (i64::MIN as f64 - (1i64 << 11) as f64, i64::MAX as f64 + 1.0) }}; // 2^11: f64 precision margin
+    (f32, u64) => {{ (-1.0_f32, u64::MAX as f32 + 1.0) }};
+    (f64, u64) => {{ (-1.0_f64, u64::MAX as f64 + 1.0) }};
+    ($from:ty, $to:ty) => {{ compile_error!("invalid float conversion") }};
 }
 
 /// Convert a value on the stack with error checking
 macro_rules! checked_conv_float {
     // Direct conversion with error checking (two types)
-    ($from:tt, $to:tt, $self:expr) => {
-        checked_conv_float!($from, $to, $to, $self)
-    };
+    ($from:tt, $to:tt, $self:expr) => {{ checked_conv_float!($from, $to, $to, $self) }};
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
         let v = <$from>::stack_pop(&mut $self.store.value_stack);
