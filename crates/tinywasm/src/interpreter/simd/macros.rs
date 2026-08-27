@@ -118,7 +118,7 @@ macro_rules! impl_simd_shifts {
     ($($alias:literal => $name:ident($as_lanes:ident, $from_lanes:ident, $mask:expr, $op:ident);)*) => {
         $(
             #[doc(alias = $alias)]
-            pub fn $name(self, shift: u32) -> Self {
+            pub(crate) fn $name(self, shift: u32) -> Self {
                 simd_shift!(self, shift, $as_lanes, $from_lanes, $mask, $op)
             }
         )*
@@ -129,7 +129,7 @@ macro_rules! impl_simd_binary_methods {
     ($helper:ident; $($alias:literal => $name:ident($($args:tt)*);)*) => {
         $(
             #[doc(alias = $alias)]
-            pub fn $name(self, rhs: Self) -> Self {
+            pub(crate) fn $name(self, rhs: Self) -> Self {
                 $helper!(self, rhs, $($args)*)
             }
         )*
@@ -140,7 +140,7 @@ macro_rules! impl_simd_extend {
     ($($alias:literal => $name:ident($src_as:ident, $dst_from:ident, $dst_ty:ty, $offset:expr);)*) => {
         $(
             #[doc(alias = $alias)]
-            pub fn $name(self) -> Self {
+            pub(crate) fn $name(self) -> Self {
                 simd_extend_cast!(self, $src_as, $dst_from, $dst_ty, $offset)
             }
         )*
@@ -151,7 +151,7 @@ macro_rules! impl_simd_relaxed_laneselect {
     ($($alias:literal => $name:ident;)*) => {
         $(
             #[doc(alias = $alias)]
-            pub fn $name(v1: Self, v2: Self, c: Self) -> Self {
+            pub(crate) fn $name(v1: Self, v2: Self, c: Self) -> Self {
                 Self::v128_bitselect(v1, v2, c)
             }
         )*
@@ -162,7 +162,7 @@ macro_rules! impl_simd_reverse_comparisons {
     ($($alias:literal => $name:ident($reverse:ident);)*) => {
         $(
             #[doc(alias = $alias)]
-            pub fn $name(self, rhs: Self) -> Self {
+            pub(crate) fn $name(self, rhs: Self) -> Self {
                 rhs.$reverse(self)
             }
         )*
@@ -197,10 +197,10 @@ macro_rules! lane_write {
 }
 
 macro_rules! impl_lane_accessors {
-    ($($as_vis:vis $as_name:ident => $from_vis:vis $from_name:ident: $lane_ty:tt, $lane_count:expr, $lane_bytes:expr;)*) => {
+    ($($as_name:ident => $from_name:ident: $lane_ty:tt, $lane_count:expr, $lane_bytes:expr;)*) => {
         $(
             #[inline]
-            $as_vis const fn $as_name(self) -> [$lane_ty; $lane_count] {
+            pub(crate) const fn $as_name(self) -> [$lane_ty; $lane_count] {
                 const { assert!($lane_count * $lane_bytes == 16); };
                 let bytes = self.0;
                 let mut out = [0 as $lane_ty; $lane_count];
@@ -213,7 +213,7 @@ macro_rules! impl_lane_accessors {
             }
 
             #[inline]
-            $from_vis const fn $from_name(lanes: [$lane_ty; $lane_count]) -> Self {
+            pub(crate) const fn $from_name(lanes: [$lane_ty; $lane_count]) -> Self {
                 const { assert!($lane_count * $lane_bytes == 16); };
 
                 let mut bytes = [0u8; 16];

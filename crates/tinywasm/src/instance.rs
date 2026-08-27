@@ -2,7 +2,7 @@ use alloc::{boxed::Box, format};
 use core::hint::cold_path;
 use tinywasm_types::*;
 
-use crate::func::{FromWasmValues, IntoWasmValues, ToWasmTypes};
+use crate::func::{FromWasmValues, IntoWasmValues, WasmTypes};
 use crate::reference::StoreId;
 use crate::shared::StoreShared;
 use crate::store::MemoryInstance;
@@ -125,7 +125,7 @@ impl ModuleInstance {
 
     #[inline]
     pub(crate) fn validate_store(&self, store: &Store) -> Result<()> {
-        if self.0.store_id != store.store_id() {
+        if self.0.store_id != store.id() {
             return cold!(Err(Trap::InvalidStore.into()));
         }
         Ok(())
@@ -195,7 +195,7 @@ impl ModuleInstance {
             store.init_data(&addrs.memories, &addrs.globals, &addrs.funcs, &module.data, &type_addrs)?;
 
         let instance = ModuleInstanceInner {
-            store_id: store.store_id(),
+            store_id: store.id(),
             id,
             type_addrs,
             func_addrs: addrs.funcs.into_boxed_slice(),
@@ -362,7 +362,6 @@ impl ModuleInstance {
     /// For typed access, see [`Self::func`].
     pub fn func_untyped(&self, store: &Store, name: &str) -> Result<Function> {
         self.validate_store(store)?;
-
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
             return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
         };
@@ -409,19 +408,13 @@ impl ModuleInstance {
     /// For untyped access, see [`Self::func_untyped`] and [`Self::extern_item`].
     ///
     /// Tuples are supported up to arity 20. Use [`Self::func_untyped`] for larger signatures.
-    pub fn func<P: IntoWasmValues + ToWasmTypes, R: FromWasmValues + ToWasmTypes>(
-        &self,
-        store: &Store,
-        name: &str,
-    ) -> Result<FunctionTyped<P, R>> {
+    pub fn func<P: IntoWasmValues, R: FromWasmValues>(&self, store: &Store, name: &str) -> Result<FunctionTyped<P, R>> {
         self.validate_store(store)?;
-
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
             return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
         };
 
         let func = Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() };
-
         Self::validate_typed_func::<P, R>(store, &func, name)?;
         Ok(FunctionTyped { func, marker: core::marker::PhantomData })
     }
@@ -429,7 +422,7 @@ impl ModuleInstance {
     /// Get a typed function by its module-local index.
     #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
     #[cfg(feature = "guest-debug")]
-    pub fn func_typed_by_index<P: IntoWasmValues + ToWasmTypes, R: FromWasmValues + ToWasmTypes>(
+    pub fn func_typed_by_index<P: IntoWasmValues, R: FromWasmValues>(
         &self,
         store: &Store,
         func_index: FuncAddr,
@@ -440,21 +433,17 @@ impl ModuleInstance {
     }
 
     #[inline]
-    fn validate_typed_func<P: ToWasmTypes, R: ToWasmTypes>(
-        store: &Store,
-        func: &Function,
-        func_name: &str,
-    ) -> Result<()> {
-        let params = P::wasm_types();
-        let results = R::wasm_types();
+    fn validate_typed_func<P: WasmTypes, R: WasmTypes>(store: &Store, func: &Function, func_name: &str) -> Result<()> {
+        let params = P::WASM_TYPES;
+        let results = R::WASM_TYPES;
         let ty = store.state.get_func_type(func.addr());
-        if ty.params() != params.as_ref() || ty.results() != results.as_ref() {
+        if ty.params() != params || ty.results() != results {
             cold_path();
 
             #[cfg(feature = "debug")]
             return Err(Error::Other(format!(
                 "function type mismatch for {func_name}: expected {:?}, actual {:?}",
-                FuncType::new(&params, &results),
+                FuncType::new(params, results),
                 ty
             )));
 
@@ -469,9 +458,7 @@ impl ModuleInstance {
     pub fn memory(&self, name: &str) -> Result<Memory> {
         match self.require_export(name)? {
             ExternVal::Memory(mem_addr) => Ok(Memory(StoreItem::new(self.0.store_id, mem_addr))),
-            _ => {
-                cold!(Err(Error::Other(format!("Export is not a memory: {name}"))))
-            }
+            _ => cold!(Err(Error::Other(format!("Export is not a memory: {name}")))),
         }
     }
 
@@ -491,7 +478,7 @@ impl ModuleInstance {
     pub fn table(&self, name: &str) -> Result<Table> {
         match self.require_export(name)? {
             ExternVal::Table(table_addr) => Ok(Table(StoreItem::new(self.0.store_id, table_addr))),
-            _ => Err(Error::Other(format!("Export is not a table: {name}"))),
+            _ => cold!(Err(Error::Other(format!("Export is not a table: {name}")))),
         }
     }
 
@@ -511,7 +498,7 @@ impl ModuleInstance {
     pub fn tag(&self, name: &str) -> Result<Tag> {
         match self.require_export(name)? {
             ExternVal::Tag(tag_addr) => Ok(Tag(StoreItem::new(self.0.store_id, tag_addr))),
-            _ => Err(Error::Other(format!("Export is not a tag: {name}"))),
+            _ => cold!(Err(Error::Other(format!("Export is not a tag: {name}")))),
         }
     }
 
@@ -531,7 +518,7 @@ impl ModuleInstance {
     pub fn global(&self, name: &str) -> Result<Global> {
         match self.require_export(name)? {
             ExternVal::Global(global_addr) => Ok(Global(StoreItem::new(self.0.store_id, global_addr))),
-            _ => Err(Error::Other(format!("Export is not a global: {name}"))),
+            _ => cold!(Err(Error::Other(format!("Export is not a global: {name}")))),
         }
     }
 

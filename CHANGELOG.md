@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Parser::new` now takes `ParserOptions`. Use `Parser::default()` for default settings. `Parser::with_options` was removed.
 - Pluggable memory backends and `Config::with_trap_on_oom` were removed for performance reasons. Linear memory is always `Vec`-backed. Use `ResourceLimiter` to allow, reject, or trap memory allocation and growth requests.
 - `WasmTupleChain` was removed. Use direct tuples up to arity 20 or untyped functions for larger signatures.
+- `ToWasmTypes` was renamed to `WasmTypes`, and `ToWasmType` was renamed to `WasmValueType`. Conversion traits now include `WasmTypes`, and `FromWasmValues::from_wasm_values` rejects unconsumed values directly.
 - The `.twasm` format changed. Regenerate archives created by earlier TinyWasm versions.
 
 ## [0.10.0] - 2026-07-24

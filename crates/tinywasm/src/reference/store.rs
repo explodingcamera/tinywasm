@@ -30,7 +30,7 @@ impl StoreItem {
 
     #[inline]
     pub(crate) fn validate_store(&self, store: &Store) -> Result<(), Trap> {
-        if self.store_id != store.store_id() {
+        if self.store_id != store.id() {
             return Err(Trap::InvalidStore);
         }
         Ok(())
@@ -243,7 +243,7 @@ fn gc_field_type(store: &Store, field: FieldType) -> GcFieldType {
             WasmType::Ref(ty) => GcValueType::Ref(GcRefType {
                 nullable: ty.is_nullable(),
                 heap_type: match ty.type_index() {
-                    Some(addr) => GcHeapType::Concrete(GcType(StoreItem::new(store.store_id(), addr))),
+                    Some(addr) => GcHeapType::Concrete(GcType(StoreItem::new(store.id(), addr))),
                     None => GcHeapType::Abstract(ty.abstract_heap_type().expect("abstract reference type")),
                 },
             }),
@@ -356,7 +356,7 @@ impl Memory {
         let addr = store.state.memories.len() as MemAddr;
         let limiter = store.engine.config().resource_limiter.clone();
         store.state.memories.push(MemoryInstance::new(ty, limiter.as_deref())?);
-        Ok(Self(StoreItem::new(store.store_id(), addr)))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     /// Creates a cursor positioned at the start of this memory.
@@ -574,7 +574,7 @@ impl StructRef {
     /// Returns this struct's canonical type.
     pub fn ty(&self, store: &Store) -> Result<GcType> {
         let (_, type_addr) = rooted_object(store, self, ReferentKind::Struct)?;
-        Ok(GcType(StoreItem::new(store.store_id(), type_addr)))
+        Ok(GcType(StoreItem::new(store.id(), type_addr)))
     }
 
     /// Reads one field.
@@ -633,7 +633,7 @@ impl ArrayRef {
     /// Returns this array's canonical type.
     pub fn ty(&self, store: &Store) -> Result<GcType> {
         let (_, type_addr) = rooted_object(store, self, ReferentKind::Array)?;
-        Ok(GcType(StoreItem::new(store.store_id(), type_addr)))
+        Ok(GcType(StoreItem::new(store.id(), type_addr)))
     }
 
     /// Returns the number of array elements.
@@ -703,7 +703,7 @@ impl ExnRef {
     /// Returns the exception's tag.
     pub fn tag(&self, store: &Store) -> Result<Tag> {
         let (_, tag_addr) = exception_object(store, self)?;
-        Ok(Tag(StoreItem::new(store.store_id(), tag_addr)))
+        Ok(Tag(StoreItem::new(store.id(), tag_addr)))
     }
 
     /// Reads one exception payload field.
@@ -769,7 +769,7 @@ impl Table {
         let limiter = store.engine.config().resource_limiter.clone();
         let addr = store.state.tables.len() as TableAddr;
         store.state.tables.push(TableInstance::new(ty, init, limiter.as_deref())?);
-        Ok(Self(StoreItem::new(store.store_id(), addr)))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     #[inline]
@@ -861,7 +861,7 @@ impl Global {
         }
         let value = value.to_runtime(store)?;
         let addr = store.state.globals.push(ty, value);
-        Ok(Self(StoreItem::new(store.store_id(), addr)))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     /// Get the type of the global.
@@ -904,7 +904,7 @@ impl Tag {
         let type_addr = store.register_host_type(&ty);
         let addr = store.state.tags.len() as TagAddr;
         store.state.tags.push(crate::store::TagInstance { type_addr });
-        Ok(Self(StoreItem::new(store.store_id(), addr)))
+        Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
     /// Get the payload type of the tag.

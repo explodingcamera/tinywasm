@@ -31,26 +31,21 @@ impl MemoryInstance {
         kind.page_count_max_declared().map(|pages| Self::host_size(kind, pages).unwrap_or(usize::MAX))
     }
 
+    #[cfg(target_pointer_width = "64")]
     #[inline(always)]
     pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            if !self.is_64bit() {
-                debug_assert!(u32::try_from(offset).is_ok(), "validated memory32 offsets fit in u32");
-                return Ok(base + offset as usize);
-            }
-            match base.checked_add(offset as usize) {
-                Some(addr) => Ok(addr),
-                None => cold!(Err(memory_oob(base, N, self.inner.len()))),
-            }
+        match base.checked_add(offset as usize) {
+            Some(addr) => Ok(addr),
+            None => cold!(Err(memory_oob(base, N, self.inner.len()))),
         }
+    }
 
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            match usize::try_from(offset).ok().and_then(|offset| base.checked_add(offset)) {
-                Some(addr) => Ok(addr),
-                None => cold!(Err(memory_oob(base, N, self.inner.len()))),
-            }
+    #[cfg(not(target_pointer_width = "64"))]
+    #[inline(always)]
+    pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
+        match usize::try_from(offset).ok().and_then(|offset| base.checked_add(offset)) {
+            Some(addr) => Ok(addr),
+            None => cold!(Err(memory_oob(base, N, self.inner.len()))),
         }
     }
 
@@ -84,18 +79,18 @@ impl MemoryInstance {
     pub(crate) fn copy_from_memory(
         &mut self,
         dst: usize,
-        src_memory: &MemoryInstance,
+        src_mem: &MemoryInstance,
         src: usize,
         len: usize,
     ) -> Result<(), Trap> {
-        src_memory.inner.checked_range(src, len).ok_or_else(|| cold!(memory_oob(src, len, src_memory.inner.len())))?;
-        self.inner.checked_range(dst, len).ok_or_else(|| cold!(memory_oob(dst, len, self.inner.len())))?;
-        self.inner.copy_from(dst, &src_memory.inner, src, len);
+        cold_err!(src_mem.inner.checked_range(src, len).ok_or_else(|| memory_oob(src, len, src_mem.inner.len())))?;
+        cold_err!(self.inner.checked_range(dst, len).ok_or_else(|| memory_oob(dst, len, self.inner.len())))?;
+        self.inner.copy_from(dst, &src_mem.inner, src, len);
         Ok(())
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {
-        self.inner.copy_within(dst, src, len).ok_or_else(|| cold!(memory_oob(dst, len, self.inner.len())))
+        cold_err!(self.inner.copy_within(dst, src, len).ok_or_else(|| memory_oob(dst, len, self.inner.len())))
     }
 
     pub(crate) fn grow(

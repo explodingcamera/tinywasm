@@ -9,7 +9,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error};
 use tinywasm::types::{MemoryType, RefType, RefValue, TableType, WasmType, WasmValue};
 use tinywasm::{ExecProgress, Global, HostFunction, Imports, Memory, Module, ModuleInstance, Store, Table};
-use wast::{QuoteWat, core::AbstractHeapType};
+use wast::QuoteWat;
+use wast::core::{AbstractHeapType, NanPattern};
 
 const TEST_TIME_SLICE: Duration = Duration::from_millis(20);
 const TEST_MAX_SUSPENSIONS: u32 = 1000;
@@ -17,6 +18,15 @@ const TEST_MAX_SUSPENSIONS: u32 = 1000;
 const ACCEPTED_MALFORMED_MESSAGES: &[&str] =
     &["integer representation too long", "zero byte expected", "zero flag expected"];
 const ACCEPTED_INVALID_MESSAGES: &[&str] = &["multiple memories"];
+
+macro_rules! float_value {
+    ($pattern:expr, $float:ty, $variant:ident) => {
+        match $pattern {
+            NanPattern::CanonicalNan | NanPattern::ArithmeticNan => WasmValue::$variant(<$float>::NAN),
+            NanPattern::Value(value) => WasmValue::$variant(<$float>::from_bits(value.bits)),
+        }
+    };
+}
 
 #[derive(Default)]
 struct ModuleRegistry {
@@ -845,10 +855,10 @@ fn wastarg2tinywasmvalue(store: &mut Store, arg: wast::WastArg) -> Result<WasmVa
 fn wast_v128_to_bytes(i: wast::core::V128Pattern) -> [u8; 16] {
     let res: Vec<u8> = match i {
         wast::core::V128Pattern::F32x4(f) => {
-            f.iter().flat_map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f32().unwrap().to_le_bytes()).collect()
+            f.iter().flat_map(|v| float_value!(*v, f32, F32).as_f32().unwrap().to_le_bytes()).collect()
         }
         wast::core::V128Pattern::F64x2(f) => {
-            f.iter().flat_map(|v| nanpattern2tinywasmvalue(*v).unwrap().as_f64().unwrap().to_le_bytes()).collect()
+            f.iter().flat_map(|v| float_value!(*v, f64, F64).as_f64().unwrap().to_le_bytes()).collect()
         }
         wast::core::V128Pattern::I16x8(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
         wast::core::V128Pattern::I32x4(f) => f.iter().flat_map(|v| v.to_le_bytes()).collect(),
@@ -920,8 +930,8 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         RefStruct, V128,
     };
     Ok(match ret {
-        F32(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
-        F64(f) => ExpectedValue::Exact(nanpattern2tinywasmvalue(f)?),
+        F32(f) => ExpectedValue::Exact(float_value!(f, f32, F32)),
+        F64(f) => ExpectedValue::Exact(float_value!(f, f64, F64)),
         I32(i) => ExpectedValue::Exact(WasmValue::I32(i)),
         I64(i) => ExpectedValue::Exact(WasmValue::I64(i)),
         V128(i) => ExpectedValue::Exact(WasmValue::V128(wast_v128_to_bytes(i))),
@@ -942,63 +952,6 @@ fn wastretcore2tinywasmvalue(ret: wast::core::WastRetCore) -> Result<ExpectedVal
         a => {
             bail!("unsupported arg type {:?}", a);
         }
-    })
-}
-
-enum Bits {
-    U32(u32),
-    U64(u64),
-}
-
-trait FloatToken {
-    fn bits(&self) -> Bits;
-    fn canonical_nan() -> WasmValue;
-    fn arithmetic_nan() -> WasmValue;
-    fn value(&self) -> WasmValue {
-        match self.bits() {
-            Bits::U32(v) => WasmValue::F32(f32::from_bits(v)),
-            Bits::U64(v) => WasmValue::F64(f64::from_bits(v)),
-        }
-    }
-}
-
-impl FloatToken for wast::token::F32 {
-    fn bits(&self) -> Bits {
-        Bits::U32(self.bits)
-    }
-
-    fn canonical_nan() -> WasmValue {
-        WasmValue::F32(f32::NAN)
-    }
-
-    fn arithmetic_nan() -> WasmValue {
-        WasmValue::F32(f32::NAN)
-    }
-}
-
-impl FloatToken for wast::token::F64 {
-    fn bits(&self) -> Bits {
-        Bits::U64(self.bits)
-    }
-
-    fn canonical_nan() -> WasmValue {
-        WasmValue::F64(f64::NAN)
-    }
-
-    fn arithmetic_nan() -> WasmValue {
-        WasmValue::F64(f64::NAN)
-    }
-}
-
-fn nanpattern2tinywasmvalue<T>(arg: wast::core::NanPattern<T>) -> Result<WasmValue>
-where
-    T: FloatToken,
-{
-    use wast::core::NanPattern::{ArithmeticNan, CanonicalNan, Value};
-    Ok(match arg {
-        CanonicalNan => T::canonical_nan(),
-        ArithmeticNan => T::arithmetic_nan(),
-        Value(v) => v.value(),
     })
 }
 

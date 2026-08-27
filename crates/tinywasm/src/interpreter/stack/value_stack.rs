@@ -222,16 +222,11 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push<T: InternalValue>(&mut self, value: T) -> Result<(), Trap> {
-        T::stack_push(self, value)
-    }
-
-    #[inline(always)]
     pub(crate) fn pop_memory_operand(&mut self, arch: MemoryArch) -> Result<usize, Trap> {
         match arch {
-            MemoryArch::I32 => Ok(self.stack_32.pop() as usize),
+            MemoryArch::I32 => Ok(u32::stack_pop(self) as usize),
             MemoryArch::I64 => {
-                let value = self.stack_64.pop();
+                let value = u64::stack_pop(self);
                 #[cfg(target_pointer_width = "64")]
                 return Ok(value as usize);
                 #[cfg(not(target_pointer_width = "64"))]
@@ -276,10 +271,10 @@ impl ValueStack {
 
     pub(crate) fn push_dyn(&mut self, value: RuntimeValue) -> Result<(), Trap> {
         match value {
-            RuntimeValue::Value32(v) => self.stack_32.push(v),
-            RuntimeValue::Value64(v) => self.stack_64.push(v),
-            RuntimeValue::Value128(v) => self.stack_128.push(v),
-            RuntimeValue::ValueRef(v) => self.stack_32.push(v.raw()),
+            RuntimeValue::Value32(value) => Value32::stack_push(self, value),
+            RuntimeValue::Value64(value) => Value64::stack_push(self, value),
+            RuntimeValue::Value128(value) => Value128::stack_push(self, value),
+            RuntimeValue::ValueRef(value) => ValueRef::stack_push(self, value),
         }
     }
 }

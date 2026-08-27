@@ -9,7 +9,6 @@ impl Value128 {
         lane: u8,
     ) -> [u8; LANE_BYTES] {
         const { assert!(LANE_BYTES * LANE_COUNT == 16) };
-        assert!((lane as usize) < LANE_COUNT);
         let start = lane as usize * LANE_BYTES;
         core::array::from_fn(|i| self.0[start + i])
     }
@@ -20,7 +19,6 @@ impl Value128 {
         value: [u8; LANE_BYTES],
     ) -> Self {
         const { assert!(LANE_BYTES * LANE_COUNT == 16) };
-        assert!((lane as usize) < LANE_COUNT);
         let mut bytes = self.0;
         let start = lane as usize * LANE_BYTES;
         bytes[start..start + LANE_BYTES].copy_from_slice(&value);

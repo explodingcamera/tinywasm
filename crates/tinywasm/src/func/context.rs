@@ -21,12 +21,11 @@ impl FuncContext<'_> {
     }
 
     /// Get the module instance.
-    pub fn module(&self) -> crate::ModuleInstance {
+    pub fn module(&self) -> &crate::ModuleInstance {
         unwrap_or_unreachable!(
             self.store.get_module_instance(self.module_id),
             "invalid module instance id in host function context"
         )
-        .clone()
     }
 
     /// Get a memory export.
@@ -46,7 +45,7 @@ impl FuncContext<'_> {
 
     /// Get the value of a global export.
     pub fn global_get(&mut self, name: &str) -> Result<WasmValue> {
-        self.module().global_get(self.store, name)
+        self.module().clone().global_get(self.store, name)
     }
 
     /// Get a global export.
@@ -56,7 +55,7 @@ impl FuncContext<'_> {
 
     /// Set the value of a mutable global export.
     pub fn global_set(&mut self, name: &str, value: WasmValue) -> Result<()> {
-        self.module().global_set(self.store, name, value)
+        self.module().clone().global_set(self.store, name, value)
     }
 
     /// Charge additional fuel from the currently running resumable invocation.
@@ -98,11 +97,11 @@ impl FuncContext<'_> {
 
     /// Calls a Store-aware function reference in the current module context.
     pub fn call_ref(&mut self, func: FuncRef, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
-        let addr = func.addr(self.store.store_id()).ok_or(crate::Trap::InvalidStore)?;
+        let addr = func.addr(self.store.id()).ok_or(crate::Trap::InvalidStore)?;
         if self.store.state.funcs.get(addr as usize).is_none() {
             return Err(crate::Trap::InvalidReference.into());
         }
-        let function = Function { item: crate::StoreItem::new(self.store.store_id(), addr), module_id: self.module_id };
+        let function = Function { item: crate::StoreItem::new(self.store.id(), addr), module_id: self.module_id };
         self.call_untyped(&function, args, results)
     }
 
@@ -132,7 +131,7 @@ impl FuncContext<'_> {
                 let value_stack_base = store.value_stack.base();
                 func.func.call_untyped(store, params, results, call_stack_base, value_stack_base)?;
                 values.drain(..param_count);
-                R::from_wasm_values_exact(&mut values.drain(..))
+                R::from_wasm_values(&mut values.drain(..))
             })
         } else {
             let call_stack_base = self.store.call_stack.len();

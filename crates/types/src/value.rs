@@ -21,13 +21,6 @@ pub enum WasmType {
     Ref(RefType),
 }
 
-impl WasmType {
-    #[inline]
-    pub const fn is_simd(self) -> bool {
-        matches!(self, Self::V128)
-    }
-}
-
 impl From<StorageType> for WasmType {
     fn from(value: StorageType) -> Self {
         match value {

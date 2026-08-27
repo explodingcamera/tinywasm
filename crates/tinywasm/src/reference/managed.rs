@@ -14,10 +14,6 @@ impl StoreId {
         assert_ne!(id, u32::MAX, "Store identity space exhausted");
         StoreId(id)
     }
-
-    pub(crate) const fn get(self) -> u32 {
-        self.0
-    }
 }
 
 #[cfg(feature = "debug")]

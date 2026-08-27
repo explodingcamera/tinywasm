@@ -126,7 +126,6 @@ pub trait ResourceLimiter: Send + Sync {
 pub struct Store {
     id: StoreId,
     pub(crate) module_instances: Vec<ModuleInstance>,
-
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
     pub(crate) execution_active: bool,
@@ -242,12 +241,7 @@ impl Store {
         }
     }
 
-    /// Get the store's ID (unique per process)
-    pub fn id(&self) -> u32 {
-        self.id.get()
-    }
-
-    pub(crate) const fn store_id(&self) -> StoreId {
+    pub(crate) const fn id(&self) -> StoreId {
         self.id
     }
 
@@ -496,7 +490,7 @@ impl Store {
         stack_base: StackBase,
     ) -> Result<R> {
         let mut values = cold_err!(self.stack_value_iter(type_addr, FuncValueTypes::Results, stack_base))?;
-        let result = cold_err!(R::from_wasm_values_exact(&mut values));
+        let result = cold_err!(R::from_wasm_values(&mut values));
         self.value_stack.truncate_to_base(stack_base);
         result
     }

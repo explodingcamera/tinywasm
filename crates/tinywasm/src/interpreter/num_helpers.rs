@@ -35,7 +35,7 @@ macro_rules! checked_conv_float {
             core::hint::cold_path();
             return Err(crate::Trap::IntegerOverflow.into());
         }
-        $self.store.value_stack.push::<$to>((v as $intermediate as $to).into())?;
+        <$to>::stack_push(&mut $self.store.value_stack, (v as $intermediate as $to).into())?;
     }};
 }
 
@@ -120,18 +120,16 @@ macro_rules! impl_checked_wrapping_rem {
         impl TinywasmIntExt for $t {
             fn tw_checked_wrapping_rem(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
-                    Err(crate::Trap::DivisionByZero)
-                } else {
-                    Ok(self.wrapping_rem(rhs))
+                    return Err(crate::Trap::DivisionByZero)
                 }
+                Ok(self.wrapping_rem(rhs))
             }
 
             fn tw_checked_div(self, rhs: Self) -> Result<Self, crate::Trap> {
                 if rhs == 0 {
-                    Err(crate::Trap::DivisionByZero)
-                } else {
-                    self.checked_div(rhs).ok_or_else(|| crate::Trap::IntegerOverflow)
+                    return Err(crate::Trap::DivisionByZero)
                 }
+                self.checked_div(rhs).ok_or_else(|| crate::Trap::IntegerOverflow)
             }
         }
     )*)

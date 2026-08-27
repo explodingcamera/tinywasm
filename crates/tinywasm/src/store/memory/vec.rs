@@ -16,7 +16,7 @@ impl VecMemory {
     /// Tries to create a new memory with `len` zero-initialized bytes.
     pub(crate) fn try_new(len: usize) -> Result<Self, crate::Trap> {
         let mut data = Vec::new();
-        cold_err!(data.try_reserve_exact(len)).map_err(|_| crate::Trap::OutOfMemory)?;
+        cold_err!(data.try_reserve(len)).map_err(|_| crate::Trap::OutOfMemory)?;
         data.resize(len, 0);
         Ok(Self { data })
     }
@@ -37,7 +37,7 @@ impl VecMemory {
     #[inline(always)]
     pub(crate) fn grow_to(&mut self, new_len: usize) -> Result<(), crate::Trap> {
         debug_assert!(new_len >= self.data.len(), "memory only grows");
-        cold_err!(self.data.try_reserve_exact(new_len - self.data.len())).map_err(|_| crate::Trap::OutOfMemory)?;
+        cold_err!(self.data.try_reserve(new_len - self.data.len())).map_err(|_| crate::Trap::OutOfMemory)?;
         self.data.resize(new_len, 0);
         Ok(())
     }

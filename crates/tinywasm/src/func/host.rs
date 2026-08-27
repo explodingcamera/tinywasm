@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 
-use super::{FromWasmValues, FuncContext, IntoWasmValues, ToWasmTypes};
+use super::{FromWasmValues, FuncContext, IntoWasmValues};
 use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
 use crate::{Function, FunctionInstance, Result, Store, WasmValue};
@@ -33,7 +33,7 @@ impl HostFunction {
     pub(crate) fn instantiate_registered(&self, store: &mut Store, type_addr: TypeAddr) -> Function {
         let addr = store
             .add_func(FunctionInstance { type_addr, inner: crate::store::FunctionInstanceInner::Host(self.clone()) });
-        Function { item: crate::StoreItem::new(store.store_id(), addr), module_id: 0 }
+        Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
     }
 
     /// Resolves the importing module's types without allocating a function instance.
@@ -213,10 +213,10 @@ impl HostFunction {
     pub fn from<F, P, R>(func: F) -> Self
     where
         F: Fn(FuncContext<'_>, P) -> Result<R> + HostFunctionCallback + 'static,
-        P: FromWasmValues + ToWasmTypes + 'static,
-        R: IntoWasmValues + ToWasmTypes + 'static,
+        P: FromWasmValues + 'static,
+        R: IntoWasmValues + 'static,
     {
-        let ty = FuncType::new(&P::wasm_types(), &R::wasm_types());
+        let ty = FuncType::new(P::WASM_TYPES, R::WASM_TYPES);
         let func = TypedHostCallbackImpl { func, marker: core::marker::PhantomData };
         Self(StoreShared::new(HostFunctionInner { ty, callback: HostCallback::Typed(Box::new(func)) }))
     }
@@ -261,7 +261,7 @@ where
 {
     fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let mut values = args.iter().cloned();
-        let params = cold_err!(P::from_wasm_values_exact(&mut values))?;
+        let params = cold_err!(P::from_wasm_values(&mut values))?;
         let mut values = (self.func)(ctx, params)?.into_wasm_values();
         for result in results {
             *result = cold_err!(values.next().ok_or_else(|| crate::Error::other("not enough typed function results")))?;
@@ -279,7 +279,7 @@ where
         };
         let params = {
             let mut values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
-            cold_err!(P::from_wasm_values_exact(&mut values))
+            cold_err!(P::from_wasm_values(&mut values))
         };
         store.value_stack.truncate_to_base(base);
         let result = cold_err!((self.func)(FuncContext { store, module_id }, params?))?;

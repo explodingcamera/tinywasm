@@ -16,18 +16,25 @@ pub enum ExecProgress<T> {
 /// Resumable execution for an untyped function call.
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 pub struct FuncExecution<'store> {
-    execution: ExecutionCore<'store>,
+    execution: ExecutionInner<'store>,
     results: &'store mut [WasmValue],
 }
 
+/// Resumable execution for a typed function call.
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
-struct ExecutionCore<'store> {
-    store: &'store mut Store,
-    state: FuncExecutionState,
+pub struct FuncExecutionTyped<'store, R> {
+    execution: ExecutionInner<'store>,
+    result: Option<R>,
 }
 
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
-enum FuncExecutionState {
+struct ExecutionInner<'store> {
+    store: &'store mut Store,
+    state: ExecState,
+}
+
+#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
+enum ExecState {
     Running { callframe: CallFrame, root_func_addr: FuncAddr },
     Completed(Option<CallResult>),
 }
@@ -36,13 +43,6 @@ enum FuncExecutionState {
 enum CallResult {
     Stack { type_addr: TypeAddr },
     Written,
-}
-
-/// Resumable execution for a typed function call.
-#[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
-pub struct FuncExecutionTyped<'store, R> {
-    execution: ExecutionCore<'store>,
-    result: Option<R>,
 }
 
 impl Function {
@@ -60,12 +60,12 @@ impl Function {
         self.validate_call(store, params, results.len())?;
 
         store.enter_execution()?;
-        let result: Result<FuncExecutionState> = (|| {
+        let result: Result<ExecState> = (|| {
             let func_instance = store.state.get_func(self.addr()).clone();
             match &func_instance.inner {
                 crate::store::FunctionInstanceInner::Host(host_func) => {
                     host_func.clone().call_values(store, self.module_id, func_instance.type_addr, params, results)?;
-                    Ok(FuncExecutionState::Completed(Some(CallResult::Written)))
+                    Ok(ExecState::Completed(Some(CallResult::Written)))
                 }
                 crate::store::FunctionInstanceInner::Wasm(wasm_func) => {
                     store.call_stack.clear();
@@ -74,25 +74,25 @@ impl Function {
                     let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
                     let callframe = CallFrame::new(self.addr(), locals_base, wasm_func.func.locals);
 
-                    Ok(FuncExecutionState::Running { callframe, root_func_addr: self.addr() })
+                    Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
                 }
             }
         })();
         store.exit_execution();
 
         let state = result?;
-        Ok(FuncExecution { execution: ExecutionCore { store, state }, results })
+        Ok(FuncExecution { execution: ExecutionInner { store, state }, results })
     }
 }
 
-impl ExecutionCore<'_> {
+impl ExecutionInner<'_> {
     fn resume_raw(
         &mut self,
         run: impl FnOnce(&mut Store, CallFrame) -> Result<crate::interpreter::ExecState>,
     ) -> Result<ExecProgress<CallResult>> {
         let (callframe, root_func_addr) = match &mut self.state {
-            FuncExecutionState::Running { callframe, root_func_addr } => (*callframe, *root_func_addr),
-            FuncExecutionState::Completed(result) => {
+            ExecState::Running { callframe, root_func_addr } => (*callframe, *root_func_addr),
+            ExecState::Completed(result) => {
                 return result
                     .take()
                     .map(ExecProgress::Completed)
@@ -109,7 +109,7 @@ impl ExecutionCore<'_> {
             Err(error) => {
                 self.store.call_stack.clear();
                 self.store.value_stack.clear();
-                self.state = FuncExecutionState::Completed(None);
+                self.state = ExecState::Completed(None);
                 return Err(error);
             }
         };
@@ -118,11 +118,11 @@ impl ExecutionCore<'_> {
             crate::interpreter::ExecState::Completed => {
                 let func = self.store.state.get_func(root_func_addr);
                 let result_ty = func.type_addr;
-                self.state = FuncExecutionState::Completed(None);
+                self.state = ExecState::Completed(None);
                 Ok(ExecProgress::Completed(CallResult::Stack { type_addr: result_ty }))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
-                let FuncExecutionState::Running { callframe: current, .. } = &mut self.state else {
+                let ExecState::Running { callframe: current, .. } = &mut self.state else {
                     unreachable!("invalid function execution state")
                 };
                 *current = callframe;
@@ -206,21 +206,21 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
         let func = store.state.get_func(self.func.addr()).clone();
         if matches!(&func.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none()) {
             let result = self.call(store, params)?;
-            let execution = ExecutionCore { store, state: FuncExecutionState::Completed(None) };
+            let execution = ExecutionInner { store, state: ExecState::Completed(None) };
             return Ok(FuncExecutionTyped { execution, result: Some(result) });
         }
 
         store.enter_execution()?;
-        let result: Result<FuncExecutionState> = (|| {
+        let result: Result<ExecState> = (|| {
             store.call_stack.clear();
             store.value_stack.clear();
             match self.func.prepare_typed(store, &func, params.into_wasm_values(), StackBase::default())? {
-                Some(callframe) => Ok(FuncExecutionState::Running { callframe, root_func_addr: self.func.addr() }),
-                None => Ok(FuncExecutionState::Completed(Some(CallResult::Stack { type_addr: func.type_addr }))),
+                Some(callframe) => Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() }),
+                None => Ok(ExecState::Completed(Some(CallResult::Stack { type_addr: func.type_addr }))),
             }
         })();
         store.exit_execution();
-        let execution = ExecutionCore { store, state: result? };
+        let execution = ExecutionInner { store, state: result? };
         Ok(FuncExecutionTyped { execution, result: None })
     }
 }

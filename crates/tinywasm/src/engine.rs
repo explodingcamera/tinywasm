@@ -51,16 +51,16 @@ pub enum FuelPolicy {
 }
 
 /// Default size for the 32-bit value stack (i32, f32, ref values).
-pub const DEFAULT_VALUE_STACK_32_SIZE: usize = 36 * 1024; // 36k slots
+const DEFAULT_VALUE_STACK_32_SIZE: usize = 36 * 1024; // 36k slots
 
 /// Default size for the 64-bit value stack (i64, f64 values).
-pub const DEFAULT_VALUE_STACK_64_SIZE: usize = 32 * 1024; // 32k slots
+const DEFAULT_VALUE_STACK_64_SIZE: usize = 32 * 1024; // 32k slots
 
 /// Default size for the 128-bit value stack (v128 values).
-pub const DEFAULT_VALUE_STACK_128_SIZE: usize = 4 * 1024; // 4k slots
+const DEFAULT_VALUE_STACK_128_SIZE: usize = 4 * 1024; // 4k slots
 
 /// Default maximum size for the call stack (function frames).
-pub const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
+const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
 
 /// Stack allocation policy.
 #[derive(Clone, Copy, PartialEq, Eq)]

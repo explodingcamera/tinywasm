@@ -1,11 +1,11 @@
 use std::fmt::Write;
 use tinywasm::types::{FuncType, RefType, RefValue, WasmType, WasmValue};
-use tinywasm::{FuncContext, HostFunction, Imports, IntoWasmValues, Module, ModuleInstance, Store, ToWasmTypes};
+use tinywasm::{FuncContext, HostFunction, Imports, IntoWasmValues, Module, ModuleInstance, Store, WasmTypes};
 
 struct TooFewParams;
 
-impl ToWasmTypes for TooFewParams {
-    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::I32, WasmType::I32]);
+impl WasmTypes for TooFewParams {
+    const WASM_TYPES: &'static [WasmType] = &[WasmType::I32, WasmType::I32];
 }
 
 impl IntoWasmValues for TooFewParams {
@@ -16,8 +16,8 @@ impl IntoWasmValues for TooFewParams {
 
 struct TooManyParams;
 
-impl ToWasmTypes for TooManyParams {
-    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[WasmType::I32, WasmType::I32]);
+impl WasmTypes for TooManyParams {
+    const WASM_TYPES: &'static [WasmType] = &[WasmType::I32, WasmType::I32];
 }
 
 impl IntoWasmValues for TooManyParams {

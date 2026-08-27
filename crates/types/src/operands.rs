@@ -129,20 +129,14 @@ macro_rules! define_operand {
 
         #[cfg(feature = "archive")]
         impl<T> serde::Serialize for $name<T> {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer,
-            {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 self.bytes.serialize(serializer)
             }
         }
 
         #[cfg(feature = "archive")]
         impl<'de, T> serde::Deserialize<'de> for $name<T> {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 Ok(Self { bytes: <[u8; $len]>::deserialize(deserializer)?, marker: PhantomData })
             }
         }
@@ -153,19 +147,18 @@ define_operand!(Operand64, 8);
 define_operand!(Operand128, 16);
 
 macro_rules! unwrap_or_unreachable {
-    ($value:expr) => {{ unwrap_or_unreachable!($value, "entered unreachable code") }};
-    ($value:expr, $message:literal) => {{
+    ($value:expr) => {{
         match $value {
             Some(value) => value,
-            None => operand_unreachable($message),
+            None => { core::hint::cold_path(); unreachable!() },
         }
     }};
-}
-
-#[cold]
-#[inline(never)]
-pub(crate) fn operand_unreachable(message: &'static str) -> ! {
-    unreachable!("{message}")
+    ($value:expr, $($arg:tt)+) => {{
+        match $value {
+            Some(value) => value,
+            None => { core::hint::cold_path(); unreachable!($($arg)+) },
+        }
+    }};
 }
 
 impl<T> Operand64Idx<T> {
@@ -207,17 +200,19 @@ macro_rules! read_field {
     ($self:ident, i64, $offset:expr) => {{ read_field!($self, u64, $offset) as i64 }};
     ($self:ident, idx128, $offset:expr) => {{ Operand128Idx::new(read_field!($self, u32, $offset)) }};
 }
-pub(crate) use read_field;
 
 macro_rules! read_bytes {
     ($self:ident, $offset:expr, $len:literal) => {{
         match <[u8; $len]>::try_from(&$self.bytes[$offset..$offset + $len]) {
             Ok(bytes) => bytes,
-            Err(_) => $crate::operands::operand_unreachable("invalid operand field"),
+            Err(_) => {
+                core::hint::cold_path();
+                unreachable!("invalid operand field read")
+            }
         }
     }};
 }
-pub(crate) use read_bytes;
+
 macro_rules! write_field {
     ($self:ident, u8, $offset:expr, $value:expr) => {{ $self.write_u8::<{ $offset }>($value) }};
     ($self:ident, u16, $offset:expr, $value:expr) => {{ $self.write_u16::<{ $offset }>($value) }};
@@ -227,6 +222,8 @@ macro_rules! write_field {
     ($self:ident, i64, $offset:expr, $value:expr) => {{ $self.write_u64::<{ $offset }>($value as u64) }};
     ($self:ident, idx128, $offset:expr, $value:expr) => {{ $self.write_u32::<{ $offset }>($value.index) }};
 }
+
+pub(crate) use {read_bytes, read_field, write_field};
 
 impl<T> Operand64<T> {
     /// Returns the jump target stored at the start of a retargetable operand.
@@ -238,7 +235,7 @@ impl<T> Operand64<T> {
     /// Replaces the jump target stored at the start of a retargetable operand.
     #[inline]
     pub fn with_target(mut self, target: u32) -> Self {
-        self.write_u32::<0>(target);
+        write_field!(self, u32, 0, target);
         self
     }
 }
@@ -253,7 +250,7 @@ impl<T> Operand128<T> {
     /// Replaces the jump target stored at the start of a retargetable operand.
     #[inline]
     pub fn with_target(mut self, target: u32) -> Self {
-        self.write_u32::<0>(target);
+        write_field!(self, u32, 0, target);
         self
     }
 }
@@ -267,6 +264,7 @@ macro_rules! packed_layout {
                 write_field!(operand, $field, 0, value);
                 operand
             }
+
             #[inline(always)]
             pub fn value(&self) -> field_ty!($field) {
                 read_field!(self, $field, 0)
@@ -282,10 +280,12 @@ macro_rules! packed_layout {
                 write_field!(operand, $b, field_size!($a), b);
                 operand
             }
+
             #[inline(always)]
             pub fn a(&self) -> field_ty!($a) {
                 read_field!(self, $a, 0)
             }
+
             #[inline(always)]
             pub fn b(&self) -> field_ty!($b) {
                 read_field!(self, $b, field_size!($a))
@@ -302,14 +302,17 @@ macro_rules! packed_layout {
                 write_field!(operand, $c, field_size!($a) + field_size!($b), c);
                 operand
             }
+
             #[inline(always)]
             pub fn a(&self) -> field_ty!($a) {
                 read_field!(self, $a, 0)
             }
+
             #[inline(always)]
             pub fn b(&self) -> field_ty!($b) {
                 read_field!(self, $b, field_size!($a))
             }
+
             #[inline(always)]
             pub fn c(&self) -> field_ty!($c) {
                 read_field!(self, $c, field_size!($a) + field_size!($b))
@@ -329,7 +332,6 @@ packed_layout!(Operand64, operands64, u32, u16, u16);
 packed_layout!(Operand64, operands64, u16, idx128);
 packed_layout!(Operand64, operands64, u32, idx128);
 packed_layout!(Operand64, operands64, u16, u16, idx128);
-
 packed_layout!(Operand128, operands128, u16, u64);
 packed_layout!(Operand128, operands128, u32, u64);
 packed_layout!(Operand128, operands128, u16, u16, u64);
@@ -341,11 +343,13 @@ impl Operand128<[u8; 16]> {
     pub fn new(value: [u8; 16]) -> Self {
         Self { bytes: value, marker: PhantomData }
     }
+
     #[inline(always)]
     pub fn value(&self) -> [u8; 16] {
         self.bytes
     }
 }
+
 const _: () = {
     assert!(core::mem::size_of::<Operand64Idx<i64>>() == 4);
     assert!(core::mem::size_of::<Operand64>() == 8);

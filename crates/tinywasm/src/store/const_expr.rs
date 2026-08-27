@@ -2,7 +2,7 @@ use alloc::{format, vec::Vec};
 use tinywasm_types::*;
 
 use super::{State, default_value};
-use crate::interpreter::{RuntimeValue, Value128, ValueRef};
+use crate::interpreter::{InternalValue, RuntimeValue, Value32, Value64, Value128, ValueRef};
 use crate::{Error, Result, Trap};
 
 fn resolve<T: Copy>(items: &[T], index: u32, kind: &str) -> Result<T> {
@@ -59,17 +59,20 @@ pub(super) fn eval_const(
             F64Const(value) => return Ok(RuntimeValue::Value64(value.to_bits())),
             V128Const(value) => return Ok(RuntimeValue::Value128(Value128(*value))),
             GlobalGet32(index) => {
-                return Ok(RuntimeValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                return Ok(RuntimeValue::Value32(Value32::global_get(&state.globals, addr)));
             }
             GlobalGet64(index) => {
-                return Ok(RuntimeValue::Value64(state.globals.get_64(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                return Ok(RuntimeValue::Value64(Value64::global_get(&state.globals, addr)));
             }
             GlobalGet128(index) => {
-                return Ok(RuntimeValue::Value128(state.globals.get_128(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                return Ok(RuntimeValue::Value128(Value128::global_get(&state.globals, addr)));
             }
             GlobalGetRef(index) => {
-                let value = state.globals.get_32(resolve(global_addrs, *index, "global")?);
-                return Ok(RuntimeValue::ValueRef(ValueRef::from_raw(value)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                return Ok(RuntimeValue::ValueRef(ValueRef::global_get(&state.globals, addr)));
             }
             RefNull(_) => return Ok(RuntimeValue::ValueRef(ValueRef::NULL)),
             RefFunc(func) => {
@@ -89,17 +92,20 @@ pub(super) fn eval_const(
             F64Const(value) => stack.push(RuntimeValue::Value64(value.to_bits())),
             V128Const(value) => stack.push(RuntimeValue::Value128(Value128(*value))),
             GlobalGet32(index) => {
-                stack.push(RuntimeValue::Value32(state.globals.get_32(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                stack.push(RuntimeValue::Value32(Value32::global_get(&state.globals, addr)));
             }
             GlobalGet64(index) => {
-                stack.push(RuntimeValue::Value64(state.globals.get_64(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                stack.push(RuntimeValue::Value64(Value64::global_get(&state.globals, addr)));
             }
             GlobalGet128(index) => {
-                stack.push(RuntimeValue::Value128(state.globals.get_128(resolve(global_addrs, *index, "global")?)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                stack.push(RuntimeValue::Value128(Value128::global_get(&state.globals, addr)));
             }
             GlobalGetRef(index) => {
-                let value = state.globals.get_32(resolve(global_addrs, *index, "global")?);
-                stack.push(RuntimeValue::ValueRef(ValueRef::from_raw(value)));
+                let addr = resolve(global_addrs, *index, "global")?;
+                stack.push(RuntimeValue::ValueRef(ValueRef::global_get(&state.globals, addr)));
             }
             RefNull(_) => stack.push(RuntimeValue::ValueRef(ValueRef::NULL)),
             RefFunc(func) => {

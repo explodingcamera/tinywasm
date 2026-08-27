@@ -34,10 +34,10 @@ impl Value128 {
         as_u8x16 => from_u8x16: u8, 16, 1;
         as_i16x8 => from_i16x8: i16, 8, 2;
         as_u16x8 => from_u16x8: u16, 8, 2;
-        as_i32x4 => pub from_i32x4: i32, 4, 4;
+        as_i32x4 => from_i32x4: i32, 4, 4;
         as_u32x4 => from_u32x4: u32, 4, 4;
         as_f32x4 => from_f32x4: f32, 4, 4;
-        as_i64x2 => pub from_i64x2: i64, 2, 8;
+        as_i64x2 => from_i64x2: i64, 2, 8;
         as_u64x2 => from_u64x2: u64, 2, 8;
         as_f64x2 => from_f64x2: f64, 2, 8;
     }

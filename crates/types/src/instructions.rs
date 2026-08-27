@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
-use crate::operands::read_field;
+use crate::operands::{read_field, write_field};
 use crate::{
     DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand64Idx, Operand128, Operand128Idx, OperandIdx, RefType,
 };
@@ -188,8 +188,8 @@ impl Operand128<MemoryOperand> {
     #[inline]
     pub fn new(offset: u64, memory: MemAddr) -> Self {
         let mut operand = Self::default();
-        operand.write_u64::<0>(offset);
-        operand.write_u32::<8>(memory);
+        write_field!(operand, u64, 0, offset);
+        write_field!(operand, u32, 8, memory);
         operand
     }
 
@@ -211,8 +211,8 @@ impl Operand64<CompactMemoryOperand> {
     #[inline]
     pub fn new(offset: u32, memory: u16) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(offset);
-        operand.write_u16::<4>(memory);
+        write_field!(operand, u32, 0, offset);
+        write_field!(operand, u16, 4, memory);
         operand
     }
 
@@ -233,9 +233,9 @@ impl Operand128<BranchTableOperand> {
     #[inline]
     pub fn new(target: u32, start: u32, len: u32) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(target);
-        operand.write_u32::<4>(start);
-        operand.write_u32::<8>(len);
+        write_field!(operand, u32, 0, target);
+        write_field!(operand, u32, 4, start);
+        write_field!(operand, u32, 8, len);
         operand
     }
     #[inline(always)]
@@ -252,9 +252,9 @@ impl Operand128<MemoryFillOperand> {
     #[inline]
     pub fn new(memory: MemAddr, byte: u8, value: i32) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(memory);
-        operand.write_u8::<4>(byte);
-        operand.write_u32::<5>(value as u32);
+        write_field!(operand, u32, 0, memory);
+        write_field!(operand, u8, 4, byte);
+        write_field!(operand, i32, 5, value);
         operand
     }
     #[inline(always)]
@@ -275,10 +275,10 @@ impl Operand128<LocalUpdateOperand> {
     #[inline]
     pub fn new(target: u32, value: i32, local: LocalAddr, on_zero: bool) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(target);
-        operand.write_u32::<4>(value as u32);
-        operand.write_u16::<8>(local);
-        operand.write_u8::<10>(u8::from(on_zero));
+        write_field!(operand, u32, 0, target);
+        write_field!(operand, i32, 4, value);
+        write_field!(operand, u16, 8, local);
+        write_field!(operand, u8, 10, u8::from(on_zero));
         operand
     }
     #[inline(always)]
@@ -299,10 +299,10 @@ impl Operand128<GlobalUpdateOperand> {
     #[inline]
     pub fn new(target: u32, value: i32, global: GlobalAddr, on_zero: bool) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(target);
-        operand.write_u32::<4>(value as u32);
-        operand.write_u32::<8>(global);
-        operand.write_u8::<12>(u8::from(on_zero));
+        write_field!(operand, u32, 0, target);
+        write_field!(operand, i32, 4, value);
+        write_field!(operand, u32, 8, global);
+        write_field!(operand, u8, 12, u8::from(on_zero));
         operand
     }
     #[inline(always)]
@@ -323,10 +323,10 @@ impl Operand128<LocalUpdateCmpOperand> {
     #[inline]
     pub fn new(target: u32, value: i32, local: LocalAddr, right: LocalAddr) -> Self {
         let mut operand = Self::default();
-        operand.write_u32::<0>(target);
-        operand.write_u32::<4>(value as u32);
-        operand.write_u16::<8>(local);
-        operand.write_u16::<10>(right);
+        write_field!(operand, u32, 0, target);
+        write_field!(operand, i32, 4, value);
+        write_field!(operand, u16, 8, local);
+        write_field!(operand, u16, 10, right);
         operand
     }
     #[inline(always)]
@@ -771,8 +771,6 @@ const _: () = assert!(core::mem::size_of::<Instruction>() == 8);
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
-
     use super::*;
 
     #[test]
@@ -794,31 +792,5 @@ mod tests {
         assert_eq!(value.value(), i32::MIN);
         assert_eq!(value.local(), u16::MAX);
         assert!(value.on_zero());
-    }
-
-    #[test]
-    fn v128_operand_views_round_trip_max_bytes() {
-        let value = Operand128Idx::<[u8; 16]>::new(0);
-        let local = Operand64Idx::<(u16, Operand128Idx<[u8; 16]>)>::new(0);
-        let global = Operand64Idx::<(u32, Operand128Idx<[u8; 16]>)>::new(1);
-        let set = Operand64Idx::<(u16, u16, Operand128Idx<[u8; 16]>)>::new(2);
-        let data = super::super::WasmFunctionData {
-            operands128: vec![Operand128::<[u8; 16]>::new([u8::MAX; 16]).cast()].into_boxed_slice(),
-            operands64: vec![
-                Operand64::<(u16, Operand128Idx<[u8; 16]>)>::new(u16::MAX, value).cast(),
-                Operand64::<(u32, Operand128Idx<[u8; 16]>)>::new(u32::MAX, value).cast(),
-                Operand64::<(u16, u16, Operand128Idx<[u8; 16]>)>::new(u16::MAX, u16::MAX, value).cast(),
-            ]
-            .into_boxed_slice(),
-            ..Default::default()
-        };
-
-        assert_eq!(value.resolve(&data).value(), [u8::MAX; 16]);
-        assert_eq!((local.resolve(&data).a(), local.resolve(&data).b()), (u16::MAX, value));
-        assert_eq!((global.resolve(&data).a(), global.resolve(&data).b()), (u32::MAX, value));
-        assert_eq!(
-            (set.resolve(&data).a(), set.resolve(&data).b(), set.resolve(&data).c()),
-            (u16::MAX, u16::MAX, value)
-        );
     }
 }

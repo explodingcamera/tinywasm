@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::engine::Config;
+use crate::interpreter::{InternalValue, Value32, Value64, Value128};
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -363,10 +364,10 @@ impl State {
     pub(crate) fn global_value(&self, addr: GlobalAddr) -> RuntimeValue {
         let ty = self.globals.ty(addr).ty;
         match ty {
-            WasmType::I32 | WasmType::F32 => RuntimeValue::Value32(self.globals.get_32(addr)),
-            WasmType::I64 | WasmType::F64 => RuntimeValue::Value64(self.globals.get_64(addr)),
-            WasmType::Ref(_) => RuntimeValue::ValueRef(ValueRef::from_raw(self.globals.get_32(addr))),
-            WasmType::V128 => RuntimeValue::Value128(self.globals.get_128(addr)),
+            WasmType::I32 | WasmType::F32 => RuntimeValue::Value32(Value32::global_get(&self.globals, addr)),
+            WasmType::I64 | WasmType::F64 => RuntimeValue::Value64(Value64::global_get(&self.globals, addr)),
+            WasmType::Ref(_) => RuntimeValue::ValueRef(ValueRef::global_get(&self.globals, addr)),
+            WasmType::V128 => RuntimeValue::Value128(Value128::global_get(&self.globals, addr)),
         }
     }
 
@@ -378,10 +379,10 @@ impl State {
             return Err(Error::other("global is immutable"));
         }
         match value {
-            RuntimeValue::Value32(value) => self.globals.set_32(addr, value),
-            RuntimeValue::Value64(value) => self.globals.set_64(addr, value),
-            RuntimeValue::ValueRef(value) => self.globals.set_32(addr, value.raw()),
-            RuntimeValue::Value128(value) => self.globals.set_128(addr, value),
+            RuntimeValue::Value32(value) => Value32::global_set(&mut self.globals, addr, value),
+            RuntimeValue::Value64(value) => Value64::global_set(&mut self.globals, addr, value),
+            RuntimeValue::ValueRef(value) => ValueRef::global_set(&mut self.globals, addr, value),
+            RuntimeValue::Value128(value) => Value128::global_set(&mut self.globals, addr, value),
         }
         Ok(())
     }

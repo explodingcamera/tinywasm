@@ -1,70 +1,53 @@
 use crate::{Error, Result};
-use alloc::borrow::Cow;
 use tinywasm_types::WasmType;
 
 use crate::{AnyRef, ArrayRef, EqRef, ExnRef, ExternRef, FuncRef, I31Ref, StructRef, WasmValue};
 
+/// Describes the WebAssembly value types produced by a Rust value or tuple shape.
+pub trait WasmTypes {
+    /// Flattened WebAssembly value types for this shape.
+    const WASM_TYPES: &'static [WasmType];
+}
+
+/// Describes the WebAssembly value types produced by a scalar Rust type.
+pub trait WasmValueType {
+    /// The single WebAssembly value type for this scalar type.
+    const WASM_TYPE: WasmType;
+}
+
 /// Convert a Rust value or tuple into WebAssembly values.
-pub trait IntoWasmValues {
+pub trait IntoWasmValues: WasmTypes {
     /// Return the flattened WebAssembly values.
     fn into_wasm_values(self) -> impl Iterator<Item = WasmValue>;
 }
 
 /// Convert WebAssembly values into a Rust value or tuple.
-pub trait FromWasmValues: Sized {
-    /// Read this value from a flattened WebAssembly value iterator.
+pub trait FromWasmValues: WasmTypes + Sized {
+    /// Read this value and reject unconsumed WebAssembly values.
     fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self>;
-
-    /// Read one value and reject unconsumed iterator items.
-    fn from_wasm_values_exact(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
-        let result = Self::from_wasm_values(values)?;
-        if values.next().is_some() {
-            return Err(Error::other("typed conversion did not consume all WebAssembly values"));
-        }
-        Ok(result)
-    }
-}
-
-/// Describes the WebAssembly value types produced by a Rust value or tuple shape.
-pub trait ToWasmTypes {
-    /// Static WebAssembly types for this shape.
-    ///
-    /// Implementations that require runtime construction may set this to `None`,
-    /// but must then override [`Self::wasm_types`].
-    const WASM_TYPES: Option<&'static [WasmType]>;
-
-    /// Return the flattened WebAssembly value types for this tuple shape.
-    fn wasm_types() -> Cow<'static, [WasmType]> {
-        Cow::Borrowed(Self::WASM_TYPES.expect("dynamic ToWasmTypes implementation must override wasm_types"))
-    }
-}
-
-/// Describes the WebAssembly value types produced by a scalar Rust type.
-pub trait ToWasmType {
-    /// The single WebAssembly value type for this scalar type.
-    const WASM_TYPE: WasmType;
 }
 
 fn next_value<T: TryFrom<WasmValue, Error = ()>>(values: &mut impl Iterator<Item = WasmValue>) -> Result<T> {
-    let value = values.next().ok_or_else(|| {
-        core::hint::cold_path();
-        Error::other("not enough WebAssembly values")
-    })?;
-    T::try_from(value).map_err(|_| {
-        core::hint::cold_path();
-        Error::other("WebAssembly value does not match the expected type")
-    })
+    let value = cold_err!(values.next().ok_or_else(|| { Error::other("not enough WebAssembly values") }))?;
+    cold_err!(T::try_from(value).map_err(|_| { Error::other("WebAssembly value does not match the expected type") }))
+}
+
+fn finish_values<T>(result: T, values: &mut impl Iterator<Item = WasmValue>) -> Result<T> {
+    if values.next().is_some() {
+        return cold!(Err(Error::other("typed conversion did not consume all WebAssembly values")));
+    }
+    Ok(result)
 }
 
 macro_rules! impl_scalar_wasm_traits {
     ($($T:ty => $val_ty:expr),+ $(,)?) => {
         $(
-            impl ToWasmType for $T {
+            impl WasmValueType for $T {
                 const WASM_TYPE: WasmType = $val_ty;
             }
 
-            impl ToWasmTypes for $T {
-                const WASM_TYPES: Option<&'static [WasmType]> = Some(&[$val_ty]);
+            impl WasmTypes for $T {
+                const WASM_TYPES: &'static [WasmType] = &[$val_ty];
             }
 
             impl IntoWasmValues for $T {
@@ -77,7 +60,8 @@ macro_rules! impl_scalar_wasm_traits {
             impl FromWasmValues for $T {
                 #[inline]
                 fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
-                    next_value(values)
+                    let result = next_value(values)?;
+                    finish_values(result, values)
                 }
             }
         )+
@@ -90,16 +74,16 @@ macro_rules! impl_tuple_traits {
     };
     (@next $head:ident) => {};
     ($($T:ident),+) => {
-        impl<$($T),+> ToWasmTypes for ($($T,)+)
+        impl<$($T),+> WasmTypes for ($($T,)+)
         where
-            $($T: ToWasmType,)+
+            $($T: WasmValueType,)+
         {
-            const WASM_TYPES: Option<&'static [WasmType]> = Some(&[$($T::WASM_TYPE,)+]);
+            const WASM_TYPES: &'static [WasmType] = &[$($T::WASM_TYPE,)+];
         }
 
         impl<$($T),+> IntoWasmValues for ($($T,)+)
         where
-            $($T: Into<WasmValue>,)+
+            $($T: Into<WasmValue> + WasmValueType,)+
         {
             #[allow(non_snake_case)]
             #[inline]
@@ -111,11 +95,12 @@ macro_rules! impl_tuple_traits {
 
         impl<$($T),+> FromWasmValues for ($($T,)+)
         where
-            $($T: TryFrom<WasmValue, Error = ()>,)+
+            $($T: TryFrom<WasmValue, Error = ()> + WasmValueType,)+
         {
             #[inline]
             fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
-                Ok(($(next_value::<$T>(values)?,)+))
+                let result = ($(next_value::<$T>(values)?,)+);
+                finish_values(result, values)
             }
         }
 
@@ -151,8 +136,8 @@ impl_scalar_wasm_traits!(
 );
 impl_tuple_traits!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16, T17, T18, T19, T20);
 
-impl ToWasmTypes for () {
-    const WASM_TYPES: Option<&'static [WasmType]> = Some(&[]);
+impl WasmTypes for () {
+    const WASM_TYPES: &'static [WasmType] = &[];
 }
 
 impl IntoWasmValues for () {
@@ -164,7 +149,7 @@ impl IntoWasmValues for () {
 
 impl FromWasmValues for () {
     #[inline]
-    fn from_wasm_values(_values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
-        Ok(())
+    fn from_wasm_values(values: &mut impl Iterator<Item = WasmValue>) -> Result<Self> {
+        finish_values((), values)
     }
 }

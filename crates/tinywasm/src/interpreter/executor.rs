@@ -178,16 +178,16 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
             LocalCopy32(from, to) => Value32::local_copy(&mut self.store.value_stack, &self.cf, *from, *to),
             LocalCopy64(from, to) => Value64::local_copy(&mut self.store.value_stack, &self.cf, *from, *to),
             LocalCopy128(from, to) => Value128::local_copy(&mut self.store.value_stack, &self.cf, *from, *to),
-            AddConst32(c) => { i32::stack_update(&mut self.store.value_stack, #[inline(always)] |value| value.wrapping_add(*c))?; },
-            AddConst64(idx) => { let constant = idx.resolve(&self.func.data).value(); i64::stack_update(&mut self.store.value_stack, #[inline(always)] |value| value.wrapping_add(constant))?; },
-            IncLocal32(arg) => { i32::local_update(&mut self.store.value_stack, &self.cf, arg.local, |v| v.wrapping_add(arg.value)); },
-            IncLocal64(packed) => { let v = packed.index.resolve(&self.func.data).value(); i64::local_update(&mut self.store.value_stack, &self.cf, packed.op, |n| n.wrapping_add(v)); },
+            AddConst32(c) => { i32::stack_update(&mut self.store.value_stack, |value| value.wrapping_add(*c)); },
+            AddConst64(idx) => { let rhs = idx.resolve(&self.func.data).value(); i64::stack_update(&mut self.store.value_stack, |value| value.wrapping_add(rhs)); },
+            IncLocal32(arg) => { i32::local_update(&mut self.store.value_stack, &self.cf, arg.local, |value| value.wrapping_add(arg.value)); },
+            IncLocal64(packed) => { let rhs = packed.index.resolve(&self.func.data).value(); i64::local_update(&mut self.store.value_stack, &self.cf, packed.op, |value| value.wrapping_add(rhs)); },
             I32Add3 => exec_op!(ternary i32 => i32, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
             I64Add3 => exec_op!(ternary i64 => i64, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
             MulAccLocal32(acc) => self.exec_mul_acc_local::<i32>(*acc, i32::wrapping_mul, i32::wrapping_add),
             MulAccLocal64(acc) => self.exec_mul_acc_local::<i64>(*acc, i64::wrapping_mul, i64::wrapping_add),
-            FMulAccLocal32(acc) => self.exec_mul_acc_local::<f32>(*acc, |a, b| a * b, |a, b| a + b),
-            FMulAccLocal64(acc) => self.exec_mul_acc_local::<f64>(*acc, |a, b| a * b, |a, b| a + b),
+            FMulAccLocal32(acc) => self.exec_mul_acc_local::<f32>(*acc, #[inline(always)] |a, b| a * b, #[inline(always)] |a, b| a + b),
+            FMulAccLocal64(acc) => self.exec_mul_acc_local::<f64>(*acc, #[inline(always)] |a, b| a * b, #[inline(always)] |a, b| a + b),
             BinOpLocalLocal32(op, a, b) => self.exec_binop_local_local::<Value32, true>(*a, *b, None, *op)?,
             BinOpLocalLocal64(op, a, b) => self.exec_binop_local_local::<Value64, true>(*a, *b, None, *op)?,
             BinOpLocalLocal128(op, a, b) => self.exec_binop_local_local::<Value128, true>(*a, *b, None, *op)?,
@@ -808,13 +808,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     #[inline(always)]
     fn exec_binop_local_const_jump(&mut self, packed: PackedOp128<BinOp, LocalUpdateOperand>) -> Option<usize> {
         let operand = packed.index.resolve(&self.func.data);
-        let value = i32::local_update(
-            &mut self.store.value_stack,
-            &self.cf,
-            operand.local(),
-            #[inline(always)]
-            |value| packed.op.exec(value as u32, operand.value() as u32) as i32,
-        );
+        let value = i32::local_update(&mut self.store.value_stack, &self.cf, operand.local(), |value| {
+            packed.op.exec(value as u32, operand.value() as u32) as i32
+        });
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
     }
 
@@ -824,13 +820,9 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         packed: PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>,
     ) -> Option<usize> {
         let operand = packed.index.resolve(&self.func.data);
-        let lhs = i32::local_update(
-            &mut self.store.value_stack,
-            &self.cf,
-            operand.local(),
-            #[inline(always)]
-            |value| packed.op.0.exec(value as u32, operand.value() as u32) as i32,
-        );
+        let lhs = i32::local_update(&mut self.store.value_stack, &self.cf, operand.local(), |value| {
+            value.wrapping_add(operand.value())
+        });
         let rhs = i32::local_get(&self.store.value_stack, &self.cf, operand.right());
         packed.op.1.cmp(lhs, rhs).then_some(operand.target() as usize)
     }
@@ -841,10 +833,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         packed: PackedOp128<BinOp, LocalUpdateOperand>,
     ) -> Result<Option<usize>, Trap> {
         let operand = packed.index.resolve(&self.func.data);
-        let lhs = i32::stack_pop(&mut self.store.value_stack);
-        let value = packed.op.exec(lhs as u32, operand.value() as u32) as i32;
+        let value = i32::stack_update(&mut self.store.value_stack, |lhs| {
+            packed.op.exec(lhs as u32, operand.value() as u32) as i32
+        });
         i32::local_set(&mut self.store.value_stack, &self.cf, operand.local(), value);
-        i32::stack_push(&mut self.store.value_stack, value)?;
         Ok(((value == 0) == operand.on_zero()).then_some(operand.target() as usize))
     }
 
@@ -852,25 +844,18 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_binop_global_const_jump(&mut self, packed: PackedOp128<BinOp, GlobalUpdateOperand>) -> Option<usize> {
         let operand = packed.index.resolve(&self.func.data);
         let global = self.module.resolve_global_addr(operand.global());
-        let value = i32::global_update(
-            &mut self.store.state.globals,
-            global,
-            #[inline(always)]
-            |value| packed.op.exec(value as u32, operand.value() as u32) as i32,
-        );
+        let value = i32::global_update(&mut self.store.state.globals, global, |value| {
+            packed.op.exec(value as u32, operand.value() as u32) as i32
+        });
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_inc_local_jump(&mut self, index: Operand128Idx<LocalUpdateOperand>) -> Option<usize> {
         let operand = index.resolve(&self.func.data);
-        let value = i32::local_update(
-            &mut self.store.value_stack,
-            &self.cf,
-            operand.local(),
-            #[inline(always)]
-            |value| value.wrapping_add(operand.value()),
-        );
+        let value = i32::local_update(&mut self.store.value_stack, &self.cf, operand.local(), |value| {
+            value.wrapping_add(operand.value())
+        });
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
     }
 
@@ -880,9 +865,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         index: Operand128Idx<LocalUpdateOperand>,
     ) -> Result<Option<usize>, Trap> {
         let operand = index.resolve(&self.func.data);
-        let value = i32::stack_pop(&mut self.store.value_stack).wrapping_add(operand.value());
+        let value = i32::stack_update(&mut self.store.value_stack, |value| value.wrapping_add(operand.value()));
         i32::local_set(&mut self.store.value_stack, &self.cf, operand.local(), value);
-        i32::stack_push(&mut self.store.value_stack, value)?;
         Ok(((value == 0) == operand.on_zero()).then_some(operand.target() as usize))
     }
 
@@ -890,25 +874,17 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_inc_global_jump(&mut self, index: Operand128Idx<GlobalUpdateOperand>) -> Option<usize> {
         let operand = index.resolve(&self.func.data);
         let global = self.module.resolve_global_addr(operand.global());
-        let value = i32::global_update(
-            &mut self.store.state.globals,
-            global,
-            #[inline(always)]
-            |value| value.wrapping_add(operand.value()),
-        );
+        let value =
+            i32::global_update(&mut self.store.state.globals, global, |value| value.wrapping_add(operand.value()));
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_inc_local_jump_cmp_local(&mut self, packed: PackedOp128<CmpOp, LocalUpdateCmpOperand>) -> Option<usize> {
         let operand = packed.index.resolve(&self.func.data);
-        let lhs = i32::local_update(
-            &mut self.store.value_stack,
-            &self.cf,
-            operand.local(),
-            #[inline(always)]
-            |value| value.wrapping_add(operand.value()),
-        );
+        let lhs = i32::local_update(&mut self.store.value_stack, &self.cf, operand.local(), |value| {
+            value.wrapping_add(operand.value())
+        });
         let rhs = i32::local_get(&self.store.value_stack, &self.cf, operand.right());
         packed.op.cmp(lhs, rhs).then_some(operand.target() as usize)
     }
@@ -1118,8 +1094,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     ) -> Result<(), Trap> {
         let addr = self.module.resolve_global_addr(global);
         let rhs = T::global_get(&self.store.state.globals, addr);
-        let lhs = T::stack_pop(&mut self.store.value_stack);
-        T::stack_push(&mut self.store.value_stack, op.exec(lhs, rhs))
+        T::stack_update(&mut self.store.value_stack, |lhs| op.exec(lhs, rhs));
+        Ok(())
     }
 
     #[inline(always)]
@@ -1141,7 +1117,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         destination: LocalAddr,
         op: impl BinOpExt<T>,
     ) -> Result<(), Trap> {
-        let value = T::stack_update(&mut self.store.value_stack, |lhs| op.exec(lhs, rhs))?;
+        let value = T::stack_update(&mut self.store.value_stack, |lhs| op.exec(lhs, rhs));
         T::local_set(&mut self.store.value_stack, &self.cf, destination, value);
         Ok(())
     }
@@ -1156,13 +1132,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let rhs = T::stack_pop(&mut self.store.value_stack);
         let lhs = T::stack_pop(&mut self.store.value_stack);
         let product = multiply(lhs, rhs);
-        T::local_update(
-            &mut self.store.value_stack,
-            &self.cf,
-            accumulator,
-            #[inline(always)]
-            |value| add(product, value),
-        );
+        T::local_update(&mut self.store.value_stack, &self.cf, accumulator, |value| add(product, value));
     }
 
     fn exec_branch_table(&mut self, index: Operand128Idx<BranchTableOperand>) -> usize {
@@ -1273,7 +1243,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
                     }
                 }
                 if with_ref {
-                    self.store.value_stack.push(exception)?;
+                    ValueRef::stack_push(&mut self.store.value_stack, exception)?;
                 }
                 return Ok(Some(landing_pad as usize));
             }
@@ -1649,7 +1619,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
 
     fn exec_ref_is_null(&mut self) -> Result<(), Trap> {
         let is_null = i32::from(ValueRef::stack_pop(&mut self.store.value_stack).is_null());
-        self.store.value_stack.push::<i32>(is_null)
+        i32::stack_push(&mut self.store.value_stack, is_null)
     }
 
     fn exec_ref_as_non_null(&mut self) -> Result<(), Trap> {
@@ -1672,7 +1642,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_ref_test(&mut self, ty: RefType) -> Result<(), Trap> {
         let value = ValueRef::stack_pop(&mut self.store.value_stack);
         let matches = self.store.state.value_ref_matches(value, self.canonical_ref_type(ty));
-        self.store.value_stack.push(i32::from(matches))
+        i32::stack_push(&mut self.store.value_stack, i32::from(matches))
     }
 
     fn exec_ref_cast(&self, ty: RefType) -> Result<(), Trap> {
@@ -1692,13 +1662,13 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         } else {
             value.i31_u().expect("validated i31.get operand") as i32
         };
-        self.store.value_stack.push(value)
+        i32::stack_push(&mut self.store.value_stack, value)
     }
 
     fn push_gc_object(&mut self, type_addr: TypeAddr, values: Vec<RuntimeValue>) -> Result<(), Trap> {
         let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
         let reference = self.store.state.alloc_gc_object(type_addr, values, roots)?;
-        self.store.value_stack.push(reference)
+        ValueRef::stack_push(&mut self.store.value_stack, reference)
     }
 
     fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
@@ -1822,7 +1792,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         if self.store.state.get_type(type_addr).as_array().is_none() {
             return Err(Trap::Other("GC reference is not an array"));
         }
-        self.store.value_stack.push(object.values.len() as i32)
+        i32::stack_push(&mut self.store.value_stack, object.values.len() as i32)
     }
 
     fn exec_array_fill(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
@@ -1945,8 +1915,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {
         let mem = self.store.state.get_mem(self.mem_addr(addr));
         match mem.is_64bit() {
-            true => self.store.value_stack.push::<i64>(mem.page_count as i64),
-            false => self.store.value_stack.push::<i32>(mem.page_count as i32),
+            true => i64::stack_push(&mut self.store.value_stack, mem.page_count as i64),
+            false => i32::stack_push(&mut self.store.value_stack, mem.page_count as i32),
         }
     }
 
@@ -2090,9 +2060,11 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
         let val = cold_err!(LOAD::load_at(&mem.inner, addr))?;
         let offset = arg.lane as usize * LOAD_SIZE;
-        let mut imm = Value128::stack_pop(&mut self.store.value_stack).to_mem_bytes();
-        imm[offset..offset + LOAD_SIZE].copy_from_slice(&val.to_mem_bytes());
-        self.store.value_stack.push(Value128(imm))?;
+        Value128::stack_update(&mut self.store.value_stack, |value| {
+            let mut bytes = value.to_mem_bytes();
+            bytes[offset..offset + LOAD_SIZE].copy_from_slice(&val.to_mem_bytes());
+            Value128(bytes)
+        });
         Ok(())
     }
 
@@ -2106,7 +2078,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
         let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
         let value = cold_err!(LOAD::load_at(&mem.inner, addr))?;
-        self.store.value_stack.push(cast(value))
+        TARGET::stack_push(&mut self.store.value_stack, cast(value))
     }
 
     #[inline(always)]
@@ -2164,7 +2136,7 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let table_addr = self.module.resolve_table_addr(table_index);
         let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
         let value = *self.store.state.get_table(table_addr).get(idx)?;
-        self.store.value_stack.push(value)
+        ValueRef::stack_push(&mut self.store.value_stack, value)
     }
 
     fn exec_table_set(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -2178,8 +2150,8 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
     fn exec_table_size(&mut self, table_index: u32) -> Result<(), Trap> {
         let table = self.store.state.get_table(self.module.resolve_table_addr(table_index));
         match table.kind.arch() {
-            MemoryArch::I32 => self.store.value_stack.push(table.size() as i32),
-            MemoryArch::I64 => self.store.value_stack.push(table.size() as i64),
+            MemoryArch::I32 => i32::stack_push(&mut self.store.value_stack, table.size() as i32),
+            MemoryArch::I64 => i64::stack_push(&mut self.store.value_stack, table.size() as i64),
         }
     }
 
@@ -2210,10 +2182,10 @@ impl<'store, const BUDGETED: bool> Executor<'store, BUDGETED> {
         let sz = table.size();
         let grew = table.grow(n, val, limiter)?;
         match (arch, grew) {
-            (MemoryArch::I32, true) => self.store.value_stack.push(sz as i32),
-            (MemoryArch::I32, false) => self.store.value_stack.push(-1_i32),
-            (MemoryArch::I64, true) => self.store.value_stack.push(sz as i64),
-            (MemoryArch::I64, false) => self.store.value_stack.push(-1_i64),
+            (MemoryArch::I32, true) => i32::stack_push(&mut self.store.value_stack, sz as i32),
+            (MemoryArch::I32, false) => i32::stack_push(&mut self.store.value_stack, -1),
+            (MemoryArch::I64, true) => i64::stack_push(&mut self.store.value_stack, sz as i64),
+            (MemoryArch::I64, false) => i64::stack_push(&mut self.store.value_stack, -1),
         }
     }
 

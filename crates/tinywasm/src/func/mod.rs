@@ -16,7 +16,7 @@ pub use host::HostFunction;
 #[doc(hidden)]
 pub use host::HostFunctionCallback;
 pub use resume::{ExecProgress, FuncExecution, FuncExecutionTyped};
-pub use values::{FromWasmValues, IntoWasmValues, ToWasmType, ToWasmTypes};
+pub use values::{FromWasmValues, IntoWasmValues, WasmTypes, WasmValueType};
 
 fn write_typed_params(params: &mut [WasmValue], mut values: impl Iterator<Item = WasmValue>) -> Result<()> {
     for param in params {
@@ -42,7 +42,7 @@ impl Function {
     /// Returns this function as a Store-aware WebAssembly function reference.
     pub fn as_func_ref(&self, store: &Store) -> Result<FuncRef> {
         self.item.validate_store(store)?;
-        Ok(FuncRef::new(store.store_id(), self.addr()))
+        Ok(FuncRef::new(store.id(), self.addr()))
     }
 
     #[inline]
@@ -219,7 +219,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
                 let (params, results) = values.split_at_mut(param_count);
                 self.func.call(store, params, results)?;
                 values.drain(..param_count);
-                R::from_wasm_values_exact(&mut values.drain(..))
+                R::from_wasm_values(&mut values.drain(..))
             })
         } else {
             store.enter_execution()?;

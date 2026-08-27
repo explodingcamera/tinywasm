@@ -106,8 +106,8 @@ impl TableInstance {
             return Ok(false);
         }
 
-        if cold_err!(self.elements.try_reserve_exact(n)).is_err() {
-            return Ok(false);
+        if self.elements.try_reserve_exact(n).is_err() {
+            return cold!(Ok(false));
         }
         self.elements.resize(len, init);
         Ok(true)
