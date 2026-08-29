@@ -1,6 +1,6 @@
 use crate::interpreter::stack::{CallFrame, StackBase};
 use crate::reference::StoreItem;
-use crate::{Error, FunctionInstance, InterpreterRuntime, Result, Store};
+use crate::{Error, InterpreterRuntime, Result, Store};
 use alloc::format;
 use core::hint::cold_path;
 use tinywasm_types::{FuncAddr, FuncType, ModuleInstanceId};
@@ -65,19 +65,36 @@ impl Function {
     /// match the function signature.
     #[inline]
     pub fn call(&self, store: &mut Store, params: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
-        self.validate_call(store, params, results.len())?;
+        let type_addr = self.validate_call(store, params, results.len())?;
 
         store.enter_execution()?;
         store.call_stack.clear();
         store.value_stack.clear();
-        let result = self.call_untyped(store, params, results, 0, StackBase::default());
+        let result = self.call_untyped(store, type_addr, params, results, 0, StackBase::default());
         store.exit_execution();
         result
     }
 
-    fn validate_call(&self, store: &Store, params: &[WasmValue], result_count: usize) -> Result<()> {
+    fn validate_call(
+        &self,
+        store: &Store,
+        params: &[WasmValue],
+        result_count: usize,
+    ) -> Result<tinywasm_types::TypeAddr> {
         self.item.validate_store(store)?;
-        let func_ty = store.state.get_func_type(self.addr());
+        let type_addr = store.state.funcs.type_addr(self.addr());
+        self.validate_call_type(store, type_addr, params, result_count)?;
+        Ok(type_addr)
+    }
+
+    fn validate_call_type(
+        &self,
+        store: &Store,
+        type_addr: tinywasm_types::TypeAddr,
+        params: &[WasmValue],
+        result_count: usize,
+    ) -> Result<()> {
+        let func_ty = store.state.get_canonical_func_type(type_addr);
         if func_ty.params().len() != params.len() {
             cold_path();
             return Err(Error::Other(format!(
@@ -117,62 +134,33 @@ impl Function {
     fn call_untyped(
         &self,
         store: &mut Store,
+        type_addr: tinywasm_types::TypeAddr,
         params: &[WasmValue],
         results: &mut [WasmValue],
         call_stack_base: u32,
         value_stack_base: StackBase,
     ) -> Result<()> {
-        let instance = store.state.get_func(self.addr());
-        let type_addr = instance.type_addr;
-        match &instance.inner {
-            crate::store::FunctionInstanceInner::Host(host) => {
-                let host = host.clone();
-                host.call_values(store, self.module_id, type_addr, params, results)
-            }
-            crate::store::FunctionInstanceInner::Wasm(wasm) => {
+        if store.state.funcs.is_host(self.addr()) {
+            let host = store.state.funcs.host(self.addr()).func.clone();
+            host.call_values(store, self.module_id, type_addr, params, results)
+        } else {
+            let (wasm_params, wasm_locals) = {
+                let wasm = store.state.funcs.wasm(self.addr());
                 let wasm_params = wasm.func.params;
                 let wasm_locals = wasm.func.locals;
-                store
-                    .push_wasm_values(params.iter().cloned())
-                    .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
-                let locals_base = store
-                    .value_stack
-                    .enter_locals(&wasm_params, &wasm_locals)
-                    .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
-                let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
-                InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
-                    store.call_stack.truncate_to(call_stack_base);
-                    store.value_stack.truncate_to_base(value_stack_base);
-                })?;
-                let result_type = store.state.get_canonical_func_type(type_addr).clone();
-                store.pop_stack_values(result_type.results(), results)
-            }
-        }
-    }
-
-    fn prepare_typed(
-        &self,
-        store: &mut Store,
-        instance: &FunctionInstance,
-        params: impl Iterator<Item = WasmValue>,
-        stack_base: StackBase,
-    ) -> Result<Option<CallFrame>> {
-        store.push_typed_values::<false>(instance.type_addr, params, stack_base)?;
-        match &instance.inner {
-            crate::store::FunctionInstanceInner::Wasm(wasm) => {
-                let locals_base = store
-                    .value_stack
-                    .enter_locals(&wasm.func.params, &wasm.func.locals)
-                    .inspect_err(|_| store.value_stack.truncate_to_base(stack_base))?;
-                Ok(Some(CallFrame::new(self.addr(), locals_base, wasm.func.locals)))
-            }
-            crate::store::FunctionInstanceInner::Host(host) => {
-                host.typed_callback()
-                    .expect("typed host function")
-                    .call_stack(store, self.module_id, instance.type_addr)
-                    .inspect_err(|_| store.value_stack.truncate_to_base(stack_base))?;
-                Ok(None)
-            }
+                (wasm_params, wasm_locals)
+            };
+            store.push_wasm_values(params).inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+            let locals_base = store
+                .value_stack
+                .enter_locals(&wasm_params, &wasm_locals)
+                .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+            let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+            InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
+                store.call_stack.truncate_to(call_stack_base);
+                store.value_stack.truncate_to_base(value_stack_base);
+            })?;
+            store.pop_stack_values(type_addr, results)
         }
     }
 
@@ -180,18 +168,53 @@ impl Function {
     fn call_typed<R: FromWasmValues>(
         &self,
         store: &mut Store,
-        instance: &FunctionInstance,
         params: impl Iterator<Item = WasmValue>,
         call_stack_base: u32,
         value_stack_base: StackBase,
     ) -> Result<R> {
-        if let Some(callframe) = self.prepare_typed(store, instance, params, value_stack_base)? {
-            InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
-                store.call_stack.truncate_to(call_stack_base);
-                store.value_stack.truncate_to_base(value_stack_base);
-            })?;
+        if store.state.funcs.is_host(self.addr()) {
+            let (type_addr, host) = {
+                let host = store.state.funcs.host(self.addr());
+                (host.type_addr, host.func.clone())
+            };
+            return match host.typed_callback() {
+                Some(callback) => {
+                    store.push_typed_values::<false>(type_addr, params, value_stack_base)?;
+                    callback
+                        .call_stack(store, self.module_id, type_addr)
+                        .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+                    store.take_typed_results(type_addr, value_stack_base)
+                }
+                None => {
+                    let ty = store.state.get_canonical_func_type(type_addr);
+                    let (param_count, result_count) = (ty.params().len(), ty.results().len());
+                    store.with_scratch_values(param_count + result_count, |store, values| {
+                        write_typed_params(&mut values[..param_count], params)?;
+                        let (params, results) = values.split_at_mut(param_count);
+                        self.validate_call_type(store, type_addr, params, results.len())?;
+                        host.call_values(store, self.module_id, type_addr, params, results)?;
+                        values.drain(..param_count);
+                        R::from_wasm_values(&mut values.drain(..))
+                    })
+                }
+            };
         }
-        store.take_typed_results(instance.type_addr, value_stack_base)
+
+        let (type_addr, wasm_params, wasm_locals) = {
+            let wasm = store.state.funcs.wasm(self.addr());
+            (wasm.type_addr, wasm.func.params, wasm.func.locals)
+        };
+        store.push_typed_values::<false>(type_addr, params, value_stack_base)?;
+        let locals_base = store
+            .value_stack
+            .enter_locals(&wasm_params, &wasm_locals)
+            .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
+        let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+        InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
+            store.call_stack.truncate_to(call_stack_base);
+            store.value_stack.truncate_to_base(value_stack_base);
+        })?;
+        store.take_typed_results(type_addr, value_stack_base)
     }
 }
 
@@ -210,26 +233,11 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         self.func.item.validate_store(store)?;
-        let func = store.state.get_func(self.func.addr()).clone();
-        if matches!(&func.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none()) {
-            let ty = store.state.get_canonical_func_type(func.type_addr);
-            let (param_count, result_count) = (ty.params().len(), ty.results().len());
-            store.with_scratch_values(param_count + result_count, |store, values| {
-                write_typed_params(&mut values[..param_count], params.into_wasm_values())?;
-                let (params, results) = values.split_at_mut(param_count);
-                self.func.call(store, params, results)?;
-                values.drain(..param_count);
-                R::from_wasm_values(&mut values.drain(..))
-            })
-        } else {
-            store.enter_execution()?;
-            let result: Result<R> = {
-                store.call_stack.clear();
-                store.value_stack.clear();
-                self.func.call_typed(store, &func, params.into_wasm_values(), 0, StackBase::default())
-            };
-            store.exit_execution();
-            result
-        }
+        store.enter_execution()?;
+        store.call_stack.clear();
+        store.value_stack.clear();
+        let result = self.func.call_typed(store, params.into_wasm_values(), 0, StackBase::default());
+        store.exit_execution();
+        result
     }
 }

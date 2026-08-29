@@ -36,27 +36,13 @@ impl CallStack {
     }
 
     #[inline(always)]
-    pub(crate) fn push(&mut self, mut call_frame: CallFrame, return_instr_ptr: usize) -> Result<(), Trap> {
-        self.ensure_capacity_for(self.stack.len() + 1)?;
-        call_frame.instr_ptr = return_instr_ptr;
+    pub(crate) fn push(&mut self, mut call_frame: CallFrame, instr_ptr: usize) -> Result<(), Trap> {
+        if self.stack.len() == self.stack.capacity() && (!self.dynamic || self.stack.len() >= self.max_size) {
+            return cold!(Err(Trap::CallStackOverflow));
+        }
+
+        call_frame.instr_ptr = instr_ptr;
         self.stack.push(call_frame);
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn ensure_capacity_for(&mut self, required_len: usize) -> Result<(), Trap> {
-        if required_len <= self.stack.capacity() {
-            return Ok(());
-        }
-
-        if required_len > self.max_size || !self.dynamic {
-            return cold!(Err(Trap::CallStackOverflow));
-        }
-
-        let target_capacity = required_len.max(self.stack.capacity().max(1).saturating_mul(2)).min(self.max_size);
-        let Ok(()) = self.stack.try_reserve(target_capacity.saturating_sub(self.stack.len())) else {
-            return cold!(Err(Trap::CallStackOverflow));
-        };
         Ok(())
     }
 }

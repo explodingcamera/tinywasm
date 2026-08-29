@@ -328,8 +328,7 @@ impl Imports {
                 (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {
                     let expected_type_addr =
                         type_addrs.get(*ty as usize).ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-                    if !store.state.type_addr_is_subtype(store.state.get_func(func_addr).type_addr, *expected_type_addr)
-                    {
+                    if !store.state.type_addr_is_subtype(store.state.funcs.type_addr(func_addr), *expected_type_addr) {
                         return cold!(Err(LinkingError::incompatible_import_type(import).into()));
                     }
                     imports.funcs.push(func_addr);

@@ -2,7 +2,7 @@ use alloc::{boxed::Box, format, vec::Vec};
 use core::hint::cold_path;
 use tinywasm_types::*;
 
-use crate::func::FromWasmValues;
+use crate::func::{FromWasmValues, HostFunction};
 use crate::interpreter::stack::{CallStack, StackBase, ValueStack};
 use crate::interpreter::{RuntimeValue, ValueRef};
 use crate::reference::{ReferentKind, RootedItem, StoreId, StoredRef};
@@ -363,7 +363,7 @@ impl Store {
         Ok(StackValueIter { store: self, type_addr, types, index, position: 0, len })
     }
 
-    pub(crate) fn push_wasm_values(&mut self, values: impl IntoIterator<Item = WasmValue>) -> Result<()> {
+    pub(crate) fn push_wasm_values(&mut self, values: &[WasmValue]) -> Result<()> {
         for value in values {
             let value = value.to_runtime(self)?;
             self.value_stack.push_dyn(value)?;
@@ -371,14 +371,19 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn pop_stack_values(&mut self, types: &[WasmType], results: &mut [WasmValue]) -> Result<()> {
-        if types.len() != results.len() {
+    pub(crate) fn pop_stack_values(&mut self, type_addr: TypeAddr, results: &mut [WasmValue]) -> Result<()> {
+        let (result_count, result_counts) = {
+            let types = self.state.get_canonical_func_type(type_addr).results();
+            (types.len(), types.iter().collect())
+        };
+        if result_count != results.len() {
             return Err(Error::other("result buffer has the wrong length"));
         }
-        let base = self.value_stack.base_before(types.iter().collect());
+        let base = self.value_stack.base_before(result_counts);
         let result = (|| {
             let mut index = base;
-            for (&ty, result) in types.iter().zip(results) {
+            for (position, result) in results.iter_mut().enumerate() {
+                let ty = self.state.get_canonical_func_type(type_addr).results()[position];
                 let value = self.stack_value(ty, &mut index);
                 *result = value.into_wasm(self, ty)?;
             }
@@ -503,17 +508,10 @@ impl Store {
         module_type_idxs: &[TypeAddr],
         type_addrs: &[TypeAddr],
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
-        let start = self.state.funcs.len() as FuncAddr;
         debug_assert_eq!(funcs.len(), module_type_idxs.len());
-        self.state.funcs.reserve_exact(funcs.len());
-        for (func, &type_idx) in funcs.iter().cloned().zip(module_type_idxs) {
-            let type_addr = type_addrs[type_idx as usize];
-            self.state.funcs.push(FunctionInstance {
-                type_addr,
-                inner: FunctionInstanceInner::Wasm(WasmFunctionInstance { func, owner }),
-            });
-        }
-        start..start + funcs.len() as FuncAddr
+        let funcs =
+            funcs.iter().cloned().zip(module_type_idxs).map(|(func, &type_idx)| (type_addrs[type_idx as usize], func));
+        self.state.funcs.extend_wasm(funcs, owner)
     }
 
     /// Add tags to the store, returning their addresses in the store.
@@ -752,9 +750,7 @@ impl Store {
     }
 
     /// Adds a function and returns its store address.
-    pub(crate) fn add_func(&mut self, func: FunctionInstance) -> FuncAddr {
-        let addr = self.state.funcs.len() as FuncAddr;
-        self.state.funcs.push(func);
-        addr
+    pub(crate) fn add_host_func(&mut self, type_addr: TypeAddr, func: HostFunction) -> FuncAddr {
+        self.state.funcs.push_host(type_addr, func)
     }
 }

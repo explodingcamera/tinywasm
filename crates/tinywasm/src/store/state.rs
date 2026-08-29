@@ -12,7 +12,7 @@ pub(crate) struct State {
     // Concrete type indexes in store instances address this canonical type space.
     pub(crate) canonical_types: Vec<SubType>,
     pub(crate) canonical_rec_group_lengths: Vec<u32>,
-    pub(crate) funcs: Vec<FunctionInstance>,
+    pub(crate) funcs: Functions,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
     pub(crate) globals: Globals,
@@ -28,7 +28,7 @@ impl State {
         Self {
             canonical_types: Vec::new(),
             canonical_rec_group_lengths: Vec::new(),
-            funcs: Vec::new(),
+            funcs: Functions::default(),
             tables: Vec::new(),
             memories: Vec::new(),
             globals: Globals::default(),
@@ -250,8 +250,11 @@ impl State {
             || expected.abstract_heap_type() == Some(AbstractHeapType::Func);
         if expected_func {
             let Some(func_addr) = value.addr() else { return false };
-            let Some(func) = self.funcs.get(func_addr as usize) else { return false };
-            return self.ref_type_is_subtype(RefType::new_concrete(false, func.type_addr), expected);
+            if !self.funcs.contains(func_addr) {
+                return false;
+            }
+            let type_addr = self.funcs.type_addr(func_addr);
+            return self.ref_type_is_subtype(RefType::new_concrete(false, type_addr), expected);
         }
         if expected.abstract_heap_type() == Some(AbstractHeapType::Exn) {
             return matches!(self.gc.get(value).map(|object| object.kind), Some(gc::GcObjectKind::Exception(_)));
@@ -271,12 +274,12 @@ impl State {
 
     #[inline]
     pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
-        self.get_canonical_func_type(self.get_func(addr).type_addr)
+        self.get_canonical_func_type(self.funcs.type_addr(addr))
     }
 
     #[inline]
     pub(crate) fn get_type(&self, addr: TypeAddr) -> &SubType {
-        Self::get(&self.canonical_types, addr, "canonical type")
+        &self.canonical_types[addr as usize]
     }
 
     #[inline]
@@ -284,14 +287,7 @@ impl State {
         self.get_type(addr).as_func().expect("validated function address references a function type")
     }
 
-    pub(super) fn get<'a, T>(items: &'a [T], addr: Addr, kind: &str) -> &'a T {
-        unwrap_or_unreachable!(items.get(addr as usize), "invalid {kind} address: {addr}")
-    }
-
-    fn get_mut<'a, T>(items: &'a mut [T], addr: Addr, kind: &str) -> &'a mut T {
-        unwrap_or_unreachable!(items.get_mut(addr as usize), "invalid {kind} address: {addr}")
-    }
-
+    #[inline]
     fn get_disjoint_mut<'a, T>(items: &'a mut [T], addr: Addr, addr2: Addr, kind: &str) -> (&'a mut T, &'a mut T) {
         let [item_a, item_b] = items
             .get_disjoint_mut([addr as usize, addr2 as usize])
@@ -299,46 +295,39 @@ impl State {
         (item_a, item_b)
     }
 
-    /// Get the function at the actual index in the store
-    pub(crate) fn get_func(&self, addr: FuncAddr) -> &FunctionInstance {
-        Self::get(&self.funcs, addr, "function")
-    }
-
+    #[inline]
     pub(crate) fn get_tag(&self, addr: TagAddr) -> &TagInstance {
-        Self::get(&self.tags, addr, "tag")
-    }
-
-    /// Get a wasm function at the actual index in the store, panicking if it's a host function (which should be guaranteed by the validator)
-    pub(crate) fn get_wasm_func(&self, addr: FuncAddr) -> &WasmFunctionInstance {
-        match self.funcs.get(addr as usize).map(|func| &func.inner) {
-            Some(FunctionInstanceInner::Wasm(wasm_func)) => wasm_func,
-            _ => unreachable!("invalid wasm function address: {addr}"),
-        }
+        &self.tags[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
+    #[inline]
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
-        Self::get(&self.memories, addr, "memory")
+        &self.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
+    #[inline]
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
-        Self::get_mut(&mut self.memories, addr, "memory")
+        &mut self.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
+    #[inline]
     pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
         Self::get_disjoint_mut(&mut self.memories, addr, addr2, "memory")
     }
 
     /// Get the table at the actual index in the store
+    #[inline]
     pub(crate) fn get_table(&self, addr: TableAddr) -> &TableInstance {
-        Self::get(&self.tables, addr, "table")
+        &self.tables[addr as usize]
     }
 
     /// Get the table at the actual index in the store
+    #[inline]
     pub(crate) fn get_table_mut(&mut self, addr: TableAddr) -> &mut TableInstance {
-        Self::get_mut(&mut self.tables, addr, "table")
+        &mut self.tables[addr as usize]
     }
 
     /// Get two mutable tables at the actual index in the store
@@ -351,13 +340,15 @@ impl State {
     }
 
     /// Get the data at the actual index in the store
+    #[inline]
     pub(crate) fn get_data_mut(&mut self, addr: DataAddr) -> &mut DataInstance {
-        Self::get_mut(&mut self.data, addr, "data")
+        &mut self.data[addr as usize]
     }
 
     /// Get the element at the actual index in the store
+    #[inline]
     pub(crate) fn get_elem_mut(&mut self, addr: ElemAddr) -> &mut ElementInstance {
-        Self::get_mut(&mut self.elements, addr, "element")
+        &mut self.elements[addr as usize]
     }
 
     /// Returns a global in its internal value representation.

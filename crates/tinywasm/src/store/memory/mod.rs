@@ -7,10 +7,6 @@ pub(crate) use instance::MemoryInstance;
 pub(crate) use vec::VecMemory;
 
 /// Internal storage for a linear memory.
-///
-/// This is the boundary between the interpreter and the backing representation. Keeping it a
-/// concrete type selected at compile time means the executor's load and store paths stay the same
-/// whether the memory is `Vec`-backed or, later, mmap-backed.
 pub(crate) type MemoryStorage = VecMemory;
 
 /// A trait for types that can be converted to and from static byte arrays.

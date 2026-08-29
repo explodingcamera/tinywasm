@@ -4,7 +4,7 @@ use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 use super::{FromWasmValues, FuncContext, IntoWasmValues};
 use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
-use crate::{Function, FunctionInstance, Result, Store, WasmValue};
+use crate::{Function, Result, Store, WasmValue};
 
 /// Trait bounds required for a host callback in the current build mode.
 #[doc(hidden)]
@@ -31,8 +31,7 @@ pub struct HostFunction(StoreShared<HostFunctionInner>);
 impl HostFunction {
     /// Instantiates the function with an already registered canonical type.
     pub(crate) fn instantiate_registered(&self, store: &mut Store, type_addr: TypeAddr) -> Function {
-        let addr = store
-            .add_func(FunctionInstance { type_addr, inner: crate::store::FunctionInstanceInner::Host(self.clone()) });
+        let addr = store.add_host_func(type_addr, self.clone());
         Function { item: crate::StoreItem::new(store.id(), addr), module_id: 0 }
     }
 
@@ -64,22 +63,28 @@ impl HostFunction {
         args: &[WasmValue],
         results: &mut [WasmValue],
     ) -> Result<()> {
-        let expected = store.state.get_canonical_func_type(type_addr).clone();
-        if results.len() != expected.results().len() {
-            return Err(crate::Error::other("host result buffer has the wrong length"));
-        }
-        for (result, ty) in results.iter_mut().zip(expected.results()) {
-            *result = match ty {
-                WasmType::I32 => WasmValue::I64(0),
-                _ => WasmValue::I32(0),
-            };
+        {
+            let expected = store.state.get_canonical_func_type(type_addr);
+            if results.len() != expected.results().len() {
+                return Err(crate::Error::other("host result buffer has the wrong length"));
+            }
+            for (result, ty) in results.iter_mut().zip(expected.results()) {
+                *result = match ty {
+                    WasmType::I32 => WasmValue::I64(0),
+                    _ => WasmValue::I32(0),
+                };
+            }
         }
         match &self.0.callback {
             HostCallback::Untyped(func) => func(FuncContext { store, module_id }, args, results)?,
             HostCallback::Typed(func) => func.call(FuncContext { store, module_id }, args, results)?,
         }
+        let expected = store.state.get_canonical_func_type(type_addr);
         if !results.iter().zip(expected.results()).all(|(value, &ty)| store.value_matches_type(value, ty)) {
-            return Err(crate::Error::InvalidHostFnReturn { expected: Box::new(expected), actual: results.to_vec() });
+            return Err(crate::Error::InvalidHostFnReturn {
+                expected: Box::new(expected.clone()),
+                actual: results.to_vec(),
+            });
         }
         Ok(())
     }

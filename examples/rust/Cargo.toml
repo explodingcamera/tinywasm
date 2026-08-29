@@ -35,16 +35,16 @@ name = "argon2id"
 path = "src/argon2id.rs"
 
 [dependencies]
-argon2 = { version = "0.5" }
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
 dlmalloc = { version = "0.2", features = ["global"] }
 tinywasm = { path = "../../crates/tinywasm", default-features = false, features = ["archive", "parser"] }
-
-[lints.clippy]
-missing_safety_doc = "allow"
 
 [features]
 default = ["std"]
 std = ["tinywasm/std"]
+
+[lints.clippy]
+missing_safety_doc = "allow"
 
 [profile.wasm]
 inherits = "release"

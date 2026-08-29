@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::hint::cold_path;
 use tinywasm_types::{MemoryArch, ValueCounts};
 
 use super::StackBase;
@@ -41,20 +40,18 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
-        if !self.ensure_capacity_for(self.data.len() + 1) {
+        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
             return cold!(Err(Trap::ValueStackOverflow));
         }
-
         self.data.push(value);
         Ok(())
     }
 
     #[inline(always)]
     pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
-        if !self.ensure_capacity_for(self.data.len() + 1) {
+        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
             return cold!(Err(Trap::ValueStackOverflow));
         }
-
         let value = self.data[index];
         self.data.push(value);
         Ok(())
@@ -62,12 +59,18 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        unwrap_or_unreachable!(self.data.pop(), "ValueStack underflow, this is a bug")
+        match self.data.pop() {
+            Some(value) => value,
+            None => cold!(unreachable!("ValueStack underflow, this is a bug")),
+        }
     }
 
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        unwrap_or_unreachable!(self.data.last(), "ValueStack underflow, this is a bug")
+        match self.data.last() {
+            Some(value) => value,
+            None => cold!(unreachable!("ValueStack underflow, this is a bug")),
+        }
     }
 
     #[inline(always)]
@@ -107,12 +110,12 @@ impl<T: Copy + Default> Stack<T> {
     #[inline(always)]
     pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
         debug_assert!(n < self.data.len());
-        let last = unwrap_or_unreachable!(self.data.pop(), "ValueStack underflow, this is a bug");
+        let last = self.pop();
         self.data.truncate(n);
         self.data.push(last);
     }
 
-    #[inline(always)]
+    #[inline]
     pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32, Trap> {
         debug_assert!(param_count <= local_count);
         debug_assert!(param_count <= self.data.len());
@@ -122,39 +125,19 @@ impl<T: Copy + Default> Stack<T> {
         let end = start + local_count;
 
         if end > self.data.capacity() {
-            cold_path();
+            core::hint::cold_path();
             if end > self.max_size || !self.dynamic {
                 return Err(Trap::ValueStackOverflow);
             }
             let cap = self.data.capacity();
             let target = end.max(cap.max(1).saturating_mul(2)).min(self.max_size);
-            if self.data.try_reserve_exact(target - len).is_err() {
+            if self.data.try_reserve(target - len).is_err() {
                 return Err(Trap::ValueStackOverflow);
             }
         }
 
         self.data.resize(end, T::default());
         Ok(start as u32)
-    }
-
-    fn ensure_capacity_for(&mut self, required_len: usize) -> bool {
-        let cap = self.data.capacity();
-
-        if required_len > cap {
-            cold_path();
-
-            if required_len > self.max_size || !self.dynamic {
-                return false;
-            }
-            let doubled = cap.max(1).saturating_mul(2);
-            let target = required_len.max(doubled).min(self.max_size);
-            let additional = target - cap;
-            if self.data.try_reserve_exact(additional).is_err() {
-                return false;
-            }
-        }
-
-        true
     }
 
     #[inline(always)]
@@ -164,7 +147,7 @@ impl<T: Copy + Default> Stack<T> {
         }
 
         let len = self.data.len();
-        let needed = unwrap_or_unreachable!(count.checked_mul(2), "Stack underflow, this is a bug");
+        let needed = count.wrapping_mul(2);
 
         if len < needed {
             unreachable!("Stack underflow, this is a bug");

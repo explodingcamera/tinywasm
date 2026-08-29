@@ -11,16 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
-features = [
-  "std",
-  "validate",
-  "parser",
-  "archive",
-  "log",
-  "canonicalize-nans",
-  "debug",
-  "guest-debug"
-]
+features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "debug", "guest-debug"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
@@ -98,16 +89,8 @@ wasm-testsuite.workspace = true
 wat.workspace = true
 
 [features]
-default = [
-  "archive",
-  "canonicalize-nans",
-  "debug",
-  "log",
-  "parallel-parser",
-  "parser",
-  "std",
-  "validate"
-]
+default = ["full", "std"]
+full = ["archive", "parallel-parser", "parser", "validate"]
 
 log = ["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
 std = ["tinywasm-parser?/std", "tinywasm-types/std"]
@@ -119,10 +102,10 @@ send = []
 parser = ["dep:tinywasm-parser"]
 
 # validate WebAssembly while parsing
-validate = ["parser", "tinywasm-parser/validate"]
+validate = ["tinywasm-parser?/validate"]
 
 # parallelize function parsing/validation across threads (requires std)
-parallel-parser = ["parser", "tinywasm-parser?/parallel"]
+parallel-parser = ["tinywasm-parser?/parallel"]
 
 # support targets without native atomic CAS
 portable-atomic = ["dep:portable-atomic", "tinywasm-parser?/portable-atomic", "tinywasm-types/portable-atomic"]

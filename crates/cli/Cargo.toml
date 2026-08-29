@@ -32,15 +32,12 @@ pretty_env_logger.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tinywasm = { workspace = true, features = [
-  "archive",
   "canonicalize-nans",
   "debug",
+  "full",
   "guest-debug",
   "log",
-  "parallel-parser",
-  "parser",
   "std",
-  "validate",
 ] }
 wasm-testsuite = { workspace = true, optional = true }
 wast = { workspace = true, optional = true }

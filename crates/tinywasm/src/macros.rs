@@ -16,18 +16,3 @@ macro_rules! cold_err {
         }
     };
 }
-
-macro_rules! unwrap_or_unreachable {
-    ($value:expr) => {{
-        match $value {
-            Some(value) => value,
-            None => cold!(unreachable!()),
-        }
-    }};
-    ($value:expr, $($arg:tt)+) => {{
-        match $value {
-            Some(value) => value,
-            None => cold!(unreachable!($($arg)+)),
-        }
-    }};
-}

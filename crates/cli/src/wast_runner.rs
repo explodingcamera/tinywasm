@@ -669,17 +669,20 @@ struct TestCase {
 
 fn expand_paths(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    for path in paths {
+    let mut pending = paths.to_vec();
+    while let Some(path) = pending.pop() {
         if path.is_dir() {
-            for entry in std::fs::read_dir(path)? {
+            for entry in std::fs::read_dir(&path)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "wast") {
+                if entry.file_type()?.is_dir() {
+                    pending.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "wast") {
                     files.push(path);
                 }
             }
         } else {
-            files.push(path.clone());
+            files.push(path);
         }
     }
     files.sort();
@@ -971,6 +974,18 @@ mod tests {
 
         let mut runner = WastRunner::new();
         runner.run_paths(&[path]).unwrap();
+    }
+
+    #[test]
+    fn recursively_runs_wast_files_and_ignores_other_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(dir.path().join("README.md"), "not a wast file").unwrap();
+        std::fs::write(nested.join("simple.wast"), "(module)").unwrap();
+
+        let mut runner = WastRunner::new();
+        runner.run_paths(&[dir.path().to_path_buf()]).unwrap();
     }
 
     #[test]

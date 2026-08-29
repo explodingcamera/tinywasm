@@ -63,6 +63,7 @@
 //!
 //! ## Cargo features
 //!
+//! - **`full`:** Enables `archive`, `parallel-parser`, `parser`, and `validate`. Enabled by default.
 //! - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
 //! - **`log`:** Enables integration with the `log` crate. Enabled by default.
 //! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.

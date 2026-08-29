@@ -1,20 +1,19 @@
 use alloc::vec::Vec;
 use core::ops::Range;
+use tinywasm_types::MemoryArch;
 
 use super::memory_oob;
 
 /// A contiguous `Vec<u8>`-backed linear memory storage.
 ///
-/// This is the internal storage boundary for [`super::MemoryInstance`]. Keeping it a concrete type
-/// rather than a `Vec<u8>` directly means the backing representation can later be swapped for an
-/// mmap-backed implementation without touching the interpreter's load and store paths.
+/// This is the default internal storage for [`super::MemoryInstance`].
 pub(crate) struct VecMemory {
     data: Vec<u8>,
 }
 
 impl VecMemory {
     /// Tries to create a new memory with `len` zero-initialized bytes.
-    pub(crate) fn try_new(len: usize) -> Result<Self, crate::Trap> {
+    pub(crate) fn try_new(_arch: MemoryArch, len: usize, _max_len: usize) -> Result<Self, crate::Trap> {
         let mut data = Vec::new();
         cold_err!(data.try_reserve(len)).map_err(|_| crate::Trap::OutOfMemory)?;
         data.resize(len, 0);
@@ -125,9 +124,12 @@ impl VecMemory {
         Some(())
     }
 
-    /// Copies a previously checked range from another memory.
+    /// Copies a valid range from another memory.
     #[inline(always)]
-    pub(super) fn copy_from(&mut self, dst: usize, src_memory: &Self, src: usize, len: usize) {
-        self.data[dst..dst + len].copy_from_slice(&src_memory.data[src..src + len]);
+    pub(super) fn copy_from(&mut self, dst: usize, src_memory: &Self, src: usize, len: usize) -> Option<()> {
+        let src_range = src_memory.checked_range(src, len)?;
+        let dst_range = self.checked_range(dst, len)?;
+        self.data[dst_range].copy_from_slice(&src_memory.data[src_range]);
+        Some(())
     }
 }

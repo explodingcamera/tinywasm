@@ -135,19 +135,19 @@ macro_rules! impl_internalvalue {
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
                     let $from_stack_v =
-                        *stack.$stack.get(frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize);
+                        *stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize);
                     $from_stack
                 }
 
                 #[inline(always)]
                 fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) -> Result<(), crate::Trap> {
-                    stack.$stack.push_copy(frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize)
+                    stack.$stack.push_copy(frame.locals_base.$stack_base as usize + index as usize)
                 }
 
                 #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
                     let $to_stack_v = value;
-                    let abs_index = frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize;
+                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
                     stack.$stack.set(abs_index, $to_stack);
                 }
 
@@ -158,7 +158,7 @@ macro_rules! impl_internalvalue {
                     index: LocalAddr,
                     f: impl FnOnce(Self) -> Self,
                 ) -> Self {
-                    let abs_index = frame.locals_base.$stack_base.wrapping_add(u32::from(index)) as usize;
+                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
                     let $from_stack_v = *stack.$stack.get(abs_index);
                     let value = f($from_stack);
                     let $to_stack_v = value;
@@ -168,8 +168,8 @@ macro_rules! impl_internalvalue {
 
                 #[inline(always)]
                 fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr) {
-                    let from = frame.locals_base.$stack_base.wrapping_add(u32::from(from)) as usize;
-                    let to = frame.locals_base.$stack_base.wrapping_add(u32::from(to)) as usize;
+                    let from = frame.locals_base.$stack_base as usize + from as usize;
+                    let to = frame.locals_base.$stack_base as usize + to as usize;
                     stack.$stack.copy(from, to);
                 }
 
@@ -258,55 +258,101 @@ pub(crate) trait CmpOpExt<T>: Copy {
 }
 
 macro_rules! impl_value_ops {
-    ($unsigned:ty, $signed:ty, $float:ty) => {
+    ($unsigned:ty, $signed:ty, $binop:ident, $cmp:ident) => {
         impl BinOpExt<$unsigned> for BinOp {
             #[inline(always)]
             fn exec(self, lhs: $unsigned, rhs: $unsigned) -> $unsigned {
-                match self {
-                    BinOp::IAdd => lhs.wrapping_add(rhs),
-                    BinOp::ISub => lhs.wrapping_sub(rhs),
-                    BinOp::IMul => lhs.wrapping_mul(rhs),
-                    BinOp::IAnd => lhs & rhs,
-                    BinOp::IOr => lhs | rhs,
-                    BinOp::IXor => lhs ^ rhs,
-                    BinOp::IShl => (lhs as $signed).wrapping_shl(rhs as u32) as $unsigned,
-                    BinOp::IShrS => (lhs as $signed).wrapping_shr(rhs as u32) as $unsigned,
-                    BinOp::IShrU => lhs.wrapping_shr(rhs as u32),
-                    BinOp::IRotl => (lhs as $signed).rotate_left(rhs as u32) as $unsigned,
-                    BinOp::IRotr => (lhs as $signed).rotate_right(rhs as u32) as $unsigned,
-                    BinOp::FAdd => (<$float>::from_bits(lhs) + <$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FSub => (<$float>::from_bits(lhs) - <$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FMul => (<$float>::from_bits(lhs) * <$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FDiv => (<$float>::from_bits(lhs) / <$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FMin => <$float>::from_bits(lhs).tw_minimum(<$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FMax => <$float>::from_bits(lhs).tw_maximum(<$float>::from_bits(rhs)).to_bits(),
-                    BinOp::FCopysign => <$float>::from_bits(lhs).copysign(<$float>::from_bits(rhs)).to_bits(),
-                }
+                $binop(self, lhs, rhs)
             }
         }
 
         impl CmpOpExt<$signed> for CmpOp {
             #[inline(always)]
             fn cmp(self, lhs: $signed, rhs: $signed) -> bool {
-                match self {
-                    CmpOp::Eq => lhs == rhs,
-                    CmpOp::Ne => lhs != rhs,
-                    CmpOp::LtS => lhs < rhs,
-                    CmpOp::LtU => (lhs as $unsigned) < (rhs as $unsigned),
-                    CmpOp::GtS => lhs > rhs,
-                    CmpOp::GtU => (lhs as $unsigned) > (rhs as $unsigned),
-                    CmpOp::LeS => lhs <= rhs,
-                    CmpOp::LeU => (lhs as $unsigned) <= (rhs as $unsigned),
-                    CmpOp::GeS => lhs >= rhs,
-                    CmpOp::GeU => (lhs as $unsigned) >= (rhs as $unsigned),
-                }
+                $cmp(self, lhs, rhs)
             }
         }
     };
 }
 
-impl_value_ops!(Value32, i32, f32);
-impl_value_ops!(Value64, i64, f64);
+impl_value_ops!(Value32, i32, exec_binop_32, exec_cmp_32);
+impl_value_ops!(Value64, i64, exec_binop_64, exec_cmp_64);
+
+fn exec_binop_32(op: BinOp, lhs: u32, rhs: u32) -> u32 {
+    match op {
+        BinOp::IAdd => lhs.wrapping_add(rhs),
+        BinOp::ISub => lhs.wrapping_sub(rhs),
+        BinOp::IMul => lhs.wrapping_mul(rhs),
+        BinOp::IAnd => lhs & rhs,
+        BinOp::IOr => lhs | rhs,
+        BinOp::IXor => lhs ^ rhs,
+        BinOp::IShl => (lhs as i32).wrapping_shl(rhs) as u32,
+        BinOp::IShrS => (lhs as i32).wrapping_shr(rhs) as u32,
+        BinOp::IShrU => lhs.wrapping_shr(rhs),
+        BinOp::IRotl => (lhs as i32).rotate_left(rhs) as u32,
+        BinOp::IRotr => (lhs as i32).rotate_right(rhs) as u32,
+        BinOp::FAdd => (f32::from_bits(lhs) + f32::from_bits(rhs)).to_bits(),
+        BinOp::FSub => (f32::from_bits(lhs) - f32::from_bits(rhs)).to_bits(),
+        BinOp::FMul => (f32::from_bits(lhs) * f32::from_bits(rhs)).to_bits(),
+        BinOp::FDiv => (f32::from_bits(lhs) / f32::from_bits(rhs)).to_bits(),
+        BinOp::FMin => f32::from_bits(lhs).tw_minimum(f32::from_bits(rhs)).to_bits(),
+        BinOp::FMax => f32::from_bits(lhs).tw_maximum(f32::from_bits(rhs)).to_bits(),
+        BinOp::FCopysign => f32::from_bits(lhs).copysign(f32::from_bits(rhs)).to_bits(),
+    }
+}
+
+fn exec_binop_64(op: BinOp, lhs: u64, rhs: u64) -> u64 {
+    match op {
+        BinOp::IAdd => lhs.wrapping_add(rhs),
+        BinOp::ISub => lhs.wrapping_sub(rhs),
+        BinOp::IMul => lhs.wrapping_mul(rhs),
+        BinOp::IAnd => lhs & rhs,
+        BinOp::IOr => lhs | rhs,
+        BinOp::IXor => lhs ^ rhs,
+        BinOp::IShl => (lhs as i64).wrapping_shl(rhs as u32) as u64,
+        BinOp::IShrS => (lhs as i64).wrapping_shr(rhs as u32) as u64,
+        BinOp::IShrU => lhs.wrapping_shr(rhs as u32),
+        BinOp::IRotl => (lhs as i64).rotate_left(rhs as u32) as u64,
+        BinOp::IRotr => (lhs as i64).rotate_right(rhs as u32) as u64,
+        BinOp::FAdd => (f64::from_bits(lhs) + f64::from_bits(rhs)).to_bits(),
+        BinOp::FSub => (f64::from_bits(lhs) - f64::from_bits(rhs)).to_bits(),
+        BinOp::FMul => (f64::from_bits(lhs) * f64::from_bits(rhs)).to_bits(),
+        BinOp::FDiv => (f64::from_bits(lhs) / f64::from_bits(rhs)).to_bits(),
+        BinOp::FMin => f64::from_bits(lhs).tw_minimum(f64::from_bits(rhs)).to_bits(),
+        BinOp::FMax => f64::from_bits(lhs).tw_maximum(f64::from_bits(rhs)).to_bits(),
+        BinOp::FCopysign => f64::from_bits(lhs).copysign(f64::from_bits(rhs)).to_bits(),
+    }
+}
+
+fn exec_cmp_32(op: CmpOp, lhs: i32, rhs: i32) -> bool {
+    match op {
+        CmpOp::Eq => lhs == rhs,
+        CmpOp::Ne => lhs != rhs,
+        CmpOp::LtS => lhs < rhs,
+        CmpOp::LtU => (lhs as u32) < (rhs as u32),
+        CmpOp::GtS => lhs > rhs,
+        CmpOp::GtU => (lhs as u32) > (rhs as u32),
+        CmpOp::LeS => lhs <= rhs,
+        CmpOp::LeU => (lhs as u32) <= (rhs as u32),
+        CmpOp::GeS => lhs >= rhs,
+        CmpOp::GeU => (lhs as u32) >= (rhs as u32),
+    }
+}
+
+fn exec_cmp_64(op: CmpOp, lhs: i64, rhs: i64) -> bool {
+    match op {
+        CmpOp::Eq => lhs == rhs,
+        CmpOp::Ne => lhs != rhs,
+        CmpOp::LtS => lhs < rhs,
+        CmpOp::LtU => (lhs as u64) < (rhs as u64),
+        CmpOp::GtS => lhs > rhs,
+        CmpOp::GtU => (lhs as u64) > (rhs as u64),
+        CmpOp::LeS => lhs <= rhs,
+        CmpOp::LeU => (lhs as u64) <= (rhs as u64),
+        CmpOp::GeS => lhs >= rhs,
+        CmpOp::GeU => (lhs as u64) >= (rhs as u64),
+    }
+}
 
 impl BinOpExt<Value128> for BinOp128 {
     #[inline(always)]

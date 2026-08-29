@@ -3,15 +3,10 @@ use tinywasm_types::*;
 
 use crate::interpreter::{RuntimeValue, Value32, Value64, Value128};
 
+#[derive(Default)]
 struct GlobalLane<T> {
     values: Vec<T>,
     types: Vec<GlobalType>,
-}
-
-impl<T> Default for GlobalLane<T> {
-    fn default() -> Self {
-        Self { values: Vec::new(), types: Vec::new() }
-    }
 }
 
 impl<T: Copy> GlobalLane<T> {
@@ -28,18 +23,18 @@ impl<T: Copy> GlobalLane<T> {
         index
     }
 
-    #[inline(always)]
-    fn get(&self, index: usize, addr: GlobalAddr) -> T {
-        *unwrap_or_unreachable!(self.values.get(index), "invalid global address: {addr}")
+    #[inline]
+    fn get(&self, index: usize) -> T {
+        self.values[index]
     }
 
-    #[inline(always)]
-    fn set(&mut self, index: usize, addr: GlobalAddr, value: T) {
-        *unwrap_or_unreachable!(self.values.get_mut(index), "invalid global address: {addr}") = value;
+    #[inline]
+    fn set(&mut self, index: usize, value: T) {
+        self.values[index] = value;
     }
 
-    fn ty(&self, index: usize, addr: GlobalAddr) -> GlobalType {
-        *unwrap_or_unreachable!(self.types.get(index), "invalid global address: {addr}")
+    fn ty(&self, index: usize) -> GlobalType {
+        self.types[index]
     }
 }
 
@@ -90,9 +85,9 @@ impl Globals {
     /// Returns a global's logical type and mutability.
     pub(crate) fn ty(&self, addr: GlobalAddr) -> GlobalType {
         match addr & !Self::INDEX_MASK {
-            Self::LANE_32 => self.globals_32.ty(Self::index(addr, Self::LANE_32), addr),
-            Self::LANE_64 => self.globals_64.ty(Self::index(addr, Self::LANE_64), addr),
-            Self::LANE_128 => self.globals_128.ty(Self::index(addr, Self::LANE_128), addr),
+            Self::LANE_32 => self.globals_32.ty(Self::index(addr, Self::LANE_32)),
+            Self::LANE_64 => self.globals_64.ty(Self::index(addr, Self::LANE_64)),
+            Self::LANE_128 => self.globals_128.ty(Self::index(addr, Self::LANE_128)),
             _ => unreachable!("invalid global address: {addr}"),
         }
     }
@@ -119,37 +114,37 @@ impl Globals {
     /// Returns a raw value from the 32-bit lane.
     #[inline(always)]
     pub(crate) fn get_32(&self, addr: GlobalAddr) -> Value32 {
-        self.globals_32.get(Self::index(addr, Self::LANE_32), addr)
+        self.globals_32.get(Self::index(addr, Self::LANE_32))
     }
 
     /// Returns a raw value from the 64-bit lane.
     #[inline(always)]
     pub(crate) fn get_64(&self, addr: GlobalAddr) -> Value64 {
-        self.globals_64.get(Self::index(addr, Self::LANE_64), addr)
+        self.globals_64.get(Self::index(addr, Self::LANE_64))
     }
 
     /// Returns a raw value from the 128-bit lane.
     #[inline(always)]
     pub(crate) fn get_128(&self, addr: GlobalAddr) -> Value128 {
-        self.globals_128.get(Self::index(addr, Self::LANE_128), addr)
+        self.globals_128.get(Self::index(addr, Self::LANE_128))
     }
 
     /// Sets a raw value in the 32-bit lane.
     #[inline(always)]
     pub(crate) fn set_32(&mut self, addr: GlobalAddr, value: Value32) {
-        self.globals_32.set(Self::index(addr, Self::LANE_32), addr, value);
+        self.globals_32.set(Self::index(addr, Self::LANE_32), value);
     }
 
     /// Sets a raw value in the 64-bit lane.
     #[inline(always)]
     pub(crate) fn set_64(&mut self, addr: GlobalAddr, value: Value64) {
-        self.globals_64.set(Self::index(addr, Self::LANE_64), addr, value);
+        self.globals_64.set(Self::index(addr, Self::LANE_64), value);
     }
 
     /// Sets a raw value in the 128-bit lane.
     #[inline(always)]
     pub(crate) fn set_128(&mut self, addr: GlobalAddr, value: Value128) {
-        self.globals_128.set(Self::index(addr, Self::LANE_128), addr, value);
+        self.globals_128.set(Self::index(addr, Self::LANE_128), value);
     }
 
     /// Iterates over globals in the 32-bit lane for root tracing.

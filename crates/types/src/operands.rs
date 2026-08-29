@@ -146,26 +146,11 @@ macro_rules! define_operand {
 define_operand!(Operand64, 8);
 define_operand!(Operand128, 16);
 
-macro_rules! unwrap_or_unreachable {
-    ($value:expr) => {{
-        match $value {
-            Some(value) => value,
-            None => { core::hint::cold_path(); unreachable!() },
-        }
-    }};
-    ($value:expr, $($arg:tt)+) => {{
-        match $value {
-            Some(value) => value,
-            None => { core::hint::cold_path(); unreachable!($($arg)+) },
-        }
-    }};
-}
-
 impl<T> Operand64Idx<T> {
     /// Resolves this index to a copied 64-bit packed operand.
     #[inline(always)]
     pub fn resolve(self, data: &crate::WasmFunctionData) -> Operand64<T> {
-        (*unwrap_or_unreachable!(data.operands64.get(self.index()), "invalid 64-bit operand index")).cast()
+        data.operands64[self.index as usize].cast()
     }
 }
 
@@ -173,7 +158,7 @@ impl<T> Operand128Idx<T> {
     /// Resolves this index to a copied 128-bit packed operand.
     #[inline(always)]
     pub fn resolve(self, data: &crate::WasmFunctionData) -> Operand128<T> {
-        (*unwrap_or_unreachable!(data.operands128.get(self.index()), "invalid 128-bit operand index")).cast()
+        data.operands128[self.index as usize].cast()
     }
 }
 

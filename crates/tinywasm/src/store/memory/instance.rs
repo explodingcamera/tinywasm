@@ -4,6 +4,8 @@ use crate::{Error, ResourceLimiter, Result, Trap};
 
 use super::{MemoryStorage, memory_oob};
 
+const MEMORY64_MAX_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
 /// A WebAssembly Memory Instance
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#memory-instances>
@@ -31,6 +33,14 @@ impl MemoryInstance {
         kind.page_count_max_declared().map(|pages| Self::host_size(kind, pages).unwrap_or(usize::MAX))
     }
 
+    #[inline]
+    fn page_count_max(kind: MemoryType) -> u64 {
+        match kind.arch() {
+            MemoryArch::I32 => kind.page_count_max(),
+            MemoryArch::I64 => kind.page_count_max().min(MEMORY64_MAX_BYTES / kind.page_size()),
+        }
+    }
+
     #[cfg(target_pointer_width = "64")]
     #[inline(always)]
     pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
@@ -50,6 +60,13 @@ impl MemoryInstance {
     }
 
     pub(crate) fn new(kind: MemoryType, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
+        if kind.page_size() == 0 {
+            return Err(Error::UnsupportedFeature("zero-byte memory pages"));
+        }
+        let max_pages = Self::page_count_max(kind);
+        if kind.page_count_initial() > max_pages {
+            return Err(Trap::OutOfMemory.into());
+        }
         let initial_len = cold_err!(
             Self::host_size(kind, kind.page_count_initial())
                 .ok_or(Error::UnsupportedFeature("memory size exceeds the host address space"))
@@ -68,7 +85,8 @@ impl MemoryInstance {
             return cold!(Err(Trap::OutOfMemory.into()));
         }
 
-        let storage = MemoryStorage::try_new(initial_len)?;
+        let max_len = Self::host_size(kind, max_pages).unwrap_or(usize::MAX);
+        let storage = MemoryStorage::try_new(kind.arch(), initial_len, max_len)?;
         Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
     }
 
@@ -85,7 +103,11 @@ impl MemoryInstance {
     ) -> Result<(), Trap> {
         cold_err!(src_mem.inner.checked_range(src, len).ok_or_else(|| memory_oob(src, len, src_mem.inner.len())))?;
         cold_err!(self.inner.checked_range(dst, len).ok_or_else(|| memory_oob(dst, len, self.inner.len())))?;
-        self.inner.copy_from(dst, &src_mem.inner, src, len);
+        cold_err!(self.inner.copy_from(dst, &src_mem.inner, src, len).ok_or_else(|| memory_oob(
+            dst,
+            len,
+            self.inner.len()
+        )))?;
         Ok(())
     }
 
@@ -103,7 +125,7 @@ impl MemoryInstance {
         else {
             return cold!(Ok(None));
         };
-        let max_pages = self.kind.page_count_max().try_into().unwrap_or(usize::MAX);
+        let max_pages = Self::page_count_max(self.kind).try_into().unwrap_or(usize::MAX);
 
         if new_pages > max_pages {
             return cold!({

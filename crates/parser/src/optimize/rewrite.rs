@@ -107,6 +107,8 @@ fn rewrite(
                         output.extend([LocalGet32(local), I32Add3]);
                         read = output.len() - 1;
                     }
+                } else {
+                    rewrite!(output, read, [Const32(value)] => stack_const32(op, value));
                 }
             }
             raw @ (I32Sub | I32Shl | I32ShrS | I32ShrU | I32Rotl | I32Rotr) => {
@@ -117,7 +119,10 @@ fn rewrite(
                 if rewrite_scalar_const32(&mut output, &mut read, data, op, false)? {
                     continue;
                 }
-                rewrite_sign_extend32(&mut output, &mut read, data, op);
+                if rewrite_sign_extend32(&mut output, &mut read, data, op) {
+                    continue;
+                }
+                rewrite!(output, read, [Const32(value)] => stack_const32(op, value));
             }
             raw @ (I64Add | I64Mul | I64And | I64Or | I64Xor) => {
                 let op = int_bin_op(raw).unwrap();
@@ -129,6 +134,8 @@ fn rewrite(
                 if op == BinOp::IAdd {
                     rewrite!(output, read, [Const64(index)] => AddConst64(index));
                     rewrite!(output, read, [I64Add] => I64Add3);
+                } else {
+                    rewrite!(output, read, [Const64(index)] => BinOpStackConst64(PackedOp::new(op, index)));
                 }
             }
             raw @ (I64Sub | I64Shl | I64ShrS | I64ShrU | I64Rotl | I64Rotr) => {
@@ -138,7 +145,10 @@ fn rewrite(
                 if rewrite_scalar_const64(&mut output, &mut read, data, op, false)? {
                     continue;
                 }
-                rewrite_sign_extend64(&mut output, &mut read, data, op);
+                if rewrite_sign_extend64(&mut output, &mut read, data, op) {
+                    continue;
+                }
+                rewrite!(output, read, [Const64(index)] => BinOpStackConst64(PackedOp::new(op, index)));
             }
             raw if cmp_op(raw).is_some() => {
                 let op = cmp_op(raw).unwrap();
@@ -149,23 +159,31 @@ fn rewrite(
                 let op = float_bin_op(raw).unwrap();
                 rewrite!(output, read, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(output, read, [LocalGet32(local)] => BinOpStackLocal32(op, local));
-                rewrite_scalar_const32(&mut output, &mut read, data, op, true)?;
+                if !rewrite_scalar_const32(&mut output, &mut read, data, op, true)? {
+                    rewrite!(output, read, [Const32(value)] => stack_const32(op, value));
+                }
             }
             raw @ (F32Sub | F32Div | F32Copysign) => {
                 let op = float_bin_op(raw).unwrap();
                 rewrite!(output, read, [LocalGet32(a), LocalGet32(b)] => BinOpLocalLocal32(op, a, b));
                 rewrite!(output, read, [LocalGet32(local)] => BinOpStackLocal32(op, local));
-                rewrite_scalar_const32(&mut output, &mut read, data, op, false)?;
+                if !rewrite_scalar_const32(&mut output, &mut read, data, op, false)? {
+                    rewrite!(output, read, [Const32(value)] => stack_const32(op, value));
+                }
             }
             raw @ (F64Add | F64Mul | F64Min | F64Max) => {
                 let op = float_bin_op(raw).unwrap();
                 rewrite!(output, read, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
-                rewrite_scalar_const64(&mut output, &mut read, data, op, true)?;
+                if !rewrite_scalar_const64(&mut output, &mut read, data, op, true)? {
+                    rewrite!(output, read, [Const64(index)] => BinOpStackConst64(PackedOp::new(op, index)));
+                }
             }
             raw @ (F64Sub | F64Div | F64Copysign) => {
                 let op = float_bin_op(raw).unwrap();
                 rewrite!(output, read, [LocalGet64(a), LocalGet64(b)] => BinOpLocalLocal64(op, a, b));
-                rewrite_scalar_const64(&mut output, &mut read, data, op, false)?;
+                if !rewrite_scalar_const64(&mut output, &mut read, data, op, false)? {
+                    rewrite!(output, read, [Const64(index)] => BinOpStackConst64(PackedOp::new(op, index)));
+                }
             }
             raw @ (V128And | V128Or | V128Xor | I64x2Add | I64x2Mul | V128AndNot) => {
                 let op = bin_op_128(raw).unwrap();
@@ -299,6 +317,8 @@ fn local_const32(data: &WasmFunctionData, instruction: Instruction) -> Option<(B
         Instruction::AddLocalConst32(arg) => Some((BinOp::IAdd, arg.local, arg.value)),
         Instruction::SubLocalConst32(arg) => Some((BinOp::ISub, arg.local, arg.value)),
         Instruction::MulLocalConst32(arg) => Some((BinOp::IMul, arg.local, arg.value)),
+        Instruction::AndLocalConst32(arg) => Some((BinOp::IAnd, arg.local, arg.value)),
+        Instruction::ShrULocalConst32(arg) => Some((BinOp::IShrU, arg.local, arg.value)),
         Instruction::BinOpLocalConst32(packed) => {
             let value = data.operand64(packed.index);
             Some((packed.op, value.a(), value.b() as i32))
@@ -348,6 +368,8 @@ fn rewrite_scalar_const32(
                 BinOp::IAdd => Instruction::AddLocalConst32(arg),
                 BinOp::ISub => Instruction::SubLocalConst32(arg),
                 BinOp::IMul => Instruction::MulLocalConst32(arg),
+                BinOp::IAnd => Instruction::AndLocalConst32(arg),
+                BinOp::IShrU => Instruction::ShrULocalConst32(arg),
                 _ => Instruction::BinOpLocalConst32(PackedOp::new(
                     op,
                     data.push_operand64(Operand64::<(u16, u32)>::new(*local, *value as u32))?,
@@ -362,6 +384,7 @@ fn rewrite_scalar_const32(
             match op {
                 BinOp::IAdd => Instruction::AddLocalConst32(arg),
                 BinOp::IMul => Instruction::MulLocalConst32(arg),
+                BinOp::IAnd => Instruction::AndLocalConst32(arg),
                 _ => Instruction::BinOpLocalConst32(PackedOp::new(
                     op,
                     data.push_operand64(Operand64::<(u16, u32)>::new(*local, *value as u32))?,
@@ -378,6 +401,15 @@ fn rewrite_scalar_const32(
     };
     replace!(output, *read, 2 => replacement);
     Ok(true)
+}
+
+fn stack_const32(op: BinOp, value: i32) -> Instruction {
+    match op {
+        BinOp::IAnd => Instruction::AndConst32(value),
+        BinOp::IXor => Instruction::XorConst32(value),
+        BinOp::IShrU => Instruction::ShrUConst32(value),
+        _ => Instruction::BinOpStackConst32(op, value),
+    }
 }
 
 fn rewrite_scalar_const64(
@@ -568,7 +600,7 @@ fn rewrite_store64(
         if let [
             Instruction::LocalGet32(addr) | Instruction::LocalGet64(addr),
             Instruction::LoadLocal64(arg),
-            Instruction::Const64(one),
+            Instruction::AddConst64(one),
         ] = previous
             && { compact_arg.map(Operand64::from) == Some(data.operand64(arg.memory_arg_idx)) }
             && addr == u16::from(arg.local1)
@@ -820,6 +852,12 @@ fn rewrite_local_tee32(
     }
     if *read > output.block_start {
         match output[*read - 1] {
+            Instruction::AndConst32(value) => {
+                replace!(output, *read, 1 => Instruction::AndConstTee32(I32LocalArg { value, local: dst }));
+            }
+            Instruction::BinOpStackConst32(BinOp::ISub, value) => {
+                replace!(output, *read, 1 => Instruction::SubConstTee32(I32LocalArg { value, local: dst }));
+            }
             Instruction::LocalGet32(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet32(src)),
             Instruction::BinOpLocalLocal32(op, left, right) => {
                 let replacement = if op == BinOp::IAdd {
@@ -886,6 +924,12 @@ fn rewrite_local_tee64(
     }
     if *read > output.block_start {
         match output[*read - 1] {
+            Instruction::BinOpStackConst64(packed) if packed.op == BinOp::IAnd => {
+                replace!(output, *read, 1 => Instruction::AndConstTee64(PackedOp::new(dst, packed.index)));
+            }
+            Instruction::BinOpStackConst64(packed) if packed.op == BinOp::ISub => {
+                replace!(output, *read, 1 => Instruction::SubConstTee64(PackedOp::new(dst, packed.index)));
+            }
             Instruction::LocalGet64(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet64(src)),
             Instruction::BinOpLocalLocal64(op, left, right) => {
                 let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
@@ -1221,6 +1265,34 @@ fn rewrite_conditional(
             );
         replace!(output, *read, 3 => replacement);
         return Ok(());
+    }
+    if *read >= output.block_start + 3 {
+        let update = match [output[*read - 3], output[*read - 2], output[*read - 1]] {
+            [Instruction::XorConst32(value), Instruction::LocalTee32(local), Instruction::LocalGet32(cond)]
+                if local == cond =>
+            {
+                Some((BinOp::IXor, value, local))
+            }
+            [Instruction::ShrUConst32(value), Instruction::LocalTee32(local), Instruction::LocalGet32(cond)]
+                if local == cond =>
+            {
+                Some((BinOp::IShrU, value, local))
+            }
+            [
+                Instruction::BinOpStackConst32(op, value),
+                Instruction::LocalTee32(local),
+                Instruction::LocalGet32(cond),
+            ] if local == cond => Some((op, value, local)),
+            _ => None,
+        };
+        if let Some((op, value, local)) = update {
+            let replacement = Instruction::BinOpStackConstTeeLocalJump32(PackedOp::new(
+                op,
+                data.push_target_operand128(Operand128::<LocalUpdateOperand>::new(target, value, local, on_zero))?,
+            ));
+            replace!(output, *read, 3 => replacement);
+            return Ok(());
+        }
     }
     if *read >= output.block_start + 2 {
         let update = match [output[*read - 2], output[*read - 1]] {

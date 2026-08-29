@@ -57,27 +57,36 @@ impl Function {
         params: &[WasmValue],
         results: &'store mut [WasmValue],
     ) -> Result<FuncExecution<'store>> {
-        self.validate_call(store, params, results.len())?;
+        let type_addr = self.validate_call(store, params, results.len())?;
 
         store.enter_execution()?;
         let result: Result<ExecState> = (|| {
-            let func_instance = store.state.get_func(self.addr()).clone();
-            match &func_instance.inner {
-                crate::store::FunctionInstanceInner::Host(host_func) => {
-                    host_func.clone().call_values(store, self.module_id, func_instance.type_addr, params, results)?;
-                    Ok(ExecState::Completed(Some(CallResult::Written)))
-                }
-                crate::store::FunctionInstanceInner::Wasm(wasm_func) => {
-                    store.call_stack.clear();
-                    store.value_stack.clear();
-                    store.push_wasm_values(params.iter().cloned())?;
-                    let locals_base = store.value_stack.enter_locals(&wasm_func.func.params, &wasm_func.func.locals)?;
-                    let callframe = CallFrame::new(self.addr(), locals_base, wasm_func.func.locals);
-
-                    Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
-                }
+            if store.state.funcs.is_host(self.addr()) {
+                let func = {
+                    let func = store.state.funcs.host(self.addr());
+                    func.func.clone()
+                };
+                func.call_values(store, self.module_id, type_addr, params, results)?;
+                return Ok(ExecState::Completed(Some(CallResult::Written)));
             }
+
+            let (wasm_params, wasm_locals) = {
+                let wasm = store.state.funcs.wasm(self.addr());
+                (wasm.func.params, wasm.func.locals)
+            };
+
+            store.call_stack.clear();
+            store.value_stack.clear();
+            store.push_wasm_values(params)?;
+            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals)?;
+            let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+
+            Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
         })();
+        if result.is_err() {
+            store.call_stack.clear();
+            store.value_stack.clear();
+        }
         store.exit_execution();
 
         let state = result?;
@@ -116,8 +125,7 @@ impl ExecutionInner<'_> {
 
         match result {
             crate::interpreter::ExecState::Completed => {
-                let func = self.store.state.get_func(root_func_addr);
-                let result_ty = func.type_addr;
+                let result_ty = self.store.state.funcs.type_addr(root_func_addr);
                 self.state = ExecState::Completed(None);
                 Ok(ExecProgress::Completed(CallResult::Stack { type_addr: result_ty }))
             }
@@ -139,8 +147,7 @@ impl FuncExecution<'_> {
     ) -> Result<ExecProgress<()>> {
         match self.execution.resume_raw(run)? {
             ExecProgress::Completed(CallResult::Stack { type_addr }) => {
-                let ty = self.execution.store.state.get_canonical_func_type(type_addr).clone();
-                self.execution.store.pop_stack_values(ty.results(), self.results)?;
+                self.execution.store.pop_stack_values(type_addr, self.results)?;
                 Ok(ExecProgress::Completed(()))
             }
             ExecProgress::Completed(CallResult::Written) => Ok(ExecProgress::Completed(())),
@@ -203,21 +210,27 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     /// ```
     pub fn call_resumable<'store>(&self, store: &'store mut Store, params: P) -> Result<FuncExecutionTyped<'store, R>> {
         self.func.item.validate_store(store)?;
-        let func = store.state.get_func(self.func.addr()).clone();
-        if matches!(&func.inner, crate::store::FunctionInstanceInner::Host(host) if host.typed_callback().is_none()) {
+        if store.state.funcs.is_host(self.func.addr()) {
             let result = self.call(store, params)?;
             let execution = ExecutionInner { store, state: ExecState::Completed(None) };
             return Ok(FuncExecutionTyped { execution, result: Some(result) });
         }
+        let (type_addr, wasm_params, wasm_locals) = {
+            let wasm = store.state.funcs.wasm(self.func.addr());
+            (wasm.type_addr, wasm.func.params, wasm.func.locals)
+        };
 
         store.enter_execution()?;
         let result: Result<ExecState> = (|| {
             store.call_stack.clear();
             store.value_stack.clear();
-            match self.func.prepare_typed(store, &func, params.into_wasm_values(), StackBase::default())? {
-                Some(callframe) => Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() }),
-                None => Ok(ExecState::Completed(Some(CallResult::Stack { type_addr: func.type_addr }))),
-            }
+            store.push_typed_values::<false>(type_addr, params.into_wasm_values(), StackBase::default())?;
+            let locals_base = store
+                .value_stack
+                .enter_locals(&wasm_params, &wasm_locals)
+                .inspect_err(|_| store.value_stack.clear())?;
+            let callframe = CallFrame::new(self.func.addr(), locals_base, wasm_locals);
+            Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() })
         })();
         store.exit_execution();
         let execution = ExecutionInner { store, state: result? };

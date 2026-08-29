@@ -15,13 +15,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     let arg = cwd.join(input);
     println!("running tests in {:?}", arg);
 
-    let files = if arg.is_dir() {
-        std::fs::read_dir(&arg)?.map(|entry| entry.map(|e| e.path())).collect::<Result<Vec<_>, _>>()?
-    } else {
-        vec![arg]
-    };
-
     let mut test_suite = WastRunner::new();
-    test_suite.run_paths(&files)?;
+    test_suite.run_paths(&[arg])?;
     Ok(())
 }

@@ -68,25 +68,25 @@ struct ModuleInstanceInner {
 impl ModuleInstance {
     #[inline]
     pub(crate) fn resolve_type_addr(&self, type_addr: TypeAddr) -> TypeAddr {
-        *unwrap_or_unreachable!(self.0.type_addrs.get(type_addr as usize), "invalid type address: {type_addr}")
+        self.0.type_addrs[type_addr as usize]
     }
 
     /// resolve a function address to the global store address
     #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        *unwrap_or_unreachable!(self.0.func_addrs.get(addr as usize), "invalid function address: {addr}")
+        self.0.func_addrs[addr as usize]
     }
 
     /// resolve a table address to the global store address
     #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        *unwrap_or_unreachable!(self.0.table_addrs.get(addr as usize), "invalid table address: {addr}")
+        self.0.table_addrs[addr as usize]
     }
 
     /// resolve a memory address to the global store address
     #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        *unwrap_or_unreachable!(self.0.mem_addrs.get(addr as usize), "invalid memory address: {addr}")
+        self.0.mem_addrs[addr as usize]
     }
 
     /// The resolved store address of the module's first memory, or `MemAddr::MAX` when the module
@@ -103,24 +103,24 @@ impl ModuleInstance {
     /// resolve a data address to the global store address
     #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
-        *unwrap_or_unreachable!(self.0.data_addrs.get(addr as usize), "invalid data address: {addr}")
+        self.0.data_addrs[addr as usize]
     }
 
     /// resolve an element address to the global store address
     #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        *unwrap_or_unreachable!(self.0.elem_addrs.get(addr as usize), "invalid element address: {addr}")
+        self.0.elem_addrs[addr as usize]
     }
 
     /// resolve a global address to the global store address
     #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
-        *unwrap_or_unreachable!(self.0.global_addrs.get(addr as usize), "invalid global address: {addr}")
+        self.0.global_addrs[addr as usize]
     }
 
     #[inline]
     pub(crate) fn resolve_tag_addr(&self, addr: TagAddr) -> TagAddr {
-        *unwrap_or_unreachable!(self.0.tag_addrs.get(addr as usize), "invalid tag address: {addr}")
+        self.0.tag_addrs[addr as usize]
     }
 
     #[inline]

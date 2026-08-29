@@ -20,7 +20,7 @@ serde = { version = "1.0", default-features = false, features = ["alloc"], optio
 default = ["archive", "debug", "log", "std"]
 
 # support serializing and deserializing twasm archives
-archive = ["dep:postcard", "dep:serde", "serde/rc", "portable-atomic-util?/serde"]
+archive = ["dep:postcard", "dep:serde", "portable-atomic-util?/serde", "serde/rc"]
 
 # derive Debug for runtime and module types
 debug = []

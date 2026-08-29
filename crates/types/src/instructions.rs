@@ -511,8 +511,9 @@ pub enum BinOp128 {
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
-    AddConst32(i32), AddConst64(Operand64Idx<i64>),
+    AddConst32(i32), AndConst32(i32), XorConst32(i32), ShrUConst32(i32), AddConst64(Operand64Idx<i64>),
     IncLocal32(I32LocalArg), IncLocal64(PackedOp64<LocalAddr, i64>),
+
     // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
     BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
     BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
@@ -520,18 +521,25 @@ pub enum Instruction {
     AddLocalLocalSet32(LocalTripleArg), AddLocalLocalTee32(LocalTripleArg),
     BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet128(PackedOp64<BinOp128, (u16, u16, u16)>),
     BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee128(PackedOp64<BinOp128, (u16, u16, u16)>),
+
     AddLocalConst32(I32LocalArg), SubLocalConst32(I32LocalArg), MulLocalConst32(I32LocalArg),
+    AndLocalConst32(I32LocalArg), ShrULocalConst32(I32LocalArg),
     BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>),
-    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
-    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>), BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
+    BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
     BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstSet128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
     BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstTee128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
+
+    BinOpStackConst32(BinOp, i32), BinOpStackConst64(PackedOp64<BinOp, i64>),
+
     BinOpStackLocal32(BinOp, LocalAddr),
     BinOpStackLocalSet32(BinOp, LocalAddr, LocalAddr),
     BinOpStackLocalTee32(BinOp, LocalAddr, LocalAddr),
     BinOpStackLocal128(BinOp128, LocalAddr),
     BinOpStackGlobal32(BinOp, u32),
     BinOpStackGlobal64(BinOp, u32),
+    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
+    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>),
+
     SetLocalConst32(I32LocalArg), SetLocalConst64(PackedOp64<LocalAddr, i64>), SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>),
     IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
     StoreLocalLocal32(MemoryLocalArg), StoreLocalLocal64(MemoryLocalArg), StoreLocalLocal128(MemoryLocalArg),
