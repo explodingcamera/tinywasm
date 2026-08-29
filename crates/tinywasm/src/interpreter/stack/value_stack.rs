@@ -24,6 +24,12 @@ pub(crate) struct Stack<T: Copy + Default> {
     dynamic: bool,
 }
 
+#[cold]
+#[inline(never)]
+fn stack_underflow() -> ! {
+    unreachable!("ValueStack underflow, this is a bug")
+}
+
 impl<T: Copy + Default> Stack<T> {
     pub(crate) fn new(config: StackConfig) -> Self {
         Self { data: Vec::with_capacity(config.initial_size), max_size: config.max_size, dynamic: config.dynamic }
@@ -61,7 +67,7 @@ impl<T: Copy + Default> Stack<T> {
     pub(crate) fn pop(&mut self) -> T {
         match self.data.pop() {
             Some(value) => value,
-            None => cold!(unreachable!("ValueStack underflow, this is a bug")),
+            None => cold!(stack_underflow()),
         }
     }
 
@@ -69,7 +75,7 @@ impl<T: Copy + Default> Stack<T> {
     pub(crate) fn last(&self) -> &T {
         match self.data.last() {
             Some(value) => value,
-            None => cold!(unreachable!("ValueStack underflow, this is a bug")),
+            None => cold!(stack_underflow()),
         }
     }
 
@@ -150,7 +156,7 @@ impl<T: Copy + Default> Stack<T> {
         let needed = count.wrapping_mul(2);
 
         if len < needed {
-            unreachable!("Stack underflow, this is a bug");
+            cold!(stack_underflow());
         }
 
         if !condition {

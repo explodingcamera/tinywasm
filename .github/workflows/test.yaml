@@ -55,6 +55,10 @@ jobs:
             rust: nightly
             name: "Linux x86 (nightly)"
           - os: ubuntu-latest
+            rust: nightly
+            name: "Linux x86 (nightly tail calls)"
+            args: "--features tinywasm/nightly-tail-calls"
+          - os: ubuntu-latest
             rust: stable
             name: "Linux x86 (stable, no default features)"
             args: "--no-default-features"
@@ -62,6 +66,10 @@ jobs:
             rust: nightly
             name: "Linux x86 (nightly, no default features)"
             args: "--no-default-features"
+          - os: ubuntu-latest
+            rust: nightly
+            name: "Linux x86 (nightly tail calls, no default features)"
+            args: "--no-default-features --features tinywasm/nightly-tail-calls"
           - os: macos-14
             rust: stable
             name: "macOS arm64 (Apple M1)"

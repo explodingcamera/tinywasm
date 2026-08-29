@@ -50,10 +50,8 @@ impl ModuleRegistry {
     }
 
     fn definition(&self, id: Option<wast::token::Id<'_>>) -> Option<Module> {
-        match id {
-            Some(id) => self.definitions.get(id.name()).cloned(),
-            None => self.last_definition.clone(),
-        }
+        let Some(id) = id else { return self.last_definition.clone() };
+        self.definitions.get(id.name()).cloned()
     }
 
     fn update_last_instance(&mut self, instance: ModuleInstance, name: Option<String>) {
@@ -71,21 +69,13 @@ impl ModuleRegistry {
     }
 
     fn get_idx(&self, module_id: Option<wast::token::Id<'_>>) -> Option<u32> {
-        match module_id {
-            Some(module) => {
-                self.registered.get(module.name()).or_else(|| self.instances.get(module.name())).map(ModuleInstance::id)
-            }
-            None => self.last_instance.as_ref().map(ModuleInstance::id),
-        }
+        let Some(module_id) = module_id else { return self.last_instance.as_ref().map(ModuleInstance::id) };
+        self.registered.get(module_id.name()).or_else(|| self.instances.get(module_id.name())).map(ModuleInstance::id)
     }
 
     fn get(&self, module_id: Option<wast::token::Id<'_>>) -> Option<ModuleInstance> {
-        match module_id {
-            Some(module_id) => {
-                self.registered.get(module_id.name()).or_else(|| self.instances.get(module_id.name())).cloned()
-            }
-            None => self.last_instance.clone(),
-        }
+        let Some(module_id) = module_id else { return self.last_instance.clone() };
+        self.registered.get(module_id.name()).or_else(|| self.instances.get(module_id.name())).cloned()
     }
 }
 

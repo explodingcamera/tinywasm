@@ -1,4 +1,6 @@
 #![no_std]
+#![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features))]
+#![cfg_attr(feature = "nightly-tail-calls", feature(explicit_tail_calls))]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
@@ -65,14 +67,17 @@
 //!
 //! - **`full`:** Enables `archive`, `parallel-parser`, `parser`, and `validate`. Enabled by default.
 //! - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
-//! - **`log`:** Enables integration with the `log` crate. Enabled by default.
 //! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 //! - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
+//! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
+//! - **`log`:** Enables integration with the `log` crate. Enabled by default.
+//! - **`send`:** Makes stores and store-local handles movable across threads.
+//! - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
 //! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
 //! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
-//! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
+//! - **`nightly-tail-calls`:** Uses Rust's unstable explicit tail calls for interpreter dispatch. Requires nightly Rust (recommended for maximum performance).
 //! - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 //!
 //! With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`,

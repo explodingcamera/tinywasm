@@ -27,11 +27,11 @@ pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {
     pub(crate) fn exec(store: &mut Store, cf: CallFrame, call_stack_base: u32) -> Result<()> {
-        executor::Executor::<false>::new(store, cf, call_stack_base).run_to_completion()
+        executor::Executor::new(store, cf, call_stack_base).run_to_completion()
     }
 
     pub(crate) fn exec_with_fuel(store: &mut Store, cf: CallFrame, fuel: u32) -> Result<ExecState> {
-        executor::Executor::<true>::new(store, cf, 0).run_with_fuel(fuel)
+        executor::Executor::new(store, cf, 0).run_with_fuel(fuel)
     }
 
     #[cfg(feature = "std")]
@@ -40,6 +40,6 @@ impl InterpreterRuntime {
         cf: CallFrame,
         time_budget: core::time::Duration,
     ) -> Result<ExecState> {
-        executor::Executor::<false>::new(store, cf, 0).run_with_time_budget(time_budget)
+        executor::Executor::new(store, cf, 0).run_with_time_budget(time_budget)
     }
 }

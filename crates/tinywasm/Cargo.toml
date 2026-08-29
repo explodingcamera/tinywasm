@@ -122,6 +122,9 @@ debug = ["tinywasm-types/debug"]
 # expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
 guest-debug = []
 
+# use explicit tail calls for interpreter dispatch (requires nightly Rust)
+nightly-tail-calls = []
+
 # enable x86-specific SIMD intrinsics in Value128 (uses unsafe code)
 # note: for x86 backend selection, compile with x86-64-v3 target features
 # (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)

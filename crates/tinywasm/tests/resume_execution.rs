@@ -70,7 +70,7 @@ fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
     let instance_weighted = ModuleInstance::instantiate(&mut weighted_store, &module, None)?;
     let func_weighted = instance_weighted.func::<i32, i32>(&weighted_store, "fibonacci_recursive")?;
 
-    let fuel = 64;
+    let fuel = 512;
     let n = 20;
 
     let mut per_exec = func_per_instr.call_resumable(&mut per_instr_store, n)?;
@@ -94,7 +94,7 @@ fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
     };
 
     assert_eq!(weighted_result, per_result);
-    assert!(weighted_rounds >= per_rounds, "weighted call fuel should not use fewer rounds than per-instruction");
+    assert!(weighted_rounds > per_rounds, "weighted call fuel should require more rounds than per-instruction");
 
     Ok(())
 }
