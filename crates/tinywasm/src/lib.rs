@@ -1,13 +1,16 @@
 #![no_std]
-#![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features))]
-#![cfg_attr(feature = "nightly-tail-calls", feature(explicit_tail_calls))]
+#![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features, internal_features))]
+#![cfg_attr(
+  feature = "nightly-tail-calls",
+  feature(explicit_tail_calls, variant_count, core_intrinsics)
+)]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(not(feature = "simd-x86"), forbid(unsafe_code))]
-#![cfg_attr(feature = "simd-x86", deny(unsafe_code))]
+#![cfg_attr(not(any(feature = "simd-x86", feature = "nightly-tail-calls")), forbid(unsafe_code))]
+#![cfg_attr(any(feature = "simd-x86", feature = "nightly-tail-calls"), deny(unsafe_code))]
 
 //! A small and portable WebAssembly interpreter.
 //!
