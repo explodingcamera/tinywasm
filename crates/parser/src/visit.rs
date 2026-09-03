@@ -735,29 +735,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
         let (size, local_idx) = self.local(idx)?;
-        self.apply_effect(&[size], &[size])?;
-        let src = match (size, self.instructions.last()) {
-            (ValueLane::S32, Some(Instruction::LocalGet32(src))) => Some(*src),
-            (ValueLane::S64, Some(Instruction::LocalGet64(src))) => Some(*src),
-            (ValueLane::S128, Some(Instruction::LocalGet128(src))) => Some(*src),
-            _ => None,
-        };
-        if let Some(src) = src {
-            self.instructions.pop();
-            let instructions = match size {
-                ValueLane::S32 => [Instruction::LocalCopy32(src, local_idx), Instruction::LocalGet32(local_idx)],
-                ValueLane::S64 => [Instruction::LocalCopy64(src, local_idx), Instruction::LocalGet64(local_idx)],
-                ValueLane::S128 => [Instruction::LocalCopy128(src, local_idx), Instruction::LocalGet128(local_idx)],
-            };
-            self.instructions.extend(instructions);
-        } else {
-            self.instructions.push(size.select(
-                Instruction::LocalTee32(local_idx),
-                Instruction::LocalTee64(local_idx),
-                Instruction::LocalTee128(local_idx),
-            ));
-        }
-        Ok(())
+        // No peephole here: this position may be a branch target (block end,
+        // loop start, if/else join), and fusing with the preceding `local.get`
+        // would move the label past the tee. The rewriter fuses the same pair
+        // within a basic block, where no branch can land between them.
+        let instruction = size.select(
+            Instruction::LocalTee32(local_idx),
+            Instruction::LocalTee64(local_idx),
+            Instruction::LocalTee128(local_idx),
+        );
+        self.emit(&[size], &[size], instruction)
     }
 
     fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {

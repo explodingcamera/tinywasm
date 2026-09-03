@@ -859,6 +859,9 @@ fn rewrite_local_tee32(
                 replace!(output, *read, 1 => Instruction::SubConstTee32(I32LocalArg { value, local: dst }));
             }
             Instruction::LocalGet32(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet32(src)),
+            Instruction::LocalGet32(src) => {
+                replace!(output, *read, 1 => [Instruction::LocalCopy32(src, dst), Instruction::LocalGet32(dst)]);
+            }
             Instruction::BinOpLocalLocal32(op, left, right) => {
                 let replacement = if op == BinOp::IAdd {
                     Instruction::AddLocalLocalTee32(LocalTripleArg { left, right, dst })
@@ -931,6 +934,9 @@ fn rewrite_local_tee64(
                 replace!(output, *read, 1 => Instruction::SubConstTee64(PackedOp::new(dst, packed.index)));
             }
             Instruction::LocalGet64(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet64(src)),
+            Instruction::LocalGet64(src) => {
+                replace!(output, *read, 1 => [Instruction::LocalCopy64(src, dst), Instruction::LocalGet64(dst)]);
+            }
             Instruction::BinOpLocalLocal64(op, left, right) => {
                 let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalTee64(PackedOp::new(op, index)));
@@ -967,6 +973,9 @@ fn rewrite_local_tee128(
     if *read > output.block_start {
         match output[*read - 1] {
             Instruction::LocalGet128(src) if src == dst => replace!(output, *read, 1 => Instruction::LocalGet128(src)),
+            Instruction::LocalGet128(src) => {
+                replace!(output, *read, 1 => [Instruction::LocalCopy128(src, dst), Instruction::LocalGet128(dst)]);
+            }
             Instruction::BinOpLocalLocal128(op, left, right) => {
                 let index = data.push_operand64(Operand64::<(u16, u16, u16)>::new(left, right, dst))?;
                 replace!(output, *read, 1 => Instruction::BinOpLocalLocalTee128(PackedOp::new(op, index)));
