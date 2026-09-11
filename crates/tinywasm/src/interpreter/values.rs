@@ -278,6 +278,34 @@ macro_rules! impl_value_ops {
 impl_value_ops!(Value32, i32, exec_binop_32, exec_cmp_32);
 impl_value_ops!(Value64, i64, exec_binop_64, exec_cmp_64);
 
+impl CmpOpExt<f32> for CmpOp {
+    #[inline(always)]
+    fn cmp(self, lhs: f32, rhs: f32) -> bool {
+        match self {
+            Self::Eq => lhs == rhs,
+            Self::Ne => lhs != rhs,
+            Self::LtS | Self::LtU => lhs < rhs,
+            Self::GtS | Self::GtU => lhs > rhs,
+            Self::LeS | Self::LeU => lhs <= rhs,
+            Self::GeS | Self::GeU => lhs >= rhs,
+        }
+    }
+}
+
+impl CmpOpExt<f64> for CmpOp {
+    #[inline(always)]
+    fn cmp(self, lhs: f64, rhs: f64) -> bool {
+        match self {
+            Self::Eq => lhs == rhs,
+            Self::Ne => lhs != rhs,
+            Self::LtS | Self::LtU => lhs < rhs,
+            Self::GtS | Self::GtU => lhs > rhs,
+            Self::LeS | Self::LeU => lhs <= rhs,
+            Self::GeS | Self::GeU => lhs >= rhs,
+        }
+    }
+}
+
 fn exec_binop_32(op: BinOp, lhs: u32, rhs: u32) -> u32 {
     match op {
         BinOp::IAdd => lhs.wrapping_add(rhs),

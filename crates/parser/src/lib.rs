@@ -33,7 +33,6 @@ mod conversion;
 mod error;
 mod macros;
 mod module;
-mod optimize;
 mod validation;
 mod visit;
 
@@ -62,9 +61,6 @@ pub struct ParserOptions {
     /// a module that violates runtime assumptions.
     pub validation: bool,
 
-    /// Whether to run the peephole rewrite optimizer.
-    pub optimize_rewrite: bool,
-
     /// Whether to deduplicate immutable function operands while parsing.
     pub deduplicate_operands: bool,
 
@@ -83,7 +79,6 @@ impl Default for ParserOptions {
     fn default() -> Self {
         Self {
             validation: cfg!(feature = "validate"),
-            optimize_rewrite: true,
             deduplicate_operands: false,
             #[cfg(parallel_parser)]
             parser_threads: None,
@@ -112,17 +107,6 @@ impl ParserOptions {
     /// Returns whether WebAssembly validation is enabled.
     pub const fn validation(&self) -> bool {
         self.validation
-    }
-
-    /// Enable or disable the peephole rewrite optimizer.
-    pub const fn with_rewrite_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_rewrite = enabled;
-        self
-    }
-
-    /// Returns whether the peephole rewrite optimizer is enabled.
-    pub const fn optimize_rewrite(&self) -> bool {
-        self.optimize_rewrite
     }
 
     /// Enable or disable parse-time deduplication of immutable function operands.

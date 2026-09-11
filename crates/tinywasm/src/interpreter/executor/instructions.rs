@@ -1,4 +1,229 @@
+use super::*;
+
+/// Converts raw `f32` bits to signed `i32` bits with Wasm traps.
+pub(super) fn acc_trunc_f32_s(value: u32) -> core::result::Result<u32, Trap> {
+    let value = f32::from_bits(value);
+    let (min, max) = float_min_max!(f32, i32);
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if value <= min || value >= max {
+        return Err(Trap::IntegerOverflow);
+    }
+    Ok((value as i32) as u32)
+}
+
+/// Converts raw `f32` bits to unsigned `i32` bits with Wasm traps.
+pub(super) fn acc_trunc_f32_u(value: u32) -> core::result::Result<u32, Trap> {
+    let value = f32::from_bits(value);
+    let (min, max) = float_min_max!(f32, u32);
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if value <= min || value >= max {
+        return Err(Trap::IntegerOverflow);
+    }
+    Ok(value as u32)
+}
+
+/// Truncates an `f64` accumulator value to a signed `i64`.
+pub(super) fn acc_trunc_f64_s(value: u64) -> core::result::Result<u64, Trap> {
+    let value = f64::from_bits(value);
+    let (min, max) = float_min_max!(f64, i64);
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if value <= min || value >= max {
+        return Err(Trap::IntegerOverflow);
+    }
+    Ok((value as i64) as u64)
+}
+
+/// Truncates an `f64` accumulator value to an unsigned `i64`.
+pub(super) fn acc_trunc_f64_u(value: u64) -> core::result::Result<u64, Trap> {
+    let value = f64::from_bits(value);
+    let (min, max) = float_min_max!(f64, u64);
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if value <= min || value >= max {
+        return Err(Trap::IntegerOverflow);
+    }
+    Ok(value as u64)
+}
+
+/// Applies a compact 32-bit unary accumulator operation.
+pub(super) fn exec_unary32(op: UnaryOp32, value: u32) -> Result<u32, Trap> {
+    Ok(match op {
+        UnaryOp32::I32Eqz => u32::from(value == 0),
+        UnaryOp32::I32Clz => value.leading_zeros(),
+        UnaryOp32::I32Ctz => value.trailing_zeros(),
+        UnaryOp32::I32Popcnt => value.count_ones(),
+        UnaryOp32::I32Extend8S => i32::from(value as i8) as u32,
+        UnaryOp32::I32Extend16S => i32::from(value as i16) as u32,
+        UnaryOp32::I32TruncF32S => acc_trunc_f32_s(value)?,
+        UnaryOp32::I32TruncF32U => acc_trunc_f32_u(value)?,
+        UnaryOp32::I32TruncSatF32S => f32::from_bits(value).trunc() as i32 as u32,
+        UnaryOp32::I32TruncSatF32U => f32::from_bits(value).trunc() as u32,
+        UnaryOp32::F32ConvertI32S => (value as i32 as f32).to_bits(),
+        UnaryOp32::F32ConvertI32U => (value as f32).to_bits(),
+        UnaryOp32::F32Abs => f32::from_bits(value).abs().to_bits(),
+        UnaryOp32::F32Neg => (-f32::from_bits(value)).to_bits(),
+        UnaryOp32::F32Ceil => f32::from_bits(value).ceil().to_bits(),
+        UnaryOp32::F32Floor => f32::from_bits(value).floor().to_bits(),
+        UnaryOp32::F32Trunc => f32::from_bits(value).trunc().to_bits(),
+        UnaryOp32::F32Nearest => f32::from_bits(value).tw_nearest().to_bits(),
+        UnaryOp32::F32Sqrt => f32::from_bits(value).sqrt().to_bits(),
+    })
+}
+
+/// Applies a compact 64-bit unary accumulator operation.
+pub(super) fn exec_unary64(op: UnaryOp64, value: u64) -> Result<u64, Trap> {
+    Ok(match op {
+        UnaryOp64::I64Clz => u64::from(value.leading_zeros()),
+        UnaryOp64::I64Ctz => u64::from(value.trailing_zeros()),
+        UnaryOp64::I64Popcnt => u64::from(value.count_ones()),
+        UnaryOp64::I64Extend8S => i64::from(value as i8) as u64,
+        UnaryOp64::I64Extend16S => i64::from(value as i16) as u64,
+        UnaryOp64::I64Extend32S => i64::from(value as i32) as u64,
+        UnaryOp64::I64TruncF64S => acc_trunc_f64_s(value)?,
+        UnaryOp64::I64TruncF64U => acc_trunc_f64_u(value)?,
+        UnaryOp64::I64TruncSatF64S => f64::from_bits(value).trunc() as i64 as u64,
+        UnaryOp64::I64TruncSatF64U => f64::from_bits(value).trunc() as u64,
+        UnaryOp64::F64ConvertI64S => (value as i64 as f64).to_bits(),
+        UnaryOp64::F64ConvertI64U => (value as f64).to_bits(),
+        UnaryOp64::F64Abs => f64::from_bits(value).abs().to_bits(),
+        UnaryOp64::F64Neg => (-f64::from_bits(value)).to_bits(),
+        UnaryOp64::F64Ceil => f64::from_bits(value).ceil().to_bits(),
+        UnaryOp64::F64Floor => f64::from_bits(value).floor().to_bits(),
+        UnaryOp64::F64Trunc => f64::from_bits(value).trunc().to_bits(),
+        UnaryOp64::F64Nearest => f64::from_bits(value).tw_nearest().to_bits(),
+        UnaryOp64::F64Sqrt => f64::from_bits(value).sqrt().to_bits(),
+    })
+}
+
+fn trunc_f64_to_i32(value: f64, unsigned: bool) -> Result<u32, Trap> {
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if unsigned {
+        let (min, max) = float_min_max!(f64, u32);
+        if value <= min || value >= max {
+            return Err(Trap::IntegerOverflow);
+        }
+        Ok(value as u32)
+    } else {
+        let (min, max) = float_min_max!(f64, i32);
+        if value <= min || value >= max {
+            return Err(Trap::IntegerOverflow);
+        }
+        Ok((value as i32) as u32)
+    }
+}
+
+fn trunc_f32_to_i64(value: f32, unsigned: bool) -> Result<u64, Trap> {
+    if value.is_nan() {
+        return Err(Trap::InvalidConversionToInt);
+    }
+    if unsigned {
+        let (min, max) = float_min_max!(f32, u64);
+        if value <= min || value >= max {
+            return Err(Trap::IntegerOverflow);
+        }
+        Ok(value as u64)
+    } else {
+        let (min, max) = float_min_max!(f32, i64);
+        if value <= min || value >= max {
+            return Err(Trap::IntegerOverflow);
+        }
+        Ok((value as i64) as u64)
+    }
+}
+
+/// Applies a compact conversion from a 32-bit stack value to `acc64`.
+pub(super) fn convert_stack32_to_acc64(op: ConvertOp32To64, value: u32) -> Result<u64, Trap> {
+    Ok(match op {
+        ConvertOp32To64::I64ExtendI32S => i64::from(value as i32) as u64,
+        ConvertOp32To64::I64ExtendI32U => u64::from(value),
+        ConvertOp32To64::I64TruncF32S => trunc_f32_to_i64(f32::from_bits(value), false)?,
+        ConvertOp32To64::I64TruncF32U => trunc_f32_to_i64(f32::from_bits(value), true)?,
+        ConvertOp32To64::F64ConvertI32S => (value as i32 as f64).to_bits(),
+        ConvertOp32To64::F64ConvertI32U => (value as f64).to_bits(),
+        ConvertOp32To64::F64PromoteF32 => (f32::from_bits(value) as f64).to_bits(),
+        ConvertOp32To64::I64TruncSatF32S => f32::from_bits(value).trunc() as i64 as u64,
+        ConvertOp32To64::I64TruncSatF32U => f32::from_bits(value).trunc() as u64,
+    })
+}
+
+/// Applies a compact conversion from a 64-bit stack value to `acc32`.
+pub(super) fn convert_stack64_to_acc32(op: ConvertOp64To32, value: u64) -> Result<u32, Trap> {
+    Ok(match op {
+        ConvertOp64To32::I64Eqz => u32::from(value == 0),
+        ConvertOp64To32::I32WrapI64 => value as u32,
+        ConvertOp64To32::I32TruncF64S => trunc_f64_to_i32(f64::from_bits(value), false)?,
+        ConvertOp64To32::I32TruncF64U => trunc_f64_to_i32(f64::from_bits(value), true)?,
+        ConvertOp64To32::F32ConvertI64S => (value as i64 as f32).to_bits(),
+        ConvertOp64To32::F32ConvertI64U => (value as f32).to_bits(),
+        ConvertOp64To32::F32DemoteF64 => (f64::from_bits(value) as f32).to_bits(),
+        ConvertOp64To32::I32TruncSatF64S => f64::from_bits(value).trunc() as i32 as u32,
+        ConvertOp64To32::I32TruncSatF64U => f64::from_bits(value).trunc() as u32,
+    })
+}
+
+/// Applies a checked 32-bit integer operation to stack operands.
+pub(super) fn exec_int_binop32(op: IntBinOp, lhs: u32, rhs: u32) -> Result<u32, Trap> {
+    match op {
+        IntBinOp::DivS => Ok((lhs as i32).tw_checked_div(rhs as i32)? as u32),
+        IntBinOp::DivU => lhs.checked_div(rhs).ok_or(Trap::DivisionByZero),
+        IntBinOp::RemS => Ok((lhs as i32).tw_checked_wrapping_rem(rhs as i32)? as u32),
+        IntBinOp::RemU => lhs.tw_checked_wrapping_rem(rhs),
+    }
+}
+
+/// Applies a checked 64-bit integer operation to stack operands.
+pub(super) fn exec_int_binop64(op: IntBinOp, lhs: u64, rhs: u64) -> Result<u64, Trap> {
+    match op {
+        IntBinOp::DivS => Ok((lhs as i64).tw_checked_div(rhs as i64)? as u64),
+        IntBinOp::DivU => lhs.checked_div(rhs).ok_or(Trap::DivisionByZero),
+        IntBinOp::RemS => Ok((lhs as i64).tw_checked_wrapping_rem(rhs as i64)? as u64),
+        IntBinOp::RemU => lhs.tw_checked_wrapping_rem(rhs),
+    }
+}
+
 macro_rules! exec_op {
+    ($executor:ident; accumulator $dst:ident = unary $src:ident, |$value:ident| $expr:expr) => {{
+        let $value = $src;
+        $dst = $expr;
+    }};
+    ($executor:ident; accumulator $dst:ident = unary_fallible $src:ident, |$value:ident| $expr:expr) => {{
+        let $value = $src;
+        $dst = $expr?;
+    }};
+    ($executor:ident; accumulator $dst:ident = binary $lhs_source:expr, $rhs_source:expr, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+        let $lhs = $lhs_source;
+        let $rhs = $rhs_source;
+        $dst = $expr;
+    }};
+    ($executor:ident; accumulator $dst:ident = binary $lhs_source:expr, $rhs_source:expr,
+        #[$inline:meta] $operation:expr, $operation_ty:ty, |$op:ident, $lhs:ident, $rhs:ident| $expr:expr
+    ) => {{
+        #[$inline]
+        fn exec_acc_binary($op: $operation_ty, $lhs: u64, $rhs: u64) -> u64 {
+            $expr
+        }
+        $dst = exec_acc_binary($operation, $lhs_source as u64, $rhs_source as u64) as _;
+    }};
+    ($executor:ident; accumulator $dst:ident = stack_binary $ty:ty,
+        #[$inline:meta] $operation:expr, $operation_ty:ty, |$op:ident, $lhs:ident, $rhs:ident| $expr:expr
+    ) => {{
+        #[$inline]
+        fn exec_acc_binary($op: $operation_ty, $lhs: u64, $rhs: u64) -> u64 {
+            $expr
+        }
+        let rhs = <$ty>::stack_pop(&mut $executor.store.value_stack) as u64;
+        let lhs = <$ty>::stack_pop(&mut $executor.store.value_stack) as u64;
+        $dst = exec_acc_binary($operation, lhs, rhs) as _;
+    }};
     ($executor:ident; binary_fallible $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
         fn exec_binary_fallible(value_stack: &mut ValueStack) -> Result<(), Trap> {
             let $rhs = <$ty>::stack_pop(value_stack);
@@ -40,7 +265,601 @@ macro_rules! exec_op {
 #[rustfmt::skip]
 macro_rules! instruction_handlers {
     ($emit:ident) => {
-        $emit! { executor, instr_ptr, dispatch_next, dispatch_flow;
+        $emit! { executor, instr_ptr, acc32, acc64, acc_ref, dispatch_next, dispatch_flow;
+            AccConst32(value) => acc32 = *value as u32,
+            AccLocalGet32(local) => acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, *local),
+            AccLocalGetPush32(local) => {
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, *local);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccLocalGetPush32Push64(local) => {
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, *local);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            PushAcc32 => Value32::stack_push(&mut executor.store.value_stack, acc32)?,
+            AccUnaryStack32(op) => acc32 = instructions::exec_unary32(*op, Value32::stack_pop(&mut executor.store.value_stack))?,
+            AccUnaryStackPush32(op) => {
+                acc32 = instructions::exec_unary32(*op, Value32::stack_pop(&mut executor.store.value_stack))?;
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccMemorySize32(memory) => acc32 = executor.memory_size(*memory) as u32,
+            AccTableSize32(table) => acc32 = executor.table_size(*table) as u32,
+            AccI32Eqz => exec_op!(executor; accumulator acc32 = unary acc32, |v| u32::from(v == 0)),
+            AccI32Clz => exec_op!(executor; accumulator acc32 = unary acc32, |v| v.leading_zeros()),
+            AccI32Ctz => exec_op!(executor; accumulator acc32 = unary acc32, |v| v.trailing_zeros()),
+            AccI32Popcnt => exec_op!(executor; accumulator acc32 = unary acc32, |v| v.count_ones()),
+            AccI32Extend8S => exec_op!(executor; accumulator acc32 = unary acc32, |v| i32::from(v as i8) as u32),
+            AccI32Extend16S => exec_op!(executor; accumulator acc32 = unary acc32, |v| i32::from(v as i16) as u32),
+            AccI32TruncF32S => exec_op!(executor; accumulator acc32 = unary_fallible acc32, |v| instructions::acc_trunc_f32_s(v)),
+            AccI32TruncF32U => exec_op!(executor; accumulator acc32 = unary_fallible acc32, |v| instructions::acc_trunc_f32_u(v)),
+            AccI32TruncSatF32S => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).trunc() as i32 as u32),
+            AccI32TruncSatF32U => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).trunc() as u32),
+            AccF32ConvertI32S => exec_op!(executor; accumulator acc32 = unary acc32, |v| (v as i32 as f32).to_bits()),
+            AccF32ConvertI32U => exec_op!(executor; accumulator acc32 = unary acc32, |v| (v as f32).to_bits()),
+            AccF32Abs => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).abs().to_bits()),
+            AccF32Neg => exec_op!(executor; accumulator acc32 = unary acc32, |v| (-f32::from_bits(v)).to_bits()),
+            AccF32Ceil => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).ceil().to_bits()),
+            AccF32Floor => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).floor().to_bits()),
+            AccF32Trunc => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).trunc().to_bits()),
+            AccF32Nearest => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).tw_nearest().to_bits()),
+            AccF32Sqrt => exec_op!(executor; accumulator acc32 = unary acc32, |v| f32::from_bits(v).sqrt().to_bits()),
+            AccLoad32(index) => acc32 = executor.exec_acc_load::<u32, 4>(index.resolve(&executor.func.data), acc32, identity)?,
+            AccLoadTee32(arg) => {
+                let (memory_arg_idx, local) = (arg.memory_arg_idx, arg.local);
+                acc32 = executor.exec_acc_load::<u32, 4>(memory_arg_idx.resolve(&executor.func.data), acc32, identity)?;
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, local, acc32);
+            },
+            AccLoadTeePush32(arg) => {
+                let (memory_arg_idx, local) = (arg.memory_arg_idx, arg.local);
+                acc32 = executor.exec_acc_load::<u32, 4>(memory_arg_idx.resolve(&executor.func.data), acc32, identity)?;
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, local, acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccLoad8S32(index) => acc32 = executor.exec_acc_load::<i8, 1>(index.resolve(&executor.func.data), acc32, |v| i32::from(v) as u32)?,
+            AccLoad8U32(index) => acc32 = executor.exec_acc_load::<u8, 1>(index.resolve(&executor.func.data), acc32, u32::from)?,
+            AccLoad16S32(index) => acc32 = executor.exec_acc_load::<i16, 2>(index.resolve(&executor.func.data), acc32, |v| i32::from(v) as u32)?,
+            AccLoad16U32(index) => acc32 = executor.exec_acc_load::<u16, 2>(index.resolve(&executor.func.data), acc32, u32::from)?,
+            AccLoadStack32(packed) => {
+                let memory = packed.index.resolve(&executor.func.data);
+                match packed.op {
+                    LoadOp32::Full => acc32 = executor.exec_acc32_load_stack::<u32, 4>(memory, identity)?,
+                    LoadOp32::I8S => acc32 = executor.exec_acc32_load_stack::<i8, 1>(memory, |v| i32::from(v) as u32)?,
+                    LoadOp32::I8U => acc32 = executor.exec_acc32_load_stack::<u8, 1>(memory, u32::from)?,
+                    LoadOp32::I16S => acc32 = executor.exec_acc32_load_stack::<i16, 2>(memory, |v| i32::from(v) as u32)?,
+                    LoadOp32::I16U => acc32 = executor.exec_acc32_load_stack::<u16, 2>(memory, u32::from)?,
+                }
+            },
+            AccLoadPush32(packed) => {
+                let memory = packed.index.resolve(&executor.func.data);
+                acc32 = match packed.op {
+                    LoadOp32::Full => executor.exec_acc_load::<u32, 4>(memory, acc32, identity)?,
+                    LoadOp32::I8S => executor.exec_acc_load::<i8, 1>(memory, acc32, |v| i32::from(v) as u32)?,
+                    LoadOp32::I8U => executor.exec_acc_load::<u8, 1>(memory, acc32, u32::from)?,
+                    LoadOp32::I16S => executor.exec_acc_load::<i16, 2>(memory, acc32, |v| i32::from(v) as u32)?,
+                    LoadOp32::I16U => executor.exec_acc_load::<u16, 2>(memory, acc32, u32::from)?,
+                };
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccLoadStackPush32(packed) => {
+                let memory = packed.index.resolve(&executor.func.data);
+                acc32 = match packed.op {
+                    LoadOp32::Full => executor.exec_acc32_load_stack::<u32, 4>(memory, identity)?,
+                    LoadOp32::I8S => executor.exec_acc32_load_stack::<i8, 1>(memory, |v| i32::from(v) as u32)?,
+                    LoadOp32::I8U => executor.exec_acc32_load_stack::<u8, 1>(memory, u32::from)?,
+                    LoadOp32::I16S => executor.exec_acc32_load_stack::<i16, 2>(memory, |v| i32::from(v) as u32)?,
+                    LoadOp32::I16U => executor.exec_acc32_load_stack::<u16, 2>(memory, u32::from)?,
+                };
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccStore32(index) => executor.exec_mem_store_value(
+                executor.mem_addr(index.resolve(&executor.func.data).memory()),
+                index.resolve(&executor.func.data).offset(),
+                acc32,
+            )?,
+            AccStore8_32(index) => executor.exec_mem_store_value(
+                executor.mem_addr(index.resolve(&executor.func.data).memory()),
+                index.resolve(&executor.func.data).offset(),
+                acc32 as u8,
+            )?,
+            AccStore16_32(index) => executor.exec_mem_store_value(
+                executor.mem_addr(index.resolve(&executor.func.data).memory()),
+                index.resolve(&executor.func.data).offset(),
+                acc32 as u16,
+            )?,
+            AccI32AddStack => exec_op!(executor; accumulator acc32 = binary Value32::stack_pop(&mut executor.store.value_stack), acc32, |a, b| a.wrapping_add(b)),
+            AccI32AddLocal(local) => exec_op!(executor; accumulator acc32 = binary acc32, Value32::local_get(&executor.store.value_stack, &executor.cf, *local), |a, b| a.wrapping_add(b)),
+            AccI32AddConst(value) => exec_op!(executor; accumulator acc32 = binary acc32, *value as u32, |a, b| a.wrapping_add(b)),
+            AccI32AddLocalConst(arg) => exec_op!(executor; accumulator acc32 = binary
+                Value32::local_get(&executor.store.value_stack, &executor.cf, arg.local), arg.value as u32,
+                |a, b| a.wrapping_add(b)),
+            AccI32AddLocalConstPush(arg) => {
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, arg.local)
+                    .wrapping_add(arg.value as u32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32AddLocalConstPush32Push64(arg) => {
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, arg.local)
+                    .wrapping_add(arg.value as u32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccI32AddLocalConstTee(index) => {
+                let operand = index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()), operand.c(),
+                    |a, b| a.wrapping_add(b));
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.b(), acc32);
+            },
+            AccI32AddLocalConstTeePush(index) => {
+                let operand = index.resolve(&executor.func.data);
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a())
+                    .wrapping_add(operand.c());
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.b(), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32AddLocalConstTeePush32Push64(index) => {
+                let operand = index.resolve(&executor.func.data);
+                acc32 = Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a())
+                    .wrapping_add(operand.c());
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.b(), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpLocalConst32(packed) => {
+                let v = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(),
+                    |a, b| packed.op.exec(a, b));
+            },
+            AccBinOpLocalConstTee32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()), operand.c(),
+                    |a, b| packed.op.exec(a, b));
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.b(), acc32);
+            },
+            AccBinOpLocalConstPush32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc32 = packed.op.exec(
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    operand.b(),
+                );
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccBinOpLocalConstTeePush32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc32 = packed.op.exec(
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    operand.c(),
+                );
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.b(), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32CmpLocalConst(packed) => {
+                let v = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(),
+                    |a, b| u32::from(packed.op.cmp(a as i32, b as i32)));
+            },
+            AccF32CmpLocalConst(packed) => {
+                let v = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(),
+                    |a, b| u32::from(packed.op.cmp(f32::from_bits(a), f32::from_bits(b))));
+            },
+            AccBinOpLocalLocal32(op, lhs, rhs) => exec_op!(executor; accumulator acc32 = binary
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *lhs),
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *rhs),
+                |a, b| op.exec(a, b)),
+            AccBinOpLocalLocalPush32(op, lhs, rhs) => {
+                acc32 = op.exec(
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, *lhs),
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, *rhs),
+                );
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccBinOpLocalLocalTee32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.b()),
+                    |a, b| packed.op.exec(a, b));
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.c(), acc32);
+            },
+            AccBinOpLocalLocalTeePush32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc32 = packed.op.exec(
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.b()),
+                );
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.c(), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccBinOpNestedLocalLocal32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, operand.b()),
+                );
+                acc32 = outer.exec(acc32, rhs);
+            },
+            AccBinOpNestedLocalConst32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(Value32::local_get(&executor.store.value_stack, &executor.cf, operand.a()), operand.b());
+                acc32 = outer.exec(acc32, rhs);
+            },
+            AccI32CmpLocalLocal(op, lhs, rhs) => exec_op!(executor; accumulator acc32 = binary
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *lhs),
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *rhs),
+                |a, b| u32::from(op.cmp(a as i32, b as i32))),
+            AccF32CmpLocalLocal(op, lhs, rhs) => exec_op!(executor; accumulator acc32 = binary
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *lhs),
+                Value32::local_get(&executor.store.value_stack, &executor.cf, *rhs),
+                |a, b| u32::from(op.cmp(f32::from_bits(a), f32::from_bits(b)))),
+            AccBinOpStack32(op) => exec_op!(executor; accumulator acc32 = binary Value32::stack_pop(&mut executor.store.value_stack), acc32, #[inline(never)] *op, BinOp, |op, a, b| u64::from(op.exec(a as u32, b as u32))),
+            AccBinOpStackPush32(op) => {
+                acc32 = op.exec(Value32::stack_pop(&mut executor.store.value_stack), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccBinOpStackStack32(op) => exec_op!(executor; accumulator acc32 = stack_binary Value32, #[inline(never)] *op, BinOp, |op, a, b| u64::from(op.exec(a as u32, b as u32))),
+            AccBinOpStackStackPush32(op) => {
+                let rhs = Value32::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = op.exec(lhs, rhs);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32CmpStack(op) => exec_op!(executor; accumulator acc32 = binary Value32::stack_pop(&mut executor.store.value_stack), acc32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i32, b as i32))),
+            AccI32CmpStackStack(op) => exec_op!(executor; accumulator acc32 = stack_binary Value32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i32, b as i32))),
+            AccI32CmpStackStackPush32(op) => {
+                let rhs = Value32::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = u32::from(op.cmp(lhs as i32, rhs as i32));
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccF32CmpStack(op) => exec_op!(executor; accumulator acc32 = binary Value32::stack_pop(&mut executor.store.value_stack), acc32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f32::from_bits(a as u32), f32::from_bits(b as u32)))),
+            AccF32CmpStackStack(op) => exec_op!(executor; accumulator acc32 = stack_binary Value32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f32::from_bits(a as u32), f32::from_bits(b as u32)))),
+            AccIntBinOpStack32(op) => {
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = instructions::exec_int_binop32(*op, lhs, acc32)?;
+            },
+            AccIntBinOpStackStack32(op) => {
+                let rhs = Value32::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = instructions::exec_int_binop32(*op, lhs, rhs)?;
+            },
+            AccBinOpLocal32(op, local) => exec_op!(executor; accumulator acc32 = binary acc32, Value32::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(never)] *op, BinOp, |op, a, b| u64::from(op.exec(a as u32, b as u32))),
+            AccBinOpLocalPush32(op, local) => {
+                acc32 = op.exec(acc32, Value32::local_get(&executor.store.value_stack, &executor.cf, *local));
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32CmpLocal(op, local) => exec_op!(executor; accumulator acc32 = binary acc32, Value32::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i32, b as i32))),
+            AccI32CmpLocalPush32(op, local) => {
+                acc32 = u32::from(op.cmp(
+                    acc32 as i32,
+                    Value32::local_get(&executor.store.value_stack, &executor.cf, *local) as i32,
+                ));
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccF32CmpLocal(op, local) => exec_op!(executor; accumulator acc32 = binary acc32, Value32::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f32::from_bits(a as u32), f32::from_bits(b as u32)))),
+            AccBinOpConst32(op, value) => exec_op!(executor; accumulator acc32 = binary acc32, *value as u32, #[inline(never)] *op, BinOp, |op, a, b| u64::from(op.exec(a as u32, b as u32))),
+            AccBinOpConstPush32(op, value) => {
+                acc32 = op.exec(acc32, *value as u32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccBinOpConstTee32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc32 = binary acc32, operand.b(), #[inline(never)] packed.op, BinOp, |op, a, b| u64::from(op.exec(a as u32, b as u32)));
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.a(), acc32);
+            },
+            AccBinOpConstTeePush32(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc32 = packed.op.exec(acc32, operand.b());
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, operand.a(), acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccI32CmpConst(op, value) => exec_op!(executor; accumulator acc32 = binary acc32, *value as u32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i32, b as i32))),
+            AccI32CmpConstPush32(op, value) => {
+                acc32 = u32::from(op.cmp(acc32 as i32, *value));
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccF32CmpConst(op, value) => exec_op!(executor; accumulator acc32 = binary acc32, *value as u32, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f32::from_bits(a as u32), f32::from_bits(b as u32)))),
+            AccLocalSet32(local) => {
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc32);
+            },
+            AccLocalTee32(local) => {
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc32);
+            },
+            AccLocalTeePush32(local) => {
+                Value32::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc32);
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccGlobalGet32(global) => acc32 = executor.exec_global_get_value(*global),
+            AccGlobalSet32(global) => executor.exec_global_set_value(*global, acc32),
+            AccSelect32 => {
+                let rhs = Value32::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = if acc32 != 0 { lhs } else { rhs };
+            },
+            AccSelectPush32 => {
+                let rhs = Value32::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = if acc32 != 0 { lhs } else { rhs };
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            JumpIfAccZero32(ip) => if acc32 == 0 { dispatch_next!(*ip as usize) },
+            JumpIfAccNonZero32(ip) => if acc32 != 0 { dispatch_next!(*ip as usize) },
+
+            AccConst64(index) => acc64 = index.resolve(&executor.func.data).value() as u64,
+            AccLocalGet64(local) => acc64 = Value64::local_get(&executor.store.value_stack, &executor.cf, *local),
+            PushAcc64 => Value64::stack_push(&mut executor.store.value_stack, acc64)?,
+            AccUnaryStack64(op) => acc64 = instructions::exec_unary64(*op, Value64::stack_pop(&mut executor.store.value_stack))?,
+            AccMemorySize64(memory) => acc64 = executor.memory_size(*memory),
+            AccTableSize64(table) => acc64 = executor.table_size(*table),
+            AccI64Clz => exec_op!(executor; accumulator acc64 = unary acc64, |v| u64::from(v.leading_zeros())),
+            AccI64Ctz => exec_op!(executor; accumulator acc64 = unary acc64, |v| u64::from(v.trailing_zeros())),
+            AccI64Popcnt => exec_op!(executor; accumulator acc64 = unary acc64, |v| u64::from(v.count_ones())),
+            AccI64Extend8S => exec_op!(executor; accumulator acc64 = unary acc64, |v| i64::from(v as i8) as u64),
+            AccI64Extend16S => exec_op!(executor; accumulator acc64 = unary acc64, |v| i64::from(v as i16) as u64),
+            AccI64Extend32S => exec_op!(executor; accumulator acc64 = unary acc64, |v| i64::from(v as i32) as u64),
+            AccI64TruncF64S => exec_op!(executor; accumulator acc64 = unary_fallible acc64, |v| instructions::acc_trunc_f64_s(v)),
+            AccI64TruncF64U => exec_op!(executor; accumulator acc64 = unary_fallible acc64, |v| instructions::acc_trunc_f64_u(v)),
+            AccI64TruncSatF64S => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).trunc() as i64 as u64),
+            AccI64TruncSatF64U => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).trunc() as u64),
+            AccF64ConvertI64S => exec_op!(executor; accumulator acc64 = unary acc64, |v| (v as i64 as f64).to_bits()),
+            AccF64ConvertI64U => exec_op!(executor; accumulator acc64 = unary acc64, |v| (v as f64).to_bits()),
+            AccF64Abs => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).abs().to_bits()),
+            AccF64Neg => exec_op!(executor; accumulator acc64 = unary acc64, |v| (-f64::from_bits(v)).to_bits()),
+            AccF64Ceil => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).ceil().to_bits()),
+            AccF64Floor => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).floor().to_bits()),
+            AccF64Trunc => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).trunc().to_bits()),
+            AccF64Nearest => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).tw_nearest().to_bits()),
+            AccF64Sqrt => exec_op!(executor; accumulator acc64 = unary acc64, |v| f64::from_bits(v).sqrt().to_bits()),
+            AccI64Eqz => exec_op!(executor; accumulator acc32 = unary acc64, |v| u32::from(v == 0)),
+            AccI32WrapI64 => exec_op!(executor; accumulator acc32 = unary acc64, |v| v as u32),
+            AccI32TruncF64S => acc32 = instructions::convert_stack64_to_acc32(ConvertOp64To32::I32TruncF64S, acc64)?,
+            AccI32TruncF64U => acc32 = instructions::convert_stack64_to_acc32(ConvertOp64To32::I32TruncF64U, acc64)?,
+            AccI32TruncSatF64S => acc32 = instructions::convert_stack64_to_acc32(ConvertOp64To32::I32TruncSatF64S, acc64)?,
+            AccI32TruncSatF64U => acc32 = instructions::convert_stack64_to_acc32(ConvertOp64To32::I32TruncSatF64U, acc64)?,
+            AccF32ConvertI64S => exec_op!(executor; accumulator acc32 = unary acc64, |v| (v as i64 as f32).to_bits()),
+            AccF32ConvertI64U => exec_op!(executor; accumulator acc32 = unary acc64, |v| (v as f32).to_bits()),
+            AccF32DemoteF64 => exec_op!(executor; accumulator acc32 = unary acc64, |v| (f64::from_bits(v) as f32).to_bits()),
+            AccI64ExtendI32S => exec_op!(executor; accumulator acc64 = unary acc32, |v| i64::from(v as i32) as u64),
+            AccI64ExtendI32U => exec_op!(executor; accumulator acc64 = unary acc32, |v| u64::from(v)),
+            AccI64TruncF32S => acc64 = instructions::convert_stack32_to_acc64(ConvertOp32To64::I64TruncF32S, acc32)?,
+            AccI64TruncF32U => acc64 = instructions::convert_stack32_to_acc64(ConvertOp32To64::I64TruncF32U, acc32)?,
+            AccI64TruncSatF32S => acc64 = instructions::convert_stack32_to_acc64(ConvertOp32To64::I64TruncSatF32S, acc32)?,
+            AccI64TruncSatF32U => acc64 = instructions::convert_stack32_to_acc64(ConvertOp32To64::I64TruncSatF32U, acc32)?,
+            AccF64ConvertI32S => exec_op!(executor; accumulator acc64 = unary acc32, |v| (v as i32 as f64).to_bits()),
+            AccF64ConvertI32U => exec_op!(executor; accumulator acc64 = unary acc32, |v| (v as f64).to_bits()),
+            AccF64PromoteF32 => exec_op!(executor; accumulator acc64 = unary acc32, |v| (f32::from_bits(v) as f64).to_bits()),
+            AccConvertStack32To64(op) => acc64 = instructions::convert_stack32_to_acc64(*op, Value32::stack_pop(&mut executor.store.value_stack))?,
+            AccConvertStack32To64Push64(op) => {
+                acc64 = instructions::convert_stack32_to_acc64(*op, Value32::stack_pop(&mut executor.store.value_stack))?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccConvertStack64To32(op) => acc32 = instructions::convert_stack64_to_acc32(*op, Value64::stack_pop(&mut executor.store.value_stack))?,
+            AccConvertStack64To32Push32(op) => {
+                acc32 = instructions::convert_stack64_to_acc32(*op, Value64::stack_pop(&mut executor.store.value_stack))?;
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            AccLoad64Addr32(index) => acc64 = executor.exec_acc64_load::<u64, 8, false>(index.resolve(&executor.func.data), acc32, acc64, identity)?,
+            AccLoad64Addr32Push64(index) => {
+                acc64 = executor.exec_acc64_load::<u64, 8, false>(
+                    index.resolve(&executor.func.data),
+                    acc32,
+                    acc64,
+                    identity,
+                )?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccLoad8S64Addr32(index) => acc64 = executor.exec_acc64_load::<i8, 1, false>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad8U64Addr32(index) => acc64 = executor.exec_acc64_load::<u8, 1, false>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoad16S64Addr32(index) => acc64 = executor.exec_acc64_load::<i16, 2, false>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad16U64Addr32(index) => acc64 = executor.exec_acc64_load::<u16, 2, false>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoad32S64Addr32(index) => acc64 = executor.exec_acc64_load::<i32, 4, false>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad32U64Addr32(index) => acc64 = executor.exec_acc64_load::<u32, 4, false>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoad64Addr64(index) => acc64 = executor.exec_acc64_load::<u64, 8, true>(index.resolve(&executor.func.data), acc32, acc64, identity)?,
+            AccLoad8S64Addr64(index) => acc64 = executor.exec_acc64_load::<i8, 1, true>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad8U64Addr64(index) => acc64 = executor.exec_acc64_load::<u8, 1, true>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoad16S64Addr64(index) => acc64 = executor.exec_acc64_load::<i16, 2, true>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad16U64Addr64(index) => acc64 = executor.exec_acc64_load::<u16, 2, true>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoad32S64Addr64(index) => acc64 = executor.exec_acc64_load::<i32, 4, true>(index.resolve(&executor.func.data), acc32, acc64, |v| i64::from(v) as u64)?,
+            AccLoad32U64Addr64(index) => acc64 = executor.exec_acc64_load::<u32, 4, true>(index.resolve(&executor.func.data), acc32, acc64, u64::from)?,
+            AccLoadStack64(packed) => {
+                let memory = packed.index.resolve(&executor.func.data);
+                match packed.op {
+                    LoadOp64::Full => acc64 = executor.exec_acc64_load_stack::<u64, 8>(memory, identity)?,
+                    LoadOp64::I8S => acc64 = executor.exec_acc64_load_stack::<i8, 1>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I8U => acc64 = executor.exec_acc64_load_stack::<u8, 1>(memory, u64::from)?,
+                    LoadOp64::I16S => acc64 = executor.exec_acc64_load_stack::<i16, 2>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I16U => acc64 = executor.exec_acc64_load_stack::<u16, 2>(memory, u64::from)?,
+                    LoadOp64::I32S => acc64 = executor.exec_acc64_load_stack::<i32, 4>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I32U => acc64 = executor.exec_acc64_load_stack::<u32, 4>(memory, u64::from)?,
+                }
+            },
+            AccLoadStackPush64(packed) => {
+                let memory = packed.index.resolve(&executor.func.data);
+                acc64 = match packed.op {
+                    LoadOp64::Full => executor.exec_acc64_load_stack::<u64, 8>(memory, identity)?,
+                    LoadOp64::I8S => executor.exec_acc64_load_stack::<i8, 1>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I8U => executor.exec_acc64_load_stack::<u8, 1>(memory, u64::from)?,
+                    LoadOp64::I16S => executor.exec_acc64_load_stack::<i16, 2>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I16U => executor.exec_acc64_load_stack::<u16, 2>(memory, u64::from)?,
+                    LoadOp64::I32S => executor.exec_acc64_load_stack::<i32, 4>(memory, |v| i64::from(v) as u64)?,
+                    LoadOp64::I32U => executor.exec_acc64_load_stack::<u32, 4>(memory, u64::from)?,
+                };
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccLoad32Addr64(index) => acc32 = executor.exec_acc32_load_addr64::<u32, 4>(index.resolve(&executor.func.data), acc64, identity)?,
+            AccLoad8S32Addr64(index) => acc32 = executor.exec_acc32_load_addr64::<i8, 1>(index.resolve(&executor.func.data), acc64, |v| i32::from(v) as u32)?,
+            AccLoad8U32Addr64(index) => acc32 = executor.exec_acc32_load_addr64::<u8, 1>(index.resolve(&executor.func.data), acc64, u32::from)?,
+            AccLoad16S32Addr64(index) => acc32 = executor.exec_acc32_load_addr64::<i16, 2>(index.resolve(&executor.func.data), acc64, |v| i32::from(v) as u32)?,
+            AccLoad16U32Addr64(index) => acc32 = executor.exec_acc32_load_addr64::<u16, 2>(index.resolve(&executor.func.data), acc64, u32::from)?,
+            AccStore64(index) => { let m = index.resolve(&executor.func.data); executor.exec_mem_store_value(executor.mem_addr(m.memory()), m.offset(), acc64)?; },
+            AccStore8_64(index) => { let m = index.resolve(&executor.func.data); executor.exec_mem_store_value(executor.mem_addr(m.memory()), m.offset(), acc64 as u8)?; },
+            AccStore16_64(index) => { let m = index.resolve(&executor.func.data); executor.exec_mem_store_value(executor.mem_addr(m.memory()), m.offset(), acc64 as u16)?; },
+            AccStore32_64(index) => { let m = index.resolve(&executor.func.data); executor.exec_mem_store_value(executor.mem_addr(m.memory()), m.offset(), acc64 as u32)?; },
+            AccBinOpStack64(op) => exec_op!(executor; accumulator acc64 = binary Value64::stack_pop(&mut executor.store.value_stack), acc64, #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b)),
+            AccBinOpStackTee64(op, local) => {
+                exec_op!(executor; accumulator acc64 = binary Value64::stack_pop(&mut executor.store.value_stack), acc64, #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b));
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64);
+            },
+            AccBinOpStackStack64(op) => exec_op!(executor; accumulator acc64 = stack_binary Value64, #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b)),
+            AccBinOpStackStackPush64(op) => {
+                let rhs = Value64::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = op.exec(lhs, rhs);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpStackStackTee64(op, local) => {
+                let rhs = Value64::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = op.exec(lhs, rhs);
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64);
+            },
+            AccBinOpStackStackTeePush64(op, local) => {
+                let rhs = Value64::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = op.exec(lhs, rhs);
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccIntBinOpStack64(op) => {
+                let lhs = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = instructions::exec_int_binop64(*op, lhs, acc64)?;
+            },
+            AccIntBinOpStackStack64(op) => {
+                let rhs = Value64::stack_pop(&mut executor.store.value_stack);
+                let lhs = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = instructions::exec_int_binop64(*op, lhs, rhs)?;
+            },
+            AccBinOpLocal64(op, local) => exec_op!(executor; accumulator acc64 = binary acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b)),
+            AccBinOpLocalPush64(op, local) => {
+                acc64 = op.exec(acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local));
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpLocalTee64(op, local, destination) => {
+                exec_op!(executor; accumulator acc64 = binary acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b));
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *destination, acc64);
+            },
+            AccBinOpLocalTeePush64(op, local, destination) => {
+                acc64 = op.exec(acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local));
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *destination, acc64);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpConst64(packed) => exec_op!(executor; accumulator acc64 = binary acc64, packed.index.resolve(&executor.func.data).value() as u64, #[inline(never)] packed.op, BinOp, |op, a, b| op.exec(a, b)),
+            AccBinOpConstPush64(packed) => {
+                acc64 = packed.op.exec(acc64, packed.index.resolve(&executor.func.data).value() as u64);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpConstTee64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                exec_op!(executor; accumulator acc64 = binary acc64, operand.b(), #[inline(never)] packed.op, BinOp, |op, a, b| op.exec(a, b));
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, operand.a(), acc64);
+            },
+            AccBinOpConstTeePush64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc64 = packed.op.exec(acc64, operand.b());
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, operand.a(), acc64);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpLocalConst64(packed) => { let v = packed.index.resolve(&executor.func.data); exec_op!(executor; accumulator acc64 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(), #[inline(never)] packed.op, BinOp, |op, a, b| op.exec(a, b)); },
+            AccBinOpLocalConstPush64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                acc64 = packed.op.exec(
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    operand.b(),
+                );
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpLocalLocal64(op, lhs, rhs) => exec_op!(executor; accumulator acc64 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, *lhs), Value64::local_get(&executor.store.value_stack, &executor.cf, *rhs), #[inline(never)] *op, BinOp, |op, a, b| op.exec(a, b)),
+            AccBinOpLocalLocalPush64(op, lhs, rhs) => {
+                acc64 = op.exec(
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, *lhs),
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, *rhs),
+                );
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccBinOpNestedLocalLocal64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, operand.b()),
+                );
+                acc64 = outer.exec(acc64, rhs);
+            },
+            AccBinOpNestedLocalLocalTee64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, operand.a()),
+                    Value64::local_get(&executor.store.value_stack, &executor.cf, operand.b()),
+                );
+                acc64 = outer.exec(acc64, rhs);
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, operand.c(), acc64);
+            },
+            AccBinOpNestedLocalConst64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(Value64::local_get(&executor.store.value_stack, &executor.cf, operand.a()), operand.b());
+                acc64 = outer.exec(acc64, rhs);
+            },
+            AccBinOpNestedLocalConstPush64(packed) => {
+                let operand = packed.index.resolve(&executor.func.data);
+                let (outer, inner) = packed.op;
+                let rhs = inner.exec(Value64::local_get(&executor.store.value_stack, &executor.cf, operand.a()), operand.b());
+                acc64 = outer.exec(acc64, rhs);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccI64CmpStack(op) => exec_op!(executor; accumulator acc32 = binary Value64::stack_pop(&mut executor.store.value_stack), acc64, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))),
+            AccI64CmpStackStack(op) => exec_op!(executor; accumulator acc32 = stack_binary Value64, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))),
+            AccI64CmpLocal(op, local) => exec_op!(executor; accumulator acc32 = binary acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))),
+            AccI64CmpConst(packed) => exec_op!(executor; accumulator acc32 = binary acc64, packed.index.resolve(&executor.func.data).value() as u64, #[inline(always)] packed.op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))),
+            AccI64CmpLocalConst(packed) => { let v = packed.index.resolve(&executor.func.data); exec_op!(executor; accumulator acc32 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(), #[inline(always)] packed.op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))); },
+            AccI64CmpLocalLocal(op, lhs, rhs) => exec_op!(executor; accumulator acc32 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, *lhs), Value64::local_get(&executor.store.value_stack, &executor.cf, *rhs), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(a as i64, b as i64))),
+            AccF64CmpStack(op) => exec_op!(executor; accumulator acc32 = binary Value64::stack_pop(&mut executor.store.value_stack), acc64, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))),
+            AccF64CmpStackStack(op) => exec_op!(executor; accumulator acc32 = stack_binary Value64, #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))),
+            AccF64CmpLocal(op, local) => exec_op!(executor; accumulator acc32 = binary acc64, Value64::local_get(&executor.store.value_stack, &executor.cf, *local), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))),
+            AccF64CmpConst(packed) => exec_op!(executor; accumulator acc32 = binary acc64, packed.index.resolve(&executor.func.data).value() as u64, #[inline(always)] packed.op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))),
+            AccF64CmpLocalConst(packed) => { let v = packed.index.resolve(&executor.func.data); exec_op!(executor; accumulator acc32 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, v.a()), v.b(), #[inline(always)] packed.op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))); },
+            AccF64CmpLocalLocal(op, lhs, rhs) => exec_op!(executor; accumulator acc32 = binary Value64::local_get(&executor.store.value_stack, &executor.cf, *lhs), Value64::local_get(&executor.store.value_stack, &executor.cf, *rhs), #[inline(always)] *op, CmpOp, |op, a, b| u64::from(op.cmp(f64::from_bits(a), f64::from_bits(b)))),
+            AccLocalSet64(local) => Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64),
+            AccLocalTee64(local) => Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64),
+            AccLocalTeePush64(local) => {
+                Value64::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc64);
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
+            AccGlobalGet64(global) => acc64 = executor.exec_global_get_value(*global),
+            AccGlobalSet64(global) => executor.exec_global_set_value(*global, acc64),
+            AccSelect64 => { let rhs = Value64::stack_pop(&mut executor.store.value_stack); let lhs = Value64::stack_pop(&mut executor.store.value_stack); acc64 = if acc32 != 0 { lhs } else { rhs }; },
+            JumpIfAccZero64(ip) => if acc64 == 0 { dispatch_next!(*ip as usize) },
+            JumpIfAccNonZero64(ip) => if acc64 != 0 { dispatch_next!(*ip as usize) },
+            AccRefNull => acc_ref = ValueRef::NULL,
+            AccRefFunc(func_idx) => acc_ref = ValueRef::from_category_addr(executor.module.resolve_func_addr(*func_idx)),
+            AccRefLocalGet(local) => acc_ref = ValueRef::local_get(&executor.store.value_stack, &executor.cf, *local),
+            PushAccRef => {
+                let reference = core::mem::replace(&mut acc_ref, ValueRef::NULL);
+                ValueRef::stack_push(&mut executor.store.value_stack, reference)?;
+            },
+            ClearAccRef => acc_ref = ValueRef::NULL,
+            AccRefLocalSet(local) => {
+                let reference = core::mem::replace(&mut acc_ref, ValueRef::NULL);
+                ValueRef::local_set(&mut executor.store.value_stack, &executor.cf, *local, reference);
+            },
+            AccRefLocalTee(local) => ValueRef::local_set(&mut executor.store.value_stack, &executor.cf, *local, acc_ref),
+            AccRefGlobalGet(global) => {
+                let global = executor.module.resolve_global_addr(*global);
+                acc_ref = ValueRef::global_get(&executor.store.state.globals, global);
+            },
+            AccRefGlobalSet(global) => {
+                let global = executor.module.resolve_global_addr(*global);
+                let reference = core::mem::replace(&mut acc_ref, ValueRef::NULL);
+                ValueRef::global_set(&mut executor.store.state.globals, global, reference);
+            },
             Unreachable => { return cold!(Err(Trap::Unreachable.into())); },
             Drop32 => { _ = Value32::stack_pop(&mut executor.store.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut executor.store.value_stack)},
@@ -59,7 +878,7 @@ macro_rules! instruction_handlers {
             ReturnCallSelf => { executor.exec_return_call_self()?; dispatch_next!(0); },
             ReturnCallIndirect(idx) => dispatch_flow!(executor.exec_call_indirect::<true>(*idx, instr_ptr + 1)?),
             ReturnCallRef(ty) => dispatch_flow!(executor.exec_call_ref::<true>(*ty, instr_ptr + 1)?),
-            Throw(tag) => dispatch_flow!(executor.exec_throw(*tag, instr_ptr)?),
+            Throw(tag) => dispatch_flow!(executor.exec_throw(*tag, instr_ptr, acc_ref)?),
             ThrowRef => dispatch_flow!(executor.exec_throw_ref(instr_ptr)?),
             Jump(ip) => dispatch_next!(*ip as usize),
             JumpIfZero32(ip) => if i32::stack_pop(&mut executor.store.value_stack) == 0 { dispatch_next!(*ip as usize) },
@@ -98,8 +917,20 @@ macro_rules! instruction_handlers {
             ReturnVoid => dispatch_flow!(executor.exec_return_void()),
             Return32 => dispatch_flow!(executor.exec_return_32()),
             Return64 => dispatch_flow!(executor.exec_return_64()),
+            ReturnAcc32 => dispatch_flow!(executor.exec_return_acc32(acc32)?),
+            ReturnAcc64 => dispatch_flow!(executor.exec_return_acc64(acc64)?),
+            ReturnAccRef => dispatch_flow!(executor.exec_return_acc_ref(&mut acc_ref)?),
             Return128 => dispatch_flow!(executor.exec_return_128()),
             LocalGet32(local_index) => Value32::local_push(&mut executor.store.value_stack, &executor.cf, *local_index)?,
+            LocalGetPushAcc32(local_index) => {
+                Value32::local_push(&mut executor.store.value_stack, &executor.cf, *local_index)?;
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
+            LocalGetPushAcc32PushAcc64(local_index) => {
+                Value32::local_push(&mut executor.store.value_stack, &executor.cf, *local_index)?;
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+                Value64::stack_push(&mut executor.store.value_stack, acc64)?;
+            },
             LocalGet64(local_index) => Value64::local_push(&mut executor.store.value_stack, &executor.cf, *local_index)?,
             LocalGet128(local_index) => Value128::local_push(&mut executor.store.value_stack, &executor.cf, *local_index)?,
             LocalSet32(local_index) => executor.exec_local_set_pop::<Value32>(*local_index),
@@ -202,6 +1033,10 @@ macro_rules! instruction_handlers {
             GlobalTee64(global_index) => executor.exec_global_tee::<Value64>(*global_index),
             GlobalTee128(global_index) => executor.exec_global_tee::<Value128>(*global_index),
             Const32(val) => i32::stack_push(&mut executor.store.value_stack, *val)?,
+            ConstPushAcc32(val) => {
+                i32::stack_push(&mut executor.store.value_stack, *val)?;
+                Value32::stack_push(&mut executor.store.value_stack, acc32)?;
+            },
             Const64Imm(val) => i64::stack_push(&mut executor.store.value_stack, i64::from(*val))?,
             Const64(idx) => i64::stack_push(&mut executor.store.value_stack, idx.resolve(&executor.func.data).value())?,
             Const128Imm(val) => Value128::stack_push(&mut executor.store.value_stack, Value128(u128::from(*val).to_le_bytes()))?,
@@ -292,37 +1127,61 @@ macro_rules! instruction_handlers {
             RefFunc(func_idx) => ValueRef::stack_push(&mut executor.store.value_stack, ValueRef::from_category_addr(executor.module.resolve_func_addr(*func_idx)))?,
             RefNull(_) => ValueRef::stack_push(&mut executor.store.value_stack, ValueRef::NULL)?,
             RefIsNull => executor.exec_ref_is_null()?,
+            AccRefIsNull => {
+                let reference = core::mem::replace(&mut acc_ref, ValueRef::NULL);
+                acc32 = u32::from(reference.is_null());
+            },
+            AccRefIsNullStack => acc32 = u32::from(ValueRef::stack_pop(&mut executor.store.value_stack).is_null()),
             RefAsNonNull => executor.exec_ref_as_non_null()?,
             RefI31 => exec_op!(executor; unary i32 => ValueRef, |v| ValueRef::from_i31(v)),
             I31GetS => executor.exec_i31_get(true)?,
+            AccI31GetS => acc32 = executor.i31_get(true)?,
             I31GetU => executor.exec_i31_get(false)?,
+            AccI31GetU => acc32 = executor.i31_get(false)?,
             RefEq => exec_op!(executor; binary ValueRef => i32, |a, b| i32::from(a == b)),
+            AccRefEq => {
+                let rhs = ValueRef::stack_pop(&mut executor.store.value_stack);
+                let lhs = ValueRef::stack_pop(&mut executor.store.value_stack);
+                acc32 = u32::from(lhs == rhs);
+            },
             RefTest(ty) => executor.exec_ref_test(*ty)?,
+            AccRefTest(ty) => acc32 = u32::from(executor.ref_test(*ty)),
             RefCast(ty) => executor.exec_ref_cast(*ty)?,
 
             // GC objects
-            StructNew(ty) => executor.exec_struct_new(*ty, false)?,
-            StructNewDefault(ty) => executor.exec_struct_new(*ty, true)?,
+            StructNew(ty) => executor.exec_struct_new(*ty, false, acc_ref)?,
+            StructNewDefault(ty) => executor.exec_struct_new(*ty, true, acc_ref)?,
             StructGet(idx) => executor.exec_struct_get(*idx, None)?,
             StructGetS(idx) => executor.exec_struct_get(*idx, Some(true))?,
             StructGetU(idx) => executor.exec_struct_get(*idx, Some(false))?,
             StructSet(idx) => executor.exec_struct_set(*idx)?,
-            ArrayNew(ty) => executor.exec_array_new(*ty, false)?,
-            ArrayNewDefault(ty) => executor.exec_array_new(*ty, true)?,
-            ArrayNewFixed(idx) => executor.exec_array_new_fixed(*idx)?,
-            ArrayNewData(idx) => executor.exec_array_new_data(*idx)?,
-            ArrayNewElem(idx) => executor.exec_array_new_elem(*idx)?,
+            ArrayNew(ty) => executor.exec_array_new(*ty, false, acc_ref)?,
+            ArrayNewDefault(ty) => executor.exec_array_new(*ty, true, acc_ref)?,
+            ArrayNewFixed(idx) => executor.exec_array_new_fixed(*idx, acc_ref)?,
+            ArrayNewData(idx) => executor.exec_array_new_data(*idx, acc_ref)?,
+            ArrayNewElem(idx) => executor.exec_array_new_elem(*idx, acc_ref)?,
             ArrayGet(ty) => executor.exec_array_get(*ty, None)?,
             ArrayGetS(ty) => executor.exec_array_get(*ty, Some(true))?,
             ArrayGetU(ty) => executor.exec_array_get(*ty, Some(false))?,
             ArraySet(ty) => executor.exec_array_set(*ty)?,
             ArrayLen => executor.exec_array_len()?,
+            AccArrayLen => acc32 = executor.array_len()?,
             ArrayFill(ty) => executor.exec_array_fill(*ty)?,
             ArrayCopy(idx) => executor.exec_array_copy(*idx)?,
             ArrayInitData(idx) => executor.exec_array_init_data(*idx)?,
             ArrayInitElem(idx) => executor.exec_array_init_elem(*idx)?,
             MemorySize(addr) => executor.exec_memory_size(*addr)?,
             MemoryGrow(addr) => executor.exec_memory_grow(*addr)?,
+            AccMemoryGrow32(addr) => acc32 = executor.memory_grow(*addr, i64::from(acc32 as i32))? as u32,
+            AccMemoryGrowStack32(addr) => {
+                let delta = Value32::stack_pop(&mut executor.store.value_stack);
+                acc32 = executor.memory_grow(*addr, i64::from(delta as i32))? as u32;
+            },
+            AccMemoryGrow64(addr) => acc64 = executor.memory_grow(*addr, acc64 as i64)? as u64,
+            AccMemoryGrowStack64(addr) => {
+                let delta = Value64::stack_pop(&mut executor.store.value_stack);
+                acc64 = executor.memory_grow(*addr, delta as i64)? as u64;
+            },
 
             // Bulk memory operations
             MemoryCopy(idx) => executor.exec_memory_copy(*idx)?,
@@ -338,6 +1197,24 @@ macro_rules! instruction_handlers {
             TableSize(table_idx) => executor.exec_table_size(*table_idx)?,
             TableInit(idx) => executor.exec_table_init(*idx)?,
             TableGrow(table_idx) => executor.exec_table_grow(*table_idx)?,
+            AccTableGrow32(table_idx) => {
+                let delta = Executor::table_operand(u64::from(acc32))?;
+                acc32 = executor.table_grow(*table_idx, delta)? as u32;
+            },
+            AccTableGrowStack32(table_idx) => {
+                let delta = Value32::stack_pop(&mut executor.store.value_stack);
+                let delta = Executor::table_operand(u64::from(delta))?;
+                acc32 = executor.table_grow(*table_idx, delta)? as u32;
+            },
+            AccTableGrow64(table_idx) => {
+                let delta = Executor::table_operand(acc64)?;
+                acc64 = executor.table_grow(*table_idx, delta)?;
+            },
+            AccTableGrowStack64(table_idx) => {
+                let delta = Value64::stack_pop(&mut executor.store.value_stack);
+                let delta = Executor::table_operand(delta)?;
+                acc64 = executor.table_grow(*table_idx, delta)?;
+            },
             TableFill(table_idx) => executor.exec_table_fill(*table_idx)?,
             TableCopy(idx) => executor.exec_table_copy(*idx)?,
 

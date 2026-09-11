@@ -134,12 +134,20 @@ pub(crate) const fn convert_tag_type(ty: wasmparser::TagType) -> TagType {
     TagType::new(ty.func_type_idx)
 }
 
-fn extend_local_types(local_types: &mut Vec<ValueLane>, count: u32, ty: wasmparser::ValType) -> Result<()> {
+fn extend_local_types(
+    local_types: &mut Vec<ValueLane>,
+    local_numeric32: &mut Vec<bool>,
+    count: u32,
+    ty: wasmparser::ValType,
+) -> Result<()> {
     let size = value_lane(ty);
     let count =
         usize::try_from(count).map_err(|_| crate::ParseError::Other("local declaration count is too large".into()))?;
     local_types.reserve(count);
     local_types.extend(core::iter::repeat_n(size, count));
+    local_numeric32.reserve(count);
+    local_numeric32
+        .extend(core::iter::repeat_n(matches!(ty, wasmparser::ValType::I32 | wasmparser::ValType::F32), count));
     Ok(())
 }
 
@@ -148,11 +156,13 @@ pub(crate) fn convert_module_code(
     validator: Option<FuncValidator<ValidatorResources>>,
     reader_allocs: OperatorsReaderAllocations,
     metadata: &crate::visit::ModuleMetadata,
+    function_index: u32,
     ty_idx: u32,
     options: &ParserOptions,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let mut locals_reader = func.get_locals_reader()?;
     let mut local_types = metadata.signature(ty_idx)?.params.clone();
+    let mut local_numeric32 = metadata.signature(ty_idx)?.params_numeric32.clone();
 
     #[cfg(feature = "validate")]
     let mut validator = validator;
@@ -165,7 +175,7 @@ pub(crate) fn convert_module_code(
         if let Some(validator) = validator.as_mut() {
             validator.define_locals(position, local.0, local.1)?;
         }
-        extend_local_types(&mut local_types, local.0, local.1)?;
+        extend_local_types(&mut local_types, &mut local_numeric32, local.0, local.1)?;
     }
 
     #[cfg(not(feature = "validate"))]
@@ -191,8 +201,9 @@ pub(crate) fn convert_module_code(
             let (body, data, uses_local_memory, validator_allocs, reader_allocs) = process_operators_and_validate(
                 validator,
                 func,
-                (local_types, local_addr_map),
+                (local_types, local_numeric32, local_addr_map),
                 metadata,
+                function_index,
                 ty_idx,
                 reader_allocs,
                 options.deduplicate_operands(),
@@ -202,8 +213,9 @@ pub(crate) fn convert_module_code(
         None => {
             let (body, data, uses_local_memory, reader_allocs) = process_operators(
                 func,
-                (local_types, local_addr_map),
+                (local_types, local_numeric32, local_addr_map),
                 metadata,
+                function_index,
                 ty_idx,
                 reader_allocs,
                 options.deduplicate_operands(),
@@ -216,8 +228,9 @@ pub(crate) fn convert_module_code(
         let _ = validator;
         let (body, data, uses_local_memory, reader_allocs) = process_operators(
             func,
-            (local_types, local_addr_map),
+            (local_types, local_numeric32, local_addr_map),
             metadata,
+            function_index,
             ty_idx,
             reader_allocs,
             options.deduplicate_operands(),

@@ -51,6 +51,16 @@ pub struct MemoryLocalArg {
     pub local2: u8,
 }
 
+/// A full-width memory operand and accumulator tee destination.
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[repr(Rust, packed)]
+pub struct AccMemoryLocalArg {
+    pub memory_arg_idx: Operand128Idx<MemoryOperand>,
+    pub local: LocalAddr,
+}
+
 /// An indexed memory argument and SIMD lane.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -491,6 +501,120 @@ impl BinOp {
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum UnaryOp32 {
+    I32Eqz,
+    I32Clz,
+    I32Ctz,
+    I32Popcnt,
+    I32Extend8S,
+    I32Extend16S,
+    I32TruncF32S,
+    I32TruncF32U,
+    I32TruncSatF32S,
+    I32TruncSatF32U,
+    F32ConvertI32S,
+    F32ConvertI32U,
+    F32Abs,
+    F32Neg,
+    F32Ceil,
+    F32Floor,
+    F32Trunc,
+    F32Nearest,
+    F32Sqrt,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum UnaryOp64 {
+    I64Clz,
+    I64Ctz,
+    I64Popcnt,
+    I64Extend8S,
+    I64Extend16S,
+    I64Extend32S,
+    I64TruncF64S,
+    I64TruncF64U,
+    I64TruncSatF64S,
+    I64TruncSatF64U,
+    F64ConvertI64S,
+    F64ConvertI64U,
+    F64Abs,
+    F64Neg,
+    F64Ceil,
+    F64Floor,
+    F64Trunc,
+    F64Nearest,
+    F64Sqrt,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum LoadOp32 {
+    Full,
+    I8S,
+    I8U,
+    I16S,
+    I16U,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum LoadOp64 {
+    Full,
+    I8S,
+    I8U,
+    I16S,
+    I16U,
+    I32S,
+    I32U,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum ConvertOp32To64 {
+    I64ExtendI32S,
+    I64ExtendI32U,
+    I64TruncF32S,
+    I64TruncF32U,
+    F64ConvertI32S,
+    F64ConvertI32U,
+    F64PromoteF32,
+    I64TruncSatF32S,
+    I64TruncSatF32U,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum ConvertOp64To32 {
+    I64Eqz,
+    I32WrapI64,
+    I32TruncF64S,
+    I32TruncF64U,
+    F32ConvertI64S,
+    F32ConvertI64U,
+    F32DemoteF64,
+    I32TruncSatF64S,
+    I32TruncSatF64U,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+pub enum IntBinOp {
+    DivS,
+    DivU,
+    RemS,
+    RemU,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum BinOp128 {
     And,
     AndNot,
@@ -510,6 +634,108 @@ pub enum BinOp128 {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub enum Instruction {
+    // > Register Instructions
+    AccConst32(i32), AccLocalGet32(LocalAddr), AccLocalGetPush32(LocalAddr), AccLocalGetPush32Push64(LocalAddr), PushAcc32,
+    AccUnaryStack32(UnaryOp32), AccUnaryStackPush32(UnaryOp32),
+    AccMemorySize32(MemAddr), AccTableSize32(TableAddr),
+    AccI32Eqz, AccI32Clz, AccI32Ctz, AccI32Popcnt, AccI32Extend8S, AccI32Extend16S,
+    AccI32TruncF32S, AccI32TruncF32U, AccI32TruncSatF32S, AccI32TruncSatF32U,
+    AccF32ConvertI32S, AccF32ConvertI32U, AccF32Abs, AccF32Neg, AccF32Ceil, AccF32Floor,
+    AccF32Trunc, AccF32Nearest, AccF32Sqrt,
+    AccLoad32(Operand128Idx<MemoryOperand>), AccLoadTee32(AccMemoryLocalArg), AccLoad8S32(Operand128Idx<MemoryOperand>),
+    AccLoad8U32(Operand128Idx<MemoryOperand>), AccLoad16S32(Operand128Idx<MemoryOperand>),
+    AccLoad16U32(Operand128Idx<MemoryOperand>),
+    AccLoadStack32(PackedOp128<LoadOp32, MemoryOperand>),
+    AccLoadPush32(PackedOp128<LoadOp32, MemoryOperand>), AccLoadTeePush32(AccMemoryLocalArg),
+    AccLoadStackPush32(PackedOp128<LoadOp32, MemoryOperand>),
+    AccStore32(Operand128Idx<MemoryOperand>), AccStore8_32(Operand128Idx<MemoryOperand>),
+    AccStore16_32(Operand128Idx<MemoryOperand>),
+    AccI32AddStack, AccI32AddLocal(LocalAddr), AccI32AddConst(i32),
+    AccI32AddLocalConst(I32LocalArg), AccI32AddLocalConstTee(Operand64Idx<(u16, u16, u32)>),
+    AccI32AddLocalConstPush(I32LocalArg), AccI32AddLocalConstTeePush(Operand64Idx<(u16, u16, u32)>),
+    AccI32AddLocalConstPush32Push64(I32LocalArg),
+    AccI32AddLocalConstTeePush32Push64(Operand64Idx<(u16, u16, u32)>),
+    AccBinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), AccBinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>),
+    AccBinOpLocalConstPush32(PackedOp64<BinOp, (u16, u32)>),
+    AccBinOpLocalConstTeePush32(PackedOp64<BinOp, (u16, u16, u32)>),
+    AccI32CmpLocalConst(PackedOp64<CmpOp, (u16, u32)>), AccF32CmpLocalConst(PackedOp64<CmpOp, (u16, u32)>),
+    AccBinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), AccBinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>),
+    AccBinOpLocalLocalPush32(BinOp, LocalAddr, LocalAddr),
+    AccBinOpLocalLocalTeePush32(PackedOp64<BinOp, (u16, u16, u16)>),
+    AccBinOpNestedLocalLocal32(PackedOp64<(BinOp, BinOp), (u16, u16)>),
+    AccBinOpNestedLocalConst32(PackedOp64<(BinOp, BinOp), (u16, u32)>),
+    AccI32CmpLocalLocal(CmpOp, LocalAddr, LocalAddr), AccF32CmpLocalLocal(CmpOp, LocalAddr, LocalAddr),
+    AccBinOpStack32(BinOp), AccBinOpStackPush32(BinOp), AccI32CmpStack(CmpOp), AccF32CmpStack(CmpOp),
+    AccBinOpStackStack32(BinOp), AccI32CmpStackStack(CmpOp), AccF32CmpStackStack(CmpOp),
+    AccBinOpStackStackPush32(BinOp), AccI32CmpStackStackPush32(CmpOp),
+    AccIntBinOpStack32(IntBinOp), AccIntBinOpStackStack32(IntBinOp),
+    AccBinOpLocal32(BinOp, LocalAddr), AccBinOpLocalPush32(BinOp, LocalAddr),
+    AccI32CmpLocal(CmpOp, LocalAddr), AccI32CmpLocalPush32(CmpOp, LocalAddr), AccF32CmpLocal(CmpOp, LocalAddr),
+    AccBinOpConst32(BinOp, i32), AccBinOpConstTee32(PackedOp64<BinOp, (u16, u32)>),
+    AccBinOpConstPush32(BinOp, i32), AccBinOpConstTeePush32(PackedOp64<BinOp, (u16, u32)>),
+    AccI32CmpConst(CmpOp, i32), AccI32CmpConstPush32(CmpOp, i32), AccF32CmpConst(CmpOp, i32),
+    AccLocalSet32(LocalAddr), AccLocalTee32(LocalAddr), AccLocalTeePush32(LocalAddr),
+    AccGlobalGet32(GlobalAddr), AccGlobalSet32(GlobalAddr),
+    AccSelect32, AccSelectPush32,
+    JumpIfAccZero32(u32), JumpIfAccNonZero32(u32),
+
+    AccConst64(Operand64Idx<i64>), AccLocalGet64(LocalAddr), PushAcc64, AccUnaryStack64(UnaryOp64),
+    AccMemorySize64(MemAddr), AccTableSize64(TableAddr),
+    AccI64Eqz, AccI64Clz, AccI64Ctz, AccI64Popcnt, AccI64Extend8S, AccI64Extend16S, AccI64Extend32S,
+    AccI64TruncF64S, AccI64TruncF64U, AccI64TruncSatF64S, AccI64TruncSatF64U,
+    AccF64ConvertI64S, AccF64ConvertI64U, AccF64Abs, AccF64Neg, AccF64Ceil, AccF64Floor,
+    AccF64Trunc, AccF64Nearest, AccF64Sqrt,
+    AccI32WrapI64, AccI32TruncF64S, AccI32TruncF64U, AccI32TruncSatF64S, AccI32TruncSatF64U,
+    AccF32ConvertI64S, AccF32ConvertI64U, AccF32DemoteF64,
+    AccI64ExtendI32S, AccI64ExtendI32U, AccI64TruncF32S, AccI64TruncF32U,
+    AccI64TruncSatF32S, AccI64TruncSatF32U,
+    AccF64ConvertI32S, AccF64ConvertI32U, AccF64PromoteF32,
+    AccConvertStack32To64(ConvertOp32To64), AccConvertStack32To64Push64(ConvertOp32To64),
+    AccConvertStack64To32(ConvertOp64To32), AccConvertStack64To32Push32(ConvertOp64To32),
+    AccLoad64Addr32(Operand128Idx<MemoryOperand>), AccLoad64Addr32Push64(Operand128Idx<MemoryOperand>),
+    AccLoad8S64Addr32(Operand128Idx<MemoryOperand>),
+    AccLoad8U64Addr32(Operand128Idx<MemoryOperand>), AccLoad16S64Addr32(Operand128Idx<MemoryOperand>),
+    AccLoad16U64Addr32(Operand128Idx<MemoryOperand>), AccLoad32S64Addr32(Operand128Idx<MemoryOperand>),
+    AccLoad32U64Addr32(Operand128Idx<MemoryOperand>),
+    AccLoad64Addr64(Operand128Idx<MemoryOperand>), AccLoad8S64Addr64(Operand128Idx<MemoryOperand>),
+    AccLoad8U64Addr64(Operand128Idx<MemoryOperand>), AccLoad16S64Addr64(Operand128Idx<MemoryOperand>),
+    AccLoad16U64Addr64(Operand128Idx<MemoryOperand>), AccLoad32S64Addr64(Operand128Idx<MemoryOperand>),
+    AccLoad32U64Addr64(Operand128Idx<MemoryOperand>),
+    AccLoadStack64(PackedOp128<LoadOp64, MemoryOperand>),
+    AccLoadStackPush64(PackedOp128<LoadOp64, MemoryOperand>),
+    AccLoad32Addr64(Operand128Idx<MemoryOperand>), AccLoad8S32Addr64(Operand128Idx<MemoryOperand>),
+    AccLoad8U32Addr64(Operand128Idx<MemoryOperand>), AccLoad16S32Addr64(Operand128Idx<MemoryOperand>),
+    AccLoad16U32Addr64(Operand128Idx<MemoryOperand>),
+    AccStore64(Operand128Idx<MemoryOperand>), AccStore8_64(Operand128Idx<MemoryOperand>),
+    AccStore16_64(Operand128Idx<MemoryOperand>), AccStore32_64(Operand128Idx<MemoryOperand>),
+    AccBinOpStack64(BinOp), AccBinOpStackTee64(BinOp, LocalAddr), AccBinOpStackStack64(BinOp),
+    AccBinOpStackStackPush64(BinOp), AccBinOpStackStackTee64(BinOp, LocalAddr),
+    AccBinOpStackStackTeePush64(BinOp, LocalAddr),
+    AccIntBinOpStack64(IntBinOp), AccIntBinOpStackStack64(IntBinOp),
+    AccBinOpLocal64(BinOp, LocalAddr), AccBinOpLocalTee64(BinOp, LocalAddr, LocalAddr),
+    AccBinOpLocalPush64(BinOp, LocalAddr), AccBinOpLocalTeePush64(BinOp, LocalAddr, LocalAddr),
+    AccBinOpConst64(PackedOp64<BinOp, i64>), AccBinOpConstTee64(PackedOp128<BinOp, (u16, u64)>),
+    AccBinOpConstPush64(PackedOp64<BinOp, i64>), AccBinOpConstTeePush64(PackedOp128<BinOp, (u16, u64)>),
+    AccBinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>), AccBinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
+    AccBinOpLocalConstPush64(PackedOp128<BinOp, (u16, u64)>),
+    AccBinOpLocalLocalPush64(BinOp, LocalAddr, LocalAddr),
+    AccBinOpNestedLocalLocal64(PackedOp64<(BinOp, BinOp), (u16, u16)>),
+    AccBinOpNestedLocalLocalTee64(PackedOp64<(BinOp, BinOp), (u16, u16, u16)>),
+    AccBinOpNestedLocalConst64(PackedOp128<(BinOp, BinOp), (u16, u64)>),
+    AccBinOpNestedLocalConstPush64(PackedOp128<(BinOp, BinOp), (u16, u64)>),
+    AccI64CmpStack(CmpOp), AccI64CmpStackStack(CmpOp),
+    AccI64CmpLocal(CmpOp, LocalAddr), AccI64CmpConst(PackedOp64<CmpOp, i64>),
+    AccI64CmpLocalConst(PackedOp128<CmpOp, (u16, u64)>), AccI64CmpLocalLocal(CmpOp, LocalAddr, LocalAddr),
+    AccF64CmpStack(CmpOp), AccF64CmpStackStack(CmpOp),
+    AccF64CmpLocal(CmpOp, LocalAddr), AccF64CmpConst(PackedOp64<CmpOp, i64>),
+    AccF64CmpLocalConst(PackedOp128<CmpOp, (u16, u64)>), AccF64CmpLocalLocal(CmpOp, LocalAddr, LocalAddr),
+    AccLocalSet64(LocalAddr), AccLocalTee64(LocalAddr), AccLocalTeePush64(LocalAddr),
+    AccGlobalGet64(GlobalAddr), AccGlobalSet64(GlobalAddr), AccSelect64,
+    JumpIfAccZero64(u32), JumpIfAccNonZero64(u32),
+
+    AccRefNull, AccRefFunc(FuncAddr), AccRefLocalGet(LocalAddr), PushAccRef, ClearAccRef,
+    AccRefLocalSet(LocalAddr), AccRefLocalTee(LocalAddr), AccRefGlobalGet(GlobalAddr), AccRefGlobalSet(GlobalAddr),
+
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
     AddConst32(i32), AndConst32(i32), XorConst32(i32), ShrUConst32(i32), AddConst64(Operand64Idx<i64>),
     IncLocal32(I32LocalArg), IncLocal64(PackedOp64<LocalAddr, i64>),
@@ -585,6 +811,9 @@ pub enum Instruction {
     ReturnVoid,
     Return32,
     Return64,
+    ReturnAcc32,
+    ReturnAcc64,
+    ReturnAccRef,
     Return128,
     Call(FuncAddr),
     CallSelf,
@@ -606,7 +835,7 @@ pub enum Instruction {
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr), GlobalTee32(GlobalAddr), LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr),
+    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr), GlobalTee32(GlobalAddr), LocalGet32(LocalAddr), LocalGetPushAcc32(LocalAddr), LocalGetPushAcc32PushAcc64(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr),
     GlobalGet64(GlobalAddr), GlobalSet64(GlobalAddr), GlobalTee64(GlobalAddr), LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr),
     GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr), GlobalTee128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr),
 
@@ -618,22 +847,24 @@ pub enum Instruction {
     I32Store8(Operand128Idx<MemoryOperand>), I32Store16(Operand128Idx<MemoryOperand>), I64Store8(Operand128Idx<MemoryOperand>), I64Store16(Operand128Idx<MemoryOperand>), I64Store32(Operand128Idx<MemoryOperand>),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
+    AccMemoryGrow32(MemAddr), AccMemoryGrowStack32(MemAddr),
+    AccMemoryGrow64(MemAddr), AccMemoryGrowStack64(MemAddr),
 
     // > Constants
-    Const32(i32),
+    Const32(i32), ConstPushAcc32(i32),
     Const64Imm(i32),
     Const64(Operand64Idx<i64>),
 
     // > Reference Types
     RefNull(RefType),
     RefFunc(FuncAddr),
-    RefIsNull,
+    RefIsNull, AccRefIsNull, AccRefIsNullStack,
     RefAsNonNull,
     RefI31,
-    I31GetS,
-    I31GetU,
-    RefEq,
-    RefTest(RefType),
+    I31GetS, AccI31GetS,
+    I31GetU, AccI31GetU,
+    RefEq, AccRefEq,
+    RefTest(RefType), AccRefTest(RefType),
     RefCast(RefType),
     BrOnCast(Operand64Idx<(u32, u32)>),
     BrOnCastFail(Operand64Idx<(u32, u32)>),
@@ -650,7 +881,7 @@ pub enum Instruction {
     ArrayGetS(TypeAddr),
     ArrayGetU(TypeAddr),
     ArraySet(TypeAddr),
-    ArrayLen,
+    ArrayLen, AccArrayLen,
     ArrayFill(TypeAddr),
     ArrayCopy(Operand64Idx<(u32, u32)>), ArrayInitData(Operand64Idx<(u32, u32)>), ArrayInitElem(Operand64Idx<(u32, u32)>),
 
@@ -687,6 +918,8 @@ pub enum Instruction {
     TableSet(TableAddr),
     TableCopy(Operand64Idx<(u32, u32)>),
     TableGrow(TableAddr),
+    AccTableGrow32(TableAddr), AccTableGrowStack32(TableAddr),
+    AccTableGrow64(TableAddr), AccTableGrowStack64(TableAddr),
     TableSize(TableAddr),
     TableFill(TableAddr),
 

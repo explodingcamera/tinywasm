@@ -35,19 +35,20 @@ fn globals_use_typed_instructions_and_roundtrip_values() -> Result<(), Box<dyn c
 
     let module = tinywasm::parse_bytes(&wasm)?;
     let instructions = module.funcs.iter().flat_map(|func| func.instructions.iter());
-    let (mut tee32, mut tee64, mut tee128, mut fused32, mut fused64) = (0, 0, 0, 0, 0);
+    let (mut set32, mut set64, mut set128, mut acc_get32, mut acc_get64, mut acc_ref_get) = (0, 0, 0, 0, 0, 0);
     for instruction in instructions {
         match instruction {
-            Instruction::GlobalTee32(_) => tee32 += 1,
-            Instruction::GlobalTee64(_) => tee64 += 1,
-            Instruction::GlobalTee128(_) => tee128 += 1,
-            Instruction::BinOpStackGlobal32(..) => fused32 += 1,
-            Instruction::BinOpStackGlobal64(..) => fused64 += 1,
+            Instruction::GlobalSet32(_) => set32 += 1,
+            Instruction::GlobalSet64(_) => set64 += 1,
+            Instruction::GlobalSet128(_) => set128 += 1,
+            Instruction::AccGlobalGet32(_) => acc_get32 += 1,
+            Instruction::AccGlobalGet64(_) => acc_get64 += 1,
+            Instruction::AccRefGlobalGet(_) => acc_ref_get += 1,
             _ => {}
         }
     }
-    assert_eq!((tee32, tee64, tee128), (3, 2, 1));
-    assert_eq!((fused32, fused64), (1, 1));
+    assert_eq!((set32, set64, set128), (3, 2, 1));
+    assert_eq!((acc_get32, acc_get64, acc_ref_get), (3, 3, 1));
 
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;

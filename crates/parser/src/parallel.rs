@@ -1,9 +1,9 @@
-use crate::module::{OptimizedFunctionCode, optimize_function_code};
+use crate::module::FunctionCode;
 use crate::validation::{FuncToValidate, FuncValidatorAllocations, ValidatorResources};
 use crate::{ParseError, ParserOptions, Result, conversion};
 use alloc::vec::Vec;
 use core::ops::Range;
-use tinywasm_types::{Shared, ValueCounts};
+use tinywasm_types::Shared;
 use wasmparser::OperatorsReaderAllocations;
 
 pub(crate) enum FunctionBodyInput<'a> {
@@ -20,9 +20,8 @@ pub(crate) struct OwnedFunctionBody {
 }
 
 pub(crate) struct PendingFunction<'a> {
-    pub ordinal: usize,
-    pub results: ValueCounts,
     pub func_to_validate: Option<FuncToValidate<ValidatorResources>>,
+    pub function_index: u32,
     pub ty_idx: u32,
     pub body: FunctionBodyInput<'a>,
 }
@@ -59,10 +58,9 @@ fn process_function_job(
     job: PendingFunction<'_>,
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
-    imported_func_count: usize,
     validator_allocs: Option<FuncValidatorAllocations>,
     reader_allocs: OperatorsReaderAllocations,
-) -> Result<(OptimizedFunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     #[cfg(feature = "validate")]
     let validator = job.func_to_validate.map(|func| func.into_validator(validator_allocs.unwrap_or_default()));
     #[cfg(not(feature = "validate"))]
@@ -71,17 +69,29 @@ fn process_function_job(
         None
     };
     let (code, validator_allocs, reader_allocs) = match job.body {
-        FunctionBodyInput::Borrowed(func) => {
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
-        }
+        FunctionBodyInput::Borrowed(func) => conversion::convert_module_code(
+            func,
+            validator,
+            reader_allocs,
+            metadata,
+            job.function_index,
+            job.ty_idx,
+            options,
+        )?,
         FunctionBodyInput::Owned(body) => {
             let reader = wasmparser::BinaryReader::new(&body.section_bytes[body.body_range], body.body_offset);
             let func = wasmparser::FunctionBody::new(reader);
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
+            conversion::convert_module_code(
+                func,
+                validator,
+                reader_allocs,
+                metadata,
+                job.function_index,
+                job.ty_idx,
+                options,
+            )?
         }
     };
-
-    let code = optimize_function_code(code, options, job.results, (imported_func_count + job.ordinal) as u32)?;
 
     Ok((code, validator_allocs, reader_allocs))
 }
@@ -90,8 +100,7 @@ fn process_chunk<'a>(
     jobs: impl IntoIterator<Item = PendingFunction<'a>>,
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
-    imported_func_count: usize,
-) -> Result<Vec<OptimizedFunctionCode>> {
+) -> Result<Vec<FunctionCode>> {
     let mut validator_allocs = None;
     let mut reader_allocs = OperatorsReaderAllocations::default();
     let jobs = jobs.into_iter();
@@ -99,7 +108,7 @@ fn process_chunk<'a>(
 
     for job in jobs {
         let (code, next_validator_allocs, next_reader_allocs) =
-            process_function_job(job, metadata, options, imported_func_count, validator_allocs, reader_allocs)?;
+            process_function_job(job, metadata, options, validator_allocs, reader_allocs)?;
         codes.push(code);
         validator_allocs = next_validator_allocs;
         reader_allocs = next_reader_allocs;
@@ -112,11 +121,10 @@ pub(crate) fn process_pending(
     pending: Vec<PendingFunction<'_>>,
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
-    imported_func_count: usize,
-) -> Result<Vec<OptimizedFunctionCode>> {
+) -> Result<Vec<FunctionCode>> {
     let num_workers = worker_count(options, pending.len());
     if num_workers == 1 {
-        return process_chunk(pending, metadata, options, imported_func_count);
+        return process_chunk(pending, metadata, options);
     }
     let code_count = pending.len();
     let chunk_size = pending.len().div_ceil(num_workers);
@@ -134,7 +142,7 @@ pub(crate) fn process_pending(
                 bytes += body_len(&job.body);
                 chunk.push(job);
             }
-            handles.push(scope.spawn(move || process_chunk(chunk, metadata, options, imported_func_count)));
+            handles.push(scope.spawn(move || process_chunk(chunk, metadata, options)));
         }
 
         let mut codes = Vec::with_capacity(code_count);

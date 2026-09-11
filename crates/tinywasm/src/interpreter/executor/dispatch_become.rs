@@ -3,9 +3,6 @@ use super::*;
 struct Unbudgeted;
 struct Bounded;
 
-type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction) -> ExecResult<()>;
-type BoundedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
-
 #[cold]
 #[inline(never)]
 fn instruction_handler_mismatch() -> ! {
@@ -13,30 +10,53 @@ fn instruction_handler_mismatch() -> ! {
 }
 
 macro_rules! define_unbudgeted_tail_dispatch {
-    ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
+    ($executor:ident, $instr_ptr:ident, $acc32:ident, $acc64:ident, $acc_ref:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        #[inline(always)]
-        fn handler_for(instruction: &Instruction) -> UnbudgetedHandler {
+        fn dispatch(
+            $executor: &mut Executor<'_>,
+            $instr_ptr: usize,
+            instruction: Instruction,
+            $acc32: u32,
+            $acc64: u64,
+            $acc_ref: ValueRef,
+        ) -> ExecResult<()> {
             use tinywasm_types::Instruction::*;
 
-            match instruction {
-                $($variant { .. } => Self::$variant,)*
+            match &instruction {
+                $($variant { .. } => become Self::$variant(
+                    $executor,
+                    $instr_ptr,
+                    instruction,
+                    $acc32,
+                    $acc64,
+                    $acc_ref,
+                ),)*
             }
         }
 
         $(
-            #[allow(non_snake_case, unreachable_code, unused_imports, unused_macros, unused_variables)]
+            #[allow(
+                non_snake_case,
+                unreachable_code,
+                unused_assignments,
+                unused_imports,
+                unused_macros,
+                unused_mut,
+                unused_variables
+            )]
             fn $variant(
                 $executor: &mut Executor<'_>,
                 $instr_ptr: usize,
                 instruction: Instruction,
+                mut $acc32: u32,
+                mut $acc64: u64,
+                mut $acc_ref: ValueRef,
             ) -> ExecResult<()> {
                 macro_rules! $dispatch_next {
                     ($next_instr_ptr:expr) => {{
                         let next_instr_ptr = $next_instr_ptr;
                         let instruction = $executor.func.instructions[next_instr_ptr];
-                        let handler = Self::handler_for(&instruction);
-                        become handler($executor, next_instr_ptr, instruction);
+                        become Self::dispatch($executor, next_instr_ptr, instruction, $acc32, $acc64, $acc_ref);
                     }};
                 }
                 macro_rules! $dispatch_flow {
@@ -62,23 +82,49 @@ macro_rules! define_unbudgeted_tail_dispatch {
 }
 
 macro_rules! define_bounded_tail_dispatch {
-    ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
+    ($executor:ident, $instr_ptr:ident, $acc32:ident, $acc64:ident, $acc_ref:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        #[inline(always)]
-        fn handler_for(instruction: &Instruction) -> BoundedHandler {
+        fn dispatch(
+            $executor: &mut Executor<'_>,
+            $instr_ptr: usize,
+            instruction: Instruction,
+            $acc32: u32,
+            $acc64: u64,
+            $acc_ref: ValueRef,
+            instructions_until_checkpoint: u32,
+        ) -> ExecResult<()> {
             use tinywasm_types::Instruction::*;
 
-            match instruction {
-                $($variant { .. } => Self::$variant,)*
+            match &instruction {
+                $($variant { .. } => become Self::$variant(
+                    $executor,
+                    $instr_ptr,
+                    instruction,
+                    $acc32,
+                    $acc64,
+                    $acc_ref,
+                    instructions_until_checkpoint,
+                ),)*
             }
         }
 
         $(
-            #[allow(non_snake_case, unreachable_code, unused_imports, unused_macros, unused_variables)]
+            #[allow(
+                non_snake_case,
+                unreachable_code,
+                unused_assignments,
+                unused_imports,
+                unused_macros,
+                unused_mut,
+                unused_variables
+            )]
             fn $variant(
                 $executor: &mut Executor<'_>,
                 $instr_ptr: usize,
                 instruction: Instruction,
+                mut $acc32: u32,
+                mut $acc64: u64,
+                mut $acc_ref: ValueRef,
                 instructions_until_checkpoint: u32,
             ) -> ExecResult<()> {
                 macro_rules! $dispatch_next {
@@ -87,13 +133,23 @@ macro_rules! define_bounded_tail_dispatch {
                         if instructions_until_checkpoint == 0 {
                             return cold!({
                                 $executor.cf.instr_ptr = next_instr_ptr;
+                                $executor.cf.acc32 = $acc32;
+                                $executor.cf.acc64 = $acc64;
+                                $executor.cf.acc_ref = $acc_ref;
                                 Ok(())
                             });
                         }
 
                         let instruction = $executor.func.instructions[next_instr_ptr];
-                        let handler = Self::handler_for(&instruction);
-                        become handler($executor, next_instr_ptr, instruction, instructions_until_checkpoint - 1);
+                        become Self::dispatch(
+                            $executor,
+                            next_instr_ptr,
+                            instruction,
+                            $acc32,
+                            $acc64,
+                            $acc_ref,
+                            instructions_until_checkpoint - 1,
+                        );
                     }};
                 }
                 macro_rules! $dispatch_flow {
@@ -132,8 +188,15 @@ impl Bounded {
     fn run(executor: &mut Executor<'_>) -> ExecResult<()> {
         let instr_ptr = executor.cf.instr_ptr;
         let instruction = executor.func.instructions[instr_ptr];
-        let handler = Self::handler_for(&instruction);
-        handler(executor, instr_ptr, instruction, CHECKPOINT_INTERVAL - 1)
+        Self::dispatch(
+            executor,
+            instr_ptr,
+            instruction,
+            executor.cf.acc32,
+            executor.cf.acc64,
+            executor.cf.acc_ref,
+            CHECKPOINT_INTERVAL - 1,
+        )
     }
 }
 
@@ -142,8 +205,8 @@ impl<'store> Executor<'store> {
     pub(crate) fn run_to_completion(mut self) -> Result<()> {
         let instr_ptr = self.cf.instr_ptr;
         let instruction = self.func.instructions[instr_ptr];
-        let handler = Unbudgeted::handler_for(&instruction);
-        Ok(handler(&mut self, instr_ptr, instruction)?)
+        let (acc32, acc64, acc_ref) = (self.cf.acc32, self.cf.acc64, self.cf.acc_ref);
+        Ok(Unbudgeted::dispatch(&mut self, instr_ptr, instruction, acc32, acc64, acc_ref)?)
     }
 
     #[cfg(feature = "std")]

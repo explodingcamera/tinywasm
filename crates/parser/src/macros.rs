@@ -27,6 +27,81 @@ pub(crate) mod visit {
 
     macro_rules! lowering_ops {
         () => {};
+        (acc_unary32 {
+            $($visit:ident => $acc_instr:ident, $op:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_unary32(Instruction::$acc_instr, UnaryOp32::$op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_unary64 {
+            $($visit:ident => $acc_instr:ident, $op:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_unary64(Instruction::$acc_instr, UnaryOp64::$op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_cross $source:ident => $destination:ident {
+            $($visit:ident => $acc_instr:ident, $stack_instruction:expr),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_cross_lane(
+                        ValueLane::$source,
+                        ValueLane::$destination,
+                        Instruction::$acc_instr,
+                        $stack_instruction,
+                    )
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_binary32 {
+            $($visit:ident => $op:expr);* $(;)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_binary32($op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_binary64 {
+            $($visit:ident => $op:expr);* $(;)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_binary64($op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_int_binary32 {
+            $($visit:ident => $op:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_int_binary32(IntBinOp::$op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_int_binary64 {
+            $($visit:ident => $op:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self) -> Self::Output {
+                    self.emit_accumulator_int_binary64(IntBinOp::$op)
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
         ($kind:ident $inputs:tt => $outputs:tt {
             $($visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident),* $(,)?
         } $($rest:tt)*) => {
@@ -52,6 +127,29 @@ pub(crate) mod visit {
             )*
             lowering_ops!($($rest)*);
         };
+        (heap_acc32 $nullable:literal {
+            $($visit:ident => $instr:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(
+                fn $visit(&mut self, heap_type: wasmparser::HeapType) -> Self::Output {
+                    let ty = convert_heap_type(heap_type, $nullable)?;
+                    self.emit_accumulator_reference32(&[ValueLane::S32], Instruction::$instr(ty))
+                }
+            )*
+            lowering_ops!($($rest)*);
+        };
+        (acc_reference32 $inputs:tt {
+            $($visit:ident => $instr:ident),* $(,)?
+        } $($rest:tt)*) => {
+            $(lowering_ops!(@acc_reference32 $inputs $visit => $instr);)*
+            lowering_ops!($($rest)*);
+        };
+
+        (@acc_reference32 [$($input:ident),*] $visit:ident => $instr:ident) => {
+            fn $visit(&mut self) -> Self::Output {
+                self.emit_accumulator_reference32(&[$(ValueLane::$input),*], Instruction::$instr)
+            }
+        };
 
         (@unsupported [$($argty:ty),*] $visit:ident) => {
             fn $visit(&mut self $(, _: $argty)*) -> Self::Output {
@@ -76,8 +174,11 @@ pub(crate) mod visit {
                 let memory_arg_idx = self.push_operand128(tinywasm_types::Operand128::<
                     tinywasm_types::MemoryOperand,
                 >::new(memarg.offset, memarg.memory))?;
-                lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
-                    lowering_ops!(@memory_instruction $instr memory_arg_idx $(, $lane)?))
+                self.emit_memory(
+                    &[$(lowering_ops!(@size $input, address)),*],
+                    &[$(lowering_ops!(@size $output, address)),*],
+                    lowering_ops!(@memory_instruction $instr memory_arg_idx $(, $lane)?),
+                )
             }
         };
         (@memory_instruction $instr:ident $memory_arg_idx:ident) => {
@@ -134,13 +235,15 @@ pub(crate) mod visit {
         };
         (@effect [$($input:ident),*] => [$($output:ident),*] $visit:ident) => {
             fn $visit(&mut self) -> Self::Output {
-                self.apply_effect(&[$(lowering_ops!(@size $input)),*], &[$(lowering_ops!(@size $output)),*])
+                self.preserve_effect(&[$(lowering_ops!(@size $input)),*], &[$(lowering_ops!(@size $output)),*])
             }
         };
         (@terminating [$($input:ident),*] => [$($output:ident),*] $visit:ident => $instr:ident) => {
             fn $visit(&mut self) -> Self::Output {
+                lowering_ops!(@emit self fixed [$($input),*] => [$($output),*] Instruction::$instr)?;
+                self.discard_accumulator_owners();
                 self.mark_unreachable();
-                lowering_ops!(@emit self fixed [$($input),*] => [$($output),*] Instruction::$instr)
+                Ok(())
             }
         };
 
@@ -192,65 +295,4 @@ pub(crate) mod visit {
     pub(crate) use {impl_visit_operator, lowering_ops};
     #[cfg(feature = "validate")]
     pub(crate) use {validate_then_visit, validate_then_visit_simd};
-}
-
-pub(crate) mod optimize {
-    macro_rules! replace {
-        ($instructions:ident, $read:ident, $consumed:expr => [$($out:expr),+ $(,)?]) => {{
-            const {
-                assert!($consumed >= 1 && $consumed <= 3);
-                assert!([$(stringify!($out)),+].len() <= $consumed + 1);
-            }
-            let replacements = [$($out),+];
-            let start = $read - $consumed;
-            $instructions[start..start + replacements.len()].copy_from_slice(&replacements);
-            $instructions.truncate(start + replacements.len());
-            #[allow(unused_assignments)]
-            { $read = $instructions.len() - 1; }
-        }};
-        ($instructions:ident, $read:ident, $consumed:expr => $out:expr) => {
-            replace!($instructions, $read, $consumed => [$out]);
-        };
-        ($instructions:ident, *$read:ident, $consumed:expr => [$($out:expr),+ $(,)?]) => {{
-            const {
-                assert!($consumed >= 1 && $consumed <= 3);
-                assert!([$(stringify!($out)),+].len() <= $consumed + 1);
-            }
-            let replacements = [$($out),+];
-            let start = *$read - $consumed;
-            $instructions[start..start + replacements.len()].copy_from_slice(&replacements);
-            $instructions.truncate(start + replacements.len());
-            *$read = $instructions.len() - 1;
-        }};
-        ($instructions:ident, *$read:ident, $consumed:expr => $out:expr) => {
-            replace!($instructions, *$read, $consumed => [$out])
-        };
-    }
-
-    macro_rules! rewrite {
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => [$($out:expr),+ $(,)?]) => {
-            rewrite!($instructions, $read, [$($pattern),+] $(if ($($guard)+))? => {
-                replace!($instructions, $read, [$(stringify!($pattern)),+].len() => [$($out),+]);
-            })
-        };
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => $body:block $(,)?) => {{
-            const CONSUMED: usize = [$(stringify!($pattern)),+].len();
-            if $read >= $instructions.block_start + CONSUMED {
-                let previous: [Instruction; CONSUMED] = $instructions[$read - CONSUMED..$read].try_into().unwrap();
-                if let [$($pattern),+] = previous $(
-                    && $($guard)+
-                )? {
-                    $body
-                    continue;
-                }
-            }
-        }};
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => $out:expr $(,)?) => {
-            rewrite!($instructions, $read, [$($pattern),+] $(if ($($guard)+))? => {
-                replace!($instructions, $read, [$(stringify!($pattern)),+].len() => $out);
-            })
-        };
-    }
-
-    pub(crate) use {replace, rewrite};
 }

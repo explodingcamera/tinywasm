@@ -19,7 +19,7 @@ let bytes = include_bytes!("./file.wasm");
 let parser = Parser::default();
 let module = parser.parse_module_bytes(bytes)?;
 
-let parser = Parser::new(ParserOptions::default().with_rewrite_optimization(false));
+let parser = Parser::new(ParserOptions::default().with_operand_deduplication(true));
 let module = parser.parse_module_bytes(bytes)?;
 
 let module = parser.parse_module_file("path/to/file.wasm")?;

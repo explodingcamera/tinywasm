@@ -309,6 +309,7 @@ macro_rules! packed_layout {
 packed_layout!(Operand64, operands64, i64);
 packed_layout!(Operand64, operands64, u32, u32);
 packed_layout!(Operand64, operands64, u16, u32);
+packed_layout!(Operand64, operands64, u16, u16);
 packed_layout!(Operand64, operands64, u32, u16);
 packed_layout!(Operand64, operands64, u16, u16, u16);
 packed_layout!(Operand64, operands64, u16, u16, u32);

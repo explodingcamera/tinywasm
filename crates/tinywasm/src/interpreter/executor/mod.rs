@@ -374,15 +374,25 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_global_get<T: InternalValue>(&mut self, global: GlobalAddr) -> Result<(), Trap> {
-        let addr = self.module.resolve_global_addr(global);
-        let value = T::global_get(&self.store.state.globals, addr);
+        let value = self.exec_global_get_value(global);
         T::stack_push(&mut self.store.value_stack, value)
     }
 
     #[inline(always)]
-    fn exec_global_set<T: InternalValue>(&mut self, global: GlobalAddr) {
+    fn exec_global_get_value<T: InternalValue>(&self, global: GlobalAddr) -> T {
         let addr = self.module.resolve_global_addr(global);
+        T::global_get(&self.store.state.globals, addr)
+    }
+
+    #[inline(always)]
+    fn exec_global_set<T: InternalValue>(&mut self, global: GlobalAddr) {
         let value = T::stack_pop(&mut self.store.value_stack);
+        self.exec_global_set_value(global, value);
+    }
+
+    #[inline(always)]
+    fn exec_global_set_value<T: InternalValue>(&mut self, global: GlobalAddr, value: T) {
+        let addr = self.module.resolve_global_addr(global);
         T::global_set(&mut self.store.state.globals, addr, value);
     }
 
@@ -399,10 +409,13 @@ impl<'store> Executor<'store> {
         dst: Option<LocalAddr>,
         val: T,
     ) -> Result<(), Trap> {
+        if PUSH {
+            T::stack_push(&mut self.store.value_stack, val)?;
+        }
         if let Some(dst) = dst {
             T::local_set(&mut self.store.value_stack, &self.cf, dst, val);
         }
-        if PUSH { T::stack_push(&mut self.store.value_stack, val) } else { Ok(()) }
+        Ok(())
     }
 
     #[inline(always)]
@@ -523,7 +536,7 @@ impl<'store> Executor<'store> {
         target_ip as usize
     }
 
-    fn create_exception(&mut self, tag_index: TagAddr) -> Result<ValueRef, Trap> {
+    fn create_exception(&mut self, tag_index: TagAddr, acc_ref: ValueRef) -> Result<ValueRef, Trap> {
         let tag_addr = self.module.resolve_tag_addr(tag_index);
         let type_addr = self.store.state.get_tag(tag_addr).type_addr;
         let payload_len = self.store.state.get_canonical_func_type(type_addr).params().len();
@@ -541,12 +554,13 @@ impl<'store> Executor<'store> {
             });
         }
         payload.reverse();
-        let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
+        let roots = core::iter::once(acc_ref)
+            .chain((&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw));
         self.store.state.alloc_exception(tag_addr, payload, roots)
     }
 
-    fn exec_throw(&mut self, tag_index: TagAddr, instr_ptr: usize) -> ExecResult<ExecFlow> {
-        let exception = self.create_exception(tag_index)?;
+    fn exec_throw(&mut self, tag_index: TagAddr, instr_ptr: usize, acc_ref: ValueRef) -> ExecResult<ExecFlow> {
+        let exception = self.create_exception(tag_index, acc_ref)?;
         self.throw_exception(exception, instr_ptr)
     }
 
@@ -851,6 +865,25 @@ impl<'store> Executor<'store> {
         self.finish_return()
     }
 
+    fn exec_return_acc32(&mut self, acc32: u32) -> Result<ExecFlow, Trap> {
+        self.store.value_stack.truncate_to_base(self.cf.locals_base);
+        Value32::stack_push(&mut self.store.value_stack, acc32)?;
+        Ok(self.finish_return())
+    }
+
+    fn exec_return_acc64(&mut self, acc64: u64) -> Result<ExecFlow, Trap> {
+        self.store.value_stack.truncate_to_base(self.cf.locals_base);
+        Value64::stack_push(&mut self.store.value_stack, acc64)?;
+        Ok(self.finish_return())
+    }
+
+    fn exec_return_acc_ref(&mut self, acc_ref: &mut ValueRef) -> Result<ExecFlow, Trap> {
+        self.store.value_stack.truncate_to_base(self.cf.locals_base);
+        let reference = core::mem::replace(acc_ref, ValueRef::NULL);
+        ValueRef::stack_push(&mut self.store.value_stack, reference)?;
+        Ok(self.finish_return())
+    }
+
     fn exec_return_128(&mut self) -> ExecFlow {
         self.store.value_stack.stack_32.truncate_to(self.cf.locals_base.s32 as usize);
         self.store.value_stack.stack_64.truncate_to(self.cf.locals_base.s64 as usize);
@@ -864,8 +897,17 @@ impl<'store> Executor<'store> {
         addr_local: u8,
         value_local: u8,
     ) -> Result<(), Trap> {
-        let memarg = index.resolve(&self.func.data);
         let value = T::local_get(&self.store.value_stack, &self.cf, u16::from(value_local));
+        self.exec_store_local_value(index, addr_local, value)
+    }
+
+    fn exec_store_local_value<T: MemValue<N>, const N: usize>(
+        &mut self,
+        index: Operand64Idx<CompactMemoryOperand>,
+        addr_local: u8,
+        value: T,
+    ) -> Result<(), Trap> {
+        let memarg = index.resolve(&self.func.data);
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
         let mem = self.store.state.get_mem_mut(mem_addr);
         let addr = if mem.is_64bit() {
@@ -989,9 +1031,13 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_ref_test(&mut self, ty: RefType) -> Result<(), Trap> {
-        let value = ValueRef::stack_pop(&mut self.store.value_stack);
-        let matches = self.store.state.value_ref_matches(value, self.canonical_ref_type(ty));
+        let matches = self.ref_test(ty);
         i32::stack_push(&mut self.store.value_stack, i32::from(matches))
+    }
+
+    fn ref_test(&mut self, ty: RefType) -> bool {
+        let value = ValueRef::stack_pop(&mut self.store.value_stack);
+        self.store.state.value_ref_matches(value, self.canonical_ref_type(ty))
     }
 
     fn exec_ref_cast(&self, ty: RefType) -> Result<(), Trap> {
@@ -1002,6 +1048,11 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_i31_get(&mut self, signed: bool) -> Result<(), Trap> {
+        let value = self.i31_get(signed)?;
+        i32::stack_push(&mut self.store.value_stack, value as i32)
+    }
+
+    fn i31_get(&mut self, signed: bool) -> Result<u32, Trap> {
         let value = ValueRef::stack_pop(&mut self.store.value_stack);
         if value.is_null() {
             return cold!(Err(Trap::NullI31Reference));
@@ -1011,16 +1062,22 @@ impl<'store> Executor<'store> {
         } else {
             value.i31_u().expect("validated i31.get operand") as i32
         };
-        i32::stack_push(&mut self.store.value_stack, value)
+        Ok(value as u32)
     }
 
-    fn push_gc_object(&mut self, type_addr: TypeAddr, values: Vec<RuntimeValue>) -> Result<(), Trap> {
-        let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
+    fn push_gc_object(
+        &mut self,
+        type_addr: TypeAddr,
+        values: Vec<RuntimeValue>,
+        acc_ref: ValueRef,
+    ) -> Result<(), Trap> {
+        let roots = core::iter::once(acc_ref)
+            .chain((&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw));
         let reference = self.store.state.alloc_gc_object(type_addr, values, roots)?;
         ValueRef::stack_push(&mut self.store.value_stack, reference)
     }
 
-    fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
+    fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool, acc_ref: ValueRef) -> Result<(), Trap> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let field_count =
             self.store.state.get_type(type_addr).as_struct().expect("validated struct.new type").fields.len();
@@ -1045,7 +1102,7 @@ impl<'store> Executor<'store> {
             }
             values.reverse();
         }
-        self.push_gc_object(type_addr, values)
+        self.push_gc_object(type_addr, values, acc_ref)
     }
 
     fn exec_struct_get(&mut self, index: Operand64Idx<(u32, u32)>, signed: Option<bool>) -> Result<(), Trap> {
@@ -1078,7 +1135,7 @@ impl<'store> Executor<'store> {
         Ok(())
     }
 
-    fn exec_array_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
+    fn exec_array_new(&mut self, type_index: TypeAddr, default: bool, acc_ref: ValueRef) -> Result<(), Trap> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.new type").field.storage;
         let len = u32::stack_pop(&mut self.store.value_stack) as usize;
@@ -1087,10 +1144,10 @@ impl<'store> Executor<'store> {
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         values.resize(len, value);
-        self.push_gc_object(type_addr, values)
+        self.push_gc_object(type_addr, values, acc_ref)
     }
 
-    fn exec_array_new_fixed(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
+    fn exec_array_new_fixed(&mut self, index: Operand64Idx<(u32, u32)>, acc_ref: ValueRef) -> Result<(), Trap> {
         let operand = index.resolve(&self.func.data);
         let type_index = operand.a();
         let len = operand.b();
@@ -1105,7 +1162,7 @@ impl<'store> Executor<'store> {
             values.push(pop_value(&mut self.store.value_stack, storage));
         }
         values.reverse();
-        self.push_gc_object(type_addr, values)
+        self.push_gc_object(type_addr, values, acc_ref)
     }
 
     fn exec_array_get(&mut self, type_index: TypeAddr, signed: Option<bool>) -> Result<(), Trap> {
@@ -1130,6 +1187,11 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_array_len(&mut self) -> Result<(), Trap> {
+        let len = self.array_len()?;
+        i32::stack_push(&mut self.store.value_stack, len as i32)
+    }
+
+    fn array_len(&mut self) -> Result<u32, Trap> {
         let reference = ValueRef::stack_pop(&mut self.store.value_stack);
         if reference.is_null() {
             return Err(Trap::NullArrayReference);
@@ -1141,7 +1203,7 @@ impl<'store> Executor<'store> {
         if self.store.state.get_type(type_addr).as_array().is_none() {
             return Err(Trap::Other("GC reference is not an array"));
         }
-        i32::stack_push(&mut self.store.value_stack, object.values.len() as i32)
+        Ok(object.values.len() as u32)
     }
 
     fn exec_array_fill(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
@@ -1188,7 +1250,7 @@ impl<'store> Executor<'store> {
         Ok(())
     }
 
-    fn exec_array_new_data(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
+    fn exec_array_new_data(&mut self, index: Operand64Idx<(u32, u32)>, acc_ref: ValueRef) -> Result<(), Trap> {
         let operand = index.resolve(&self.func.data);
         let type_index = operand.a();
         let data_index = operand.b();
@@ -1201,10 +1263,10 @@ impl<'store> Executor<'store> {
         data_range(storage, data, src, len)?;
         self.store.state.check_gc_allocation(type_addr, len)?;
         let values = decode_data(storage, data, src, len)?;
-        self.push_gc_object(type_addr, values)
+        self.push_gc_object(type_addr, values, acc_ref)
     }
 
-    fn exec_array_new_elem(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
+    fn exec_array_new_elem(&mut self, index: Operand64Idx<(u32, u32)>, acc_ref: ValueRef) -> Result<(), Trap> {
         let operand = index.resolve(&self.func.data);
         let type_index = operand.a();
         let elem_index = operand.b();
@@ -1217,7 +1279,7 @@ impl<'store> Executor<'store> {
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         values.extend(items.iter().copied().map(RuntimeValue::ValueRef));
-        self.push_gc_object(type_addr, values)
+        self.push_gc_object(type_addr, values, acc_ref)
     }
 
     fn exec_array_init_data(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
@@ -1269,23 +1331,30 @@ impl<'store> Executor<'store> {
         }
     }
 
+    fn memory_size(&self, addr: u32) -> u64 {
+        self.store.state.get_mem(self.mem_addr(addr)).page_count as u64
+    }
+
     fn exec_memory_grow(&mut self, addr: u32) -> Result<(), Trap> {
-        let mem_addr = self.mem_addr(addr);
-        let limiter = self.store.engine.config().resource_limiter.as_deref();
-        let mem = self.store.state.get_mem_mut(mem_addr);
-        let is_64bit = mem.is_64bit();
+        let is_64bit = self.store.state.get_mem(self.mem_addr(addr)).is_64bit();
         let pages_delta = match is_64bit {
             true => i64::stack_pop(&mut self.store.value_stack),
             false => i64::from(i32::stack_pop(&mut self.store.value_stack)),
         };
-
-        let size = mem.grow(pages_delta, limiter)?.unwrap_or(-1);
+        let size = self.memory_grow(addr, pages_delta)?;
         match is_64bit {
             true => i64::stack_push(&mut self.store.value_stack, size)?,
             false => i32::stack_push(&mut self.store.value_stack, size as i32)?,
         };
 
         Ok(())
+    }
+
+    fn memory_grow(&mut self, addr: u32, pages_delta: i64) -> Result<i64, Trap> {
+        let mem_addr = self.mem_addr(addr);
+        let limiter = self.store.engine.config().resource_limiter.as_deref();
+        let mem = self.store.state.get_mem_mut(mem_addr);
+        Ok(mem.grow(pages_delta, limiter)?.unwrap_or(-1))
     }
 
     fn exec_memory_copy(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
@@ -1431,6 +1500,84 @@ impl<'store> Executor<'store> {
     }
 
     #[inline(always)]
+    fn exec_acc_load<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
+        &mut self,
+        m: Operand128<MemoryOperand>,
+        base: u32,
+        cast: impl FnOnce(LOAD) -> u32,
+    ) -> Result<u32, Trap> {
+        let mem = self.store.state.get_mem(self.mem_addr(m.memory()));
+        debug_assert!(!mem.is_64bit());
+        let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base as usize, m.offset()))?;
+        Ok(cast(cold_err!(LOAD::load_at(&mem.inner, addr))?))
+    }
+
+    #[inline(always)]
+    fn exec_acc32_load_stack<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
+        &mut self,
+        m: Operand128<MemoryOperand>,
+        cast: impl FnOnce(LOAD) -> u32,
+    ) -> Result<u32, Trap> {
+        let mem = self.store.state.get_mem(self.mem_addr(m.memory()));
+        let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
+        let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
+        Ok(cast(cold_err!(LOAD::load_at(&mem.inner, addr))?))
+    }
+
+    #[inline(always)]
+    fn exec_acc64_load_stack<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
+        &mut self,
+        m: Operand128<MemoryOperand>,
+        cast: impl FnOnce(LOAD) -> u64,
+    ) -> Result<u64, Trap> {
+        let mem = self.store.state.get_mem(self.mem_addr(m.memory()));
+        let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
+        let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
+        Ok(cast(cold_err!(LOAD::load_at(&mem.inner, addr))?))
+    }
+
+    #[inline(always)]
+    fn exec_acc32_load_addr64<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
+        &mut self,
+        m: Operand128<MemoryOperand>,
+        base: u64,
+        cast: impl FnOnce(LOAD) -> u32,
+    ) -> Result<u32, Trap> {
+        let base = Self::acc64_address(base)?;
+        let mem = self.store.state.get_mem(self.mem_addr(m.memory()));
+        debug_assert!(mem.is_64bit());
+        let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
+        Ok(cast(cold_err!(LOAD::load_at(&mem.inner, addr))?))
+    }
+
+    #[inline(always)]
+    fn exec_acc64_load<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize, const ADDRESS64: bool>(
+        &mut self,
+        m: Operand128<MemoryOperand>,
+        acc32: u32,
+        acc64: u64,
+        cast: impl FnOnce(LOAD) -> u64,
+    ) -> Result<u64, Trap> {
+        let base = if ADDRESS64 { Self::acc64_address(acc64)? } else { acc32 as usize };
+        let mem = self.store.state.get_mem(self.mem_addr(m.memory()));
+        debug_assert_eq!(mem.is_64bit(), ADDRESS64);
+        let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
+        Ok(cast(cold_err!(LOAD::load_at(&mem.inner, addr))?))
+    }
+
+    #[inline(always)]
+    fn acc64_address(acc64: u64) -> Result<usize, Trap> {
+        #[cfg(target_pointer_width = "64")]
+        return Ok(acc64 as usize);
+        #[cfg(not(target_pointer_width = "64"))]
+        return usize::try_from(acc64).map_err(|_| Trap::MemoryOutOfBounds {
+            offset: usize::MAX,
+            len: 0,
+            max: usize::MAX,
+        });
+    }
+
+    #[inline(always)]
     fn exec_mem_store_lane<U: MemValue<N> + Copy, const N: usize>(&mut self, arg: MemoryLaneArg) -> Result<(), Trap> {
         let bytes = Value128::stack_pop(&mut self.store.value_stack).to_mem_bytes();
         let lane_offset = arg.lane as usize * N;
@@ -1504,6 +1651,10 @@ impl<'store> Executor<'store> {
         }
     }
 
+    fn table_size(&self, table_index: u32) -> u64 {
+        self.store.state.get_table(self.module.resolve_table_addr(table_index)).size() as u64
+    }
+
     fn exec_table_init(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
         let operand = index.resolve(&self.func.data);
         let elem_index = operand.a();
@@ -1525,17 +1676,21 @@ impl<'store> Executor<'store> {
         let table_addr = self.module.resolve_table_addr(table_index);
         let arch = self.store.state.get_table(table_addr).kind.arch();
         let n = self.pop_table_operand(arch)?;
+        let sz = self.table_grow(table_index, n)?;
+        match arch {
+            MemoryArch::I32 => i32::stack_push(&mut self.store.value_stack, sz as i32),
+            MemoryArch::I64 => i64::stack_push(&mut self.store.value_stack, sz as i64),
+        }
+    }
+
+    fn table_grow(&mut self, table_index: u32, n: usize) -> Result<u64, Trap> {
+        let table_addr = self.module.resolve_table_addr(table_index);
         let val = ValueRef::stack_pop(&mut self.store.value_stack);
         let limiter = self.store.engine.config().resource_limiter.as_deref();
         let table = self.store.state.get_table_mut(table_addr);
         let sz = table.size();
         let grew = table.grow(n, val, limiter)?;
-        match (arch, grew) {
-            (MemoryArch::I32, true) => i32::stack_push(&mut self.store.value_stack, sz as i32),
-            (MemoryArch::I32, false) => i32::stack_push(&mut self.store.value_stack, -1),
-            (MemoryArch::I64, true) => i64::stack_push(&mut self.store.value_stack, sz as i64),
-            (MemoryArch::I64, false) => i64::stack_push(&mut self.store.value_stack, -1),
-        }
+        Ok(if grew { sz as u64 } else { u64::MAX })
     }
 
     fn exec_table_fill(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -1552,6 +1707,10 @@ impl<'store> Executor<'store> {
             MemoryArch::I32 => i32::stack_pop(&mut self.store.value_stack) as u32 as u64,
             MemoryArch::I64 => i64::stack_pop(&mut self.store.value_stack) as u64,
         };
+        Self::table_operand(value)
+    }
+
+    fn table_operand(value: u64) -> Result<usize, Trap> {
         cold_err!(usize::try_from(value).map_err(|_| Trap::TableOutOfBounds {
             offset: usize::MAX,
             len: 1,

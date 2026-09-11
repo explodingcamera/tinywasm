@@ -1,4 +1,4 @@
-use crate::{Result, Trap};
+use crate::{Result, Trap, interpreter::values::ValueRef};
 
 use alloc::vec::Vec;
 use tinywasm_types::{FuncAddr, ValueCounts};
@@ -54,6 +54,9 @@ pub(crate) struct CallFrame {
     pub(crate) func_addr: FuncAddr,
     pub(crate) locals_base: StackBase,
     pub(crate) stack_offset: ValueCounts,
+    pub(crate) acc32: u32,
+    pub(crate) acc64: u64,
+    pub(crate) acc_ref: ValueRef,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -66,7 +69,7 @@ pub(crate) struct StackBase {
 
 impl CallFrame {
     pub(crate) fn new(func_addr: FuncAddr, locals_base: StackBase, stack_offset: ValueCounts) -> Self {
-        Self { instr_ptr: 0, func_addr, locals_base, stack_offset }
+        Self { instr_ptr: 0, func_addr, locals_base, stack_offset, acc32: 0, acc64: 0, acc_ref: ValueRef::NULL }
     }
 
     #[inline]

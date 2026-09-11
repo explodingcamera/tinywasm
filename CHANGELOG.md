@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional `send` support for moving stores and store-local handles across threads
 - Optional portable atomic shared pointers and counters for targets without native compare-and-swap
 - Optional `nightly-tail-calls` backend using Rust's unstable explicit tail calls for interpreter dispatch
+- Streaming parser-managed numeric accumulator bytecode
 
 ### Changed
 

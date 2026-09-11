@@ -2,7 +2,7 @@ use crate::log::debug;
 #[cfg(parallel_parser)]
 use crate::validation::{FuncToValidate, ValidatorResources};
 use crate::validation::{FuncValidatorAllocations, Validator};
-use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
+use crate::{ParseError, ParserOptions, Result, conversion::*};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -11,33 +11,9 @@ use wasmparser::{OperatorsReaderAllocations, Payload};
 
 pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
-    pub data: crate::visit::FunctionDataBuilder,
-    pub locals: ValueCounts,
-    pub uses_local_memory: bool,
-}
-
-pub(crate) struct OptimizedFunctionCode {
-    pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub uses_local_memory: bool,
-}
-
-pub(crate) fn optimize_function_code(
-    mut code: FunctionCode,
-    options: &ParserOptions,
-    function_results: ValueCounts,
-    self_func_addr: u32,
-) -> Result<OptimizedFunctionCode> {
-    let optimized =
-        optimize::optimize_instructions(code.instructions, &mut code.data, options, function_results, self_func_addr)?;
-    let data = code.data.finish();
-    Ok(OptimizedFunctionCode {
-        instructions: optimized.instructions,
-        data,
-        locals: code.locals,
-        uses_local_memory: code.uses_local_memory,
-    })
 }
 
 #[derive(Default)]
@@ -56,7 +32,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
     pub(crate) exports: Shared<[Export]>,
-    pub(crate) code: Vec<OptimizedFunctionCode>,
+    pub(crate) code: Vec<FunctionCode>,
     pub(crate) globals: Box<[Global]>,
     pub(crate) tables: Box<[TableDefinition]>,
     pub(crate) memory_types: Box<[MemoryType]>,
@@ -396,21 +372,25 @@ impl<'a> ModuleReader<'a> {
         };
 
         let ordinal = self.code.len();
+        let function_index = u32::try_from(self.imported_func_count + ordinal)
+            .map_err(|_| ParseError::Other("function index is too large".into()))?;
         let ty_idx = *self
             .code_type_addrs
             .get(ordinal)
             .ok_or_else(|| ParseError::Other("code entry has no function signature".into()))?;
         let metadata = self.translation_metadata();
 
-        let (code, func_validator_allocs, operators_reader_allocs) =
-            convert_module_code(function, func_validator, operators_reader_allocs, metadata, ty_idx, options)?;
-
-        self.code.push(optimize_function_code(
-            code,
+        let (code, func_validator_allocs, operators_reader_allocs) = convert_module_code(
+            function,
+            func_validator,
+            operators_reader_allocs,
+            metadata,
+            function_index,
+            ty_idx,
             options,
-            self.code_results[self.code.len()],
-            (self.imported_func_count + self.code.len()) as u32,
-        )?);
+        )?;
+
+        self.code.push(code);
 
         self.func_validator_allocations = func_validator_allocs;
         self.operators_reader_allocations = Some(operators_reader_allocs);
@@ -489,15 +469,13 @@ impl<'a> ModuleReader<'a> {
         func_to_validate: Option<FuncToValidate<ValidatorResources>>,
     ) -> Result<()> {
         let ordinal = self.code.len() + self.pending_functions.as_ref().map_or(0, Vec::len);
-        let results = *self
-            .code_results
-            .get(ordinal)
-            .ok_or_else(|| ParseError::Other("code entry has no function signature".into()))?;
+        let function_index = u32::try_from(self.imported_func_count + ordinal)
+            .map_err(|_| ParseError::Other("function index is too large".into()))?;
         let ty_idx = *self
             .code_type_addrs
             .get(ordinal)
             .ok_or_else(|| ParseError::Other("code entry has no function signature".into()))?;
-        let job = crate::parallel::PendingFunction { ordinal, results, func_to_validate, ty_idx, body };
+        let job = crate::parallel::PendingFunction { func_to_validate, function_index, ty_idx, body };
         self.pending_functions
             .as_mut()
             .ok_or_else(|| ParseError::Other("function queued without pending storage".into()))?
@@ -511,9 +489,8 @@ impl<'a> ModuleReader<'a> {
             return Ok(());
         };
 
-        let imported_func_count = self.imported_func_count;
         let metadata = self.translation_metadata();
-        let code = crate::parallel::process_pending(pending, metadata, options, imported_func_count)?;
+        let code = crate::parallel::process_pending(pending, metadata, options)?;
         self.code.extend(code);
         Ok(())
     }
