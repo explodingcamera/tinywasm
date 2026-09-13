@@ -5,7 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Minimal command-line interface for TinyWasm"
 documentation = "https://docs.rs/tinywasm-cli"
-readme = "README.md"
 repository.workspace = true
 license.workspace = true
 keywords = ["cli", "runtime", "tinywasm", "wasm", "webassembly"]

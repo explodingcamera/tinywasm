@@ -15,7 +15,6 @@ fn instruction_handler_mismatch() -> ! {
 macro_rules! define_unbudgeted_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        #[inline(always)]
         fn handler_for(instruction: &Instruction) -> UnbudgetedHandler {
             use tinywasm_types::Instruction::*;
 
@@ -64,7 +63,6 @@ macro_rules! define_unbudgeted_tail_dispatch {
 macro_rules! define_bounded_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        #[inline(always)]
         fn handler_for(instruction: &Instruction) -> BoundedHandler {
             use tinywasm_types::Instruction::*;
 

@@ -92,7 +92,7 @@ wat.workspace = true
 default = ["full", "std"]
 full = ["archive", "parallel-parser", "parser", "validate"]
 
-log = ["dep:log", "tinywasm-parser?/log", "tinywasm-types/log"]
+log = ["dep:log", "tinywasm-parser?/log"]
 std = ["tinywasm-parser?/std", "tinywasm-types/std"]
 
 # make stores, instances, references, and host callbacks movable across threads
