@@ -7,7 +7,7 @@ use crate::Module;
 #[rustfmt::skip]
 const TWASM_MAGIC: [u8; 16] = [ TWASM_MAGIC_PREFIX[0], TWASM_MAGIC_PREFIX[1], TWASM_MAGIC_PREFIX[2], TWASM_MAGIC_PREFIX[3], TWASM_VERSION[0], TWASM_VERSION[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const TWASM_MAGIC_PREFIX: &[u8; 4] = b"TWAS";
-const TWASM_VERSION: &[u8; 2] = b"06";
+const TWASM_VERSION: &[u8; 2] = b"05";
 
 fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     if wasm.len() < TWASM_MAGIC.len() || &wasm[..TWASM_MAGIC_PREFIX.len()] != TWASM_MAGIC_PREFIX {
@@ -97,7 +97,7 @@ mod tests {
         let module = Module::from(ModuleInner { funcs: Box::new([Shared::new(function)]), ..ModuleInner::default() });
 
         let archive = module.serialize_twasm().expect("serialize archive");
-        assert_eq!(&archive[..6], b"TWAS06");
+        assert_eq!(&archive[..6], b"TWAS05");
         let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
         let function = &decoded.funcs[0];
 

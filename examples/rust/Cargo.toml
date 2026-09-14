@@ -11,7 +11,7 @@ name = "hello"
 path = "src/hello.rs"
 
 [[bin]]
-name = "host_fn"
+name = "host-fn"
 path = "src/host_fn.rs"
 
 [[bin]]
@@ -23,7 +23,7 @@ name = "tinywasm"
 path = "src/tinywasm.rs"
 
 [[bin]]
-name = "tinywasm_no_std"
+name = "tinywasm-no-std"
 path = "src/tinywasm_no_std.rs"
 
 [[bin]]

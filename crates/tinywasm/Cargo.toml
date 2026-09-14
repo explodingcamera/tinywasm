@@ -90,7 +90,7 @@ wat.workspace = true
 
 [features]
 default = ["full", "std"]
-full = ["archive", "parallel-parser", "parser", "validate"]
+full = ["archive", "debug", "parallel-parser", "parser", "validate"]
 
 log = ["dep:log", "tinywasm-parser?/log"]
 std = ["tinywasm-parser?/std", "tinywasm-types/std"]

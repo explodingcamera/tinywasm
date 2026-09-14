@@ -32,10 +32,10 @@ fn main() -> Result<()> {
         println!("Available examples:");
         println!("  hello");
         println!("  printi32");
-        println!("  host_fn");
+        println!("  host-fn");
         println!("  fibonacci - calculate fibonacci(30)");
         println!("  tinywasm - run printi32 inside of tinywasm inside of itself");
-        println!("  tinywasm_no_std - run a precompiled module inside of no_std tinywasm");
+        println!("  tinywasm-no-std - run a precompiled module inside of no_std tinywasm");
         println!("  argon2id - run argon2id(1000, 2, 1)");
         return Ok(());
     }
@@ -45,9 +45,9 @@ fn main() -> Result<()> {
         "printi32" => printi32()?,
         "fibonacci" => fibonacci()?,
         "tinywasm" => tinywasm()?,
-        "tinywasm_no_std" => tinywasm_no_std()?,
+        "tinywasm-no-std" => tinywasm_no_std()?,
         "argon2id" => argon2id()?,
-        "host_fn" => host_fn()?,
+        "host-fn" => host_fn()?,
         "all" => {
             println!("Running all examples");
             println!("\nhello.wasm:");
@@ -58,11 +58,11 @@ fn main() -> Result<()> {
             fibonacci()?;
             println!("\ntinywasm.wasm:");
             tinywasm()?;
-            println!("\ntinywasm_no_std.wasm:");
+            println!("\ntinywasm-no-std.wasm:");
             tinywasm_no_std()?;
             println!("argon2id.wasm:");
             argon2id()?;
-            println!("\nhost_fn.wasm:");
+            println!("\nhost-fn.wasm:");
             host_fn()?;
         }
         _ => {}
@@ -129,7 +129,7 @@ fn hello() -> Result<()> {
 }
 
 fn host_fn() -> Result<()> {
-    let module = tinywasm::parse_file("./examples/rust/out/host_fn.opt.wasm")?;
+    let module = tinywasm::parse_file("./examples/rust/out/host-fn.opt.wasm")?;
     let mut store = Store::default();
 
     let bar = HostFunction::from(|_: FuncContext<'_>, (left, right): (i64, i32)| {

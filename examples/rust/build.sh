@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")" || exit
 
-bins=("host_fn" "hello" "fibonacci" "print" "tinywasm" "argon2id")
+bins=("host-fn" "hello" "fibonacci" "print" "tinywasm" "argon2id")
 exclude_wat=("tinywasm")
 out_dir="./target/wasm32-unknown-unknown/wasm"
 dest_dir="out"
@@ -17,7 +17,7 @@ cargo run --quiet --manifest-path "../../Cargo.toml" --package tinywasm-cli -- \
     compile "src/print.wasm" --output "src/print.twasm" --force || exit
 
 # build no_std
-RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=core,alloc,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm_no_std --no-default-features
+RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=core,alloc,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm-no-std --no-default-features
 cp "$out_dir/tinywasm_no_std.wasm" "$dest_dir/"
 wasm-opt "$dest_dir/tinywasm_no_std.wasm" -o "$dest_dir/tinywasm_no_std.opt.wasm" -O3 $wasmopt_features
 
