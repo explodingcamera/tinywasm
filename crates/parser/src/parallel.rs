@@ -1,4 +1,4 @@
-use crate::module::{OptimizedFunctionCode, optimize_function_code};
+use crate::module::FunctionCode;
 use crate::validation::{FuncToValidate, FuncValidatorAllocations, ValidatorResources};
 use crate::{ParseError, ParserOptions, Result, conversion};
 use alloc::vec::Vec;
@@ -48,10 +48,8 @@ pub(crate) fn should_use_parallel(options: &ParserOptions, num_functions: usize,
 }
 
 fn worker_count(options: &ParserOptions, num_functions: usize) -> usize {
-    let requested = options
-        .parser_threads()
-        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1))
-        .max(1);
+    let requested =
+        options.threads().unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)).max(1);
     requested.min(MAX_WORKERS).min(num_functions.div_ceil(MIN_FUNCTIONS_PER_WORKER)).max(1)
 }
 
@@ -62,7 +60,15 @@ fn process_function_job(
     imported_func_count: usize,
     validator_allocs: Option<FuncValidatorAllocations>,
     reader_allocs: OperatorsReaderAllocations,
-) -> Result<(OptimizedFunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
+    let context = conversion::FunctionLoweringContext {
+        ty_idx: job.ty_idx,
+        self_func_addr: imported_func_count
+            .checked_add(job.ordinal)
+            .and_then(|idx| u32::try_from(idx).ok())
+            .ok_or_else(|| ParseError::Other("function index is too large".into()))?,
+        function_results: job.results,
+    };
     #[cfg(feature = "validate")]
     let validator = job.func_to_validate.map(|func| func.into_validator(validator_allocs.unwrap_or_default()));
     #[cfg(not(feature = "validate"))]
@@ -72,16 +78,14 @@ fn process_function_job(
     };
     let (code, validator_allocs, reader_allocs) = match job.body {
         FunctionBodyInput::Borrowed(func) => {
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
+            conversion::convert_module_code(func, validator, reader_allocs, metadata, context, options)?
         }
         FunctionBodyInput::Owned(body) => {
             let reader = wasmparser::BinaryReader::new(&body.section_bytes[body.body_range], body.body_offset);
             let func = wasmparser::FunctionBody::new(reader);
-            conversion::convert_module_code(func, validator, reader_allocs, metadata, job.ty_idx, options)?
+            conversion::convert_module_code(func, validator, reader_allocs, metadata, context, options)?
         }
     };
-
-    let code = optimize_function_code(code, options, job.results, (imported_func_count + job.ordinal) as u32)?;
 
     Ok((code, validator_allocs, reader_allocs))
 }
@@ -91,7 +95,7 @@ fn process_chunk<'a>(
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
     imported_func_count: usize,
-) -> Result<Vec<OptimizedFunctionCode>> {
+) -> Result<Vec<FunctionCode>> {
     let mut validator_allocs = None;
     let mut reader_allocs = OperatorsReaderAllocations::default();
     let jobs = jobs.into_iter();
@@ -113,7 +117,7 @@ pub(crate) fn process_pending(
     metadata: &crate::visit::ModuleMetadata,
     options: &ParserOptions,
     imported_func_count: usize,
-) -> Result<Vec<OptimizedFunctionCode>> {
+) -> Result<Vec<FunctionCode>> {
     let num_workers = worker_count(options, pending.len());
     if num_workers == 1 {
         return process_chunk(pending, metadata, options, imported_func_count);

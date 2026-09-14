@@ -1,4 +1,20 @@
 pub(crate) mod visit {
+    // Rule families are chosen at the call site, not by matching the emitted opcode.
+    // Unary instruction operands are evaluated once and passed after family arguments.
+    macro_rules! emit_selected {
+        ($builder:ident, $inputs:expr, $outputs:expr, $op:ident($value:expr) [$family:ident($($arg:expr),* $(,)?)]) => {{
+            let operand = $value;
+            $builder.emit_with($inputs, $outputs, tinywasm_types::Instruction::$op(operand),
+                |tail, data| crate::selection::$family(tail, data $(, $arg)*, operand))
+        }};
+        ($builder:ident, $inputs:expr, $outputs:expr, $op:ident [$family:ident($($arg:expr),* $(,)?)]) => {
+            $builder.emit_with($inputs, $outputs, tinywasm_types::Instruction::$op,
+                |tail, data| crate::selection::$family(tail, data $(, $arg)*))
+        };
+        ($builder:ident, $inputs:expr, $outputs:expr, $op:ident $(($($value:expr),*))?) => {
+            $builder.emit($inputs, $outputs, tinywasm_types::Instruction::$op $(($($value),*))?)
+        };
+    }
     #[cfg(feature = "validate")]
     macro_rules! validate_then_visit {
         ($( @$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {$(
@@ -25,12 +41,14 @@ pub(crate) mod visit {
         )*};
     }
 
+    // Optional `[family(args)]` selects rules alongside the visitor's stack effect
+    // and fallback opcode. Instructions without a family use plain emission.
     macro_rules! lowering_ops {
         () => {};
         ($kind:ident $inputs:tt => $outputs:tt {
-            $($visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident),* $(,)?
+            $($visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident $([$family:ident($($rule_arg:expr),*)])?),* $(,)?
         } $($rest:tt)*) => {
-            $(lowering_ops!(@$kind $inputs => $outputs $visit $(($($arg: $ty),+))? => $instr);)*
+            $(lowering_ops!(@$kind $inputs => $outputs $visit $(($($arg: $ty),+))? => $instr $([$family($($rule_arg),*)])?);)*
             lowering_ops!($($rest)*);
         };
         (effect $inputs:tt => $outputs:tt { $($visit:ident),* $(,)? } $($rest:tt)*) => {
@@ -47,7 +65,7 @@ pub(crate) mod visit {
             $(
                 fn $visit(&mut self, heap_type: wasmparser::HeapType) -> Self::Output {
                     let ty = convert_heap_type(heap_type, $nullable)?;
-                    lowering_ops!(@emit self fixed $inputs => $outputs Instruction::$instr(ty))
+                    lowering_ops!(@emit self fixed $inputs => $outputs $instr(ty))
                 }
             )*
             lowering_ops!($($rest)*);
@@ -60,31 +78,31 @@ pub(crate) mod visit {
         };
 
         (@fixed [$($input:ident),*] => [$($output:ident),*]
-            $visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident
+            $visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident $([$family:ident($($rule_arg:expr),*)])?
         ) => {
             fn $visit(&mut self $(, $($arg: $ty),+)?) -> Self::Output {
                 lowering_ops!(@emit self fixed [$($input),*] => [$($output),*]
-                    Instruction::$instr $(($($arg),+))?.into())
+                    $instr $(($($arg),+))? $([$family($($rule_arg),*)])?)
             }
         };
         (@memory [$($input:ident),*] => [$($output:ident),*]
-            $visit:ident $(($lane:ident: $ty:ty))? => $instr:ident
+            $visit:ident $(($lane:ident: $ty:ty))? => $instr:ident $([$family:ident($($rule_arg:expr),*)])?
         ) => {
             fn $visit(&mut self, memarg: wasmparser::MemArg $(, $lane: $ty)?) -> Self::Output {
                 let address = self.metadata.memory_size(memarg.memory)?;
                 self.mark_memory(memarg.memory);
-                let memory_arg_idx = self.push_operand128(tinywasm_types::Operand128::<
+                let memory_arg_idx = self.push128(tinywasm_types::Operand128::<
                     tinywasm_types::MemoryOperand,
                 >::new(memarg.offset, memarg.memory))?;
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
-                    lowering_ops!(@memory_instruction $instr memory_arg_idx $(, $lane)?))
+                    $instr(lowering_ops!(@memory_arg memory_arg_idx $(, $lane)?)) $([$family($($rule_arg),*)])?)
             }
         };
-        (@memory_instruction $instr:ident $memory_arg_idx:ident) => {
-            Instruction::$instr($memory_arg_idx)
+        (@memory_arg $memory_arg_idx:ident) => {
+            $memory_arg_idx
         };
-        (@memory_instruction $instr:ident $memory_arg_idx:ident, $lane:ident) => {
-            Instruction::$instr(tinywasm_types::MemoryLaneArg { memory_arg_idx: $memory_arg_idx, lane: $lane })
+        (@memory_arg $memory_arg_idx:ident, $lane:ident) => {
+            tinywasm_types::MemoryLaneArg { memory_arg_idx: $memory_arg_idx, lane: $lane }
         };
         (@global $inputs:tt => $outputs:tt $($operator:tt)*) => {
             lowering_ops!(@resolved global_size $inputs => $outputs $($operator)*);
@@ -93,13 +111,13 @@ pub(crate) mod visit {
             lowering_ops!(@memory_index_impl $inputs => $outputs $($operator)*);
         };
         (@memory_index_impl [$($input:ident),*] => [$($output:ident),*]
-            $visit:ident($index:ident: $ty:ty) => $instr:ident
+            $visit:ident($index:ident: $ty:ty) => $instr:ident $([$family:ident($($rule_arg:expr),*)])?
         ) => {
             fn $visit(&mut self, $index: $ty) -> Self::Output {
                 let address = self.metadata.memory_size($index)?;
                 self.mark_memory($index);
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
-                    Instruction::$instr($index).into())
+                    $instr($index) $([$family($($rule_arg),*)])?)
             }
         };
         (@table $inputs:tt => $outputs:tt $($operator:tt)*) => {
@@ -111,7 +129,7 @@ pub(crate) mod visit {
             fn $visit(&mut self, $type_index: $type_ty $(, $arg: $arg_ty)*) -> Self::Output {
                 let size = self.metadata.array_field($type_index)?;
                 lowering_ops!(@emit self address(size) [$($input),*] => [$($output),*]
-                    Instruction::$instr($type_index $(, $arg)*).into())
+                    $instr($type_index $(, $arg)*))
             }
         };
         (@resolved $resolver:ident [$($input:ident),*] => [$($output:ident),*]
@@ -120,7 +138,7 @@ pub(crate) mod visit {
             fn $visit(&mut self, $index: $ty) -> Self::Output {
                 let address = self.metadata.$resolver($index)?;
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
-                    Instruction::$instr($index).into())
+                    $instr($index))
             }
         };
         (@resolved $resolver:ident [$($input:ident),*] => [$($output:ident),*]
@@ -129,7 +147,7 @@ pub(crate) mod visit {
             fn $visit(&mut self, $arg: $arg_ty, $index: $index_ty) -> Self::Output {
                 let address = self.metadata.$resolver($index)?;
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
-                    Instruction::$instr($arg, $index).into())
+                    $instr($arg, $index))
             }
         };
         (@effect [$($input:ident),*] => [$($output:ident),*] $visit:ident) => {
@@ -140,22 +158,26 @@ pub(crate) mod visit {
         (@terminating [$($input:ident),*] => [$($output:ident),*] $visit:ident => $instr:ident) => {
             fn $visit(&mut self) -> Self::Output {
                 self.mark_unreachable();
-                lowering_ops!(@emit self fixed [$($input),*] => [$($output),*] Instruction::$instr)
+                self.emit_boundary(
+                    &[$(lowering_ops!(@size $input)),*],
+                    &[$(lowering_ops!(@size $output)),*],
+                    Instruction::$instr,
+                )
             }
         };
 
-        (@emit $self:ident fixed [$($input:ident),*] => [$($output:ident),*] $instruction:expr) => {
-            $self.emit(
+        (@emit $self:ident fixed [$($input:ident),*] => [$($output:ident),*] $($instruction:tt)+) => {
+            emit_selected!($self,
                 &[$(lowering_ops!(@size $input)),*],
                 &[$(lowering_ops!(@size $output)),*],
-                $instruction,
+                $($instruction)+
             )
         };
-        (@emit $self:ident address($address:ident) [$($input:ident),*] => [$($output:ident),*] $instruction:expr) => {
-            $self.emit(
+        (@emit $self:ident address($address:ident) [$($input:ident),*] => [$($output:ident),*] $($instruction:tt)+) => {
+            emit_selected!($self,
                 &[$(lowering_ops!(@size $input, $address)),*],
                 &[$(lowering_ops!(@size $output, $address)),*],
-                $instruction,
+                $($instruction)+
             )
         };
 
@@ -189,68 +211,7 @@ pub(crate) mod visit {
         };
     }
 
-    pub(crate) use {impl_visit_operator, lowering_ops};
+    pub(crate) use {emit_selected, impl_visit_operator, lowering_ops};
     #[cfg(feature = "validate")]
     pub(crate) use {validate_then_visit, validate_then_visit_simd};
-}
-
-pub(crate) mod optimize {
-    macro_rules! replace {
-        ($instructions:ident, $read:ident, $consumed:expr => [$($out:expr),+ $(,)?]) => {{
-            const {
-                assert!($consumed >= 1 && $consumed <= 3);
-                assert!([$(stringify!($out)),+].len() <= $consumed + 1);
-            }
-            let replacements = [$($out),+];
-            let start = $read - $consumed;
-            $instructions[start..start + replacements.len()].copy_from_slice(&replacements);
-            $instructions.truncate(start + replacements.len());
-            #[allow(unused_assignments)]
-            { $read = $instructions.len() - 1; }
-        }};
-        ($instructions:ident, $read:ident, $consumed:expr => $out:expr) => {
-            replace!($instructions, $read, $consumed => [$out]);
-        };
-        ($instructions:ident, *$read:ident, $consumed:expr => [$($out:expr),+ $(,)?]) => {{
-            const {
-                assert!($consumed >= 1 && $consumed <= 3);
-                assert!([$(stringify!($out)),+].len() <= $consumed + 1);
-            }
-            let replacements = [$($out),+];
-            let start = *$read - $consumed;
-            $instructions[start..start + replacements.len()].copy_from_slice(&replacements);
-            $instructions.truncate(start + replacements.len());
-            *$read = $instructions.len() - 1;
-        }};
-        ($instructions:ident, *$read:ident, $consumed:expr => $out:expr) => {
-            replace!($instructions, *$read, $consumed => [$out])
-        };
-    }
-
-    macro_rules! rewrite {
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => [$($out:expr),+ $(,)?]) => {
-            rewrite!($instructions, $read, [$($pattern),+] $(if ($($guard)+))? => {
-                replace!($instructions, $read, [$(stringify!($pattern)),+].len() => [$($out),+]);
-            })
-        };
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => $body:block $(,)?) => {{
-            const CONSUMED: usize = [$(stringify!($pattern)),+].len();
-            if $read >= $instructions.block_start + CONSUMED {
-                let previous: [Instruction; CONSUMED] = $instructions[$read - CONSUMED..$read].try_into().unwrap();
-                if let [$($pattern),+] = previous $(
-                    && $($guard)+
-                )? {
-                    $body
-                    continue;
-                }
-            }
-        }};
-        ($instructions:ident, $read:ident, [$($pattern:pat),+] $(if ($($guard:tt)+))? => $out:expr $(,)?) => {
-            rewrite!($instructions, $read, [$($pattern),+] $(if ($($guard)+))? => {
-                replace!($instructions, $read, [$(stringify!($pattern)),+].len() => $out);
-            })
-        };
-    }
-
-    pub(crate) use {replace, rewrite};
 }

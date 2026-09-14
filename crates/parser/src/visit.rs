@@ -1,13 +1,19 @@
 use crate::{
-    Result,
-    conversion::{convert_heap_type, value_lane},
+    ParserOptions, Result,
+    conversion::{FunctionLoweringContext, convert_heap_type, value_lane},
+    emitter::{Emitter, LabelId},
     macros::visit::*,
 };
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, btree_map::Entry},
+    string::ToString,
+    vec::Vec,
+};
 use tinywasm_types::{
-    BranchTableOperand, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType, Operand64, Operand64Idx,
-    Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts, ValueLane,
-    WasmFunctionData,
+    BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType, Operand64,
+    Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts,
+    ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -20,27 +26,51 @@ enum BlockKind {
     Block,
     Loop,
     If,
-    TryTable(usize),
+    TryTable,
 }
 
-struct ControlFrame {
+struct ControlFrame<'a> {
     kind: BlockKind,
     has_else: bool,
-    start_ip: usize,
-    branch_jumps: Vec<usize>,
+    loop_start: Option<LabelId>,
+    end: Option<LabelId>,
+    else_entry: Option<LabelId>,
     height: usize,
     base: ValueCounts,
-    params: Vec<ValueLane>,
-    results: Vec<ValueLane>,
+    signature: BlockSignature<'a>,
     unreachable: bool,
     entry_unreachable: bool,
     end_reachable: bool,
 }
 
-#[derive(Clone)]
+/// Module-owned physical lane signature, borrowed by control frames.
 pub(crate) struct Signature {
     pub params: Vec<ValueLane>,
     results: Vec<ValueLane>,
+}
+
+#[derive(Clone, Copy)]
+enum BlockSignature<'a> {
+    Empty,
+    Result(ValueLane),
+    Function(&'a Signature),
+}
+
+impl BlockSignature<'_> {
+    fn params(&self) -> &[ValueLane] {
+        match self {
+            Self::Function(signature) => &signature.params,
+            _ => &[],
+        }
+    }
+
+    fn results(&self) -> &[ValueLane] {
+        match self {
+            Self::Empty => &[],
+            Self::Result(lane) => core::slice::from_ref(lane),
+            Self::Function(signature) => &signature.results,
+        }
+    }
 }
 
 pub(crate) struct ModuleMetadata {
@@ -75,40 +105,54 @@ impl FunctionDataBuilder {
         }
     }
 
-    pub(crate) fn push_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+    /// Allocates an immutable 64-bit operand, reusing it when deduplication is enabled.
+    pub(crate) fn push64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
         let operand = operand.cast();
-        if let Some(index) = self.deduplicate64.as_ref().and_then(|map| map.get(&operand)) {
-            return Ok(Operand64Idx::new(*index));
-        }
-        let index = self.operands64.len() as u32;
+        let entry = match self.deduplicate64.as_mut().map(|map| map.entry(operand)) {
+            Some(Entry::Occupied(entry)) => return Ok(Operand64Idx::new(*entry.get())),
+            Some(Entry::Vacant(entry)) => Some(entry),
+            None => None,
+        };
+        let index = u32::try_from(self.operands64.len())
+            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
         self.operands64.push(operand);
-        if let Some(map) = &mut self.deduplicate64 {
-            map.insert(operand, index);
+        if let Some(entry) = entry {
+            entry.insert(index);
         }
         Ok(Operand64Idx::new(index))
     }
 
-    pub(crate) fn push_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+    /// Allocates an immutable 128-bit operand, reusing it when deduplication is enabled.
+    pub(crate) fn push128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
         let operand = operand.cast();
-        if let Some(index) = self.deduplicate128.as_ref().and_then(|map| map.get(&operand)) {
-            return Ok(Operand128Idx::new(*index));
-        }
-        let index = self.operands128.len() as u32;
+        let entry = match self.deduplicate128.as_mut().map(|map| map.entry(operand)) {
+            Some(Entry::Occupied(entry)) => return Ok(Operand128Idx::new(*entry.get())),
+            Some(Entry::Vacant(entry)) => Some(entry),
+            None => None,
+        };
+        let index = u32::try_from(self.operands128.len())
+            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
         self.operands128.push(operand);
-        if let Some(map) = &mut self.deduplicate128 {
-            map.insert(operand, index);
+        if let Some(entry) = entry {
+            entry.insert(index);
         }
         Ok(Operand128Idx::new(index))
     }
 
-    pub(crate) fn push_target_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+    /// Allocates a private mutable target operand outside immutable deduplication.
+    pub(crate) fn push_target64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+        let index = u32::try_from(self.operands64.len())
+            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
         self.operands64.push(operand.cast());
-        Ok(Operand64Idx::new(self.operands64.len() as u32 - 1))
+        Ok(Operand64Idx::new(index))
     }
 
-    pub(crate) fn push_target_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+    /// Allocates a private mutable target operand outside immutable deduplication.
+    pub(crate) fn push_target128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+        let index = u32::try_from(self.operands128.len())
+            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
         self.operands128.push(operand.cast());
-        Ok(Operand128Idx::new(self.operands128.len() as u32 - 1))
+        Ok(Operand128Idx::new(index))
     }
 
     pub(crate) fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
@@ -117,14 +161,6 @@ impl FunctionDataBuilder {
 
     pub(crate) fn operand128<T>(&self, index: Operand128Idx<T>) -> Operand128<T> {
         self.operands128[index.index()].cast()
-    }
-
-    pub(crate) fn set_operand64<T>(&mut self, index: Operand64Idx<T>, operand: Operand64<T>) {
-        self.operands64[index.index()] = operand.cast();
-    }
-
-    pub(crate) fn set_operand128<T>(&mut self, index: Operand128Idx<T>, operand: Operand128<T>) {
-        self.operands128[index.index()] = operand.cast();
     }
 
     pub(crate) fn finish(self) -> WasmFunctionData {
@@ -144,9 +180,9 @@ enum AggregateFields {
 }
 
 pub(crate) struct FunctionBuilder<'a> {
-    instructions: Vec<Instruction>,
+    emitter: Emitter,
     data: FunctionDataBuilder,
-    control_stack: Vec<ControlFrame>,
+    control_stack: Vec<ControlFrame<'a>>,
     operand_stack: Vec<ValueLane>,
     lane_counts: ValueCounts,
     metadata: &'a ModuleMetadata,
@@ -156,29 +192,31 @@ pub(crate) struct FunctionBuilder<'a> {
 }
 
 impl<'a> FunctionBuilder<'a> {
+    /// Creates lowering state with a borrowed function signature.
     pub(crate) fn new(
         metadata: &'a ModuleMetadata,
-        signature: &Signature,
+        signature: &'a Signature,
         local_types: Vec<ValueLane>,
         local_addr_map: Vec<u16>,
         body_size: usize,
-        deduplicate_operands: bool,
+        context: FunctionLoweringContext,
+        options: &ParserOptions,
     ) -> Self {
         Self {
             local_types,
             local_addr_map,
             metadata,
-            instructions: Vec::with_capacity(body_size.min(1024)),
-            data: FunctionDataBuilder::new(deduplicate_operands),
+            emitter: Emitter::new(body_size, context, options),
+            data: FunctionDataBuilder::new(options.deduplicate_operands()),
             control_stack: alloc::vec![ControlFrame {
                 kind: BlockKind::Function,
                 has_else: false,
-                start_ip: 0,
-                branch_jumps: Vec::new(),
+                loop_start: None,
+                end: None,
+                else_entry: None,
                 height: 0,
                 base: ValueCounts::default(),
-                params: Vec::new(),
-                results: signature.results.clone(),
+                signature: BlockSignature::Function(signature),
                 unreachable: false,
                 entry_unreachable: false,
                 end_reachable: false,
@@ -200,16 +238,16 @@ impl<'a> FunctionBuilder<'a> {
         instruction: fn(Operand64Idx<(u32, u32)>) -> Instruction,
     ) -> Result<()> {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
         self.emit(&[ValueLane::S32], &[size], instruction(operand))
     }
 
-    fn push_operand64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
-        self.data.push_operand64(operand)
+    fn push64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
+        self.data.push64(operand)
     }
 
-    fn push_operand128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
-        self.data.push_operand128(operand)
+    fn push128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
+        self.data.push128(operand)
     }
 }
 
@@ -380,7 +418,7 @@ impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
     #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
     wasmparser::for_each_visit_operator!(validate_then_visit);
 
-    fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
+    fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Result<()>>> {
         Some(self)
     }
 }
@@ -395,17 +433,17 @@ pub(crate) fn process_operators(
     body: FunctionBody<'_>,
     locals: (Vec<ValueLane>, Vec<u16>),
     metadata: &ModuleMetadata,
-    ty_idx: u32,
+    context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
-    deduplicate_operands: bool,
+    options: &ParserOptions,
 ) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
-    let signature = metadata.signature(ty_idx)?;
+    let signature = metadata.signature(context.ty_idx)?;
     let mut builder =
-        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
+        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, context, options);
 
     while !reader.eof() {
         let position = reader.original_position();
@@ -420,7 +458,8 @@ pub(crate) fn process_operators(
     }
 
     reader.finish()?;
-    Ok((builder.instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
+    let instructions = builder.emitter.finish(&mut builder.data)?;
+    Ok((instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
@@ -429,17 +468,17 @@ pub(crate) fn process_operators_and_validate(
     body: FunctionBody<'_>,
     locals: (Vec<ValueLane>, Vec<u16>),
     metadata: &ModuleMetadata,
-    ty_idx: u32,
+    context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
-    deduplicate_operands: bool,
+    options: &ParserOptions,
 ) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, FuncValidatorAllocations, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
-    let signature = metadata.signature(ty_idx)?;
+    let signature = metadata.signature(context.ty_idx)?;
     let mut builder =
-        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, deduplicate_operands);
+        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, context, options);
 
     while !reader.eof() {
         let position = reader.original_position();
@@ -454,19 +493,14 @@ pub(crate) fn process_operators_and_validate(
     }
 
     reader.finish()?;
-    Ok((
-        builder.instructions,
-        builder.data,
-        builder.uses_local_memory,
-        validator.into_allocations(),
-        reader.into_allocations(),
-    ))
+    let instructions = builder.emitter.finish(&mut builder.data)?;
+    Ok((instructions, builder.data, builder.uses_local_memory, validator.into_allocations(), reader.into_allocations()))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     type Output = Result<()>;
 
-    fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Self::Output>> {
+    fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Result<()>>> {
         Some(self)
     }
 
@@ -474,23 +508,27 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     lowering_ops! {
         memory [Addr] => [S32] {
-            visit_i32_load => I32Load, visit_f32_load => F32Load, visit_i32_load8_s => I32Load8S,
-            visit_i32_load8_u => I32Load8U, visit_i32_load16_s => I32Load16S,
-            visit_i32_load16_u => I32Load16U,
+            visit_i32_load => I32Load [load(Instruction::LoadLocal32)],
+            visit_f32_load => F32Load [load(Instruction::LoadLocal32)],
+            visit_i32_load8_s => I32Load8S [load(Instruction::LoadLocal8S32)],
+            visit_i32_load8_u => I32Load8U [load(Instruction::LoadLocal8U32)],
+            visit_i32_load16_s => I32Load16S [load(Instruction::LoadLocal16S32)],
+            visit_i32_load16_u => I32Load16U [load(Instruction::LoadLocal16U32)],
         }
         memory [Addr] => [S64] {
-            visit_i64_load => I64Load, visit_f64_load => F64Load, visit_i64_load8_s => I64Load8S,
+            visit_i64_load => I64Load [load(Instruction::LoadLocal64)],
+            visit_f64_load => F64Load [load(Instruction::LoadLocal64)], visit_i64_load8_s => I64Load8S,
             visit_i64_load8_u => I64Load8U, visit_i64_load16_s => I64Load16S,
             visit_i64_load16_u => I64Load16U, visit_i64_load32_s => I64Load32S,
             visit_i64_load32_u => I64Load32U,
         }
         memory [Addr, S32] => [] {
-            visit_f32_store => F32Store, visit_i32_store8 => I32Store8,
-            visit_i32_store16 => I32Store16, visit_i32_store => I32Store,
+            visit_f32_store => F32Store [store32()], visit_i32_store8 => I32Store8,
+            visit_i32_store16 => I32Store16, visit_i32_store => I32Store [store32()],
         }
         memory [Addr, S64] => [] {
-            visit_f64_store => F64Store, visit_i64_store8 => I64Store8,
-            visit_i64_store16 => I64Store16, visit_i64_store32 => I64Store32, visit_i64_store => I64Store,
+            visit_f64_store => F64Store [store64()], visit_i64_store8 => I64Store8,
+            visit_i64_store16 => I64Store16, visit_i64_store32 => I64Store32, visit_i64_store => I64Store [store64()],
         }
         fixed [] => [] { visit_data_drop(segment: u32) => DataDrop, visit_elem_drop(segment: u32) => ElemDrop }
         fixed [] => [S32] { visit_i32_const(value: i32) => Const32, visit_ref_func(function: u32) => RefFunc }
@@ -531,41 +569,83 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i32_trunc_sat_f64_s => I32TruncSatF64S, visit_i32_trunc_sat_f64_u => I32TruncSatF64U,
         }
         fixed [S32] => [S64] {
-            visit_i64_extend_i32_s => I64ExtendI32S, visit_i64_extend_i32_u => I64ExtendI32U,
+            visit_i64_extend_i32_s => I64ExtendI32S [extend_i32(true)],
+            visit_i64_extend_i32_u => I64ExtendI32U [extend_i32(false)],
             visit_i64_trunc_f32_s => I64TruncF32S, visit_i64_trunc_f32_u => I64TruncF32U,
             visit_f64_convert_i32_s => F64ConvertI32S, visit_f64_convert_i32_u => F64ConvertI32U,
             visit_f64_promote_f32 => F64PromoteF32, visit_i64_trunc_sat_f32_s => I64TruncSatF32S,
             visit_i64_trunc_sat_f32_u => I64TruncSatF32U,
         }
         fixed [S32, S32] => [S32] {
-            visit_ref_eq => RefEq, visit_i32_eq => I32Eq, visit_i32_ne => I32Ne,
-            visit_i32_lt_s => I32LtS, visit_i32_lt_u => I32LtU,
-            visit_i32_gt_s => I32GtS, visit_i32_gt_u => I32GtU, visit_i32_le_s => I32LeS,
-            visit_i32_le_u => I32LeU, visit_i32_ge_s => I32GeS, visit_i32_ge_u => I32GeU,
+            visit_ref_eq => RefEq,
+            visit_i32_eq => I32Eq [compare(CmpOp::Eq)],
+            visit_i32_ne => I32Ne [compare(CmpOp::Ne)],
+            visit_i32_lt_s => I32LtS [compare(CmpOp::LtS)],
+            visit_i32_lt_u => I32LtU [compare(CmpOp::LtU)],
+            visit_i32_gt_s => I32GtS [compare(CmpOp::GtS)],
+            visit_i32_gt_u => I32GtU [compare(CmpOp::GtU)],
+            visit_i32_le_s => I32LeS [compare(CmpOp::LeS)],
+            visit_i32_le_u => I32LeU [compare(CmpOp::LeU)],
+            visit_i32_ge_s => I32GeS [compare(CmpOp::GeS)],
+            visit_i32_ge_u => I32GeU [compare(CmpOp::GeU)],
             visit_f32_eq => F32Eq, visit_f32_ne => F32Ne, visit_f32_lt => F32Lt, visit_f32_gt => F32Gt,
-            visit_f32_le => F32Le, visit_f32_ge => F32Ge, visit_i32_add => I32Add, visit_i32_sub => I32Sub,
-            visit_i32_mul => I32Mul, visit_i32_div_s => I32DivS, visit_i32_div_u => I32DivU,
-            visit_i32_rem_s => I32RemS, visit_i32_rem_u => I32RemU, visit_i32_and => I32And,
-            visit_i32_or => I32Or, visit_i32_xor => I32Xor, visit_i32_shl => I32Shl, visit_i32_shr_s => I32ShrS,
-            visit_i32_shr_u => I32ShrU, visit_i32_rotl => I32Rotl, visit_i32_rotr => I32Rotr,
-            visit_f32_add => F32Add, visit_f32_sub => F32Sub, visit_f32_mul => F32Mul, visit_f32_div => F32Div,
-            visit_f32_min => F32Min, visit_f32_max => F32Max, visit_f32_copysign => F32Copysign,
+            visit_f32_le => F32Le, visit_f32_ge => F32Ge,
+            visit_i32_add => I32Add [integer32(BinOp::IAdd, true)],
+            visit_i32_sub => I32Sub [integer32(BinOp::ISub, false)],
+            visit_i32_mul => I32Mul [integer32(BinOp::IMul, true)],
+            visit_i32_div_s => I32DivS, visit_i32_div_u => I32DivU,
+            visit_i32_rem_s => I32RemS, visit_i32_rem_u => I32RemU,
+            visit_i32_and => I32And [integer32(BinOp::IAnd, true)],
+            visit_i32_or => I32Or [integer32(BinOp::IOr, true)],
+            visit_i32_xor => I32Xor [integer32(BinOp::IXor, true)],
+            visit_i32_shl => I32Shl [integer32(BinOp::IShl, false)],
+            visit_i32_shr_s => I32ShrS [integer32(BinOp::IShrS, false)],
+            visit_i32_shr_u => I32ShrU [integer32(BinOp::IShrU, false)],
+            visit_i32_rotl => I32Rotl [integer32(BinOp::IRotl, false)],
+            visit_i32_rotr => I32Rotr [integer32(BinOp::IRotr, false)],
+            visit_f32_add => F32Add [float32(BinOp::FAdd, true)],
+            visit_f32_sub => F32Sub [float32(BinOp::FSub, false)],
+            visit_f32_mul => F32Mul [float32(BinOp::FMul, true)],
+            visit_f32_div => F32Div [float32(BinOp::FDiv, false)],
+            visit_f32_min => F32Min [float32(BinOp::FMin, true)],
+            visit_f32_max => F32Max [float32(BinOp::FMax, true)],
+            visit_f32_copysign => F32Copysign [float32(BinOp::FCopysign, false)],
         }
         fixed [S64, S64] => [S32] {
-            visit_i64_eq => I64Eq, visit_i64_ne => I64Ne, visit_i64_lt_s => I64LtS, visit_i64_lt_u => I64LtU,
-            visit_i64_gt_s => I64GtS, visit_i64_gt_u => I64GtU, visit_i64_le_s => I64LeS,
-            visit_i64_le_u => I64LeU, visit_i64_ge_s => I64GeS, visit_i64_ge_u => I64GeU,
+            visit_i64_eq => I64Eq [compare(CmpOp::Eq)],
+            visit_i64_ne => I64Ne [compare(CmpOp::Ne)],
+            visit_i64_lt_s => I64LtS [compare(CmpOp::LtS)],
+            visit_i64_lt_u => I64LtU [compare(CmpOp::LtU)],
+            visit_i64_gt_s => I64GtS [compare(CmpOp::GtS)],
+            visit_i64_gt_u => I64GtU [compare(CmpOp::GtU)],
+            visit_i64_le_s => I64LeS [compare(CmpOp::LeS)],
+            visit_i64_le_u => I64LeU [compare(CmpOp::LeU)],
+            visit_i64_ge_s => I64GeS [compare(CmpOp::GeS)],
+            visit_i64_ge_u => I64GeU [compare(CmpOp::GeU)],
             visit_f64_eq => F64Eq, visit_f64_ne => F64Ne, visit_f64_lt => F64Lt, visit_f64_gt => F64Gt,
             visit_f64_le => F64Le, visit_f64_ge => F64Ge,
         }
         fixed [S64, S64] => [S64] {
-            visit_i64_add => I64Add, visit_i64_sub => I64Sub, visit_i64_mul => I64Mul,
+            visit_i64_add => I64Add [integer64(BinOp::IAdd, true)],
+            visit_i64_sub => I64Sub [integer64(BinOp::ISub, false)],
+            visit_i64_mul => I64Mul [integer64(BinOp::IMul, true)],
             visit_i64_div_s => I64DivS, visit_i64_div_u => I64DivU, visit_i64_rem_s => I64RemS,
-            visit_i64_rem_u => I64RemU, visit_i64_and => I64And, visit_i64_or => I64Or, visit_i64_xor => I64Xor,
-            visit_i64_shl => I64Shl, visit_i64_shr_s => I64ShrS, visit_i64_shr_u => I64ShrU,
-            visit_i64_rotl => I64Rotl, visit_i64_rotr => I64Rotr, visit_f64_add => F64Add,
-            visit_f64_sub => F64Sub, visit_f64_mul => F64Mul, visit_f64_div => F64Div,
-            visit_f64_min => F64Min, visit_f64_max => F64Max, visit_f64_copysign => F64Copysign,
+            visit_i64_rem_u => I64RemU,
+            visit_i64_and => I64And [integer64(BinOp::IAnd, true)],
+            visit_i64_or => I64Or [integer64(BinOp::IOr, true)],
+            visit_i64_xor => I64Xor [integer64(BinOp::IXor, true)],
+            visit_i64_shl => I64Shl [integer64(BinOp::IShl, false)],
+            visit_i64_shr_s => I64ShrS [integer64(BinOp::IShrS, false)],
+            visit_i64_shr_u => I64ShrU [integer64(BinOp::IShrU, false)],
+            visit_i64_rotl => I64Rotl [integer64(BinOp::IRotl, false)],
+            visit_i64_rotr => I64Rotr [integer64(BinOp::IRotr, false)],
+            visit_f64_add => F64Add [float64(BinOp::FAdd, true)],
+            visit_f64_sub => F64Sub [float64(BinOp::FSub, false)],
+            visit_f64_mul => F64Mul [float64(BinOp::FMul, true)],
+            visit_f64_div => F64Div [float64(BinOp::FDiv, false)],
+            visit_f64_min => F64Min [float64(BinOp::FMin, true)],
+            visit_f64_max => F64Max [float64(BinOp::FMax, true)],
+            visit_f64_copysign => F64Copysign [float64(BinOp::FCopysign, false)],
         }
         fixed [S64, S64, S64, S64] => [S64, S64] { visit_i64_add128 => I64Add128, visit_i64_sub128 => I64Sub128 }
         fixed [S64, S64] => [S64, S64] { visit_i64_mul_wide_s => I64MulWideS, visit_i64_mul_wide_u => I64MulWideU }
@@ -575,7 +655,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         terminating [] => [] { visit_unreachable => Unreachable, visit_return => Return }
         memory_index [] => [Addr] { visit_memory_size(memory: u32) => MemorySize }
         memory_index [Addr] => [Addr] { visit_memory_grow(memory: u32) => MemoryGrow }
-        memory_index [Addr, S32, Addr] => [] { visit_memory_fill(memory: u32) => MemoryFill }
+        memory_index [Addr, S32, Addr] => [] { visit_memory_fill(memory: u32) => MemoryFill [memory_fill()] }
         table [Addr] => [S32] { visit_table_get(table: u32) => TableGet }
         table [Addr, S32] => [] { visit_table_set(table: u32) => TableSet }
         table [] => [Addr] { visit_table_size(table: u32) => TableSize }
@@ -594,94 +674,94 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         array_field [S32, S32, Field, S32] => [] { visit_array_fill(type_index: u32) => ArrayFill }
     }
 
-    fn visit_struct_new(&mut self, type_index: u32) -> Self::Output {
+    fn visit_struct_new(&mut self, type_index: u32) -> Result<()> {
         let field_count = self.metadata.struct_fields(type_index)?.len();
         for field_index in (0..field_count).rev() {
             let size = self.metadata.struct_field(type_index, field_index as u32)?;
             self.pop_expect(size)?;
         }
         self.push_sizes(&[ValueLane::S32])?;
-        self.instructions.push(Instruction::StructNew(type_index));
+        self.emitter.emit(Instruction::StructNew(type_index))?;
         Ok(())
     }
 
-    fn visit_struct_get(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+    fn visit_struct_get(&mut self, type_index: u32, field_index: u32) -> Result<()> {
         self.visit_struct_get_impl(type_index, field_index, Instruction::StructGet)
     }
 
-    fn visit_struct_get_s(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+    fn visit_struct_get_s(&mut self, type_index: u32, field_index: u32) -> Result<()> {
         self.visit_struct_get_impl(type_index, field_index, Instruction::StructGetS)
     }
 
-    fn visit_struct_get_u(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+    fn visit_struct_get_u(&mut self, type_index: u32, field_index: u32) -> Result<()> {
         self.visit_struct_get_impl(type_index, field_index, Instruction::StructGetU)
     }
 
-    fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Self::Output {
+    fn visit_struct_set(&mut self, type_index: u32, field_index: u32) -> Result<()> {
         let size = self.metadata.struct_field(type_index, field_index)?;
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, field_index))?;
         self.emit(&[ValueLane::S32, size], &[], Instruction::StructSet(operand))
     }
 
-    fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Self::Output {
+    fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Result<()> {
         let size = self.metadata.array_field(type_index)?;
         for _ in 0..array_size {
             self.pop_expect(size)?;
         }
         self.push_sizes(&[ValueLane::S32])?;
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, array_size))?;
-        self.instructions.push(Instruction::ArrayNewFixed(operand));
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, array_size))?;
+        self.emitter.emit(Instruction::ArrayNewFixed(operand))?;
         Ok(())
     }
 
-    fn visit_call(&mut self, function_index: u32) -> Self::Output {
+    fn visit_call(&mut self, function_index: u32) -> Result<()> {
         let signature = self.metadata.function_signature(function_index)?;
-        self.emit(&signature.params, &signature.results, Instruction::Call(function_index))
+        self.emit_boundary(&signature.params, &signature.results, Instruction::Call(function_index))
     }
 
-    fn visit_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
+    fn visit_call_indirect(&mut self, type_index: u32, table_index: u32) -> Result<()> {
         let table_size = self.metadata.table_size(table_index)?;
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
         let signature = self.metadata.signature(type_index)?;
         self.pop_expect(table_size)?;
-        self.emit(&signature.params, &signature.results, Instruction::CallIndirect(operand))
+        self.emit_boundary(&signature.params, &signature.results, Instruction::CallIndirect(operand))
     }
 
-    fn visit_call_ref(&mut self, type_index: u32) -> Self::Output {
+    fn visit_call_ref(&mut self, type_index: u32) -> Result<()> {
         let signature = self.metadata.signature(type_index)?;
         self.pop_expect(ValueLane::S32)?;
-        self.emit(&signature.params, &signature.results, Instruction::CallRef(type_index))
+        self.emit_boundary(&signature.params, &signature.results, Instruction::CallRef(type_index))
     }
 
-    fn visit_return_call(&mut self, function_index: u32) -> Self::Output {
+    fn visit_return_call(&mut self, function_index: u32) -> Result<()> {
         let signature = self.metadata.function_signature(function_index)?;
         self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
-        self.instructions.push(Instruction::ReturnCall(function_index));
+        self.emitter.emit_boundary(Instruction::ReturnCall(function_index))?;
         Ok(())
     }
 
-    fn visit_return_call_indirect(&mut self, type_index: u32, table_index: u32) -> Self::Output {
+    fn visit_return_call_indirect(&mut self, type_index: u32, table_index: u32) -> Result<()> {
         let table_size = self.metadata.table_size(table_index)?;
         let signature = self.metadata.signature(type_index)?;
         self.pop_expect(table_size)?;
         self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
-        self.instructions.push(Instruction::ReturnCallIndirect(operand));
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
+        self.emitter.emit_boundary(Instruction::ReturnCallIndirect(operand))?;
         Ok(())
     }
 
-    fn visit_return_call_ref(&mut self, type_index: u32) -> Self::Output {
+    fn visit_return_call_ref(&mut self, type_index: u32) -> Result<()> {
         let signature = self.metadata.signature(type_index)?;
         self.pop_expect(ValueLane::S32)?;
         self.apply_effect(&signature.params, &[])?;
         self.mark_unreachable();
-        self.instructions.push(Instruction::ReturnCallRef(type_index));
+        self.emitter.emit_boundary(Instruction::ReturnCallRef(type_index))?;
         Ok(())
     }
 
-    fn visit_global_set(&mut self, global_index: u32) -> Self::Output {
+    fn visit_global_set(&mut self, global_index: u32) -> Result<()> {
         let size = self.metadata.global_size(global_index)?;
         let instruction = size.select(
             Instruction::GlobalSet32(global_index),
@@ -691,87 +771,86 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&[size], &[], instruction)
     }
 
-    fn visit_global_get(&mut self, global_index: u32) -> Self::Output {
+    fn visit_global_get(&mut self, global_index: u32) -> Result<()> {
         let size = self.metadata.global_size(global_index)?;
-        let instruction = size.select(
-            Instruction::GlobalGet32(global_index),
-            Instruction::GlobalGet64(global_index),
-            Instruction::GlobalGet128(global_index),
-        );
-        self.emit(&[], &[size], instruction)
+        match size {
+            ValueLane::S32 => emit_selected!(self, &[], &[size], GlobalGet32(global_index)[global_get32()]),
+            ValueLane::S64 => emit_selected!(self, &[], &[size], GlobalGet64(global_index)[global_get64()]),
+            ValueLane::S128 => emit_selected!(self, &[], &[size], GlobalGet128(global_index)[global_get128()]),
+        }
     }
 
-    fn visit_drop(&mut self) -> Self::Output {
+    fn visit_drop(&mut self) -> Result<()> {
         let size = self.operand_stack.last().copied().unwrap_or(ValueLane::S32);
-        let instruction = size.select(Instruction::Drop32, Instruction::Drop64, Instruction::Drop128);
-        self.emit(&[size], &[], instruction)
+        match size {
+            ValueLane::S32 => emit_selected!(self, &[size], &[], Drop32[drop32()]),
+            ValueLane::S64 => emit_selected!(self, &[size], &[], Drop64[drop64()]),
+            ValueLane::S128 => emit_selected!(self, &[size], &[], Drop128[drop128()]),
+        }
     }
 
-    fn visit_select(&mut self) -> Self::Output {
+    fn visit_select(&mut self) -> Result<()> {
         let size = self.operand_stack.iter().rev().nth(1).copied().unwrap_or(ValueLane::S32);
         let instruction = size.select(Instruction::Select32, Instruction::Select64, Instruction::Select128);
         self.emit(&[size, size, ValueLane::S32], &[size], instruction)
     }
 
-    fn visit_local_get(&mut self, idx: u32) -> Self::Output {
+    fn visit_local_get(&mut self, idx: u32) -> Result<()> {
         let (size, local_idx) = self.local(idx)?;
-        let instruction = size.select(
-            Instruction::LocalGet32(local_idx),
-            Instruction::LocalGet64(local_idx),
-            Instruction::LocalGet128(local_idx),
-        );
-        self.emit(&[], &[size], instruction)
+        match size {
+            ValueLane::S32 => emit_selected!(self, &[], &[size], LocalGet32(local_idx)[local_get32()]),
+            ValueLane::S64 => emit_selected!(self, &[], &[size], LocalGet64(local_idx)[local_get64()]),
+            ValueLane::S128 => emit_selected!(self, &[], &[size], LocalGet128(local_idx)[local_get128()]),
+        }
     }
 
-    fn visit_local_set(&mut self, idx: u32) -> Self::Output {
+    fn visit_local_set(&mut self, idx: u32) -> Result<()> {
         let (size, local_idx) = self.local(idx)?;
-        let instruction = size.select(
-            Instruction::LocalSet32(local_idx),
-            Instruction::LocalSet64(local_idx),
-            Instruction::LocalSet128(local_idx),
-        );
-        self.emit(&[size], &[], instruction)
+        match size {
+            ValueLane::S32 => emit_selected!(self, &[size], &[], LocalSet32(local_idx)[local_set32()]),
+            ValueLane::S64 => emit_selected!(self, &[size], &[], LocalSet64(local_idx)[local_set64()]),
+            ValueLane::S128 => emit_selected!(self, &[size], &[], LocalSet128(local_idx)[local_set128()]),
+        }
     }
 
-    fn visit_local_tee(&mut self, idx: u32) -> Self::Output {
+    fn visit_local_tee(&mut self, idx: u32) -> Result<()> {
         let (size, local_idx) = self.local(idx)?;
-        // No peephole here: this position may be a branch target (block end,
-        // loop start, if/else join), and fusing with the preceding `local.get`
-        // would move the label past the tee. The rewriter fuses the same pair
-        // within a basic block, where no branch can land between them.
-        let instruction = size.select(
-            Instruction::LocalTee32(local_idx),
-            Instruction::LocalTee64(local_idx),
-            Instruction::LocalTee128(local_idx),
-        );
-        self.emit(&[size], &[size], instruction)
+        // Bound labels seal the tail, so these rules cannot fuse across a loop
+        // entry or another branch destination.
+        match size {
+            ValueLane::S32 => emit_selected!(self, &[size], &[size], LocalTee32(local_idx)[local_tee32()]),
+            ValueLane::S64 => emit_selected!(self, &[size], &[size], LocalTee64(local_idx)[local_tee64()]),
+            ValueLane::S128 => emit_selected!(self, &[size], &[size], LocalTee128(local_idx)[local_tee128()]),
+        }
     }
 
-    fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Self::Output {
+    fn visit_block(&mut self, blockty: wasmparser::BlockType) -> Result<()> {
         self.push_control(BlockKind::Block, blockty, None)
     }
 
-    fn visit_loop(&mut self, ty: wasmparser::BlockType) -> Self::Output {
+    fn visit_loop(&mut self, ty: wasmparser::BlockType) -> Result<()> {
         self.push_control(BlockKind::Loop, ty, None)
     }
 
-    fn visit_if(&mut self, ty: wasmparser::BlockType) -> Self::Output {
+    fn visit_if(&mut self, ty: wasmparser::BlockType) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
-        self.instructions.push(Instruction::JumpIfZero32(0));
-        self.push_control(BlockKind::If, ty, Some(self.instructions.len() - 1))
+        let else_entry = self.emitter.new_label();
+        self.emitter.branch_if(&mut self.data, true, else_entry)?;
+        self.push_control(BlockKind::If, ty, Some(else_entry))
     }
 
-    fn visit_try_table(&mut self, try_table: wasmparser::TryTable) -> Self::Output {
+    fn visit_try_table(&mut self, try_table: wasmparser::TryTable) -> Result<()> {
         let signature = self.block_signature(try_table.ty)?;
-        for &size in signature.params.iter().rev() {
+        for &size in signature.params().iter().rev() {
             self.pop_expect(size)?;
         }
         let height = self.operand_stack.len();
         let base = self.lane_counts;
         let entry_unreachable = self.is_unreachable();
 
-        let body_jump = self.instructions.len();
-        self.instructions.push(Instruction::Jump(0));
+        let body_start = self.emitter.new_label();
+        let body_end = self.emitter.new_label();
+        self.emitter.branch(Instruction::Jump(0), body_start)?;
         let mut catches = Vec::with_capacity(try_table.catches.len());
         for catch in try_table.catches {
             let (tag, depth, with_ref) = match catch {
@@ -785,43 +864,31 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             }
             let target_idx = self.get_ctx_idx(depth)?;
             let target_base = self.control_stack[target_idx].base;
-            let landing_pad = u32::try_from(self.instructions.len())
-                .map_err(|_| crate::ParseError::Other("function body is too large".into()))?;
-            match self.control_stack[target_idx].kind {
-                BlockKind::Function => self.instructions.push(Instruction::Return),
-                BlockKind::Loop => {
-                    self.instructions.push(Instruction::Jump(self.control_stack[target_idx].start_ip as u32));
-                }
-                BlockKind::Block | BlockKind::If | BlockKind::TryTable(_) => {
-                    self.control_stack[target_idx].branch_jumps.push(self.instructions.len());
-                    self.control_stack[target_idx].end_reachable = true;
-                    self.instructions.push(Instruction::Jump(0));
-                }
-            }
-            catches.push(match tag {
-                Some(tag) => tinywasm_types::ExceptionCatch::Tag { tag, landing_pad, base: target_base, with_ref },
-                None => tinywasm_types::ExceptionCatch::All { landing_pad, base: target_base, with_ref },
-            });
+            let landing_label = self.emitter.new_label();
+            self.emitter.bind(landing_label)?;
+            self.emit_branch_jump_or_return(depth)?;
+            let landing_pad = 0;
+            catches.push((
+                match tag {
+                    Some(tag) => tinywasm_types::ExceptionCatch::Tag { tag, landing_pad, base: target_base, with_ref },
+                    None => tinywasm_types::ExceptionCatch::All { landing_pad, base: target_base, with_ref },
+                },
+                landing_label,
+            ));
         }
 
-        let body_start = self.instructions.len();
-        self.patch_jump(body_jump, body_start);
-        let handler_idx = self.data.exception_handlers.len();
-        self.data.exception_handlers.push(tinywasm_types::ExceptionHandler {
-            start_ip: body_start as u32,
-            end_ip: 0,
-            catches: catches.into_boxed_slice(),
-        });
-        self.push_sizes(&signature.params)?;
+        self.emitter.bind(body_start)?;
+        self.emitter.exception_handler(&mut self.data, body_start, body_end, catches);
+        self.push_sizes(signature.params())?;
         self.control_stack.push(ControlFrame {
-            kind: BlockKind::TryTable(handler_idx),
+            kind: BlockKind::TryTable,
             has_else: false,
-            start_ip: body_start,
-            branch_jumps: Vec::new(),
+            loop_start: None,
+            end: Some(body_end),
+            else_entry: None,
             height,
             base,
-            params: signature.params,
-            results: signature.results,
+            signature,
             unreachable: entry_unreachable,
             entry_unreachable,
             end_reachable: false,
@@ -829,238 +896,229 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         Ok(())
     }
 
-    fn visit_throw(&mut self, tag_index: u32) -> Self::Output {
+    fn visit_throw(&mut self, tag_index: u32) -> Result<()> {
         let signature = self.metadata.tag_signature(tag_index)?;
         self.apply_effect(&signature.params, &[])?;
-        self.instructions.push(Instruction::Throw(tag_index));
+        self.emitter.emit_boundary(Instruction::Throw(tag_index))?;
         self.mark_unreachable();
         Ok(())
     }
 
-    fn visit_throw_ref(&mut self) -> Self::Output {
+    fn visit_throw_ref(&mut self) -> Result<()> {
         self.apply_effect(&[ValueLane::S32], &[])?;
-        self.instructions.push(Instruction::ThrowRef);
+        self.emitter.emit_boundary(Instruction::ThrowRef)?;
         self.mark_unreachable();
         Ok(())
     }
 
-    fn visit_else(&mut self) -> Self::Output {
-        let (cond_jump_ip, height, base, params, entry_unreachable) = {
+    fn visit_else(&mut self) -> Result<()> {
+        let (else_entry, end, height, base, signature, entry_unreachable) = {
             let ctx = self
                 .control_stack
                 .last_mut()
-                .filter(|ctx| matches!(ctx.kind, BlockKind::If))
+                .filter(|ctx| matches!(ctx.kind, BlockKind::If) && !ctx.has_else)
                 .ok_or_else(|| crate::ParseError::Other("else without matching if".into()))?;
             ctx.end_reachable |= !ctx.unreachable;
             ctx.has_else = true;
-            (ctx.branch_jumps[0], ctx.height, ctx.base, ctx.params.clone(), ctx.entry_unreachable)
+            let end = *ctx.end.get_or_insert_with(|| self.emitter.new_label());
+            (ctx.else_entry.unwrap(), end, ctx.height, ctx.base, ctx.signature, ctx.entry_unreachable)
         };
-        let jump_ip = self.instructions.len();
-        self.instructions.push(Instruction::Jump(0));
-        self.control_stack.last_mut().unwrap().branch_jumps.push(jump_ip);
-        self.patch_jump(cond_jump_ip, self.instructions.len());
+        self.emitter.branch(Instruction::Jump(0), end)?;
+        self.emitter.bind(else_entry)?;
         self.reset_stack(height, base);
-        self.push_sizes(&params)?;
+        self.push_sizes(signature.params())?;
         self.control_stack.last_mut().unwrap().unreachable = entry_unreachable;
         Ok(())
     }
 
-    fn visit_end(&mut self) -> Self::Output {
+    fn visit_end(&mut self) -> Result<()> {
         let ctx =
             self.control_stack.pop().ok_or_else(|| crate::ParseError::Other("end without control frame".into()))?;
-        if let BlockKind::TryTable(handler_idx) = ctx.kind {
-            self.data.exception_handlers[handler_idx].end_ip = self.instructions.len() as u32;
+        if let Some(end) = ctx.end {
+            self.emitter.bind(end)?;
+        }
+        if !ctx.has_else
+            && let Some(else_entry) = ctx.else_entry
+        {
+            self.emitter.bind(else_entry)?;
         }
         if matches!(ctx.kind, BlockKind::Function) {
-            self.instructions.push(Instruction::Return);
+            self.emitter.emit_boundary(Instruction::Return)?;
         } else {
             let reachable = !ctx.entry_unreachable
                 && (!ctx.unreachable || ctx.end_reachable || matches!(ctx.kind, BlockKind::If) && !ctx.has_else);
             self.reset_stack(ctx.height, ctx.base);
-            self.push_sizes(&ctx.results)?;
+            self.push_sizes(ctx.signature.results())?;
             if let Some(parent) = self.control_stack.last_mut() {
                 parent.unreachable = !reachable;
             }
-            self.patch_end_jumps(ctx, self.instructions.len());
         }
         Ok(())
     }
 
-    fn visit_br(&mut self, depth: u32) -> Self::Output {
+    fn visit_br(&mut self, depth: u32) -> Result<()> {
         self.emit_dropkeep_to_label(depth)?;
         self.emit_branch_jump_or_return(depth)?;
         self.mark_unreachable();
         Ok(())
     }
 
-    fn visit_br_if(&mut self, depth: u32) -> Self::Output {
+    fn visit_br_if(&mut self, depth: u32) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
-        let cond_jump_ip = self.instructions.len();
-        self.instructions.push(Instruction::JumpIfZero32(0));
-
-        let branch_side_start = self.instructions.len();
-        self.emit_dropkeep_to_label(depth)?;
-
-        if self.instructions.len() == branch_side_start
-            && let Ok(ctx_idx) = self.get_ctx_idx(depth)
-            && !matches!(self.control_stack[ctx_idx].kind, BlockKind::Function)
-        {
-            self.instructions[cond_jump_ip] = Instruction::JumpIfNonZero32(0);
-            self.control_stack[ctx_idx].branch_jumps.push(cond_jump_ip);
+        let ctx_idx = self.get_ctx_idx(depth)?;
+        let frame = &self.control_stack[ctx_idx];
+        let types =
+            if matches!(frame.kind, BlockKind::Loop) { frame.signature.params() } else { frame.signature.results() };
+        let keep = Self::value_counts(types);
+        let needs_shaping = !self.is_unreachable() && self.needs_dropkeep(frame.base, keep);
+        if !needs_shaping && !matches!(frame.kind, BlockKind::Function) {
+            let target = if let Some(start) = frame.loop_start {
+                start
+            } else {
+                *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label())
+            };
+            self.emitter.branch_if(&mut self.data, false, target)?;
             self.control_stack[ctx_idx].end_reachable = true;
             return Ok(());
         }
-
+        let fallthrough = self.emitter.new_label();
+        self.emitter.branch_if(&mut self.data, true, fallthrough)?;
+        self.emit_dropkeep_to_label(depth)?;
         self.emit_branch_jump_or_return(depth)?;
-        self.patch_jump(cond_jump_ip, self.instructions.len());
+        self.emitter.bind(fallthrough)?;
         Ok(())
     }
 
-    fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Self::Output {
+    fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Result<()> {
         let ts = targets.targets().collect::<Result<Vec<_>, wasmparser::Error>>()?;
         self.pop_expect(ValueLane::S32)?;
 
         let default_depth = targets.default();
-        let len = ts.len() as u32;
         let target_depths: Vec<u32> = ts;
-
-        let header_ip = self.instructions.len();
-        let branch_table_start = self.data.branch_table_targets.len() as u32;
-        let branch_operand =
-            self.data.push_target_operand128(Operand128::<BranchTableOperand>::new(0, branch_table_start, len))?;
-        self.instructions.push(Instruction::BranchTable(branch_operand));
-
-        struct PadInfo {
-            depth: u32,
-            pad_start: usize,
-            jump_or_ret_ip: usize,
-            is_return: bool,
-        }
-        let mut pads: Vec<PadInfo> = Vec::new();
-
+        let mut pads: Vec<(u32, LabelId)> = Vec::new();
+        let label_count = target_depths
+            .len()
+            .checked_add(1)
+            .ok_or_else(|| crate::ParseError::Other("branch table is too large".into()))?;
+        let mut labels = Vec::with_capacity(label_count);
         for &depth in target_depths.iter().chain(core::iter::once(&default_depth)) {
-            if pads.iter().any(|pad| pad.depth == depth) {
-                continue;
+            if self.emitter.optimizations_enabled() && !self.is_unreachable() {
+                let ctx_idx = self.get_ctx_idx(depth)?;
+                let frame = &self.control_stack[ctx_idx];
+                let is_loop = matches!(frame.kind, BlockKind::Loop);
+                let types = if is_loop { frame.signature.params() } else { frame.signature.results() };
+                if !matches!(frame.kind, BlockKind::Function)
+                    && !self.needs_dropkeep(frame.base, Self::value_counts(types))
+                {
+                    let target = if let Some(start) = frame.loop_start {
+                        start
+                    } else {
+                        *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label())
+                    };
+                    labels.push(target);
+                    if !is_loop {
+                        self.control_stack[ctx_idx].end_reachable = true;
+                    }
+                    continue;
+                }
             }
-
-            let pad_start = self.instructions.len();
-            let (jump_or_ret_ip, is_return) = if self.is_unreachable() {
-                self.instructions.push(Instruction::Return);
-                (pad_start, true)
+            let label = if let Some((_, label)) = pads.iter().find(|(pad_depth, _)| *pad_depth == depth) {
+                *label
             } else {
-                let frame = &self.control_stack[self.get_ctx_idx(depth)?];
-                let base = frame.base;
-                let label_types = if matches!(frame.kind, BlockKind::Loop) { &frame.params } else { &frame.results };
-                self.emit_dropkeep(base, Self::value_counts(label_types));
-                let jump_ip = self.instructions.len();
-                self.instructions.push(Instruction::Jump(0));
-                (jump_ip, false)
+                let label = self.emitter.new_label();
+                pads.push((depth, label));
+                label
             };
-            pads.push(PadInfo { depth, pad_start, jump_or_ret_ip, is_return });
+            labels.push(label);
         }
-
-        for &depth in &target_depths {
-            let pad = pads
-                .iter()
-                .find(|pad| pad.depth == depth)
-                .ok_or_else(|| crate::ParseError::Other("missing branch table target".into()))?;
-            self.data.branch_table_targets.push(pad.pad_start as u32);
-        }
-
-        let default_pad = pads
-            .iter()
-            .find(|pad| pad.depth == default_depth)
-            .ok_or_else(|| crate::ParseError::Other("missing default branch table target".into()))?;
-        if let Instruction::BranchTable(index) = self.instructions[header_ip] {
-            let operand = self.data.operand128(index);
-            self.data.set_operand128(index, operand.with_target(default_pad.pad_start as u32));
-        }
-
-        for pad in &pads {
-            if pad.is_return {
-                continue;
-            }
-            let ctx_idx = self.get_ctx_idx(pad.depth)?;
-            if matches!(self.control_stack[ctx_idx].kind, BlockKind::Function) {
-                self.instructions[pad.jump_or_ret_ip] = Instruction::Return;
-            } else if matches!(self.control_stack[ctx_idx].kind, BlockKind::Loop) {
-                self.patch_jump(pad.jump_or_ret_ip, self.control_stack[ctx_idx].start_ip);
+        let default = labels.pop().unwrap();
+        self.emitter.branch_table(&mut self.data, &labels, default)?;
+        for (depth, label) in pads {
+            self.emitter.bind(label)?;
+            if self.is_unreachable() {
+                self.emitter.emit_boundary(Instruction::Return)?;
             } else {
-                self.control_stack[ctx_idx].branch_jumps.push(pad.jump_or_ret_ip);
-                self.control_stack[ctx_idx].end_reachable = true;
+                self.emit_dropkeep_to_label(depth)?;
+                self.emit_branch_jump_or_return(depth)?;
             }
         }
         self.mark_unreachable();
         Ok(())
     }
 
-    fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Self::Output {
+    fn visit_f32_const(&mut self, val: wasmparser::Ieee32) -> Result<()> {
         self.emit(&[], &[ValueLane::S32], Instruction::Const32(val.bits() as i32))
     }
 
-    fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<i64>::new(val.bits() as i64))?;
-        self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
+    #[cfg(not(rust_analyzer))] // rust-analyzer thinks the return type is wrong
+    fn visit_f64_const(&mut self, val: wasmparser::Ieee64) -> Result<()> {
+        self.visit_i64_const(val.bits() as i64)
     }
 
-    fn visit_i64_const(&mut self, value: i64) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<i64>::new(value))?;
-        self.emit(&[], &[ValueLane::S64], Instruction::Const64(operand))
+    fn visit_i64_const(&mut self, value: i64) -> Result<()> {
+        let instruction = if self.emitter.optimizations_enabled()
+            && let Ok(value) = i32::try_from(value)
+        {
+            Instruction::Const64Imm(value)
+        } else {
+            Instruction::Const64(self.push64(Operand64::<i64>::new(value))?)
+        };
+        self.emit(&[], &[ValueLane::S64], instruction)
     }
 
-    fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Self::Output {
+    fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<()> {
         let dst = self.metadata.table_size(dst_table)?;
         let src = self.metadata.table_size(src_table)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(dst_table, src_table))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(dst_table, src_table))?;
         self.emit(&[dst, src, len], &[], Instruction::TableCopy(operand))
     }
 
-    fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Self::Output {
+    fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Result<()> {
         let dst = self.metadata.memory_size(dst_mem)?;
         let src = self.metadata.memory_size(src_mem)?;
         self.mark_memory(dst_mem);
         self.mark_memory(src_mem);
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(dst_mem, src_mem))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(dst_mem, src_mem))?;
         self.emit(&[dst, src, len], &[], Instruction::MemoryCopy(operand))
     }
 
-    fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Self::Output {
+    fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Result<()> {
         let dst = self.metadata.memory_size(memory)?;
         self.mark_memory(memory);
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(data_index, memory))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(data_index, memory))?;
         self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(operand))
     }
 
-    fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Self::Output {
+    fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Result<()> {
         let address = self.metadata.table_size(table)?;
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(elem_index, table))?;
+        let operand = self.push64(Operand64::<(u32, u32)>::new(elem_index, table))?;
         self.emit(&[address, ValueLane::S32, ValueLane::S32], &[], Instruction::TableInit(operand))
     }
 
-    fn visit_array_new_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
+    fn visit_array_new_data(&mut self, type_index: u32, data_index: u32) -> Result<()> {
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
         self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewData(operand))
     }
 
-    fn visit_array_new_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
+    fn visit_array_new_elem(&mut self, type_index: u32, elem_index: u32) -> Result<()> {
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
         self.emit(&[ValueLane::S32, ValueLane::S32], &[ValueLane::S32], Instruction::ArrayNewElem(operand))
     }
 
-    fn visit_array_init_data(&mut self, type_index: u32, data_index: u32) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
+    fn visit_array_init_data(&mut self, type_index: u32, data_index: u32) -> Result<()> {
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, data_index))?;
         self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitData(operand))
     }
 
-    fn visit_array_init_elem(&mut self, type_index: u32, elem_index: u32) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
+    fn visit_array_init_elem(&mut self, type_index: u32, elem_index: u32) -> Result<()> {
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, elem_index))?;
         self.emit(&[ValueLane::S32; 4], &[], Instruction::ArrayInitElem(operand))
     }
 
-    fn visit_array_copy(&mut self, type_index_dst: u32, type_index_src: u32) -> Self::Output {
-        let operand = self.push_operand64(Operand64::<(u32, u32)>::new(type_index_dst, type_index_src))?;
+    fn visit_array_copy(&mut self, type_index_dst: u32, type_index_src: u32) -> Result<()> {
+        let operand = self.push64(Operand64::<(u32, u32)>::new(type_index_dst, type_index_src))?;
         self.emit(&[ValueLane::S32; 5], &[], Instruction::ArrayCopy(operand))
     }
 
@@ -1069,7 +1127,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         relative_depth: u32,
         _from_ref_type: wasmparser::RefType,
         to_ref_type: wasmparser::RefType,
-    ) -> Self::Output {
+    ) -> Result<()> {
         self.emit_cast_branch(relative_depth, to_ref_type, false)
     }
 
@@ -1078,33 +1136,33 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         relative_depth: u32,
         _from_ref_type: wasmparser::RefType,
         to_ref_type: wasmparser::RefType,
-    ) -> Self::Output {
+    ) -> Result<()> {
         self.emit_cast_branch(relative_depth, to_ref_type, true)
     }
 
-    fn visit_br_on_null(&mut self, relative_depth: u32) -> Self::Output {
+    fn visit_br_on_null(&mut self, relative_depth: u32) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
-        let fallthrough_jump = self.instructions.len();
-        self.instructions.push(Instruction::JumpIfRefNonNull(0));
+        let fallthrough = self.emitter.new_label();
+        self.emitter.branch(Instruction::JumpIfRefNonNull(0), fallthrough)?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
-        self.patch_jump(fallthrough_jump, self.instructions.len());
+        self.emitter.bind(fallthrough)?;
         self.push_sizes(&[ValueLane::S32])
     }
 
-    fn visit_br_on_non_null(&mut self, relative_depth: u32) -> Self::Output {
+    fn visit_br_on_non_null(&mut self, relative_depth: u32) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
-        let fallthrough_jump = self.instructions.len();
-        self.instructions.push(Instruction::JumpIfRefNull(0));
+        let fallthrough = self.emitter.new_label();
+        self.emitter.branch(Instruction::JumpIfRefNull(0), fallthrough)?;
         self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.pop_expect(ValueLane::S32)?;
         self.emit_branch_jump_or_return(relative_depth)?;
-        self.patch_jump(fallthrough_jump, self.instructions.len());
+        self.emitter.bind(fallthrough)?;
         Ok(())
     }
 
-    fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Self::Output {
+    fn visit_typed_select_multi(&mut self, tys: Vec<wasmparser::ValType>) -> Result<()> {
         let sizes: Vec<_> = tys.into_iter().map(value_lane).collect();
         let counts = Self::value_counts(&sizes);
         self.emit(
@@ -1114,7 +1172,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         )
     }
 
-    fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Self::Output {
+    fn visit_typed_select(&mut self, ty: wasmparser::ValType) -> Result<()> {
         let size = value_lane(ty);
         let instruction = size.select(Instruction::Select32, Instruction::Select64, Instruction::Select128);
         self.emit(&[size, size, ValueLane::S32], &[size], instruction)
@@ -1129,7 +1187,7 @@ macro_rules! impl_visit_simd_operator {
     (@@simd $($rest:tt)* ) => {};
     (@@relaxed_simd $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
-        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
+        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Result<()> {
             Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
         }
     };
@@ -1148,7 +1206,7 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_v128_load64_splat => V128Load64Splat, visit_v128_load32_zero => V128Load32Zero,
             visit_v128_load64_zero => V128Load64Zero,
         }
-        memory [Addr, S128] => [] { visit_v128_store => V128Store }
+        memory [Addr, S128] => [] { visit_v128_store => V128Store [store128()] }
         memory [Addr, S128] => [S128] {
             visit_v128_load8_lane(lane: u8) => V128Load8Lane,
             visit_v128_load16_lane(lane: u8) => V128Load16Lane,
@@ -1237,8 +1295,11 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_i32x4_relaxed_trunc_f64x2_u_zero => I32x4RelaxedTruncF64x2UZero,
         }
         fixed [S128, S128] => [S128] {
-            visit_v128_and => V128And, visit_v128_andnot => V128AndNot, visit_v128_or => V128Or,
-            visit_v128_xor => V128Xor, visit_i8x16_swizzle => I8x16Swizzle, visit_i8x16_eq => I8x16Eq,
+            visit_v128_and => V128And [vector(BinOp128::And, true)],
+            visit_v128_andnot => V128AndNot [vector(BinOp128::AndNot, false)],
+            visit_v128_or => V128Or [vector(BinOp128::Or, true)],
+            visit_v128_xor => V128Xor [vector(BinOp128::Xor, true)],
+            visit_i8x16_swizzle => I8x16Swizzle, visit_i8x16_eq => I8x16Eq,
             visit_i8x16_ne => I8x16Ne, visit_i8x16_lt_s => I8x16LtS, visit_i8x16_lt_u => I8x16LtU,
             visit_i8x16_gt_s => I8x16GtS, visit_i8x16_gt_u => I8x16GtU, visit_i8x16_le_s => I8x16LeS,
             visit_i8x16_le_u => I8x16LeU, visit_i8x16_ge_s => I8x16GeS, visit_i8x16_ge_u => I8x16GeU,
@@ -1269,8 +1330,10 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_i16x8_sub_sat_u => I16x8SubSatU, visit_i16x8_avgr_u => I16x8AvgrU,
             visit_i16x8_mul => I16x8Mul, visit_i32x4_add => I32x4Add, visit_i32x4_sub => I32x4Sub,
             visit_i32x4_min_s => I32x4MinS, visit_i32x4_min_u => I32x4MinU, visit_i32x4_max_s => I32x4MaxS,
-            visit_i32x4_max_u => I32x4MaxU, visit_i32x4_mul => I32x4Mul, visit_i64x2_add => I64x2Add,
-            visit_i64x2_sub => I64x2Sub, visit_i64x2_mul => I64x2Mul,
+            visit_i32x4_max_u => I32x4MaxU, visit_i32x4_mul => I32x4Mul,
+            visit_i64x2_add => I64x2Add [vector(BinOp128::I64x2Add, true)],
+            visit_i64x2_sub => I64x2Sub,
+            visit_i64x2_mul => I64x2Mul [vector(BinOp128::I64x2Mul, true)],
             visit_i16x8_extmul_low_i8x16_s => I16x8ExtMulLowI8x16S,
             visit_i16x8_extmul_low_i8x16_u => I16x8ExtMulLowI8x16U,
             visit_i16x8_extmul_high_i8x16_s => I16x8ExtMulHighI8x16S,
@@ -1307,18 +1370,24 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
         }
     }
 
-    fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Self::Output {
-        let index = self.push_operand128(Operand128::<[u8; 16]>::new(lanes))?;
+    fn visit_i8x16_shuffle(&mut self, lanes: [u8; 16]) -> Result<()> {
+        let index = self.push128(Operand128::<[u8; 16]>::new(lanes))?;
         self.emit(&[ValueLane::S128, ValueLane::S128], &[ValueLane::S128], Instruction::I8x16Shuffle(index))
     }
 
-    fn visit_v128_const(&mut self, value: wasmparser::V128) -> Self::Output {
-        let index = self.push_operand128(Operand128::<[u8; 16]>::new(*value.bytes()))?;
-        self.emit(&[], &[ValueLane::S128], Instruction::Const128(index))
+    fn visit_v128_const(&mut self, value: wasmparser::V128) -> Result<()> {
+        let instruction = if self.emitter.optimizations_enabled()
+            && let Ok(value) = u32::try_from(u128::from_le_bytes(*value.bytes()))
+        {
+            Instruction::Const128Imm(value)
+        } else {
+            Instruction::Const128(self.push128(Operand128::<[u8; 16]>::new(*value.bytes()))?)
+        };
+        self.emit(&[], &[ValueLane::S128], instruction)
     }
 }
 
-impl FunctionBuilder<'_> {
+impl<'a> FunctionBuilder<'a> {
     fn emit_cast_branch(
         &mut self,
         relative_depth: u32,
@@ -1327,17 +1396,16 @@ impl FunctionBuilder<'_> {
     ) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
-        let conditional_ip = self.instructions.len();
-        let operand = self.data.push_target_operand64(Operand64::<(u32, u32)>::new(0, target.to_bits()))?;
-        self.instructions.push(if branch_on_fail {
-            Instruction::BrOnCastFail(operand)
-        } else {
-            Instruction::BrOnCast(operand)
-        });
+        let fallthrough = self.emitter.new_label();
+        let operand = self.data.push_target64(Operand64::<(u32, u32)>::new(0, target.to_bits()))?;
+        self.emitter.branch(
+            if branch_on_fail { Instruction::BrOnCastFail(operand) } else { Instruction::BrOnCast(operand) },
+            fallthrough,
+        )?;
         self.push_sizes(&[ValueLane::S32])?;
         self.emit_dropkeep_to_label(relative_depth)?;
         self.emit_branch_jump_or_return(relative_depth)?;
-        self.patch_jump(conditional_ip, self.instructions.len());
+        self.emitter.bind(fallthrough)?;
         Ok(())
     }
 
@@ -1411,8 +1479,26 @@ impl FunctionBuilder<'_> {
     /// Applies an instruction's stack effect before adding it to the bytecode.
     fn emit(&mut self, inputs: &[ValueLane], outputs: &[ValueLane], instruction: Instruction) -> Result<()> {
         self.apply_effect(inputs, outputs)?;
-        self.instructions.push(instruction);
-        Ok(())
+        self.emitter.emit(instruction)
+    }
+
+    /// Applies stack effects and seals a call or terminator's instruction boundary.
+    fn emit_boundary(&mut self, inputs: &[ValueLane], outputs: &[ValueLane], instruction: Instruction) -> Result<()> {
+        self.apply_effect(inputs, outputs)?;
+        self.emitter.emit_boundary(instruction)
+    }
+
+    /// Applies logical stack effects before invoking a statically selected rule family.
+    #[inline]
+    fn emit_with(
+        &mut self,
+        inputs: &[ValueLane],
+        outputs: &[ValueLane],
+        instruction: Instruction,
+        rules: impl FnOnce(&mut crate::emitter::PendingTail<'_>, &mut FunctionDataBuilder) -> Result<()>,
+    ) -> Result<()> {
+        self.apply_effect(inputs, outputs)?;
+        self.emitter.emit_with(&mut self.data, instruction, rules)
     }
 
     /// Restores both logical operand order and lane counts to a control-frame base.
@@ -1431,42 +1517,42 @@ impl FunctionBuilder<'_> {
         }
     }
 
-    /// Enters a control frame with its parameters restored above the saved base.
-    fn push_control(&mut self, kind: BlockKind, ty: wasmparser::BlockType, initial_jump: Option<usize>) -> Result<()> {
-        let signature = self.block_signature(ty)?;
-        self.push_control_signature(kind, signature, initial_jump)
-    }
-
-    fn block_signature(&self, ty: wasmparser::BlockType) -> Result<Signature> {
+    fn block_signature(&self, ty: wasmparser::BlockType) -> Result<BlockSignature<'a>> {
         Ok(match ty {
-            wasmparser::BlockType::Empty => Signature { params: Vec::new(), results: Vec::new() },
-            wasmparser::BlockType::Type(ty) => Signature { params: Vec::new(), results: alloc::vec![value_lane(ty)] },
-            wasmparser::BlockType::FuncType(idx) => self.metadata.signature(idx)?.clone(),
+            wasmparser::BlockType::Empty => BlockSignature::Empty,
+            wasmparser::BlockType::Type(ty) => BlockSignature::Result(value_lane(ty)),
+            wasmparser::BlockType::FuncType(idx) => BlockSignature::Function(self.metadata.signature(idx)?),
         })
     }
 
-    fn push_control_signature(
-        &mut self,
-        kind: BlockKind,
-        signature: Signature,
-        initial_jump: Option<usize>,
-    ) -> Result<()> {
-        for &size in signature.params.iter().rev() {
+    /// Enters a control frame with its parameters restored above the saved base.
+    fn push_control(&mut self, kind: BlockKind, ty: wasmparser::BlockType, else_entry: Option<LabelId>) -> Result<()> {
+        let signature = self.block_signature(ty)?;
+        for &size in signature.params().iter().rev() {
             self.pop_expect(size)?;
         }
         let height = self.operand_stack.len();
         let base = self.lane_counts;
-        self.push_sizes(&signature.params)?;
+        self.push_sizes(signature.params())?;
         let entry_unreachable = self.is_unreachable();
+        // Backedges are not known yet, so loop headers always seal the tail.
+        // Other constructs have no entry target and allocate exits on first use.
+        let loop_start = if matches!(kind, BlockKind::Loop) {
+            let start = self.emitter.new_label();
+            self.emitter.bind(start)?;
+            Some(start)
+        } else {
+            None
+        };
         self.control_stack.push(ControlFrame {
             kind,
             has_else: false,
-            start_ip: self.instructions.len(),
-            branch_jumps: initial_jump.into_iter().collect(),
+            loop_start,
+            end: None,
+            else_entry,
             height,
             base,
-            params: signature.params,
-            results: signature.results,
+            signature,
             unreachable: entry_unreachable,
             entry_unreachable,
             end_reachable: false,
@@ -1475,34 +1561,23 @@ impl FunctionBuilder<'_> {
     }
 
     /// Emits the stack-shaping instruction required by a branch.
-    fn emit_dropkeep(&mut self, base: ValueCounts, keep: ValueCounts) {
-        let target = ValueCounts { c32: base.c32 + keep.c32, c64: base.c64 + keep.c64, c128: base.c128 + keep.c128 };
-        if self.lane_counts.c32 != target.c32 {
-            self.instructions.push(Instruction::DropKeep32 { base: base.c32, keep: keep.c32 });
+    fn emit_dropkeep(&mut self, base: ValueCounts, keep: ValueCounts) -> Result<()> {
+        if Some(self.lane_counts.c32) != base.c32.checked_add(keep.c32) {
+            self.emitter.emit(Instruction::DropKeep32 { base: base.c32, keep: keep.c32 })?;
         }
-        if self.lane_counts.c64 != target.c64 {
-            self.instructions.push(Instruction::DropKeep64 { base: base.c64, keep: keep.c64 });
+        if Some(self.lane_counts.c64) != base.c64.checked_add(keep.c64) {
+            self.emitter.emit(Instruction::DropKeep64 { base: base.c64, keep: keep.c64 })?;
         }
-        if self.lane_counts.c128 != target.c128 {
-            self.instructions.push(Instruction::DropKeep128 { base: base.c128, keep: keep.c128 });
+        if Some(self.lane_counts.c128) != base.c128.checked_add(keep.c128) {
+            self.emitter.emit(Instruction::DropKeep128 { base: base.c128, keep: keep.c128 })?;
         }
+        Ok(())
     }
 
-    fn patch_jump(&mut self, jump_ip: usize, target: usize) {
-        match &mut self.instructions[jump_ip] {
-            Instruction::Jump(ip)
-            | Instruction::JumpIfZero32(ip)
-            | Instruction::JumpIfNonZero32(ip)
-            | Instruction::JumpIfRefNull(ip)
-            | Instruction::JumpIfRefNonNull(ip) => {
-                *ip = target as u32;
-            }
-            Instruction::BrOnCast(index) | Instruction::BrOnCastFail(index) => {
-                let operand = self.data.operand64(*index);
-                self.data.set_operand64(*index, operand.with_target(target as u32));
-            }
-            _ => {}
-        }
+    fn needs_dropkeep(&self, base: ValueCounts, keep: ValueCounts) -> bool {
+        Some(self.lane_counts.c32) != base.c32.checked_add(keep.c32)
+            || Some(self.lane_counts.c64) != base.c64.checked_add(keep.c64)
+            || Some(self.lane_counts.c128) != base.c128.checked_add(keep.c128)
     }
 
     fn value_counts(sizes: &[ValueLane]) -> ValueCounts {
@@ -1524,39 +1599,24 @@ impl FunctionBuilder<'_> {
         }
         let frame = &self.control_stack[self.get_ctx_idx(label_depth)?];
         let base = frame.base;
-        let label_types = if matches!(frame.kind, BlockKind::Loop) { &frame.params } else { &frame.results };
-        self.emit_dropkeep(base, Self::value_counts(label_types));
-        Ok(())
+        let label_types =
+            if matches!(frame.kind, BlockKind::Loop) { frame.signature.params() } else { frame.signature.results() };
+        self.emit_dropkeep(base, Self::value_counts(label_types))
     }
 
     fn emit_branch_jump_or_return(&mut self, depth: u32) -> Result<()> {
         let ctx_idx = self.get_ctx_idx(depth)?;
         match self.control_stack[ctx_idx].kind {
-            BlockKind::Function => self.instructions.push(Instruction::Return),
-            BlockKind::Loop => self.instructions.push(Instruction::Jump(self.control_stack[ctx_idx].start_ip as u32)),
-            BlockKind::Block | BlockKind::If | BlockKind::TryTable(_) => {
-                self.control_stack[ctx_idx].branch_jumps.push(self.instructions.len());
+            BlockKind::Function => self.emitter.emit_boundary(Instruction::Return)?,
+            BlockKind::Loop => {
+                self.emitter.branch(Instruction::Jump(0), self.control_stack[ctx_idx].loop_start.unwrap())?
+            }
+            BlockKind::Block | BlockKind::If | BlockKind::TryTable => {
                 self.control_stack[ctx_idx].end_reachable = true;
-                self.instructions.push(Instruction::Jump(0));
+                let end = *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label());
+                self.emitter.branch(Instruction::Jump(0), end)?;
             }
         }
         Ok(())
-    }
-
-    /// Resolves all jumps owned by a completed control frame.
-    fn patch_end_jumps(&mut self, ctx: ControlFrame, end_ip: usize) {
-        let target = if matches!(ctx.kind, BlockKind::Loop) { ctx.start_ip } else { end_ip };
-        let mut jumps = ctx.branch_jumps.as_slice();
-        if matches!(ctx.kind, BlockKind::If)
-            && let Some((cond_jump, branch_jumps)) = jumps.split_first()
-        {
-            if !ctx.has_else {
-                self.patch_jump(*cond_jump, end_ip);
-            }
-            jumps = branch_jumps;
-        }
-        for &jump in jumps {
-            self.patch_jump(jump, target);
-        }
     }
 }

@@ -6,6 +6,17 @@ use alloc::{boxed::Box, format, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations, UnpackedIndex};
 
+/// Function identity and result layout shared by lowering and finalization.
+#[derive(Clone, Copy)]
+pub(crate) struct FunctionLoweringContext {
+    /// Module type index of the function signature.
+    pub(crate) ty_idx: u32,
+    /// Module function index, including imported functions.
+    pub(crate) self_func_addr: u32,
+    /// Result counts in each physical value lane.
+    pub(crate) function_results: ValueCounts,
+}
+
 pub(crate) fn value_lane(ty: wasmparser::ValType) -> ValueLane {
     match ty {
         wasmparser::ValType::I32 | wasmparser::ValType::F32 | wasmparser::ValType::Ref(_) => ValueLane::S32,
@@ -148,11 +159,11 @@ pub(crate) fn convert_module_code(
     validator: Option<FuncValidator<ValidatorResources>>,
     reader_allocs: OperatorsReaderAllocations,
     metadata: &crate::visit::ModuleMetadata,
-    ty_idx: u32,
+    context: FunctionLoweringContext,
     options: &ParserOptions,
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let mut locals_reader = func.get_locals_reader()?;
-    let mut local_types = metadata.signature(ty_idx)?.params.clone();
+    let mut local_types = metadata.signature(context.ty_idx)?.params.clone();
 
     #[cfg(feature = "validate")]
     let mut validator = validator;
@@ -193,39 +204,27 @@ pub(crate) fn convert_module_code(
                 func,
                 (local_types, local_addr_map),
                 metadata,
-                ty_idx,
+                context,
                 reader_allocs,
-                options.deduplicate_operands(),
+                options,
             )?;
             (body, data, uses_local_memory, Some(validator_allocs), reader_allocs)
         }
         None => {
-            let (body, data, uses_local_memory, reader_allocs) = process_operators(
-                func,
-                (local_types, local_addr_map),
-                metadata,
-                ty_idx,
-                reader_allocs,
-                options.deduplicate_operands(),
-            )?;
+            let (body, data, uses_local_memory, reader_allocs) =
+                process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
             (body, data, uses_local_memory, None, reader_allocs)
         }
     };
     #[cfg(not(feature = "validate"))]
     let (body, data, uses_local_memory, validator_allocs, reader_allocs) = {
         let _ = validator;
-        let (body, data, uses_local_memory, reader_allocs) = process_operators(
-            func,
-            (local_types, local_addr_map),
-            metadata,
-            ty_idx,
-            reader_allocs,
-            options.deduplicate_operands(),
-        )?;
+        let (body, data, uses_local_memory, reader_allocs) =
+            process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
         (body, data, uses_local_memory, None, reader_allocs)
     };
     Ok((
-        FunctionCode { instructions: body, data, locals: local_counts, uses_local_memory },
+        FunctionCode { instructions: body, data: data.finish(), locals: local_counts, uses_local_memory },
         validator_allocs,
         reader_allocs,
     ))

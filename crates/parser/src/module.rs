@@ -2,42 +2,19 @@ use crate::log::debug;
 #[cfg(parallel_parser)]
 use crate::validation::{FuncToValidate, ValidatorResources};
 use crate::validation::{FuncValidatorAllocations, Validator};
-use crate::{ParseError, ParserOptions, Result, conversion::*, optimize};
+use crate::{ParseError, ParserOptions, Result, conversion::*};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
 use wasmparser::{OperatorsReaderAllocations, Payload};
 
+/// Final bytecode and metadata produced by streaming function lowering.
 pub(crate) struct FunctionCode {
-    pub instructions: Vec<Instruction>,
-    pub data: crate::visit::FunctionDataBuilder,
-    pub locals: ValueCounts,
-    pub uses_local_memory: bool,
-}
-
-pub(crate) struct OptimizedFunctionCode {
     pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
     pub uses_local_memory: bool,
-}
-
-pub(crate) fn optimize_function_code(
-    mut code: FunctionCode,
-    options: &ParserOptions,
-    function_results: ValueCounts,
-    self_func_addr: u32,
-) -> Result<OptimizedFunctionCode> {
-    let optimized =
-        optimize::optimize_instructions(code.instructions, &mut code.data, options, function_results, self_func_addr)?;
-    let data = code.data.finish();
-    Ok(OptimizedFunctionCode {
-        instructions: optimized.instructions,
-        data,
-        locals: code.locals,
-        uses_local_memory: code.uses_local_memory,
-    })
 }
 
 #[derive(Default)]
@@ -56,7 +33,7 @@ pub(crate) struct ModuleReader<'a> {
     pub(crate) code_type_addrs: Box<[u32]>,
     code_results: Box<[ValueCounts]>,
     pub(crate) exports: Shared<[Export]>,
-    pub(crate) code: Vec<OptimizedFunctionCode>,
+    pub(crate) code: Vec<FunctionCode>,
     pub(crate) globals: Box<[Global]>,
     pub(crate) tables: Box<[TableDefinition]>,
     pub(crate) memory_types: Box<[MemoryType]>,
@@ -400,17 +377,21 @@ impl<'a> ModuleReader<'a> {
             .code_type_addrs
             .get(ordinal)
             .ok_or_else(|| ParseError::Other("code entry has no function signature".into()))?;
+        let context = FunctionLoweringContext {
+            ty_idx,
+            self_func_addr: self
+                .imported_func_count
+                .checked_add(ordinal)
+                .and_then(|idx| u32::try_from(idx).ok())
+                .ok_or_else(|| ParseError::Other("function index is too large".into()))?,
+            function_results: self.code_results[ordinal],
+        };
         let metadata = self.translation_metadata();
 
         let (code, func_validator_allocs, operators_reader_allocs) =
-            convert_module_code(function, func_validator, operators_reader_allocs, metadata, ty_idx, options)?;
+            convert_module_code(function, func_validator, operators_reader_allocs, metadata, context, options)?;
 
-        self.code.push(optimize_function_code(
-            code,
-            options,
-            self.code_results[self.code.len()],
-            (self.imported_func_count + self.code.len()) as u32,
-        )?);
+        self.code.push(code);
 
         self.func_validator_allocations = func_validator_allocs;
         self.operators_reader_allocations = Some(operators_reader_allocs);

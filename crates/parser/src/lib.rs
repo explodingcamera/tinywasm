@@ -30,10 +30,11 @@ pub(crate) mod log {
 }
 
 mod conversion;
+mod emitter;
 mod error;
 mod macros;
 mod module;
-mod optimize;
+mod selection;
 mod validation;
 mod visit;
 
@@ -62,8 +63,8 @@ pub struct ParserOptions {
     /// a module that violates runtime assumptions.
     pub validation: bool,
 
-    /// Whether to run the peephole rewrite optimizer.
-    pub optimize_rewrite: bool,
+    /// Whether to enable some of the optimizations during lowering, such as bounded instruction selection.
+    pub optimize: bool,
 
     /// Whether to deduplicate immutable function operands while parsing.
     pub deduplicate_operands: bool,
@@ -76,17 +77,17 @@ pub struct ParserOptions {
     /// - `None`: auto-detect based on available parallelism
     /// - `Some(1)`: force single-threaded
     /// - `Some(n)`: use up to `n` workers
-    pub parser_threads: Option<usize>,
+    pub threads: Option<usize>,
 }
 
 impl Default for ParserOptions {
     fn default() -> Self {
         Self {
             validation: cfg!(feature = "validate"),
-            optimize_rewrite: true,
-            deduplicate_operands: false,
+            optimize: true,
+            deduplicate_operands: true,
             #[cfg(parallel_parser)]
-            parser_threads: None,
+            threads: None,
         }
     }
 }
@@ -114,15 +115,15 @@ impl ParserOptions {
         self.validation
     }
 
-    /// Enable or disable the peephole rewrite optimizer.
-    pub const fn with_rewrite_optimization(mut self, enabled: bool) -> Self {
-        self.optimize_rewrite = enabled;
+    /// Enable or disable some of the optimizations during lowering, such as bounded instruction selection.
+    pub const fn with_optimize(mut self, enabled: bool) -> Self {
+        self.optimize = enabled;
         self
     }
 
-    /// Returns whether the peephole rewrite optimizer is enabled.
-    pub const fn optimize_rewrite(&self) -> bool {
-        self.optimize_rewrite
+    /// Returns whether some of the optimizations during lowering, such as bounded instruction selection, are enabled.
+    pub const fn optimize(&self) -> bool {
+        self.optimize
     }
 
     /// Enable or disable parse-time deduplication of immutable function operands.
@@ -140,15 +141,15 @@ impl ParserOptions {
     /// Set the number of threads for parallel parsing.
     ///
     /// Requires the `parallel` feature to have any effect.
-    pub const fn with_parser_threads(mut self, threads: usize) -> Self {
-        self.parser_threads = Some(threads);
+    pub const fn with_threads(mut self, threads: usize) -> Self {
+        self.threads = Some(threads);
         self
     }
 
     #[cfg(parallel_parser)]
     /// Returns the configured parser thread count, or `None` for auto-detect.
-    pub const fn parser_threads(&self) -> Option<usize> {
-        self.parser_threads
+    pub const fn threads(&self) -> Option<usize> {
+        self.threads
     }
 }
 
