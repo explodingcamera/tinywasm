@@ -15,12 +15,14 @@ fn instruction_handler_mismatch() -> ! {
 macro_rules! define_unbudgeted_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        fn handler_for(instruction: &Instruction) -> UnbudgetedHandler {
-            use tinywasm_types::Instruction::*;
-
-            match instruction {
-                $($variant { .. } => Self::$variant,)*
-            }
+        #[inline(always)]
+        fn handler_for(opcode: InstructionOpcode) -> UnbudgetedHandler {
+            static HANDLERS: [UnbudgetedHandler; InstructionOpcode::COUNT] = {
+                let mut handlers = [Unbudgeted::Unreachable as UnbudgetedHandler; InstructionOpcode::COUNT];
+                $(handlers[InstructionOpcode::$variant as usize] = Unbudgeted::$variant;)*
+                handlers
+            };
+            HANDLERS[opcode as usize]
         }
 
         $(
@@ -34,7 +36,7 @@ macro_rules! define_unbudgeted_tail_dispatch {
                     ($next_instr_ptr:expr) => {{
                         let next_instr_ptr = $next_instr_ptr;
                         let instruction = $executor.func.instructions[next_instr_ptr];
-                        let handler = Self::handler_for(&instruction);
+                        let handler = Self::handler_for(instruction.opcode());
                         become handler($executor, next_instr_ptr, instruction);
                     }};
                 }
@@ -63,12 +65,14 @@ macro_rules! define_unbudgeted_tail_dispatch {
 macro_rules! define_bounded_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
-        fn handler_for(instruction: &Instruction) -> BoundedHandler {
-            use tinywasm_types::Instruction::*;
-
-            match instruction {
-                $($variant { .. } => Self::$variant,)*
-            }
+        #[inline(always)]
+        fn handler_for(opcode: InstructionOpcode) -> BoundedHandler {
+            static HANDLERS: [BoundedHandler; InstructionOpcode::COUNT] = {
+                let mut handlers = [Bounded::Unreachable as BoundedHandler; InstructionOpcode::COUNT];
+                $(handlers[InstructionOpcode::$variant as usize] = Bounded::$variant;)*
+                handlers
+            };
+            HANDLERS[opcode as usize]
         }
 
         $(
@@ -90,7 +94,7 @@ macro_rules! define_bounded_tail_dispatch {
                         }
 
                         let instruction = $executor.func.instructions[next_instr_ptr];
-                        let handler = Self::handler_for(&instruction);
+                        let handler = Self::handler_for(instruction.opcode());
                         become handler($executor, next_instr_ptr, instruction, instructions_until_checkpoint - 1);
                     }};
                 }
@@ -130,7 +134,7 @@ impl Bounded {
     fn run(executor: &mut Executor<'_>) -> ExecResult<()> {
         let instr_ptr = executor.cf.instr_ptr;
         let instruction = executor.func.instructions[instr_ptr];
-        let handler = Self::handler_for(&instruction);
+        let handler = Self::handler_for(instruction.opcode());
         handler(executor, instr_ptr, instruction, CHECKPOINT_INTERVAL - 1)
     }
 }
@@ -140,7 +144,7 @@ impl<'store> Executor<'store> {
     pub(crate) fn run_to_completion(mut self) -> Result<()> {
         let instr_ptr = self.cf.instr_ptr;
         let instruction = self.func.instructions[instr_ptr];
-        let handler = Unbudgeted::handler_for(&instruction);
+        let handler = Unbudgeted::handler_for(instruction.opcode());
         Ok(handler(&mut self, instr_ptr, instruction)?)
     }
 

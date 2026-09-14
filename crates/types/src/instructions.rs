@@ -500,16 +500,45 @@ pub enum BinOp128 {
     I64x2Mul,
 }
 
-/// A TinyWasm bytecode instruction.
-///
-/// These instructions are an internal, version-specific representation and do not
-/// map one-to-one to WebAssembly instructions. Their variants and serialized form
-/// may change between TinyWasm releases.
-#[rustfmt::skip]
-#[derive(Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum Instruction {
+macro_rules! define_instructions {
+    ($($variant:ident $(($($field:ty),* $(,)?))? $({ $($name:ident: $named_field:ty),* $(,)? })?),* $(,)?) => {
+        /// A TinyWasm bytecode instruction.
+        ///
+        /// These instructions are an internal, version-specific representation and do not
+        /// map one-to-one to WebAssembly instructions. Their variants and serialized form
+        /// may change between TinyWasm releases.
+        #[derive(Clone, Copy, PartialEq)]
+        #[cfg_attr(feature = "debug", derive(Debug))]
+        #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+        pub enum Instruction {
+            $($variant $(($($field),*))? $({ $($name: $named_field),* })?),*
+        }
+
+        #[doc(hidden)]
+        #[repr(u16)]
+        #[derive(Clone, Copy)]
+        pub enum InstructionOpcode {
+            $($variant,)*
+        }
+
+        impl InstructionOpcode {
+            #[doc(hidden)]
+            pub const COUNT: usize = [$(Self::$variant),*].len();
+        }
+
+        impl Instruction {
+            /// Returns the compact opcode used to dispatch this instruction.
+            #[inline(always)]
+            pub const fn opcode(&self) -> InstructionOpcode {
+                match self {
+                    $(Self::$variant { .. } => InstructionOpcode::$variant,)*
+                }
+            }
+        }
+    };
+}
+
+define_instructions! {
     LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
     AddConst32(i32), AndConst32(i32), XorConst32(i32), ShrUConst32(i32), AddConst64(Operand64Idx<i64>),
     IncLocal32(I32LocalArg), IncLocal64(PackedOp64<LocalAddr, i64>),
