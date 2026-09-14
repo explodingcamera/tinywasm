@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -20,15 +19,13 @@ pub struct Runtime {
     key_up: tinywasm::FunctionTyped<i32, ()>,
     memory: tinywasm::Memory,
     framebuffer_bytes: Vec<u8>,
-    pub host_state: Arc<Mutex<HostState>>,
 }
 
 impl Runtime {
     pub fn new(wad_path: PathBuf, guest_path: PathBuf) -> Result<Self> {
         let module = tinywasm::parse_file(&guest_path)?;
-        let mut store = Store::default();
-        let host_state = Arc::new(Mutex::new(HostState::new(wad_path)));
-        let imports = build_imports(host_state.clone());
+        let mut store = Store::default().with_state(HostState::new(wad_path));
+        let imports = build_imports();
         let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
 
         let wad_path_buf = instance.func::<(), i32>(&store, "tinywasm_doom_wad_path_buf")?;
@@ -40,7 +37,7 @@ impl Runtime {
         let memory = instance.memory("memory")?;
 
         let buf_ptr = wad_path_buf.call(&mut store, ())? as usize;
-        let wad_path_string = host_state.lock().unwrap().wad_path.to_string_lossy().into_owned();
+        let wad_path_string = store.state::<HostState>().unwrap().wad_path.to_string_lossy().into_owned();
         memory.write_cstring_bytes(&mut store, buf_ptr, &wad_path_string)?;
         init.call(&mut store, ())?;
 
@@ -55,7 +52,6 @@ impl Runtime {
             key_up,
             memory,
             framebuffer_bytes: vec![0; width * height * 4],
-            host_state,
         })
     }
 
@@ -84,15 +80,19 @@ impl Runtime {
         self.key_up.call(&mut self.store, key)?;
         Ok(())
     }
+
+    pub fn exited(&self) -> bool {
+        self.store.state::<HostState>().unwrap().exit_code.is_some()
+    }
 }
 
 pub struct HostState {
-    pub wad_path: PathBuf,
+    wad_path: PathBuf,
     runtime_dir: PathBuf,
     start: Instant,
     files: BTreeMap<i32, File>,
     next_file: i32,
-    pub exit_code: Option<i32>,
+    exit_code: Option<i32>,
 }
 
 impl HostState {
@@ -160,183 +160,158 @@ impl HostState {
     }
 }
 
-fn build_imports(state: Arc<Mutex<HostState>>) -> Imports {
+fn build_imports() -> Imports {
     let mut imports = Imports::new();
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_open",
-            HostFunction::from(move |ctx: FuncContext<'_>, (filename_ptr, mode_ptr): (i32, i32)| {
-                let memory = ctx.memory("memory")?;
-                let filename = memory.read_cstring_until_null(ctx.store(), filename_ptr as usize, 1024)?;
-                let mode = memory.read_cstring_until_null(ctx.store(), mode_ptr as usize, 16)?;
-                let filename = filename.to_string_lossy();
-                let mode = mode.to_string_lossy();
-                let mut state = state.lock().unwrap();
-                let path = if filename == state.wad_path.to_string_lossy() || state.should_redirect_to_wad(&filename) {
-                    state.wad_path.clone()
-                } else {
-                    state.resolve_path(&filename)
-                };
+    imports.define(
+        IMPORT_MODULE,
+        "host_open",
+        HostFunction::from(|mut ctx: FuncContext<'_>, (filename_ptr, mode_ptr): (i32, i32)| {
+            let memory = ctx.memory("memory")?;
+            let filename = memory.read_cstring_until_null(ctx.store(), filename_ptr as usize, 1024)?;
+            let mode = memory.read_cstring_until_null(ctx.store(), mode_ptr as usize, 16)?;
+            let filename = filename.to_string_lossy();
+            let mode = mode.to_string_lossy();
+            let state = ctx.state_mut::<HostState>().unwrap();
+            let path = if filename == state.wad_path.to_string_lossy() || state.should_redirect_to_wad(&filename) {
+                state.wad_path.clone()
+            } else {
+                state.resolve_path(&filename)
+            };
 
-                if path.is_dir() {
-                    log::debug!("guest open rejected directory: path={} mode={}", path.display(), mode);
+            if path.is_dir() {
+                log::debug!("guest open rejected directory: path={} mode={}", path.display(), mode);
+                return Ok(-1);
+            }
+
+            let file = match HostState::open_mode_options(&mode).open(&path) {
+                Ok(file) => file,
+                Err(err) => {
+                    log::debug!("guest open failed: path={} mode={} err={err}", path.display(), mode);
                     return Ok(-1);
                 }
+            };
 
-                let file = match HostState::open_mode_options(&mode).open(&path) {
-                    Ok(file) => file,
-                    Err(err) => {
-                        log::debug!("guest open failed: path={} mode={} err={err}", path.display(), mode);
-                        return Ok(-1);
-                    }
-                };
+            let handle = state.next_file;
+            state.next_file += 1;
+            state.files.insert(handle, file);
+            Ok(handle)
+        }),
+    );
 
-                let handle = state.next_file;
-                state.next_file += 1;
-                state.files.insert(handle, file);
-                Ok(handle)
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_close",
+        HostFunction::from(|mut ctx: FuncContext<'_>, handle: i32| {
+            ctx.state_mut::<HostState>().unwrap().files.remove(&handle);
+            Ok(())
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_close",
-            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                state.lock().unwrap().files.remove(&handle);
-                Ok(())
-            }),
-        );
-    }
-
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_read",
-            HostFunction::from(move |mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
-                let mut state = state.lock().unwrap();
+    imports.define(
+        IMPORT_MODULE,
+        "host_read",
+        HostFunction::from(|mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
+            let mut buffer = vec![0; count.max(0) as usize];
+            let read = {
+                let state = ctx.state_mut::<HostState>().unwrap();
                 let Some(file) = state.files.get_mut(&handle) else {
                     return Ok(0);
                 };
-                let mut buffer = vec![0; count.max(0) as usize];
-                let read = file.read(&mut buffer).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                ctx.memory("memory")?.copy_from_slice(ctx.store_mut(), buf_ptr as usize, &buffer[..read])?;
-                Ok(read as i32)
-            }),
-        );
-    }
+                file.read(&mut buffer).map_err(|err| tinywasm::Error::Other(err.to_string()))?
+            };
+            ctx.memory("memory")?.copy_from_slice(ctx.store_mut(), buf_ptr as usize, &buffer[..read])?;
+            Ok(read as i32)
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_write",
-            HostFunction::from(move |ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
-                let data = ctx.memory("memory")?.read_vec(ctx.store(), buf_ptr as usize, count.max(0) as usize)?;
-                let mut state = state.lock().unwrap();
-                let Some(file) = state.files.get_mut(&handle) else {
-                    return Ok(-1);
-                };
-                let written = file.write(&data).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                Ok(written as i32)
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_write",
+        HostFunction::from(|mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
+            let data = ctx.memory("memory")?.read_vec(ctx.store(), buf_ptr as usize, count.max(0) as usize)?;
+            let state = ctx.state_mut::<HostState>().unwrap();
+            let Some(file) = state.files.get_mut(&handle) else {
+                return Ok(-1);
+            };
+            let written = file.write(&data).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+            Ok(written as i32)
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_seek",
-            HostFunction::from(move |_ctx: FuncContext<'_>, (handle, offset, origin): (i32, i32, i32)| {
-                let seek_from = match origin {
-                    0 => SeekFrom::Start(offset.max(0) as u64),
-                    1 => SeekFrom::Current(offset as i64),
-                    2 => SeekFrom::End(offset as i64),
-                    _ => return Err(tinywasm::Error::Other(format!("invalid seek origin: {origin}"))),
-                };
-                let mut state = state.lock().unwrap();
-                let Some(file) = state.files.get_mut(&handle) else {
-                    return Ok(-1);
-                };
-                let pos = file.seek(seek_from).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                Ok(pos.min(i32::MAX as u64) as i32)
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_seek",
+        HostFunction::from(|mut ctx: FuncContext<'_>, (handle, offset, origin): (i32, i32, i32)| {
+            let seek_from = match origin {
+                0 => SeekFrom::Start(offset.max(0) as u64),
+                1 => SeekFrom::Current(offset as i64),
+                2 => SeekFrom::End(offset as i64),
+                _ => return Err(tinywasm::Error::Other(format!("invalid seek origin: {origin}"))),
+            };
+            let state = ctx.state_mut::<HostState>().unwrap();
+            let Some(file) = state.files.get_mut(&handle) else {
+                return Ok(-1);
+            };
+            let pos = file.seek(seek_from).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+            Ok(pos.min(i32::MAX as u64) as i32)
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_tell",
-            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                let mut state = state.lock().unwrap();
-                let Some(file) = state.files.get_mut(&handle) else {
-                    return Ok(-1);
-                };
-                let pos = file.stream_position().map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                Ok(pos.min(i32::MAX as u64) as i32)
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_tell",
+        HostFunction::from(|mut ctx: FuncContext<'_>, handle: i32| {
+            let state = ctx.state_mut::<HostState>().unwrap();
+            let Some(file) = state.files.get_mut(&handle) else {
+                return Ok(-1);
+            };
+            let pos = file.stream_position().map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+            Ok(pos.min(i32::MAX as u64) as i32)
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_eof",
-            HostFunction::from(move |_ctx: FuncContext<'_>, handle: i32| {
-                let mut state = state.lock().unwrap();
-                let Some(file) = state.files.get_mut(&handle) else {
-                    return Ok(1);
-                };
-                let pos = file.stream_position().map_err(|err| tinywasm::Error::Other(err.to_string()))?;
-                let len = file.metadata().map_err(|err| tinywasm::Error::Other(err.to_string()))?.len();
-                Ok((pos >= len) as i32)
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_eof",
+        HostFunction::from(|mut ctx: FuncContext<'_>, handle: i32| {
+            let state = ctx.state_mut::<HostState>().unwrap();
+            let Some(file) = state.files.get_mut(&handle) else {
+                return Ok(1);
+            };
+            let pos = file.stream_position().map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+            let len = file.metadata().map_err(|err| tinywasm::Error::Other(err.to_string()))?.len();
+            Ok((pos >= len) as i32)
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_gettime",
-            HostFunction::from(move |mut ctx: FuncContext<'_>, (sec_ptr, usec_ptr): (i32, i32)| {
-                let elapsed = state.lock().unwrap().start.elapsed() + Duration::from_secs(1);
-                let sec = elapsed.as_secs().min(i32::MAX as u64) as i32;
-                let usec = elapsed.subsec_micros() as i32;
-                let memory = ctx.memory("memory")?;
-                memory.copy_from_slice(ctx.store_mut(), sec_ptr as usize, &sec.to_le_bytes())?;
-                memory.copy_from_slice(ctx.store_mut(), usec_ptr as usize, &usec.to_le_bytes())?;
-                Ok(())
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_gettime",
+        HostFunction::from(|mut ctx: FuncContext<'_>, (sec_ptr, usec_ptr): (i32, i32)| {
+            let elapsed = ctx.state::<HostState>().unwrap().start.elapsed() + Duration::from_secs(1);
+            let sec = elapsed.as_secs().min(i32::MAX as u64) as i32;
+            let usec = elapsed.subsec_micros() as i32;
+            let memory = ctx.memory("memory")?;
+            memory.copy_from_slice(ctx.store_mut(), sec_ptr as usize, &sec.to_le_bytes())?;
+            memory.copy_from_slice(ctx.store_mut(), usec_ptr as usize, &usec.to_le_bytes())?;
+            Ok(())
+        }),
+    );
 
-    {
-        let state = state.clone();
-        imports.define(
-            IMPORT_MODULE,
-            "host_exit",
-            HostFunction::from(move |_ctx: FuncContext<'_>, code: i32| {
-                state.lock().unwrap().exit_code = Some(code);
-                Ok(())
-            }),
-        );
-    }
+    imports.define(
+        IMPORT_MODULE,
+        "host_exit",
+        HostFunction::from(|mut ctx: FuncContext<'_>, code: i32| {
+            ctx.state_mut::<HostState>().unwrap().exit_code = Some(code);
+            Ok(())
+        }),
+    );
 
     imports.define(
         IMPORT_MODULE,
         "host_print",
-        HostFunction::from(move |ctx: FuncContext<'_>, ptr: i32| {
+        HostFunction::from(|ctx: FuncContext<'_>, ptr: i32| {
             let text = ctx.memory("memory")?.read_cstring_until_null(ctx.store(), ptr as usize, 4096)?;
             log::info!("guest: {}", text.to_string_lossy());
             Ok(())

@@ -129,7 +129,7 @@ impl ApplicationHandler for DoomApp {
             window.request_redraw();
         }
 
-        if self.runtime.host_state.lock().unwrap().exit_code.is_some() {
+        if self.runtime.exited() {
             event_loop.exit();
         }
     }

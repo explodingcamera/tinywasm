@@ -1,4 +1,8 @@
+#[cfg(feature = "state")]
+use alloc::collections::BTreeMap;
 use alloc::{boxed::Box, format, vec::Vec};
+#[cfg(feature = "state")]
+use core::any::{Any, TypeId};
 use core::hint::cold_path;
 use tinywasm_types::*;
 
@@ -110,6 +114,25 @@ pub trait ResourceLimiter: Send + Sync {
     }
 }
 
+/// A value stored as host state.
+#[doc(hidden)]
+#[cfg(all(feature = "state", not(feature = "send")))]
+pub trait StoreState: Any {}
+#[cfg(all(feature = "state", not(feature = "send")))]
+impl<T: Any> StoreState for T {}
+
+/// A value stored as host state.
+#[doc(hidden)]
+#[cfg(all(feature = "state", feature = "send"))]
+pub trait StoreState: Any + Send {}
+#[cfg(all(feature = "state", feature = "send"))]
+impl<T: Any + Send> StoreState for T {}
+
+#[cfg(all(feature = "state", not(feature = "send")))]
+type StoredState = dyn Any;
+#[cfg(all(feature = "state", feature = "send"))]
+type StoredState = dyn Any + Send;
+
 /// Runtime state used by WebAssembly instances and host functions.
 ///
 /// ## Example
@@ -133,6 +156,8 @@ pub struct Store {
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
     value_scratch: ValueScratch,
+    #[cfg(feature = "state")]
+    host_state: BTreeMap<TypeId, Box<StoredState>>,
 }
 
 #[derive(Default)]
@@ -238,7 +263,45 @@ impl Store {
             engine,
             execution_fuel: 0,
             execution_active: false,
+            #[cfg(feature = "state")]
+            host_state: BTreeMap::new(),
         }
+    }
+
+    /// Adds host state to this store.
+    ///
+    /// Host callbacks can access the value through [`Store::state`] and
+    /// [`Store::state_mut`]. If state of the same type already exists, this
+    /// method replaces it.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tinywasm::Store;
+    ///
+    /// struct AppState {
+    ///     requests: usize,
+    /// }
+    ///
+    /// let store = Store::default().with_state(AppState { requests: 0 });
+    /// assert_eq!(store.state::<AppState>().unwrap().requests, 0);
+    /// ```
+    #[cfg(feature = "state")]
+    pub fn with_state<T: StoreState>(mut self, state: T) -> Self {
+        self.host_state.insert(TypeId::of::<T>(), Box::new(state));
+        self
+    }
+
+    /// Get host state.
+    #[cfg(feature = "state")]
+    pub fn state<T: StoreState>(&self) -> Option<&T> {
+        self.host_state.get(&TypeId::of::<T>()).and_then(|state| state.downcast_ref())
+    }
+
+    /// Get mutable access to host state.
+    #[cfg(feature = "state")]
+    pub fn state_mut<T: StoreState>(&mut self) -> Option<&mut T> {
+        self.host_state.get_mut(&TypeId::of::<T>()).and_then(|state| state.downcast_mut())
     }
 
     pub(crate) const fn id(&self) -> StoreId {

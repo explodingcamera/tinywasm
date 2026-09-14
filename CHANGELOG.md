@@ -41,6 +41,7 @@ This release adds garbage collection and typed function reference support, singl
 
 ### Added
 
+- Optional store-owned host state through `Store::with_state`, `Store::state`, and `Store::state_mut`.
 - Support for the typed function references, garbage collection, exception handling, and compact import section proposals.
 - `ResourceLimiter` callbacks for memory and table allocation or growth.
 - A default-enabled `validate` Cargo feature and a parser option to skip WebAssembly validation.

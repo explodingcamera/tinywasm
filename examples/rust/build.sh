@@ -18,8 +18,8 @@ cargo run --quiet --manifest-path "../../Cargo.toml" --package tinywasm-cli -- \
 
 # build no_std
 RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=core,alloc,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin tinywasm-no-std --no-default-features
-cp "$out_dir/tinywasm_no_std.wasm" "$dest_dir/"
-wasm-opt "$dest_dir/tinywasm_no_std.wasm" -o "$dest_dir/tinywasm_no_std.opt.wasm" -O3 $wasmopt_features
+cp "$out_dir/tinywasm-no-std.wasm" "$dest_dir/"
+wasm-opt "$dest_dir/tinywasm-no-std.wasm" -o "$dest_dir/tinywasm-no-std.opt.wasm" -O3 $wasmopt_features
 
 for bin in "${bins[@]}"; do
     RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none -C target-feature=$rust_features -C panic=abort" cargo build -Z build-std=std,panic_abort -Z build-std-features="optimize_for_size" --target wasm32-unknown-unknown --package rust-wasm-examples --profile=wasm --bin "$bin"

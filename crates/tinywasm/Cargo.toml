@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
-features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "debug", "guest-debug"]
+features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "state", "debug", "guest-debug"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
@@ -90,13 +90,16 @@ wat.workspace = true
 
 [features]
 default = ["full", "std"]
-full = ["archive", "debug", "parallel-parser", "parser", "validate"]
+full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
 
 log = ["dep:log", "tinywasm-parser?/log"]
 std = ["tinywasm-parser?/std", "tinywasm-types/std"]
 
 # make stores, instances, references, and host callbacks movable across threads
 send = []
+
+# store host state for access from host callbacks
+state = []
 
 # support for parsing WebAssembly
 parser = ["dep:tinywasm-parser"]

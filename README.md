@@ -56,6 +56,7 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
 - **`log`:** Enables integration with the `log` crate. Enabled by default.
 - **`send`:** Makes stores and store-local handles movable across threads.
+- **`state`:** Adds store-owned host state for access from host callbacks.
 - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
 - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.

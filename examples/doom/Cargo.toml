@@ -14,6 +14,7 @@ softbuffer = "0.4"
 tinywasm = { path = "../../crates/tinywasm", features = [
   "archive",
   "canonicalize-nans",
+  "state",
   "debug",
   "log",
   "parallel-parser",

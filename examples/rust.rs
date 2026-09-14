@@ -87,7 +87,7 @@ fn tinywasm() -> Result<()> {
 }
 
 fn tinywasm_no_std() -> Result<()> {
-    let module = tinywasm::parse_file("./examples/rust/out/tinywasm_no_std.wasm")?;
+    let module = tinywasm::parse_file("./examples/rust/out/tinywasm-no-std.wasm")?;
     let mut store = Store::default();
 
     let mut imports = Imports::new();
