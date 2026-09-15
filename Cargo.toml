@@ -8,7 +8,7 @@ publish = false
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-default-members = [".", "crates/parser", "crates/tinywasm", "crates/types"]
+default-members = [".", "crates/parser", "crates/tinywasm", "crates/types", "crates/wasi"]
 
 [workspace.package]
 version = "0.11.0-pre.0"
@@ -23,6 +23,7 @@ categories = ["compilers", "embedded", "no-std", "virtualization", "wasm"]
 tinywasm = { path = "crates/tinywasm", version = "0.11.0-pre.0", default-features = false }
 tinywasm-parser = { path = "crates/parser", version = "0.11.0-pre.0", default-features = false }
 tinywasm-types = { path = "crates/types", version = "0.11.0-pre.0", default-features = false }
+tinywasm-wasi = { path = "crates/wasi", version = "0.11.0-pre.0" }
 
 anyhow = "1.0"
 log = "0.4"
@@ -36,6 +37,12 @@ wast = "259"
 wat = "1.259"
 
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "rayon"] }
+
+[workspace.lints.cargo]
+unused_dependencies = "allow"  # false-positive on libm
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
 
 [[example]]
 name = "rust"
@@ -61,12 +68,13 @@ name = "tinywasm_modes"
 anyhow.workspace = true
 criterion.workspace = true
 pretty_env_logger.workspace = true
-tinywasm = { path = "crates/tinywasm" }
+tinywasm = { path = "crates/tinywasm", features = ["state"] }
 tinywasm-parser.workspace = true
+tinywasm-wasi.workspace = true
 wat.workspace = true
 
-[lints.cargo]
-unused_dependencies = "allow"  # false-positive on libm
+[lints]
+workspace = true
 
 [profile.bench]
 opt-level = 3

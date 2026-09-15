@@ -1,0 +1,25 @@
+[package]
+name = "tinywasm-wasi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "WASI support for TinyWasm"
+repository.workspace = true
+license.workspace = true
+keywords = ["tinywasm", "wasi", "wasm", "webassembly"]
+categories = ["wasm"]
+publish = false
+
+[dependencies]
+cap-fs-ext = "4.0.3"
+cap-std = "4.0.3"
+getrandom = "0.4.3"
+rustix = { version = "1.1.4", features = ["event", "fs", "net"] }
+tinywasm = { workspace = true, default-features = false, features = ["state"] }
+
+[dev-dependencies]
+tinywasm = { workspace = true, features = ["parser", "state"] }
+wat.workspace = true
+
+[lints]
+workspace = true

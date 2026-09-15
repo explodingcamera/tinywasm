@@ -28,3 +28,6 @@ std = ["serde?/std"]
 
 # support targets without native atomic CAS
 portable-atomic = ["dep:portable-atomic-util"]
+
+[lints]
+workspace = true

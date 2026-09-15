@@ -32,5 +32,5 @@ std = ["tinywasm-types/std", "wasmparser/std"]
 # validate WebAssembly while parsing
 validate = ["wasmparser/features", "wasmparser/validate"]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
+[lints]
+workspace = true

@@ -132,3 +132,6 @@ nightly-tail-calls = []
 # note: for x86 backend selection, compile with x86-64-v3 target features
 # (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)
 simd-x86 = []
+
+[lints]
+workspace = true

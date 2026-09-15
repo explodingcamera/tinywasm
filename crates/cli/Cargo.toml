@@ -38,6 +38,7 @@ tinywasm = { workspace = true, features = [
   "log",
   "std",
 ] }
+tinywasm-wasi.workspace = true
 wasm-testsuite = { workspace = true, optional = true }
 wast = { workspace = true, optional = true }
 wat = { workspace = true, optional = true }
@@ -52,3 +53,6 @@ default = ["wast", "wat"]
 tests = ["dep:serde", "dep:serde_json", "dep:wasm-testsuite", "wast"]
 wast = ["dep:wast"]
 wat = ["dep:wat"]
+
+[lints]
+workspace = true
