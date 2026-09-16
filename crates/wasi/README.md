@@ -1,6 +1,6 @@
 # tinywasm-wasi
 
-Experimental WASI support for TinyWasm mainly targeting \*nix systems (Windows support is very limited). Currently unreleased.
+Experimental WASI support for TinyWasm mainly targeting \*nix systems (Windows support is very limited).
 
 Some behavior is based on the Bytecode Alliance `wasi-common` and
 `wasmtime-wasi` implementations.

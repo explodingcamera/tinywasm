@@ -247,9 +247,9 @@ dependencies = [
 
 [[package]]
 name = "clap_complete"
-version = "4.6.10"
+version = "4.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78ab9a1a7094014a0d0813f8e7c5a0058ad8fe6cf7475b9151364259f5a35d0f"
+checksum = "037e2a1a92236d0aff7e845093f64661d6df4c02c9fcc61a60e9e1d736fa392f"
 dependencies = [
  "clap",
 ]
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "libm",
  "log",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-cli"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-parser"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "log",
  "tinywasm-types",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-root"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-types"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "portable-atomic-util",
  "postcard",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-wasi"
-version = "0.11.0-pre.0"
+version = "0.11.0-beta.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",

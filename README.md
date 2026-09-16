@@ -1,5 +1,5 @@
 > [!WARNING]
-> This is the `next` branch and contains unreleased changes. See [`v0.10.0`](https://github.com/explodingcamera/tinywasm/tree/v0.10.0) for the latest released version.
+> This is the `next` branch and contains changes for the 0.11 beta. See [`v0.10.0`](https://github.com/explodingcamera/tinywasm/tree/v0.10.0) for the latest stable version.
 
 # <b>`tinywasm`</b>
 
@@ -19,7 +19,7 @@
 
 ```toml
 [dependencies]
-tinywasm = "0.10"
+tinywasm = "0.11.0-beta.0"
 ```
 
 ## Usage
