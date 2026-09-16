@@ -89,7 +89,9 @@ impl FuncContext<'_> {
 
         let call_stack_base = self.store.call_stack.len();
         let value_stack_base = self.store.value_stack.base();
-        func.call_untyped(self.store, type_addr, args, results, call_stack_base, value_stack_base)
+        self.with_reentrant_call(|store| {
+            func.call_untyped(store, type_addr, args, results, call_stack_base, value_stack_base)
+        })
     }
 
     /// Calls a Store-aware function reference in the current module context.
@@ -117,7 +119,23 @@ impl FuncContext<'_> {
         func.func.item.validate_store(self.store)?;
         let call_stack_base = self.store.call_stack.len();
         let value_stack_base = self.store.value_stack.base();
-        func.func.call_typed(self.store, params.into_wasm_values(), call_stack_base, value_stack_base)
+        self.with_reentrant_call(|store| {
+            func.func.call_typed(store, params.into_wasm_values(), call_stack_base, value_stack_base)
+        })
+    }
+
+    fn with_reentrant_call<R>(&mut self, call: impl FnOnce(&mut crate::Store) -> Result<R>) -> Result<R> {
+        // Each nested executor keeps its current frame on the native stack,
+        // outside CallStack, even when the Wasm function has no params or locals.
+        let config = self.store.engine.config().call_stack;
+        let limit = if config.dynamic { config.max_size } else { config.initial_size };
+        if self.store.reentrant_call_depth >= limit {
+            return Err(crate::Trap::CallStackOverflow.into());
+        }
+        self.store.reentrant_call_depth += 1;
+        let result = call(self.store);
+        self.store.reentrant_call_depth -= 1;
+        result
     }
 }
 

@@ -61,6 +61,9 @@ This release adds garbage collection and typed function reference support, singl
 
 ### Fixed
 
+- Failed instantiation now preserves complete element and data segment mappings for functions exposed through imported tables, and stops data initialization when element initialization traps.
+- Stream parsing now bounds read increments instead of allocating declared section sizes up front, and retries interrupted reads.
+- Reentrant host calls now enforce a separate depth limit based on the configured call-stack size instead of allowing unbounded native-stack recursion.
 - Instantiation now rejects directly defined imports that contain handles from another `Store`.
 - Tail calls to host functions now return directly to the caller frame.
 - Memory64 bulk-memory operations and optimized stores now use the correct value-stack lanes.

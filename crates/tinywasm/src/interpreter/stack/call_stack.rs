@@ -37,6 +37,8 @@ impl CallStack {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, mut call_frame: CallFrame, instr_ptr: usize) -> Result<(), Trap> {
+        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
+        // intentionally overshoot max_size. Revisit when Vec::push_within_capacity is stable.
         if self.stack.len() == self.stack.capacity() && (!self.dynamic || self.stack.len() >= self.max_size) {
             return cold!(Err(Trap::CallStackOverflow));
         }

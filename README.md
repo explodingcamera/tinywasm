@@ -48,17 +48,17 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 ## Cargo Features
 
-- **`full`:** Enables `archive`, `parallel-parser`, `parser`, and `validate`. Enabled by default.
+- **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.
 - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
 - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through [`ParserOptions`](https://docs.rs/tinywasm/latest/tinywasm/parser/struct.ParserOptions.html).
 - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-- **`log`:** Enables integration with the `log` crate. Enabled by default.
+- **`log`:** Enables integration with the `log` crate.
 - **`send`:** Makes stores and store-local handles movable across threads.
-- **`state`:** Adds store-owned host state for access from host callbacks.
+- **`state`:** Adds store-owned host state for access from host callbacks. Enabled by default.
 - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
-- **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results. Enabled by default.
+- **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
 - **`nightly-tail-calls`:** Uses Rust's unstable explicit tail calls for interpreter dispatch. Requires nightly Rust (recommended for maximum performance).

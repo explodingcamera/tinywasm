@@ -189,10 +189,8 @@ impl ModuleInstance {
 
         store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
         addrs.tables.extend(store.init_tables(&module.tables, &addrs.globals, &addrs.funcs, &type_addrs)?);
-        let (elem_addrs, elem_trapped) =
-            store.init_elements(&addrs.tables, &addrs.funcs, &addrs.globals, &module.elements, &type_addrs)?;
-        let (data_addrs, data_trapped) =
-            store.init_data(&addrs.memories, &addrs.globals, &addrs.funcs, &module.data, &type_addrs)?;
+        let elem_addrs = store.alloc_elements(&addrs.funcs, &addrs.globals, &module.elements, &type_addrs)?;
+        let data_addrs = store.alloc_data(&module.data);
 
         let instance = ModuleInstanceInner {
             store_id: store.id(),
@@ -210,11 +208,25 @@ impl ModuleInstance {
         };
 
         let instance = ModuleInstance(StoreShared::new(instance));
+        // Earlier table writes can expose functions even if a later segment traps.
         store.add_instance(instance.clone());
 
-        if let Some(trap) = elem_trapped.or(data_trapped) {
-            return cold!(Err(trap.into()));
-        }
+        store.init_elements(
+            &instance.0.table_addrs,
+            &instance.0.func_addrs,
+            &instance.0.global_addrs,
+            &module.elements,
+            &instance.0.type_addrs,
+            &instance.0.elem_addrs,
+        )?;
+        store.init_data(
+            &instance.0.mem_addrs,
+            &instance.0.global_addrs,
+            &instance.0.func_addrs,
+            &module.data,
+            &instance.0.type_addrs,
+            &instance.0.data_addrs,
+        )?;
         Ok(instance)
     }
 

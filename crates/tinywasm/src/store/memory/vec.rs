@@ -124,12 +124,19 @@ impl VecMemory {
         Some(())
     }
 
-    /// Copies a valid range from another memory.
+    /// Copies from another memory, checking both ranges before mutation and reporting source errors first.
     #[inline(always)]
-    pub(super) fn copy_from(&mut self, dst: usize, src_memory: &Self, src: usize, len: usize) -> Option<()> {
-        let src_range = src_memory.checked_range(src, len)?;
-        let dst_range = self.checked_range(dst, len)?;
+    pub(super) fn copy_from(
+        &mut self,
+        dst: usize,
+        src_memory: &Self,
+        src: usize,
+        len: usize,
+    ) -> Result<(), crate::Trap> {
+        let src_range =
+            cold_err!(src_memory.checked_range(src, len).ok_or_else(|| memory_oob(src, len, src_memory.len())))?;
+        let dst_range = cold_err!(self.checked_range(dst, len).ok_or_else(|| memory_oob(dst, len, self.len())))?;
         self.data[dst_range].copy_from_slice(&src_memory.data[src_range]);
-        Some(())
+        Ok(())
     }
 }

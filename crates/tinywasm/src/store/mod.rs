@@ -152,6 +152,7 @@ pub struct Store {
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
     pub(crate) execution_active: bool,
+    pub(crate) reentrant_call_depth: usize,
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
@@ -263,6 +264,7 @@ impl Store {
             engine,
             execution_fuel: 0,
             execution_active: false,
+            reentrant_call_depth: 0,
             #[cfg(feature = "state")]
             host_state: BTreeMap::new(),
         }
@@ -677,16 +679,14 @@ impl Store {
         }
     }
 
-    /// Add elements to the store, returning their addresses in the store
-    /// Should be called after the tables have been added
-    pub(crate) fn init_elements(
+    /// Allocates all element segments before applying initialization effects.
+    pub(crate) fn alloc_elements(
         &mut self,
-        table_addrs: &[TableAddr],
         func_addrs: &[FuncAddr],
         global_addrs: &[Addr],
         elements: &[Element],
         type_addrs: &[TypeAddr],
-    ) -> Result<(Box<[ElemAddr]>, Option<Trap>)> {
+    ) -> Result<Box<[ElemAddr]>> {
         let elem_count = self.state.elements.len();
         let mut elem_addrs = Vec::with_capacity(elements.len());
         self.state.elements.reserve_exact(elements.len());
@@ -700,7 +700,23 @@ impl Store {
                 let value = self.elem_value(item, global_addrs, func_addrs, type_addrs)?;
                 self.state.elements[elem_addr].items.as_mut().unwrap().push(value);
             }
+            elem_addrs.push((i + elem_count) as ElemAddr);
+        }
+        Ok(elem_addrs.into_boxed_slice())
+    }
 
+    /// Applies element initialization effects in segment order.
+    pub(crate) fn init_elements(
+        &mut self,
+        table_addrs: &[TableAddr],
+        func_addrs: &[FuncAddr],
+        global_addrs: &[Addr],
+        elements: &[Element],
+        type_addrs: &[TypeAddr],
+        elem_addrs: &[ElemAddr],
+    ) -> Result<()> {
+        for (i, element) in elements.iter().enumerate() {
+            let elem_addr = elem_addrs[i] as usize;
             match &element.kind {
                 // doesn't need to be initialized, can be initialized lazily using the `table.init` instruction
                 ElementKind::Passive => {}
@@ -724,41 +740,38 @@ impl Store {
                         return Err(Error::Other(format!("table {table} not found for element {i}")));
                     };
 
-                    // In wasm 2.0, it's possible to call a function that hasn't been instantiated yet,
-                    // when using a partially initialized active element segments.
-                    // This isn't mentioned in the spec, but the "unofficial" testsuite has a test for it:
-                    // https://github.com/WebAssembly/testsuite/blob/5a1a590603d81f40ef471abba70a90a9ae5f4627/linking.wast#L264-L276
-                    // I have NO IDEA why this is allowed, but it is.
                     let Ok(offset) = usize::try_from(offset) else {
-                        return Ok((
-                            elem_addrs.into_boxed_slice(),
-                            Some(Trap::TableOutOfBounds {
-                                offset: usize::MAX,
-                                len: self.state.elements[elem_addr].items.as_ref().unwrap().len(),
-                                max: table.size(),
-                            }),
-                        ));
+                        return Err(Trap::TableOutOfBounds {
+                            offset: usize::MAX,
+                            len: self.state.elements[elem_addr].items.as_ref().unwrap().len(),
+                            max: table.size(),
+                        }
+                        .into());
                     };
 
                     let State { elements, tables, .. } = &mut self.state;
                     let init = elements[elem_addr].items.as_deref().unwrap();
                     let table = &mut tables[table_addr as usize];
-                    if let Err(trap) = table.init(offset, init) {
-                        return Ok((elem_addrs.into_boxed_slice(), Some(trap)));
-                    }
+                    table.init(offset, init)?;
 
                     // f. Execute the instruction elm.drop i
                     elements[elem_addr].drop();
                 }
             }
-            elem_addrs.push((i + elem_count) as ElemAddr);
         }
 
-        // this should be optimized out by the compiler
-        Ok((elem_addrs.into_boxed_slice(), None))
+        Ok(())
     }
 
-    /// Add data to the store, returning their addresses in the store
+    /// Allocates all data segments before applying initialization effects.
+    pub(crate) fn alloc_data(&mut self, data: &[Data]) -> Box<[DataAddr]> {
+        let start = self.state.data.len() as DataAddr;
+        self.state.data.reserve_exact(data.len());
+        self.state.data.extend(data.iter().map(|data| DataInstance { data: Some(data.data.clone()) }));
+        (start..start + data.len() as DataAddr).collect()
+    }
+
+    /// Applies data initialization effects in segment order.
     pub(crate) fn init_data(
         &mut self,
         mem_addrs: &[MemAddr],
@@ -766,12 +779,10 @@ impl Store {
         func_addrs: &[FuncAddr],
         data: &[Data],
         type_addrs: &[TypeAddr],
-    ) -> Result<(Box<[DataAddr]>, Option<Trap>)> {
-        let data_count = self.state.data.len();
-        let mut data_addrs = Vec::with_capacity(data.len());
-        self.state.data.reserve_exact(data.len());
+        data_addrs: &[DataAddr],
+    ) -> Result<()> {
         for (i, data) in data.iter().enumerate() {
-            let data_val = match &data.kind {
+            match &data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
                     let Some(mem_addr) = mem_addrs.get(*mem_addr as usize) else {
                         return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
@@ -788,28 +799,19 @@ impl Store {
 
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
                     match mem.inner.write_all(offset, &data.data) {
-                        Some(()) => None,
+                        Some(()) => self.state.data[data_addrs[i] as usize].drop(),
                         None => {
-                            return Ok((
-                                data_addrs.into_boxed_slice(),
-                                Some(crate::Trap::MemoryOutOfBounds {
-                                    offset,
-                                    len: data.data.len(),
-                                    max: mem.inner.len(),
-                                }),
-                            ));
+                            return Err(
+                                Trap::MemoryOutOfBounds { offset, len: data.data.len(), max: mem.inner.len() }.into()
+                            );
                         }
                     }
                 }
-                tinywasm_types::DataKind::Passive => Some(data.data.clone()),
+                tinywasm_types::DataKind::Passive => {}
             };
-
-            self.state.data.push(DataInstance { data: data_val });
-            data_addrs.push((i + data_count) as DataAddr);
         }
 
-        // this should be optimized out by the compiler
-        Ok((data_addrs.into_boxed_slice(), None))
+        Ok(())
     }
 
     /// Adds a function and returns its store address.

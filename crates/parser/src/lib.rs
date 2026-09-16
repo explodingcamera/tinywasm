@@ -190,10 +190,24 @@ impl Parser {
     #[cfg(feature = "std")]
     fn read_more(stream: &mut impl std::io::Read, buffer: &mut alloc::vec::Vec<u8>, hint: usize) -> Result<usize> {
         let len = buffer.len();
-        buffer.resize(len + hint, 0);
-        let read_bytes = stream
-            .read(&mut buffer[len..])
-            .map_err(|e| ParseError::Other(alloc::format!("Error reading from stream: {e}")))?;
+        // Size hints can come from untrusted section lengths.
+        let increment = hint.clamp(1, 64 * 1024);
+        let new_len =
+            len.checked_add(increment).ok_or_else(|| ParseError::Other("stream buffer is too large".into()))?;
+        buffer
+            .try_reserve(increment)
+            .map_err(|e| ParseError::Other(alloc::format!("Error reserving stream buffer: {e}")))?;
+        buffer.resize(new_len, 0);
+        let read_bytes = loop {
+            match stream.read(&mut buffer[len..]) {
+                Ok(read_bytes) => break read_bytes,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    buffer.truncate(len);
+                    return Err(ParseError::Other(alloc::format!("Error reading from stream: {e}")));
+                }
+            }
+        };
         buffer.truncate(len + read_bytes);
         Ok(read_bytes)
     }

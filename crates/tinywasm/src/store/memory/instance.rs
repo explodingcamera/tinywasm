@@ -101,14 +101,7 @@ impl MemoryInstance {
         src: usize,
         len: usize,
     ) -> Result<(), Trap> {
-        cold_err!(src_mem.inner.checked_range(src, len).ok_or_else(|| memory_oob(src, len, src_mem.inner.len())))?;
-        cold_err!(self.inner.checked_range(dst, len).ok_or_else(|| memory_oob(dst, len, self.inner.len())))?;
-        cold_err!(self.inner.copy_from(dst, &src_mem.inner, src, len).ok_or_else(|| memory_oob(
-            dst,
-            len,
-            self.inner.len()
-        )))?;
-        Ok(())
+        self.inner.copy_from(dst, &src_mem.inner, src, len)
     }
 
     pub(crate) fn copy_within(&mut self, dst: usize, src: usize, len: usize) -> Result<(), Trap> {

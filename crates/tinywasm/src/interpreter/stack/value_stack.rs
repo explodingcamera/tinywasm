@@ -46,6 +46,8 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
+        // intentionally overshoot max_size. Revisit when Vec::push_within_capacity is stable.
         if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
             return cold!(Err(Trap::ValueStackOverflow));
         }
@@ -55,6 +57,7 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
+        // Keep the same capacity-based limit check as push, including intentional overshoot.
         if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
             return cold!(Err(Trap::ValueStackOverflow));
         }
