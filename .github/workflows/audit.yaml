@@ -1,0 +1,46 @@
+name: Audit dependencies
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/audit.yaml"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+  push:
+    branches: [main, next]
+    paths:
+      - ".github/workflows/audit.yaml"
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+  schedule:
+    # Every Monday at 12:30 UTC
+    - cron: "30 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    with:
+      runs-on: ubuntu-24.04
+      upload-sarif: false
+      scan-args: --lockfile=./Cargo.lock
+
+  scan:
+    if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+    with:
+      runs-on: ubuntu-24.04
+      fail-on-vuln: false
+      scan-args: --lockfile=./Cargo.lock
