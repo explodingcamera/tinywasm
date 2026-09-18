@@ -5,12 +5,10 @@ use tinywasm_types::{TagAddr, TypeAddr};
 
 use crate::engine::Config;
 use crate::interpreter::{RuntimeValue, ValueRef};
-use crate::shared::{AtomicU32, Ordering, StoreShared};
+use crate::shared::StoreShared;
 use crate::{ResourceLimiter, Trap};
 
 use super::{AllocError, Arena, Handle, Trace};
-
-static NEXT_GC_REF: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) struct GcObject {
     pub(crate) kind: GcObjectKind,
@@ -35,6 +33,7 @@ impl Trace for GcObject {
 pub(crate) struct GcHeap {
     objects: Arena<GcObject>,
     directory: Vec<(u32, Handle)>,
+    next_key: u32,
     resource_limiter: Option<StoreShared<dyn ResourceLimiter>>,
 }
 
@@ -50,6 +49,7 @@ impl GcHeap {
         Self {
             objects: Arena::new(config.gc_collection_threshold),
             directory: Vec::new(),
+            next_key: 0,
             resource_limiter: config.resource_limiter.clone(),
         }
     }
@@ -114,10 +114,11 @@ impl GcHeap {
     ) -> Result<ValueRef, Trap> {
         let element_size = size_of::<RuntimeValue>() + if trace_references { size_of::<Option<Handle>>() } else { 0 };
         let out_of_line_bytes = values.len().checked_mul(element_size).ok_or(Trap::OutOfMemory)?;
-        let key = NEXT_GC_REF.fetch_add(1, Ordering::Relaxed);
-        if key >= 1 << 30 {
+        if self.next_key >= 1 << 30 {
             return Err(Trap::OutOfMemory);
         }
+        let key = self.next_key;
+        self.next_key += 1;
         let references = if trace_references {
             let mut references = Vec::new();
             references.try_reserve_exact(values.len()).map_err(|_| Trap::OutOfMemory)?;

@@ -531,15 +531,12 @@ impl Memory {
 
     /// Reads a JavaScript-style utf-16 string from memory.
     pub fn read_js_string(&self, store: &Store, offset: usize, len: usize) -> Result<String> {
-        let bytes = self.read_vec(store, offset, len)?;
-        let mut string = String::new();
-        for i in 0..(len / 2) {
-            let c = u16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
-            string.push(
-                char::from_u32(u32::from(c)).ok_or_else(|| crate::Error::Other("Invalid UTF-16 string".to_string()))?,
-            );
+        if !len.is_multiple_of(2) {
+            return Err(crate::Error::Other("Invalid UTF-16 string: odd byte length".to_string()));
         }
-        Ok(string)
+        let bytes = self.read_vec(store, offset, len)?;
+        let code_units = bytes.as_chunks::<2>().0.iter().copied().map(u16::from_le_bytes).collect::<Vec<_>>();
+        String::from_utf16(&code_units).map_err(|error| crate::Error::Other(format!("Invalid UTF-16 string: {error}")))
     }
 }
 

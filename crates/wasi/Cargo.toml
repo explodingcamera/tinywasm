@@ -13,7 +13,7 @@ categories = ["wasm"]
 cap-fs-ext = "4.0.3"
 cap-std = "4.0.3"
 getrandom = "0.4.3"
-rustix = { version = "1.1.4", features = ["event", "fs", "net"] }
+rustix = { version = "1.1.5", features = ["event", "fs", "net"] }
 tinywasm = { workspace = true, default-features = false, features = ["state"] }
 
 [dev-dependencies]

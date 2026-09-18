@@ -33,6 +33,15 @@ struct ExecutionInner<'store> {
     state: ExecState,
 }
 
+impl Drop for ExecutionInner<'_> {
+    fn drop(&mut self) {
+        if matches!(self.state, ExecState::Running { .. }) {
+            self.store.call_stack.clear();
+            self.store.value_stack.clear();
+        }
+    }
+}
+
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
 enum ExecState {
     Running { callframe: CallFrame, root_func_addr: FuncAddr },
