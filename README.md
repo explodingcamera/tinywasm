@@ -1,6 +1,3 @@
-> [!WARNING]
-> This is the `next` branch and contains changes for the 0.11 beta. See [`v0.10.0`](https://github.com/explodingcamera/tinywasm/tree/v0.10.0) for the latest stable version.
-
 # <b>`tinywasm`</b>
 
 [![Documentation](https://img.shields.io/badge/docs-latest-blue?style=flat-square)](https://docs.rs/tinywasm/latest/tinywasm/) [![Build](https://img.shields.io/github/actions/workflow/status/explodingcamera/tinywasm/test.yaml?branch=next&style=flat-square&label=build)](https://github.com/explodingcamera/tinywasm/actions/workflows/test.yaml?query=branch%3Anext) [![Crates.io](https://img.shields.io/crates/v/tinywasm.svg?logo=rust&style=flat-square)](https://crates.io/crates/tinywasm) [![Crates.io](https://img.shields.io/crates/l/tinywasm.svg?style=flat-square)](./LICENSE-APACHE)
@@ -19,7 +16,7 @@
 
 ```toml
 [dependencies]
-tinywasm = "0.11.0-beta.0"
+tinywasm = "0.11.0"
 ```
 
 ## Usage
@@ -103,10 +100,10 @@ TinyWasm generally implements non-JavaScript core proposals at [phase 4](https:/
 | [**Memory64**](https://github.com/WebAssembly/memory64)                                                          | 🟢     | 0.9.0              |
 | [**Wide Arithmetic**](https://github.com/WebAssembly/wide-arithmetic)                                            | 🟢     | 0.9.0              |
 | [**Custom Page Sizes**](https://github.com/WebAssembly/custom-page-sizes)                                        | 🟢     | 0.9.0              |
-| [**Typed Function References**](https://github.com/WebAssembly/function-references)                              | 🟢     | `next`             |
-| [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | `next`             |
-| [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | `next`             |
-| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | `next`             |
+| [**Typed Function References**](https://github.com/WebAssembly/function-references)                              | 🟢     | 0.11.0             |
+| [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | 0.11.0             |
+| [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | 0.11.0             |
+| [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | 0.11.0             |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
 | [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |
 

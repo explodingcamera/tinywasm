@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 description = "A tiny WebAssembly interpreter"
 readme = "../../README.md"
+homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 keywords.workspace = true

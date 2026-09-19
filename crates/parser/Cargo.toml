@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Parser and lowering pipeline for TinyWasm"
+homepage.workspace = true
 repository.workspace = true
 license.workspace = true
 keywords.workspace = true
