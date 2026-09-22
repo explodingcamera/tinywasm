@@ -12,6 +12,23 @@ pub(crate) struct VecMemory {
 }
 
 impl VecMemory {
+    /// Returns a raw mutable pointer to the memory's backing allocation.
+    /// Growth may invalidate the pointer. The caller must keep the store alive
+    /// and uphold Rust's aliasing rules when dereferencing it.
+    pub(crate) fn data_ptr(&mut self) -> *mut u8 {
+        self.data.as_mut_ptr()
+    }
+
+    /// Borrows the backing bytes.
+    pub(crate) fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Borrows the backing bytes exclusively.
+    pub(crate) fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+
     /// Tries to create a new memory with `len` zero-initialized bytes.
     pub(crate) fn try_new(_arch: MemoryArch, len: usize, _max_len: usize) -> Result<Self, crate::Trap> {
         let mut data = Vec::new();

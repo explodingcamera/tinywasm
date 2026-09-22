@@ -173,10 +173,23 @@ impl ModuleInstance {
     ///
     /// See <https://webassembly.github.io/spec/core/exec/modules.html#exec-instantiation>
     pub fn instantiate_no_start(store: &mut Store, module: &Module, imports: Option<&Imports>) -> Result<Self> {
+        let default_imports = Imports::default();
+        let imports = imports.unwrap_or(&default_imports).resolve(module)?;
+        Self::instantiate_inner(store, module, &imports)
+    }
+
+    /// **Unstable**: This method is for internal use only and may change or be removed at any time.
+    #[doc(hidden)]
+    pub fn instantiate_ordered(store: &mut Store, module: &Module, imports: &[crate::Extern]) -> Result<Self> {
+        let instance = Self::instantiate_inner(store, module, imports)?;
+        instance.start(store)?;
+        Ok(instance)
+    }
+
+    fn instantiate_inner(store: &mut Store, module: &Module, imports: &[crate::Extern]) -> Result<Self> {
         let type_addrs = store.register_module_types(&module.types);
         let id = store.next_module_instance_id();
-        let default_imports = Imports::default();
-        let mut addrs = imports.unwrap_or(&default_imports).link(store, module, &type_addrs)?;
+        let mut addrs = crate::imports::ResolvedImports::new(store, module, &type_addrs, imports)?;
         let imported_funcs = addrs.funcs.len();
         addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));

@@ -170,11 +170,33 @@ impl Imports {
         self
     }
 
-    /// Returns an explicitly defined import without cloning its handle.
-    pub(crate) fn defined(&self, import: &Import) -> Option<&Extern> {
-        self.externs.get(import.module.as_ref())?.get(import.name.as_ref())
+    /// Resolves names in module import order, with explicit definitions taking precedence.
+    pub(crate) fn resolve(&self, module: &Module) -> Result<Vec<Extern>> {
+        module
+            .imports
+            .iter()
+            .map(|import| {
+                if let Some(value) =
+                    self.externs.get(import.module.as_ref()).and_then(|items| items.get(import.name.as_ref()))
+                {
+                    return Ok(value.clone());
+                }
+                let instance =
+                    self.modules.get(import.module.as_ref()).ok_or_else(|| LinkingError::unknown_import(import))?;
+                let item = instance.extern_item(&import.name).map_err(|_| LinkingError::unknown_import(import))?;
+                Ok(match item {
+                    crate::ExternItem::Func(value) => Extern::Function(value),
+                    crate::ExternItem::Global(value) => Extern::Global(value),
+                    crate::ExternItem::Memory(value) => Extern::Memory(value),
+                    crate::ExternItem::Table(value) => Extern::Table(value),
+                    crate::ExternItem::Tag(value) => Extern::Tag(value),
+                })
+            })
+            .collect()
     }
+}
 
+impl ResolvedImports {
     fn compare_types<T: PartialEq>(import: &Import, actual: &T, expected: &T) -> Result<()> {
         if expected != actual {
             return cold!(Err(LinkingError::incompatible_import_type(import).into()));
@@ -223,12 +245,16 @@ impl Imports {
         Ok(())
     }
 
-    pub(crate) fn link(
-        &self,
+    /// Validates and binds imports in module import order.
+    pub(crate) fn new(
         store: &mut crate::Store,
         module: &Module,
         type_addrs: &[TypeAddr],
+        externs: &[Extern],
     ) -> Result<ResolvedImports> {
+        if externs.len() != module.imports.len() {
+            return Err(crate::Error::other("ordered import count does not match module"));
+        }
         let (global_count, table_count, mem_count, func_count, tag_count) =
             module.imports.iter().fold((0, 0, 0, 0, 0), |(g, t, m, f, e), import| match import.kind {
                 ImportKind::Global(_) => (g + 1, t, m, f, e),
@@ -246,50 +272,42 @@ impl Imports {
             tags: Vec::with_capacity(tag_count + module.tags.len()),
         };
 
-        for import in &*module.imports {
-            let val = if let Some(defined) = self.defined(import) {
-                match defined {
-                    Extern::Global(global) => {
-                        global.0.validate_store(store)?;
-                        ExternVal::Global(global.0.addr)
-                    }
-                    Extern::Table(table) => {
-                        table.0.validate_store(store)?;
-                        ExternVal::Table(table.0.addr)
-                    }
-                    Extern::Memory(memory) => {
-                        memory.0.validate_store(store)?;
-                        ExternVal::Memory(memory.0.addr)
-                    }
-                    Extern::Function(func) => {
-                        func.item.validate_store(store)?;
-                        ExternVal::Func(func.addr())
-                    }
-                    Extern::HostFunction(func) => {
-                        let ImportKind::Function(type_idx) = import.kind else {
-                            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
-                        };
-                        let expected_type_addr = type_addrs
-                            .get(type_idx as usize)
-                            .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
-                        let actual_ty = func.resolve_import_type(type_addrs)?;
-                        let actual_type_addr = store.register_host_type(&actual_ty);
-                        if !store.state.type_addr_is_subtype(actual_type_addr, *expected_type_addr) {
-                            return cold!(Err(LinkingError::incompatible_import_type(import).into()));
-                        }
-                        ExternVal::Func(func.instantiate_registered(store, actual_type_addr).addr())
-                    }
-                    Extern::Tag(tag) => {
-                        tag.0.validate_store(store)?;
-                        ExternVal::Tag(tag.0.addr)
-                    }
+        for (import, defined) in module.imports.iter().zip(externs) {
+            let val = match defined {
+                Extern::Global(global) => {
+                    global.0.validate_store(store)?;
+                    ExternVal::Global(global.0.addr)
                 }
-            } else {
-                let Some(instance) = self.modules.get(import.module.as_ref()) else {
-                    return cold!(Err(LinkingError::unknown_import(import).into()));
-                };
-                instance.validate_store(store)?;
-                instance.export_addr(&import.name).ok_or_else(|| LinkingError::unknown_import(import))?
+                Extern::Table(table) => {
+                    table.0.validate_store(store)?;
+                    ExternVal::Table(table.0.addr)
+                }
+                Extern::Memory(memory) => {
+                    memory.0.validate_store(store)?;
+                    ExternVal::Memory(memory.0.addr)
+                }
+                Extern::Function(func) => {
+                    func.item.validate_store(store)?;
+                    ExternVal::Func(func.addr())
+                }
+                Extern::HostFunction(func) => {
+                    let ImportKind::Function(type_idx) = import.kind else {
+                        return cold!(Err(LinkingError::incompatible_import_type(import).into()));
+                    };
+                    let expected_type_addr = type_addrs
+                        .get(type_idx as usize)
+                        .ok_or_else(|| LinkingError::incompatible_import_type(import))?;
+                    let actual_ty = func.resolve_import_type(type_addrs)?;
+                    let actual_type_addr = store.register_host_type(&actual_ty);
+                    if !store.state.type_addr_is_subtype(actual_type_addr, *expected_type_addr) {
+                        return cold!(Err(LinkingError::incompatible_import_type(import).into()));
+                    }
+                    ExternVal::Func(func.instantiate_registered(store, actual_type_addr).addr())
+                }
+                Extern::Tag(tag) => {
+                    tag.0.validate_store(store)?;
+                    ExternVal::Tag(tag.0.addr)
+                }
             };
 
             if val.kind() != (&import.kind).into() {

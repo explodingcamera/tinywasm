@@ -39,6 +39,19 @@ pub struct Function {
 }
 
 impl Function {
+    /// Resolves a function reference into a callable handle in its owning store.
+    ///
+    /// Returns an error if the reference belongs to another store or does not
+    /// identify a valid function.
+    pub fn from_func_ref(store: &Store, reference: FuncRef) -> Result<Self> {
+        let addr = reference.addr(store.id()).ok_or(crate::Trap::InvalidStore)?;
+        if !store.state.funcs.contains(addr) {
+            return Err(crate::Trap::InvalidReference.into());
+        }
+        let module_id = if store.state.funcs.is_host(addr) { 0 } else { store.state.funcs.wasm(addr).owner };
+        Ok(Self { item: StoreItem::new(store.id(), addr), module_id })
+    }
+
     /// Returns this function as a Store-aware WebAssembly function reference.
     pub fn as_func_ref(&self, store: &Store) -> Result<FuncRef> {
         self.item.validate_store(store)?;

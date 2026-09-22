@@ -351,6 +351,30 @@ impl crate::std::io::Seek for MemoryCursor<'_> {
 }
 
 impl Memory {
+    /// **Unstable**: This method is for internal use only and may change or be removed at any time.
+    ///
+    /// Returns a raw mutable pointer to the memory's backing allocation.
+    /// Growth may invalidate the pointer. The caller must keep the store alive
+    /// and uphold Rust's aliasing rules when dereferencing it.
+    #[doc(hidden)]
+    pub fn data_ptr(&self, store: &mut Store) -> Result<*mut u8> {
+        Ok(self.instance_mut(store)?.inner.data_ptr())
+    }
+
+    /// Borrows the complete linear memory.
+    ///
+    /// The borrow prevents execution or growth through this store until it ends.
+    pub fn data<'a>(&self, store: &'a Store) -> Result<&'a [u8]> {
+        Ok(self.instance(store)?.inner.data())
+    }
+
+    /// Borrows the complete linear memory exclusively.
+    ///
+    /// The borrow prevents execution or growth through this store until it ends.
+    pub fn data_mut<'a>(&self, store: &'a mut Store) -> Result<&'a mut [u8]> {
+        Ok(self.instance_mut(store)?.inner.data_mut())
+    }
+
     /// Create a new memory in the given store.
     pub fn try_new(store: &mut Store, ty: MemoryType) -> Result<Self> {
         let addr = store.state.memories.len() as MemAddr;

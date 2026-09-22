@@ -4,7 +4,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tinywasm::{FuncContext, HostFunction, Imports, ModuleInstance, Store};
 
 const IMPORT_MODULE: &str = "env";
@@ -18,7 +18,6 @@ pub struct Runtime {
     key_down: tinywasm::FunctionTyped<i32, ()>,
     key_up: tinywasm::FunctionTyped<i32, ()>,
     memory: tinywasm::Memory,
-    framebuffer_bytes: Vec<u8>,
 }
 
 impl Runtime {
@@ -41,18 +40,7 @@ impl Runtime {
         memory.write_cstring_bytes(&mut store, buf_ptr, &wad_path_string)?;
         init.call(&mut store, ())?;
 
-        let width = SCREEN_WIDTH;
-        let height = SCREEN_HEIGHT;
-
-        Ok(Self {
-            store,
-            update,
-            framebuffer,
-            key_down,
-            key_up,
-            memory,
-            framebuffer_bytes: vec![0; width * height * 4],
-        })
+        Ok(Self { store, update, framebuffer, key_down, key_up, memory })
     }
 
     pub fn tick(&mut self) -> Result<()> {
@@ -61,11 +49,15 @@ impl Runtime {
     }
 
     pub fn write_framebuffer(&mut self, dst: &mut [u32]) -> Result<()> {
-        let ptr = self.framebuffer.call(&mut self.store, ())? as usize;
-        self.memory.read_exact(&self.store, ptr, &mut self.framebuffer_bytes)?;
-        for (index, pixel) in dst.iter_mut().enumerate() {
-            let byte_index = index * 4;
-            let chunk = &self.framebuffer_bytes[byte_index..byte_index + 4];
+        let ptr = self.framebuffer.call(&mut self.store, ())? as u32 as usize;
+        let framebuffer = self
+            .memory
+            .data(&self.store)?
+            .get(ptr..)
+            .and_then(|data| data.get(..SCREEN_WIDTH * SCREEN_HEIGHT * 4))
+            .context("framebuffer is outside guest memory")?;
+        anyhow::ensure!(dst.len() <= SCREEN_WIDTH * SCREEN_HEIGHT, "framebuffer destination is too large");
+        for (pixel, chunk) in dst.iter_mut().zip(framebuffer.chunks_exact(4)) {
             *pixel = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | chunk[2] as u32;
         }
         Ok(())
@@ -228,13 +220,19 @@ fn build_imports() -> Imports {
     imports.define(
         IMPORT_MODULE,
         "host_write",
-        HostFunction::from(|mut ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
-            let data = ctx.memory("memory")?.read_vec(ctx.store(), buf_ptr as usize, count.max(0) as usize)?;
-            let state = ctx.state_mut::<HostState>().unwrap();
-            let Some(file) = state.files.get_mut(&handle) else {
+        HostFunction::from(|ctx: FuncContext<'_>, (handle, buf_ptr, count): (i32, i32, i32)| {
+            let data = ctx.memory("memory")?.data(ctx.store())?;
+            let offset = buf_ptr as u32 as usize;
+            let len = count.max(0) as usize;
+            let data = data
+                .get(offset..)
+                .and_then(|data| data.get(..len))
+                .ok_or(tinywasm::Trap::MemoryOutOfBounds { offset, len, max: data.len() })?;
+            let state = ctx.state::<HostState>().unwrap();
+            let Some(mut file) = state.files.get(&handle) else {
                 return Ok(-1);
             };
-            let written = file.write(&data).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
+            let written = file.write(data).map_err(|err| tinywasm::Error::Other(err.to_string()))?;
             Ok(written as i32)
         }),
     );
