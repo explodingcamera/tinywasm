@@ -4,6 +4,7 @@ use super::utils::*;
 use core::array;
 
 #[cfg(not(feature = "std"))]
+#[allow(unused_imports)]
 use super::super::no_std_floats::NoStdFloatExt;
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32 as wasm;

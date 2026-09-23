@@ -112,10 +112,6 @@ TinyWasm generally implements non-JavaScript core proposals at [phase 4](https:/
 🚧 -- in development/partially supported\
 🟢 -- fully supported
 
-## Benchmarks
-
-Tinywasm includes a small benchmark suite at [`crates/bench`](crates/bench) that runs a set of WebAssembly modules and measures execution time. For comparisons with other runtimes, check out the great [wasmi-benchmarks](https://github.com/wasmi-labs/wasmi-benchmarks) repository.
-
 ## See Also
 
 If you're looking for a WebAssembly runtime with JIT compilation, better performance or other advanced features, check out these other runtimes:

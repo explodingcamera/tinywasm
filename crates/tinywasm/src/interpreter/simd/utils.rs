@@ -1,6 +1,7 @@
 use super::Value128;
 
 #[cfg(not(feature = "std"))]
+#[allow(unused_imports)]
 use crate::interpreter::no_std_floats::NoStdFloatExt;
 
 impl Value128 {

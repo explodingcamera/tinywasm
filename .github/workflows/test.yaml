@@ -12,42 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  build-wasm:
-    name: Build wasm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: true
-          persist-credentials: false
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          toolchain: nightly
-          components: rust-src
-          rustflags: ""
-          target: wasm32-unknown-unknown
-      - name: Install Binaryen
-        run: |
-          BINARYEN_VERSION=version_129
-          BINARYEN_DIR="binaryen-${BINARYEN_VERSION}"
-          BINARYEN_ARCHIVE="${BINARYEN_DIR}-x86_64-linux.tar.gz"
-          curl -L "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${BINARYEN_ARCHIVE}" -o "/tmp/${BINARYEN_ARCHIVE}"
-          echo "50b9fa62b9abea752da92ec57e0c555fee578760cd237c40107957715d2976ba  /tmp/${BINARYEN_ARCHIVE}" | sha256sum -c -
-          tar -xzf "/tmp/${BINARYEN_ARCHIVE}" -C /tmp
-          sudo install "/tmp/${BINARYEN_DIR}/bin/wasm-opt" /usr/local/bin/wasm-opt
-      - name: Install WABT
-        run: sudo apt-get install -y wabt
-      - name: Build wasm
-        run: ./examples/rust/build.sh
-      - name: Save artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: wasm
-          path: examples/rust/out
-
   run-tests:
-    needs: build-wasm
     strategy:
       matrix:
         include:
@@ -101,12 +66,6 @@ jobs:
           rustflags: ""
           components: rustfmt, clippy
         if: matrix.target == ''
-
-      - name: Load wasm
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: wasm
-          path: examples/rust/out
 
       - name: Run tests
         run: cargo test --workspace ${{ matrix.args }} && cargo test --workspace ${{ matrix.args }} --examples

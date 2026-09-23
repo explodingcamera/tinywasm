@@ -1,0 +1,18 @@
+[package]
+name = "bench"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[bench]]
+harness = false
+name = "suite"
+
+[dependencies]
+tinywasm = { workspace = true, features = ["full", "std"] }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[lints]
+workspace = true
