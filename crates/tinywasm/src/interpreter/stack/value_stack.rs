@@ -46,10 +46,10 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
-        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
-        // intentionally overshoot max_size. Revisit when Vec::push_within_capacity is stable.
-        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
-            return cold!(Err(Trap::ValueStackOverflow));
+        // At capacity, grow (or trap) out of line. After this check `Vec::push` cannot reach its
+        // own growth path, so the allocator call stays out of the instruction handlers.
+        if self.data.len() == self.data.capacity() {
+            return self.push_grow(value);
         }
         self.data.push(value);
         Ok(())
@@ -57,11 +57,18 @@ impl<T: Copy + Default> Stack<T> {
 
     #[inline(always)]
     pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
-        // Keep the same capacity-based limit check as push, including intentional overshoot.
-        if self.data.len() == self.data.capacity() && (!self.dynamic || self.data.len() >= self.max_size) {
-            return cold!(Err(Trap::ValueStackOverflow));
-        }
         let value = self.data[index];
+        self.push(value)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn push_grow(&mut self, value: T) -> Result<(), Trap> {
+        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
+        // intentionally overshoot max_size.
+        if !self.dynamic || self.data.len() >= self.max_size {
+            return Err(Trap::ValueStackOverflow);
+        }
         self.data.push(value);
         Ok(())
     }
