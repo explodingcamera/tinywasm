@@ -1024,7 +1024,7 @@ impl<'store> Executor<'store> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let field_count =
             self.store.state.get_type(type_addr).as_struct().expect("validated struct.new type").fields.len();
-        self.store.state.check_gc_allocation(type_addr, field_count)?;
+        self.store.state.gc.check_allocation(field_count, self.store.state.gc_type_has_references(type_addr))?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(field_count)).map_err(|_| Trap::OutOfMemory)?;
         if default {
@@ -1082,7 +1082,7 @@ impl<'store> Executor<'store> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.store.state.get_type(type_addr).as_array().expect("validated array.new type").field.storage;
         let len = u32::stack_pop(&mut self.store.value_stack) as usize;
-        self.store.state.check_gc_allocation(type_addr, len)?;
+        self.store.state.gc.check_allocation(len, self.store.state.gc_type_has_references(type_addr))?;
         let value = if default { default_value(storage) } else { pop_value(&mut self.store.value_stack, storage) };
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
@@ -1098,7 +1098,7 @@ impl<'store> Executor<'store> {
         let storage =
             self.store.state.get_type(type_addr).as_array().expect("validated array.new_fixed type").field.storage;
         let len = len as usize;
-        self.store.state.check_gc_allocation(type_addr, len)?;
+        self.store.state.gc.check_allocation(len, self.store.state.gc_type_has_references(type_addr))?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         for _ in 0..len {
@@ -1199,7 +1199,7 @@ impl<'store> Executor<'store> {
         let data_addr = self.module.resolve_data_addr(data_index);
         let data = self.store.state.data[data_addr as usize].data.as_deref().unwrap_or(&[]);
         data_range(storage, data, src, len)?;
-        self.store.state.check_gc_allocation(type_addr, len)?;
+        self.store.state.gc.check_allocation(len, self.store.state.gc_type_has_references(type_addr))?;
         let values = decode_data(storage, data, src, len)?;
         self.push_gc_object(type_addr, values)
     }
@@ -1213,7 +1213,7 @@ impl<'store> Executor<'store> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let elem_addr = self.module.resolve_elem_addr(elem_index);
         let items = self.store.state.elements[elem_addr as usize].items_range(src, len)?;
-        self.store.state.check_gc_allocation(type_addr, len)?;
+        self.store.state.gc.check_allocation(len, self.store.state.gc_type_has_references(type_addr))?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         values.extend(items.iter().copied().map(RuntimeValue::ValueRef));

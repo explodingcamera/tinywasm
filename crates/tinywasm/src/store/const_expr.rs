@@ -135,7 +135,7 @@ pub(super) fn eval_const(
                     .fields
                     .len();
                 let default = matches!(instruction, StructNewDefault(_));
-                state.check_gc_allocation(type_addr, field_count)?;
+                state.gc.check_allocation(field_count, state.gc_type_has_references(type_addr))?;
                 let mut values = Vec::new();
                 cold_err!(values.try_reserve_exact(field_count)).map_err(|_| Trap::OutOfMemory)?;
                 if default {
@@ -168,7 +168,7 @@ pub(super) fn eval_const(
                 let Some(RuntimeValue::Value32(len)) = stack.pop() else {
                     return Err(Error::other("type mismatch in const array length"));
                 };
-                state.check_gc_allocation(type_addr, len as usize)?;
+                state.gc.check_allocation(len as usize, state.gc_type_has_references(type_addr))?;
                 let value = if matches!(instruction, ArrayNewDefault(_)) {
                     default_value(storage)
                 } else {
@@ -187,7 +187,7 @@ pub(super) fn eval_const(
                     .ok_or_else(|| Error::other("GC constant type is not an array"))?
                     .field
                     .storage;
-                state.check_gc_allocation(type_addr, *len as usize)?;
+                state.gc.check_allocation(*len as usize, state.gc_type_has_references(type_addr))?;
                 let mut values = Vec::new();
                 cold_err!(values.try_reserve_exact(*len as usize)).map_err(|_| Trap::OutOfMemory)?;
                 for _ in 0..*len {

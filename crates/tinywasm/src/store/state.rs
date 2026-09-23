@@ -84,15 +84,15 @@ impl State {
         )
     }
 
-    pub(crate) fn check_gc_allocation(&self, type_addr: TypeAddr, value_count: usize) -> Result<(), Trap> {
-        let trace_references = match &self.get_type(type_addr).composite {
+    #[inline]
+    pub(crate) fn gc_type_has_references(&self, type_addr: TypeAddr) -> bool {
+        match &self.get_type(type_addr).composite {
             CompositeType::Struct(ty) => {
                 ty.fields.iter().any(|field| matches!(field.storage, StorageType::Value(WasmType::Ref(_))))
             }
             CompositeType::Array(ty) => matches!(ty.field.storage, StorageType::Value(WasmType::Ref(_))),
             CompositeType::Func(_) => unreachable!("GC object type is not a function"),
-        };
-        self.gc.check_allocation(value_count, trace_references)
+        }
     }
 
     /// Allocates an object, collecting from all runtime roots when needed.
@@ -102,13 +102,7 @@ impl State {
         values: Vec<RuntimeValue>,
         additional_roots: impl IntoIterator<Item = ValueRef>,
     ) -> Result<ValueRef, Trap> {
-        let trace_references = match &self.get_type(type_addr).composite {
-            CompositeType::Struct(ty) => {
-                ty.fields.iter().any(|field| matches!(field.storage, StorageType::Value(WasmType::Ref(_))))
-            }
-            CompositeType::Array(ty) => matches!(ty.field.storage, StorageType::Value(WasmType::Ref(_))),
-            CompositeType::Func(_) => unreachable!("GC object type is not a function"),
-        };
+        let trace_references = self.gc_type_has_references(type_addr);
         if self.gc.should_collect(values.len(), trace_references) {
             let roots = additional_roots.into_iter().chain(values.iter().filter_map(|value| match value {
                 RuntimeValue::ValueRef(value) => Some(*value),

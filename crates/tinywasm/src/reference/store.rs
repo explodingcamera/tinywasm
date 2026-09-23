@@ -462,13 +462,10 @@ impl Memory {
 
     /// Reads exactly `dst.len()` bytes from memory.
     pub fn read_exact(&self, store: &Store, offset: usize, dst: &mut [u8]) -> Result<()> {
-        self.instance(store)?.inner.read_exact(offset, dst).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset,
-                len: dst.len(),
-                max: self.instance(store).unwrap().inner.len(),
-            })
-        })
+        let mem = self.instance(store)?;
+        mem.inner
+            .read_exact(offset, dst)
+            .ok_or_else(|| Trap::MemoryOutOfBounds { offset, len: dst.len(), max: mem.inner.len() }.into())
     }
 
     /// Reads `len` bytes from memory into a newly allocated buffer.
@@ -508,13 +505,10 @@ impl Memory {
 
     /// Copies a full slice into memory.
     pub fn copy_from_slice(&self, store: &mut Store, offset: usize, data: &[u8]) -> Result<()> {
-        self.instance_mut(store)?.inner.write_all(offset, data).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds {
-                offset,
-                len: data.len(),
-                max: self.instance(store).unwrap().inner.len(),
-            })
-        })
+        let mem = self.instance_mut(store)?;
+        mem.inner
+            .write_all(offset, data)
+            .ok_or_else(|| Trap::MemoryOutOfBounds { offset, len: data.len(), max: mem.inner.len() }.into())
     }
 
     /// Copies a nul-terminated C string into memory.
