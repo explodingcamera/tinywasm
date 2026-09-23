@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+includedir=${prefix}/include
+
+Name: TinyWasm
+Description: TinyWasm WebAssembly C API
+Version: @VERSION@
+Libs: -L${libdir} -ltinywasm
+Libs.private: @NATIVE_LIBS@
+Cflags: -I${includedir} @PREFIX_FLAG@
