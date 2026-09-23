@@ -323,6 +323,8 @@ macro_rules! instruction_handlers {
             ArrayInitElem(idx) => executor.exec_array_init_elem(*idx)?,
             MemorySize(addr) => executor.exec_memory_size(*addr)?,
             MemoryGrow(addr) => executor.exec_memory_grow(*addr)?,
+            Atomic(arg) => executor.exec_atomic(*arg)?,
+            AtomicFence => crate::shared::fence(crate::shared::Ordering::SeqCst),
 
             // Bulk memory operations
             MemoryCopy(idx) => executor.exec_memory_copy(*idx)?,

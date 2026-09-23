@@ -203,6 +203,7 @@ pub(crate) mod visit {
         (@@function_references $($rest:tt)* ) => {};
         (@@gc $($rest:tt)* ) => {};
         (@@exceptions $($rest:tt)* ) => {};
+        (@@threads $($rest:tt)* ) => {};
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {

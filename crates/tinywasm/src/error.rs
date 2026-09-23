@@ -131,6 +131,9 @@ pub enum Trap {
         max: usize,
     },
 
+    /// An atomic memory access was not naturally aligned.
+    UnalignedAtomic,
+
     /// An out-of-bounds table access occurred
     TableOutOfBounds {
         /// The offset of the access
@@ -216,6 +219,7 @@ impl Trap {
         match self {
             Self::Unreachable => "unreachable",
             Self::MemoryOutOfBounds { .. } => "out of bounds memory access",
+            Self::UnalignedAtomic => "unaligned atomic",
             Self::TableOutOfBounds { .. } => "out of bounds table access",
             Self::ArrayOutOfBounds => "out of bounds array access",
             Self::DivisionByZero => "integer divide by zero",
@@ -324,6 +328,7 @@ impl Display for Trap {
             Self::MemoryOutOfBounds { offset, len, max } => {
                 write!(f, "out of bounds memory access: offset={offset}, len={len}, max={max}")
             }
+            Self::UnalignedAtomic => write!(f, "unaligned atomic"),
             Self::TableOutOfBounds { offset, len, max } => {
                 write!(f, "out of bounds table access: offset={offset}, len={len}, max={max}")
             }

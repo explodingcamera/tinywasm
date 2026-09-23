@@ -9,6 +9,94 @@ use crate::{
 /// Identifies the packed full-width memory operand layout.
 pub enum MemoryOperand {}
 
+/// Operation performed by an atomic memory instruction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[repr(u8)]
+pub enum AtomicOp {
+    Load = 0,
+    Store = 1,
+    Add = 2,
+    Sub = 3,
+    And = 4,
+    Or = 5,
+    Xor = 6,
+    Xchg = 7,
+    Cmpxchg = 8,
+}
+
+/// Width of an atomic memory access, in bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[repr(u8)]
+pub enum AtomicWidth {
+    Bytes1 = 1,
+    Bytes2 = 2,
+    Bytes4 = 4,
+    Bytes8 = 8,
+}
+
+impl AtomicWidth {
+    /// Converts a supported byte width into an atomic width.
+    pub const fn from_bytes(bytes: u8) -> Self {
+        match bytes {
+            1 => Self::Bytes1,
+            2 => Self::Bytes2,
+            4 => Self::Bytes4,
+            8 => Self::Bytes8,
+            _ => panic!("invalid atomic width"),
+        }
+    }
+}
+
+/// An atomic operation with its module-local memory operand and access width.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[repr(C, packed)]
+pub struct AtomicArg {
+    pub memory: Operand128Idx<MemoryOperand>,
+    code: u8,
+}
+
+impl AtomicArg {
+    /// Packs the operation, access width, and result type into one byte.
+    pub const fn new(memory: Operand128Idx<MemoryOperand>, width: AtomicWidth, is_64: bool, op: AtomicOp) -> Self {
+        Self { memory, code: (op as u8) | ((width as u8).trailing_zeros() as u8) << 4 | (is_64 as u8) << 6 }
+    }
+
+    /// Returns the access width.
+    pub const fn width(self) -> AtomicWidth {
+        match (self.code >> 4) & 3 {
+            0 => AtomicWidth::Bytes1,
+            1 => AtomicWidth::Bytes2,
+            2 => AtomicWidth::Bytes4,
+            _ => AtomicWidth::Bytes8,
+        }
+    }
+    /// Returns whether the value is an i64.
+    pub const fn is_64(self) -> bool {
+        self.code & 64 != 0
+    }
+    /// Returns the atomic operation.
+    pub fn op(self) -> AtomicOp {
+        match self.code & 15 {
+            0 => AtomicOp::Load,
+            1 => AtomicOp::Store,
+            2 => AtomicOp::Add,
+            3 => AtomicOp::Sub,
+            4 => AtomicOp::And,
+            5 => AtomicOp::Or,
+            6 => AtomicOp::Xor,
+            7 => AtomicOp::Xchg,
+            8 => AtomicOp::Cmpxchg,
+            _ => unreachable!("invalid atomic operation"),
+        }
+    }
+}
+
 /// Identifies the packed compact memory operand layout.
 pub enum CompactMemoryOperand {}
 
@@ -647,6 +735,8 @@ define_instructions! {
     I32Store8(Operand128Idx<MemoryOperand>), I32Store16(Operand128Idx<MemoryOperand>), I64Store8(Operand128Idx<MemoryOperand>), I64Store16(Operand128Idx<MemoryOperand>), I64Store32(Operand128Idx<MemoryOperand>),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
+    Atomic(AtomicArg),
+    AtomicFence,
 
     // > Constants
     Const32(i32),

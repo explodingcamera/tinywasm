@@ -1430,6 +1430,74 @@ impl<'store> Executor<'store> {
         TARGET::stack_push(&mut self.store.value_stack, cast(value))
     }
 
+    fn exec_atomic(&mut self, arg: AtomicArg) -> Result<(), Trap> {
+        match arg.width() {
+            AtomicWidth::Bytes1 => self.exec_atomic_width::<1>(arg),
+            AtomicWidth::Bytes2 => self.exec_atomic_width::<2>(arg),
+            AtomicWidth::Bytes4 => self.exec_atomic_width::<4>(arg),
+            AtomicWidth::Bytes8 => self.exec_atomic_width::<8>(arg),
+        }
+    }
+
+    fn exec_atomic_width<const N: usize>(&mut self, arg: AtomicArg) -> Result<(), Trap> {
+        let op = arg.op();
+        let value = if op == AtomicOp::Load {
+            0
+        } else if arg.is_64() {
+            u64::stack_pop(&mut self.store.value_stack)
+        } else {
+            u32::stack_pop(&mut self.store.value_stack) as u64
+        };
+        let expected = if op == AtomicOp::Cmpxchg {
+            if arg.is_64() {
+                u64::stack_pop(&mut self.store.value_stack)
+            } else {
+                u32::stack_pop(&mut self.store.value_stack) as u64
+            }
+        } else {
+            0
+        };
+        let memory = arg.memory.resolve(&self.func.data);
+        let mem = self.store.state.get_mem_mut(self.mem_addr(memory.memory()));
+        let base = self.store.value_stack.pop_memory_operand(mem.kind.arch())?;
+        let addr = cold_err!(mem.effective_addr::<N>(base, memory.offset()))?;
+        if addr % N != 0 {
+            return cold!(Err(Trap::UnalignedAtomic));
+        }
+        if op == AtomicOp::Store {
+            let mut bytes = [0u8; N];
+            bytes.copy_from_slice(&value.to_le_bytes()[..N]);
+            return cold_err!(mem.inner.write_fixed::<N>(addr, &bytes));
+        }
+        let bytes = cold_err!(mem.inner.read_fixed::<N>(addr))?;
+        let mut padded = [0u8; 8];
+        padded[..N].copy_from_slice(&bytes);
+        let old = u64::from_le_bytes(padded);
+        let mask = if N == 8 { u64::MAX } else { (1u64 << (N * 8)) - 1 };
+        let next = match op {
+            AtomicOp::Load => None,
+            AtomicOp::Store => unreachable!(),
+            AtomicOp::Xchg => Some(value),
+            AtomicOp::Add => Some(old.wrapping_add(value)),
+            AtomicOp::Sub => Some(old.wrapping_sub(value)),
+            AtomicOp::And => Some(old & value),
+            AtomicOp::Or => Some(old | value),
+            AtomicOp::Xor => Some(old ^ value),
+            AtomicOp::Cmpxchg => (old == (expected & mask)).then_some(value),
+        };
+        if let Some(next) = next {
+            let mut bytes = [0u8; N];
+            bytes.copy_from_slice(&next.to_le_bytes()[..N]);
+            cold_err!(mem.inner.write_fixed::<N>(addr, &bytes))?;
+        }
+        if arg.is_64() {
+            u64::stack_push(&mut self.store.value_stack, old)?;
+        } else {
+            u32::stack_push(&mut self.store.value_stack, old as u32)?;
+        }
+        Ok(())
+    }
+
     #[inline(always)]
     fn exec_mem_store_lane<U: MemValue<N> + Copy, const N: usize>(&mut self, arg: MemoryLaneArg) -> Result<(), Trap> {
         let bytes = Value128::stack_pop(&mut self.store.value_stack).to_mem_bytes();

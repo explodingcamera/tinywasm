@@ -11,9 +11,9 @@ use alloc::{
     vec::Vec,
 };
 use tinywasm_types::{
-    BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType, Operand64,
-    Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts,
-    ValueLane, WasmFunctionData,
+    AtomicArg, AtomicOp, AtomicWidth, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind,
+    Instruction, MemoryType, Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType,
+    TypeSection, ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -497,6 +497,35 @@ pub(crate) fn process_operators_and_validate(
     Ok((instructions, builder.data, builder.uses_local_memory, validator.into_allocations(), reader.into_allocations()))
 }
 
+macro_rules! atomic_visitors {
+    ($($op:ident, $inputs:tt => $outputs:tt: $(($visit:ident, $width:literal)),+;)*) => {
+        $(atomic_visitors!(@group $op, $inputs => $outputs: $(($visit, $width)),+);)*
+    };
+    (@group $op:ident, $inputs:tt => $outputs:tt: $(($visit:ident, $width:literal)),+) => {
+        $(atomic_visitors!(@one $op, $inputs => $outputs: $visit, $width);)+
+    };
+    (@one $op:ident, [$($input:ident),*] => [$($output:ident),*]: $visit:ident, $width:literal) => {
+        fn $visit(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+            if memarg.align != ($width as u32).trailing_zeros() as u8 {
+                return Err(crate::ParseError::Other("invalid atomic alignment".into()));
+            }
+            let address = self.metadata.memory_size(memarg.memory)?;
+            self.mark_memory(memarg.memory);
+            let memory = self.push128(Operand128::<tinywasm_types::MemoryOperand>::new(memarg.offset, memarg.memory))?;
+            self.emit(
+                &[$(atomic_visitors!(@size $input, address)),*],
+                &[$(atomic_visitors!(@size $output, address)),*],
+                Instruction::Atomic(AtomicArg::new(memory, AtomicWidth::from_bytes($width), atomic_visitors!(@is64 [$($input),*] [$($output),*]), AtomicOp::$op)),
+            )
+        }
+    };
+    (@size Addr, $address:ident) => { $address };
+    (@size $lane:ident, $address:ident) => { ValueLane::$lane };
+    (@is64 [Addr, S64 $(, S64)*] $outputs:tt) => { true };
+    (@is64 [Addr] [S64]) => { true };
+    (@is64 $inputs:tt $outputs:tt) => { false };
+}
+
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     type Output = Result<()>;
 
@@ -505,6 +534,41 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     wasmparser::for_each_visit_operator!(impl_visit_operator);
+
+    fn visit_atomic_fence(&mut self) -> Self::Output {
+        self.emit(&[], &[], Instruction::AtomicFence)
+    }
+
+    fn visit_memory_atomic_notify(&mut self, _: wasmparser::MemArg) -> Self::Output {
+        Err(crate::ParseError::UnsupportedOperator("memory.atomic.notify".into()))
+    }
+    fn visit_memory_atomic_wait32(&mut self, _: wasmparser::MemArg) -> Self::Output {
+        Err(crate::ParseError::UnsupportedOperator("memory.atomic.wait32".into()))
+    }
+    fn visit_memory_atomic_wait64(&mut self, _: wasmparser::MemArg) -> Self::Output {
+        Err(crate::ParseError::UnsupportedOperator("memory.atomic.wait64".into()))
+    }
+
+    atomic_visitors! {
+        Load, [Addr] => [S32]: (visit_i32_atomic_load, 4), (visit_i32_atomic_load8_u, 1), (visit_i32_atomic_load16_u, 2);
+        Load, [Addr] => [S64]: (visit_i64_atomic_load, 8), (visit_i64_atomic_load8_u, 1), (visit_i64_atomic_load16_u, 2), (visit_i64_atomic_load32_u, 4);
+        Store, [Addr, S32] => []: (visit_i32_atomic_store, 4), (visit_i32_atomic_store8, 1), (visit_i32_atomic_store16, 2);
+        Store, [Addr, S64] => []: (visit_i64_atomic_store, 8), (visit_i64_atomic_store8, 1), (visit_i64_atomic_store16, 2), (visit_i64_atomic_store32, 4);
+        Add, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_add, 4), (visit_i32_atomic_rmw8_add_u, 1), (visit_i32_atomic_rmw16_add_u, 2);
+        Add, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_add, 8), (visit_i64_atomic_rmw8_add_u, 1), (visit_i64_atomic_rmw16_add_u, 2), (visit_i64_atomic_rmw32_add_u, 4);
+        Sub, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_sub, 4), (visit_i32_atomic_rmw8_sub_u, 1), (visit_i32_atomic_rmw16_sub_u, 2);
+        Sub, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_sub, 8), (visit_i64_atomic_rmw8_sub_u, 1), (visit_i64_atomic_rmw16_sub_u, 2), (visit_i64_atomic_rmw32_sub_u, 4);
+        And, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_and, 4), (visit_i32_atomic_rmw8_and_u, 1), (visit_i32_atomic_rmw16_and_u, 2);
+        And, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_and, 8), (visit_i64_atomic_rmw8_and_u, 1), (visit_i64_atomic_rmw16_and_u, 2), (visit_i64_atomic_rmw32_and_u, 4);
+        Or, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_or, 4), (visit_i32_atomic_rmw8_or_u, 1), (visit_i32_atomic_rmw16_or_u, 2);
+        Or, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_or, 8), (visit_i64_atomic_rmw8_or_u, 1), (visit_i64_atomic_rmw16_or_u, 2), (visit_i64_atomic_rmw32_or_u, 4);
+        Xor, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_xor, 4), (visit_i32_atomic_rmw8_xor_u, 1), (visit_i32_atomic_rmw16_xor_u, 2);
+        Xor, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_xor, 8), (visit_i64_atomic_rmw8_xor_u, 1), (visit_i64_atomic_rmw16_xor_u, 2), (visit_i64_atomic_rmw32_xor_u, 4);
+        Xchg, [Addr, S32] => [S32]: (visit_i32_atomic_rmw_xchg, 4), (visit_i32_atomic_rmw8_xchg_u, 1), (visit_i32_atomic_rmw16_xchg_u, 2);
+        Xchg, [Addr, S64] => [S64]: (visit_i64_atomic_rmw_xchg, 8), (visit_i64_atomic_rmw8_xchg_u, 1), (visit_i64_atomic_rmw16_xchg_u, 2), (visit_i64_atomic_rmw32_xchg_u, 4);
+        Cmpxchg, [Addr, S32, S32] => [S32]: (visit_i32_atomic_rmw_cmpxchg, 4), (visit_i32_atomic_rmw8_cmpxchg_u, 1), (visit_i32_atomic_rmw16_cmpxchg_u, 2);
+        Cmpxchg, [Addr, S64, S64] => [S64]: (visit_i64_atomic_rmw_cmpxchg, 8), (visit_i64_atomic_rmw8_cmpxchg_u, 1), (visit_i64_atomic_rmw16_cmpxchg_u, 2), (visit_i64_atomic_rmw32_cmpxchg_u, 4);
+    }
 
     lowering_ops! {
         memory [Addr] => [S32] {
