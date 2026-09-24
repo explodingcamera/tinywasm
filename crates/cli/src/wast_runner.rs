@@ -344,11 +344,14 @@ impl WastRunner {
                         );
                         continue;
                     };
-                    if !message.starts_with(trap.message()) && !trap.message().starts_with(message) {
+                    // The core test suite's "call stack exhausted" text denotes stack exhaustion,
+                    // not which internal stack reaches its configured limit first. Function-entry
+                    // operand reservation can exhaust a value lane before the call-frame stack.
+                    if !matches!(trap, tinywasm::Trap::CallStackOverflow | tinywasm::Trap::ValueStackOverflow) {
                         test_group.add_result(
                             &format!("AssertExhaustion({i})"),
                             span.linecol_in(wast_raw),
-                            Err(anyhow!("expected trap: {}, got: {}", message, trap.message())),
+                            Err(anyhow!("expected stack exhaustion ({message}), got: {}", trap.message())),
                         );
                         continue;
                     }

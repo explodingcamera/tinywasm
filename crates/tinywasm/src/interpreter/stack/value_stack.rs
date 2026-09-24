@@ -297,7 +297,17 @@ impl ValueStack {
         self.stack_128.truncate_to(base.s128 as usize);
     }
 
-    /// Pushes a value from outside a function body; see [`Stack::push_or_grow`].
+    /// Pushes a dynamically typed value inside a function body using its entry reservation.
+    pub(crate) fn push_reserved(&mut self, value: RuntimeValue) -> Result<(), Trap> {
+        match value {
+            RuntimeValue::Value32(value) => self.stack_32.push(value),
+            RuntimeValue::Value64(value) => self.stack_64.push(value),
+            RuntimeValue::Value128(value) => self.stack_128.push(value),
+            RuntimeValue::ValueRef(value) => self.stack_32.push(value.raw()),
+        }
+    }
+
+    /// Pushes a value from outside a function body's reservation; see [`Stack::push_or_grow`].
     pub(crate) fn push_dyn(&mut self, value: RuntimeValue) -> Result<(), Trap> {
         match value {
             RuntimeValue::Value32(value) => self.stack_32.push_or_grow(value),
