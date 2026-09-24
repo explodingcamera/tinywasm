@@ -4,6 +4,7 @@ use super::*;
 use crate::engine::Config;
 use crate::interpreter::{InternalValue, Value32, Value64, Value128};
 use crate::store::memory::memory_oob;
+use tinywasm_types::Shared;
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -81,13 +82,15 @@ impl State {
         &mut self,
         addr: MemAddr,
         pages: i64,
-        limiter: Option<&dyn ResourceLimiter>,
+        limiter: Option<&Shared<dyn ResourceLimiter>>,
     ) -> Result<Option<i64>, Trap> {
+        #[cfg(not(feature = "std"))]
+        let _ = limiter;
         #[cfg(feature = "std")]
         if addr & SHARED_MEM_BIT != 0 {
             return self.shared_memories[(addr & !SHARED_MEM_BIT) as usize].grow_with_limiter(pages, limiter);
         }
-        self.get_mem_mut(addr).grow(pages, limiter)
+        self.get_mem_mut(addr).grow(pages)
     }
 
     /// Copies between memories, locking at most one shared backing at a time.

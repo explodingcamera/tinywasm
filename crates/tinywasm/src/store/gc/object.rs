@@ -1,11 +1,10 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::mem::size_of;
 
-use tinywasm_types::{TagAddr, TypeAddr};
+use tinywasm_types::{Shared, TagAddr, TypeAddr};
 
 use crate::engine::Config;
 use crate::interpreter::{RuntimeValue, ValueRef};
-use crate::shared::StoreShared;
 use crate::{ResourceLimiter, Trap};
 
 use super::{AllocError, Arena, Handle, Trace};
@@ -34,7 +33,7 @@ pub(crate) struct GcHeap {
     objects: Arena<GcObject>,
     directory: Vec<(u32, Handle)>,
     next_key: u32,
-    resource_limiter: Option<StoreShared<dyn ResourceLimiter>>,
+    resource_limiter: Option<Shared<dyn ResourceLimiter>>,
 }
 
 impl Default for GcHeap {

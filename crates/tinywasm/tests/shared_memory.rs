@@ -1,10 +1,170 @@
 #![cfg(feature = "std")]
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm::engine::Config;
 use tinywasm::types::{MemoryArch, MemoryType, ModuleInner};
 use tinywasm::{Engine, Imports, MemoryShared, ModuleInstance, ResourceLimiter, Store, Trap};
 
 type TestResult = Result<(), Box<dyn core::error::Error>>;
+
+#[derive(Clone)]
+struct MemoryLedger {
+    used: Arc<AtomicUsize>,
+    failed: Arc<AtomicUsize>,
+    approval_barrier: Option<Arc<std::sync::Barrier>>,
+}
+
+impl MemoryLedger {
+    fn new() -> Self {
+        Self { used: Arc::new(AtomicUsize::new(0)), failed: Arc::new(AtomicUsize::new(0)), approval_barrier: None }
+    }
+
+    fn used(&self) -> usize {
+        self.used.load(Ordering::SeqCst)
+    }
+}
+
+impl ResourceLimiter for MemoryLedger {
+    fn memory_growing(&self, current: usize, desired: usize, _maximum: Option<usize>) -> Result<bool, Trap> {
+        self.used.fetch_add(desired - current, Ordering::SeqCst);
+        if let Some(barrier) = &self.approval_barrier {
+            barrier.wait();
+        }
+        Ok(true)
+    }
+
+    fn memory_grow_failed(&self, current: usize, desired: usize) {
+        self.failed.fetch_add(1, Ordering::SeqCst);
+        self.used.fetch_sub(desired - current, Ordering::SeqCst);
+    }
+
+    fn memory_dropped(&self, charged_bytes: usize) {
+        self.used.fetch_sub(charged_bytes, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn defined_shared_memory_releases_quota_after_last_handle() -> TestResult {
+    const PAGE: usize = 65_536;
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"(module (memory (export "memory") 1 2 shared)
+                   (func (export "grow") (result i32) i32.const 1 memory.grow))"#,
+    )?)?;
+    let quota = MemoryLedger::new();
+    let mut store = Store::new(Engine::new(Config::new().with_resource_limiter(quota.clone())));
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    assert_eq!(quota.used(), PAGE);
+    assert_eq!(instance.func::<(), i32>(&store, "grow")?.call(&mut store, ())?, 1);
+    assert_eq!(quota.used(), 2 * PAGE);
+
+    let memory = instance.memory_shared("memory")?;
+    let other_handle = memory.clone();
+    drop(instance);
+    drop(store);
+    assert_eq!(quota.used(), 2 * PAGE);
+    drop(memory);
+    assert_eq!(quota.used(), 2 * PAGE);
+    drop(other_handle);
+    assert_eq!(quota.used(), 0);
+    Ok(())
+}
+
+#[test]
+fn imported_shared_memory_keeps_its_creators_quota() -> TestResult {
+    const PAGE: usize = 65_536;
+    let creator_module = tinywasm::parse_bytes(&wat::parse_str(r#"(module (memory (export "memory") 1 2 shared))"#)?)?;
+    let importer_module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"(module (import "host" "memory" (memory 1 2 shared))
+                   (func (export "grow") (result i32) i32.const 1 memory.grow))"#,
+    )?)?;
+    let quota = MemoryLedger::new();
+    let mut creator_store = Store::new(Engine::new(Config::new().with_resource_limiter(quota.clone())));
+    let creator = ModuleInstance::instantiate(&mut creator_store, &creator_module, None)?;
+    let memory = creator.memory_shared("memory")?;
+    drop(creator);
+    drop(creator_store);
+    assert_eq!(quota.used(), PAGE);
+
+    let mut imports = Imports::new();
+    imports.define("host", "memory", memory.clone());
+    let mut importer_store = Store::default();
+    let importer = ModuleInstance::instantiate(&mut importer_store, &importer_module, Some(&imports))?;
+    assert_eq!(importer.func::<(), i32>(&importer_store, "grow")?.call(&mut importer_store, ())?, 1);
+    assert_eq!(quota.used(), 2 * PAGE);
+    drop(importer);
+    drop(importer_store);
+    drop(imports);
+    drop(memory);
+    assert_eq!(quota.used(), 0);
+    Ok(())
+}
+
+#[test]
+fn host_created_shared_memory_charges_only_guest_growth() -> TestResult {
+    const PAGE: usize = 65_536;
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"(module (import "host" "memory" (memory 1 2 shared))
+                   (func (export "grow") (result i32) i32.const 1 memory.grow))"#,
+    )?)?;
+    let memory = MemoryShared::try_new(MemoryType::new(MemoryArch::I32, 1, Some(2), None))?;
+    let quota = MemoryLedger::new();
+    let mut imports = Imports::new();
+    imports.define("host", "memory", memory.clone());
+    let mut store = Store::new(Engine::new(Config::new().with_resource_limiter(quota.clone())));
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    assert_eq!(quota.used(), 0);
+    assert_eq!(instance.func::<(), i32>(&store, "grow")?.call(&mut store, ())?, 1);
+    assert_eq!(quota.used(), PAGE);
+    drop(instance);
+    drop(store);
+    drop(imports);
+    assert_eq!(quota.used(), PAGE);
+    drop(memory);
+    assert_eq!(quota.used(), 0);
+    Ok(())
+}
+
+#[cfg(feature = "send")]
+#[test]
+fn stale_shared_growth_approval_is_refunded() -> TestResult {
+    const PAGE: usize = 65_536;
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"(module (import "host" "memory" (memory 1 2 shared))
+                   (func (export "grow") (result i32) i32.const 1 memory.grow))"#,
+    )?)?;
+    let memory = MemoryShared::try_new(MemoryType::new(MemoryArch::I32, 1, Some(2), None))?;
+    let mut imports = Imports::new();
+    imports.define("host", "memory", memory.clone());
+    let mut quota = MemoryLedger::new();
+    quota.approval_barrier = Some(Arc::new(std::sync::Barrier::new(2)));
+    let engine = Engine::new(Config::new().with_resource_limiter(quota.clone()));
+
+    let outcomes: Vec<_> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let module = module.clone();
+                let engine = engine.clone();
+                let imports = &imports;
+                scope.spawn(move || -> Result<i32, tinywasm::Error> {
+                    let mut store = Store::new(engine);
+                    let instance = ModuleInstance::instantiate(&mut store, &module, Some(imports))?;
+                    instance.func::<(), i32>(&store, "grow")?.call(&mut store, ())
+                })
+            })
+            .collect();
+        workers.into_iter().map(|worker| worker.join().unwrap()).collect()
+    });
+    let mut outcomes: Vec<_> = outcomes.into_iter().collect::<Result<_, _>>()?;
+    outcomes.sort_unstable();
+    assert_eq!(outcomes, [-1, 1]);
+    assert_eq!(quota.failed.load(Ordering::SeqCst), 1);
+    assert_eq!(quota.used(), PAGE);
+    drop(imports);
+    drop(memory);
+    assert_eq!(quota.used(), 0);
+    Ok(())
+}
 
 #[test]
 fn shared_memory_is_visible_across_stores() -> TestResult {

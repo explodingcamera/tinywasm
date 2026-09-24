@@ -48,6 +48,11 @@ pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 /// trap. Allowing a request does not guarantee that the backing allocation will succeed. Rejected
 /// growth uses the operation's normal failed-growth result. Rejected initial allocation and GC
 /// allocation produce [`Trap::OutOfMemory`].
+/// A limiter that reserves the `desired - current` memory bytes on approval can refund failed
+/// attempts through `memory_grow_failed` and live charges through `memory_dropped`. These are
+/// logical linear-memory bytes, not allocator capacity or total process memory. A shared memory
+/// retains its first charging limiter across store imports and releases its charge after the last
+/// handle drops; host-created shared memory starts uncharged.
 ///
 /// # Example
 /// ```rust
@@ -89,6 +94,20 @@ pub trait ResourceLimiter: Send + Sync {
     ) -> core::result::Result<bool, Trap> {
         Ok(true)
     }
+
+    /// Reverses a successful `memory_growing` approval when backing allocation fails, or when
+    /// concurrent growth of a shared memory makes the approved transition stale.
+    ///
+    /// `current` and `desired` are the same byte sizes passed to `memory_growing`. This is never
+    /// called for a rejection or a zero-size transition. A limiter that reserves `desired - current`
+    /// in `memory_growing` can refund that amount here.
+    fn memory_grow_failed(&self, _current: usize, _desired: usize) {}
+
+    /// Releases a memory's approved logical byte charges after its backing storage is freed.
+    ///
+    /// This can occur after the creating store is dropped when a shared-memory handle survives
+    /// it. Host-created shared memories are not initially charged to a store limiter.
+    fn memory_dropped(&self, _charged_bytes: usize) {}
 
     /// Checks a nonzero table allocation or growth request.
     ///
@@ -633,29 +652,45 @@ impl Store {
         init: impl Fn(MemoryType) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
         let mut addresses = Vec::with_capacity(memories.len());
+        let mut ordinary_count = self.state.memories.len();
+        #[cfg(feature = "std")]
+        let mut shared_count = self.state.shared_memories.len();
         for &ty in memories {
-            let instance = cold_err!(init(ty))?;
             if ty.shared() {
                 #[cfg(feature = "std")]
                 {
-                    let index = MemAddr::try_from(self.state.shared_memories.len())
+                    let index = MemAddr::try_from(shared_count)
                         .map_err(|_| Error::UnsupportedFeature("too many shared memories"))?;
                     if index >= SHARED_MEM_BIT - 1 {
                         return Err(Error::UnsupportedFeature("too many shared memories"));
                     }
-                    self.state.shared_memories.push(MemoryShared::from_instance(instance));
+                    shared_count += 1;
                     addresses.push(index | SHARED_MEM_BIT);
                 }
                 #[cfg(not(feature = "std"))]
                 unreachable!("shared memory instantiation requires std");
             } else {
-                let index = MemAddr::try_from(self.state.memories.len())
-                    .map_err(|_| Error::UnsupportedFeature("too many memories"))?;
+                let index =
+                    MemAddr::try_from(ordinary_count).map_err(|_| Error::UnsupportedFeature("too many memories"))?;
                 if index >= SHARED_MEM_BIT {
                     return Err(Error::UnsupportedFeature("too many memories"));
                 }
-                self.state.memories.push(instance);
+                ordinary_count += 1;
                 addresses.push(index);
+            }
+        }
+
+        // Keep new memories local until every allocation succeeds. A failed later memory must
+        // not leave an unreachable, charged earlier memory in a reusable store.
+        let pending = memories.iter().map(|&ty| cold_err!(init(ty))).collect::<Result<Vec<_>>>()?;
+        for instance in pending {
+            if instance.kind.shared() {
+                #[cfg(feature = "std")]
+                self.state.shared_memories.push(MemoryShared::from_instance(instance));
+                #[cfg(not(feature = "std"))]
+                unreachable!("shared memory instantiation requires std");
+            } else {
+                self.state.memories.push(instance);
             }
         }
         Ok(addresses.into_iter())
