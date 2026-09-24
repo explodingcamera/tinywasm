@@ -14,6 +14,7 @@ pub(crate) struct FunctionCode {
     pub instructions: Vec<Instruction>,
     pub data: WasmFunctionData,
     pub locals: ValueCounts,
+    pub max_stack: ValueCounts,
     pub uses_local_memory: bool,
 }
 
@@ -553,6 +554,7 @@ impl<'a> ModuleReader<'a> {
                     locals: code.locals,
                     params,
                     results,
+                    max_stack: code.max_stack,
                 }))
             })
             .collect::<Result<_>>()?;

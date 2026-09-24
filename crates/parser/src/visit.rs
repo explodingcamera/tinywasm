@@ -185,6 +185,7 @@ pub(crate) struct FunctionBuilder<'a> {
     control_stack: Vec<ControlFrame<'a>>,
     operand_stack: Vec<ValueLane>,
     lane_counts: ValueCounts,
+    max_lane_counts: ValueCounts,
     metadata: &'a ModuleMetadata,
     local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
@@ -223,6 +224,7 @@ impl<'a> FunctionBuilder<'a> {
             }],
             operand_stack: Vec::new(),
             lane_counts: ValueCounts::default(),
+            max_lane_counts: ValueCounts::default(),
             uses_local_memory: false,
         }
     }
@@ -436,7 +438,7 @@ pub(crate) fn process_operators(
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
     options: &ParserOptions,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, OperatorsReaderAllocations)> {
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, ValueCounts, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -459,7 +461,7 @@ pub(crate) fn process_operators(
 
     reader.finish()?;
     let instructions = builder.emitter.finish(&mut builder.data)?;
-    Ok((instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
+    Ok((instructions, builder.data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
@@ -471,7 +473,14 @@ pub(crate) fn process_operators_and_validate(
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
     options: &ParserOptions,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+) -> Result<(
+    Vec<Instruction>,
+    FunctionDataBuilder,
+    bool,
+    ValueCounts,
+    FuncValidatorAllocations,
+    OperatorsReaderAllocations,
+)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -494,7 +503,14 @@ pub(crate) fn process_operators_and_validate(
 
     reader.finish()?;
     let instructions = builder.emitter.finish(&mut builder.data)?;
-    Ok((instructions, builder.data, builder.uses_local_memory, validator.into_allocations(), reader.into_allocations()))
+    Ok((
+        instructions,
+        builder.data,
+        builder.uses_local_memory,
+        builder.max_lane_counts,
+        validator.into_allocations(),
+        reader.into_allocations(),
+    ))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
@@ -1432,17 +1448,19 @@ impl<'a> FunctionBuilder<'a> {
         Ok((size, addr))
     }
 
-    /// Pushes logical operands while maintaining the lane counts used by `DropKeep`.
+    /// Pushes logical operands while maintaining the lane counts used by `DropKeep` and their
+    /// maximum, which the runtime reserves when it enters the function.
     fn push_sizes(&mut self, sizes: &[ValueLane]) -> Result<()> {
         for &size in sizes {
-            let count = match size {
-                ValueLane::S32 => &mut self.lane_counts.c32,
-                ValueLane::S64 => &mut self.lane_counts.c64,
-                ValueLane::S128 => &mut self.lane_counts.c128,
+            let (count, max) = match size {
+                ValueLane::S32 => (&mut self.lane_counts.c32, &mut self.max_lane_counts.c32),
+                ValueLane::S64 => (&mut self.lane_counts.c64, &mut self.max_lane_counts.c64),
+                ValueLane::S128 => (&mut self.lane_counts.c128, &mut self.max_lane_counts.c128),
             };
             *count = count
                 .checked_add(1)
                 .ok_or_else(|| crate::ParseError::Other("logical operand lane count is too large".into()))?;
+            *max = (*max).max(*count);
             self.operand_stack.push(size);
         }
         Ok(())

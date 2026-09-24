@@ -157,16 +157,14 @@ impl Function {
             let host = store.state.funcs.host(self.addr()).func.clone();
             host.call_values(store, self.module_id, type_addr, params, results)
         } else {
-            let (wasm_params, wasm_locals) = {
+            let (wasm_params, wasm_locals, wasm_max_stack) = {
                 let wasm = store.state.funcs.wasm(self.addr());
-                let wasm_params = wasm.func.params;
-                let wasm_locals = wasm.func.locals;
-                (wasm_params, wasm_locals)
+                (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
             };
             store.push_wasm_values(params).inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
             let locals_base = store
                 .value_stack
-                .enter_locals(&wasm_params, &wasm_locals)
+                .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
                 .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
             let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
             InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {
@@ -213,14 +211,14 @@ impl Function {
             };
         }
 
-        let (type_addr, wasm_params, wasm_locals) = {
+        let (type_addr, wasm_params, wasm_locals, wasm_max_stack) = {
             let wasm = store.state.funcs.wasm(self.addr());
-            (wasm.type_addr, wasm.func.params, wasm.func.locals)
+            (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
         };
         store.push_typed_values::<false>(type_addr, params, value_stack_base)?;
         let locals_base = store
             .value_stack
-            .enter_locals(&wasm_params, &wasm_locals)
+            .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
             .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
         let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
         InterpreterRuntime::exec(store, callframe, call_stack_base).inspect_err(|_| {

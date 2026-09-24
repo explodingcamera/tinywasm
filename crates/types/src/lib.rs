@@ -495,6 +495,8 @@ pub struct WasmFunction {
     pub locals: ValueCounts,
     pub params: ValueCounts,
     pub results: ValueCounts,
+    /// The highest operand stack the body reaches in each lane, on top of its locals.
+    pub max_stack: ValueCounts,
 }
 
 #[derive(Clone, PartialEq, Eq, Default)]
