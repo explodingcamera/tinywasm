@@ -617,7 +617,7 @@ impl<'store> Executor<'store> {
                     let Store { state, value_stack, .. } = self.store;
                     let object = state.gc.get(exception).ok_or(Trap::InvalidReference)?;
                     for value in object.values.iter().copied() {
-                        value_stack.push_dyn(value)?;
+                        value_stack.push_reserved(value)?;
                     }
                 }
                 if with_ref {
@@ -703,9 +703,8 @@ impl<'store> Executor<'store> {
 
     fn exec_call_self(&mut self, return_instr_ptr: usize) -> ExecResult<()> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
-        let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
-            return cold!(Err(Trap::CallStackOverflow.into()));
-        };
+        let locals_base =
+            self.store.value_stack.enter_locals(&self.func.params, &self.func.locals, &self.func.max_stack)?;
         let new = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
         self.store.call_stack.push(core::mem::replace(&mut self.cf, new), return_instr_ptr)?;
         Ok(())
@@ -715,9 +714,8 @@ impl<'store> Executor<'store> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
 
         self.store.value_stack.truncate_keep_counts(self.cf.locals_base, self.func.params);
-        let Ok(locals_base) = self.store.value_stack.enter_locals(&self.func.params, &self.func.locals) else {
-            return cold!(Err(Trap::CallStackOverflow.into()));
-        };
+        let locals_base =
+            self.store.value_stack.enter_locals(&self.func.params, &self.func.locals, &self.func.max_stack)?;
         self.cf = CallFrame::new(self.cf.func_addr, locals_base, self.func.locals);
         Ok(())
     }
@@ -778,14 +776,14 @@ impl<'store> Executor<'store> {
         return_instr_ptr: usize,
     ) -> ExecResult<ExecFlow> {
         let wasm_func = self.store.state.funcs.wasm(func_addr);
-        let (params, locals, owner, next_func) = {
+        let (params, locals, max_stack, owner, next_func) = {
             let next_func = (!Shared::ptr_eq(&self.func, &wasm_func.func)).then(|| wasm_func.func.clone());
-            (wasm_func.func.params, wasm_func.func.locals, wasm_func.owner, next_func)
+            (wasm_func.func.params, wasm_func.func.locals, wasm_func.func.max_stack, wasm_func.owner, next_func)
         };
         if TAIL {
             self.store.value_stack.truncate_keep_counts(self.cf.locals_base, params);
         }
-        let locals_base = self.store.value_stack.enter_locals(&params, &locals)?;
+        let locals_base = self.store.value_stack.enter_locals(&params, &locals, &max_stack)?;
         if TAIL {
             self.cf = CallFrame::new(func_addr, locals_base, locals);
         } else {

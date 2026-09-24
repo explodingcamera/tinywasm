@@ -198,34 +198,35 @@ pub(crate) fn convert_module_code(
     }
 
     #[cfg(feature = "validate")]
-    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = match validator {
+    let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) = match validator {
         Some(validator) => {
-            let (body, data, uses_local_memory, validator_allocs, reader_allocs) = process_operators_and_validate(
-                validator,
-                func,
-                (local_types, local_addr_map),
-                metadata,
-                context,
-                reader_allocs,
-                options,
-            )?;
-            (body, data, uses_local_memory, Some(validator_allocs), reader_allocs)
+            let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) =
+                process_operators_and_validate(
+                    validator,
+                    func,
+                    (local_types, local_addr_map),
+                    metadata,
+                    context,
+                    reader_allocs,
+                    options,
+                )?;
+            (body, data, uses_local_memory, max_stack, Some(validator_allocs), reader_allocs)
         }
         None => {
-            let (body, data, uses_local_memory, reader_allocs) =
+            let (body, data, uses_local_memory, max_stack, reader_allocs) =
                 process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
-            (body, data, uses_local_memory, None, reader_allocs)
+            (body, data, uses_local_memory, max_stack, None, reader_allocs)
         }
     };
     #[cfg(not(feature = "validate"))]
-    let (body, data, uses_local_memory, validator_allocs, reader_allocs) = {
+    let (body, data, uses_local_memory, max_stack, validator_allocs, reader_allocs) = {
         let _ = validator;
-        let (body, data, uses_local_memory, reader_allocs) =
+        let (body, data, uses_local_memory, max_stack, reader_allocs) =
             process_operators(func, (local_types, local_addr_map), metadata, context, reader_allocs, options)?;
-        (body, data, uses_local_memory, None, reader_allocs)
+        (body, data, uses_local_memory, max_stack, None, reader_allocs)
     };
     Ok((
-        FunctionCode { instructions: body, data: data.finish(), locals: local_counts, uses_local_memory },
+        FunctionCode { instructions: body, data: data.finish(), locals: local_counts, max_stack, uses_local_memory },
         validator_allocs,
         reader_allocs,
     ))

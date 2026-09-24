@@ -67,7 +67,7 @@ mod tests {
     use crate::Operand128Idx;
     use crate::{
         AbstractHeapType, ConstInstruction, Global, GlobalType, Instruction, ModuleFuncIdx, ModuleInner, Operand128,
-        RefType, Shared, WasmFunction, WasmType,
+        RefType, Shared, ValueCounts, WasmFunction, WasmType,
     };
     use alloc::boxed::Box;
 
@@ -91,6 +91,7 @@ mod tests {
     fn v128_operands_round_trip_archive() {
         let bytes = [0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xfe, 0xff, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x90];
         let mut function = WasmFunction::default();
+        function.max_stack = ValueCounts { c32: 2, c64: 3, c128: 4 };
         let constant = Operand128Idx::new(0);
         function.data.operands128 = Box::new([Operand128::<[u8; 16]>::new(bytes).cast()]);
         function.instructions = Box::new([Instruction::Const128(constant), Instruction::I8x16Shuffle(constant)]);
@@ -100,6 +101,7 @@ mod tests {
         assert_eq!(&archive[..6], b"TWAS06");
         let decoded = Module::try_from_twasm(&archive).expect("deserialize archive");
         let function = &decoded.funcs[0];
+        assert!(function.max_stack == ValueCounts { c32: 2, c64: 3, c128: 4 });
 
         for instruction in function.instructions.iter() {
             let index = match instruction {

@@ -44,10 +44,22 @@ impl<T: Copy + Default> Stack<T> {
         self.data.len()
     }
 
+    /// Pushes a value inside a function body. `enter_locals` reserved the function's whole operand
+    /// stack, so a full stack here is the limit and there is nothing to grow. After this check
+    /// `Vec::push` cannot reach its own growth path, so the instruction handlers make no calls.
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
-        // At capacity, grow (or trap) out of line. After this check `Vec::push` cannot reach its
-        // own growth path, so the allocator call stays out of the instruction handlers.
+        if self.data.len() == self.data.capacity() {
+            return cold!(Err(Trap::ValueStackOverflow));
+        }
+        self.data.push(value);
+        Ok(())
+    }
+
+    /// Pushes a value outside a function body (host arguments and results), which no reservation
+    /// covers, so a dynamic stack grows here if needed.
+    #[inline(always)]
+    pub(crate) fn push_or_grow(&mut self, value: T) -> Result<(), Trap> {
         if self.data.len() == self.data.capacity() {
             return self.push_grow(value);
         }
@@ -131,22 +143,31 @@ impl<T: Copy + Default> Stack<T> {
         self.data.push(last);
     }
 
+    /// Enters a function: turns its parameters into the first locals, zeroes the rest, and reserves
+    /// room for its operand stack (`max_stack` values above the locals), so [`Self::push`] never
+    /// has to grow the stack while the function runs.
     #[inline]
-    pub(crate) fn enter_locals(&mut self, param_count: usize, local_count: usize) -> Result<u32, Trap> {
+    pub(crate) fn enter_locals(
+        &mut self,
+        param_count: usize,
+        local_count: usize,
+        max_stack: usize,
+    ) -> Result<u32, Trap> {
         debug_assert!(param_count <= local_count);
         debug_assert!(param_count <= self.data.len());
 
         let len = self.data.len();
         let start = len - param_count;
         let end = start + local_count;
+        let reserve = end + max_stack;
 
-        if end > self.data.capacity() {
+        if reserve > self.data.capacity() {
             core::hint::cold_path();
-            if end > self.max_size || !self.dynamic {
+            if reserve > self.max_size || !self.dynamic {
                 return Err(Trap::ValueStackOverflow);
             }
             let cap = self.data.capacity();
-            let target = end.max(cap.max(1).saturating_mul(2)).min(self.max_size);
+            let target = reserve.max(cap.max(1).saturating_mul(2)).min(self.max_size);
             if self.data.try_reserve(target - len).is_err() {
                 return Err(Trap::ValueStackOverflow);
             }
@@ -247,10 +268,18 @@ impl ValueStack {
     }
 
     #[inline(always)]
-    pub(crate) fn enter_locals(&mut self, params: &ValueCounts, locals: &ValueCounts) -> Result<StackBase, Trap> {
-        let locals_base32 = self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize)?;
-        let locals_base64 = self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize)?;
-        let locals_base128 = self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize)?;
+    pub(crate) fn enter_locals(
+        &mut self,
+        params: &ValueCounts,
+        locals: &ValueCounts,
+        max_stack: &ValueCounts,
+    ) -> Result<StackBase, Trap> {
+        let locals_base32 =
+            self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize, max_stack.c32 as usize)?;
+        let locals_base64 =
+            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize, max_stack.c64 as usize)?;
+        let locals_base128 =
+            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize, max_stack.c128 as usize)?;
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 
@@ -268,12 +297,23 @@ impl ValueStack {
         self.stack_128.truncate_to(base.s128 as usize);
     }
 
+    /// Pushes a dynamically typed value inside a function body using its entry reservation.
+    pub(crate) fn push_reserved(&mut self, value: RuntimeValue) -> Result<(), Trap> {
+        match value {
+            RuntimeValue::Value32(value) => self.stack_32.push(value),
+            RuntimeValue::Value64(value) => self.stack_64.push(value),
+            RuntimeValue::Value128(value) => self.stack_128.push(value),
+            RuntimeValue::ValueRef(value) => self.stack_32.push(value.raw()),
+        }
+    }
+
+    /// Pushes a value from outside a function body's reservation; see [`Stack::push_or_grow`].
     pub(crate) fn push_dyn(&mut self, value: RuntimeValue) -> Result<(), Trap> {
         match value {
-            RuntimeValue::Value32(value) => Value32::stack_push(self, value),
-            RuntimeValue::Value64(value) => Value64::stack_push(self, value),
-            RuntimeValue::Value128(value) => Value128::stack_push(self, value),
-            RuntimeValue::ValueRef(value) => ValueRef::stack_push(self, value),
+            RuntimeValue::Value32(value) => self.stack_32.push_or_grow(value),
+            RuntimeValue::Value64(value) => self.stack_64.push_or_grow(value),
+            RuntimeValue::Value128(value) => self.stack_128.push_or_grow(value),
+            RuntimeValue::ValueRef(value) => self.stack_32.push_or_grow(value.raw()),
         }
     }
 }
