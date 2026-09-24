@@ -16,36 +16,38 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable)"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly)"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls)"
             args: "--features tinywasm/nightly-tail-calls"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable, no default features)"
             args: "--no-default-features"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly, no default features)"
             args: "--no-default-features"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls, no default features)"
             args: "--no-default-features --features tinywasm/nightly-tail-calls"
-          - os: macos-14
+          - os: macos-26
             rust: stable
             name: "macOS arm64 (Apple M1)"
-          - os: ubuntu-latest
+          - os: windows-2025
+            rust: stable
+            name: "Windows x86_64"
+          - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux arm64"
-            target: aarch64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux armv7"
             target: armv7-unknown-linux-gnueabihf
@@ -75,10 +77,21 @@ jobs:
         run: cargo clippy --workspace ${{ matrix.args }}
         if: matrix.target == ''
 
-      - name: Run tests (${{ matrix.target }})
-        uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1.0.8
+      - name: Install armv7 tools
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf qemu-user
+        if: matrix.target != ''
+
+      - name: Install Rust toolchain (${{ matrix.target }})
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
-          command: test
-          target: ${{ matrix.target }}
           toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+          rustflags: ""
+        if: matrix.target != ''
+
+      - name: Run tests (${{ matrix.target }})
+        run: cargo test --workspace --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
         if: matrix.target != ''
