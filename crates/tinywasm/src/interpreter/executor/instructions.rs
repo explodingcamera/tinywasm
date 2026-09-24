@@ -324,6 +324,7 @@ macro_rules! instruction_handlers {
             MemorySize(addr) => executor.exec_memory_size(*addr)?,
             MemoryGrow(addr) => executor.exec_memory_grow(*addr)?,
             Atomic(arg) => executor.exec_atomic(*arg)?,
+            AtomicWait(memory, op) => executor.exec_atomic_wait(*memory, *op)?,
             AtomicFence => crate::shared::fence(crate::shared::Ordering::SeqCst),
 
             // Bulk memory operations

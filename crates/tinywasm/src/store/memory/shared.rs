@@ -1,5 +1,10 @@
-use crate::std::sync::{Mutex, MutexGuard};
-use alloc::{sync::Arc, vec::Vec};
+use crate::std::sync::{Condvar, Mutex, MutexGuard};
+use crate::std::time::Duration;
+use alloc::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+    vec::Vec,
+};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::MemoryType;
 
@@ -15,6 +20,13 @@ struct MemorySharedInstance {
     kind: MemoryType,
     pages: AtomicUsize,
     bytes: Mutex<MemoryStorage>,
+    // Lock order: bytes, waiters, then an individual waiter's notified flag.
+    waiters: Mutex<BTreeMap<usize, VecDeque<Arc<Waiter>>>>,
+}
+
+struct Waiter {
+    notified: Mutex<bool>,
+    wake: Condvar,
 }
 
 #[cfg(feature = "debug")]
@@ -35,7 +47,7 @@ impl MemoryShared {
         let kind = instance.kind;
         let pages = AtomicUsize::new(instance.page_count);
         let bytes = Mutex::new(instance.inner);
-        Self(Arc::new(MemorySharedInstance { kind, pages, bytes }))
+        Self(Arc::new(MemorySharedInstance { kind, pages, bytes, waiters: Mutex::new(BTreeMap::new()) }))
     }
 
     /// Whether two handles reference the same instance, even across store slots.
@@ -113,6 +125,76 @@ impl MemoryShared {
     pub fn fill(&self, offset: usize, len: usize, val: u8) -> Result<()> {
         let mut guard = self.lock();
         guard.inner.fill(offset, len, val).ok_or_else(|| memory_oob(offset, len, guard.inner.len()).into())
+    }
+
+    /// Waits until notified or the signed nanosecond timeout expires.
+    pub(crate) fn wait<const N: usize>(
+        &self,
+        addr: usize,
+        expected: u64,
+        timeout: i64,
+    ) -> core::result::Result<u32, Trap> {
+        let guard = self.lock();
+        let bytes = guard.inner.read_fixed::<N>(addr)?;
+        let mut value = [0u8; 8];
+        value[..N].copy_from_slice(&bytes);
+        if u64::from_le_bytes(value) != expected {
+            return Ok(1);
+        }
+        if timeout == 0 {
+            return Ok(2);
+        }
+        let waiter = Arc::new(Waiter { notified: Mutex::new(false), wake: Condvar::new() });
+        self.0
+            .waiters
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .entry(addr)
+            .or_default()
+            .push_back(waiter.clone());
+        drop(guard);
+
+        let notified = waiter.notified.lock().unwrap_or_else(|poison| poison.into_inner());
+        if timeout < 0 {
+            drop(waiter.wake.wait_while(notified, |ready| !*ready).unwrap_or_else(|poison| poison.into_inner()));
+        } else {
+            drop(
+                waiter
+                    .wake
+                    .wait_timeout_while(notified, Duration::from_nanos(timeout as u64), |ready| !*ready)
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .0,
+            );
+        }
+        // The condvar guard was dropped before taking waiters, preserving lock order.
+        let mut waiters = self.0.waiters.lock().unwrap_or_else(|poison| poison.into_inner());
+        let notified = *waiter.notified.lock().unwrap_or_else(|poison| poison.into_inner());
+        if let Some(queue) = waiters.get_mut(&addr) {
+            queue.retain(|entry| !Arc::ptr_eq(entry, &waiter));
+            if queue.is_empty() {
+                waiters.remove(&addr);
+            }
+        }
+        Ok(if notified { 0 } else { 2 })
+    }
+
+    /// Wakes at most `count` waiters at the given byte address.
+    pub(crate) fn notify(&self, addr: usize, count: u32) -> u32 {
+        let _guard = self.lock();
+        let mut waiters = self.0.waiters.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut woken = 0;
+        if let Some(queue) = waiters.get_mut(&addr) {
+            while woken < count {
+                let Some(waiter) = queue.pop_front() else { break };
+                *waiter.notified.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+                waiter.wake.notify_one();
+                woken += 1;
+            }
+            if queue.is_empty() {
+                waiters.remove(&addr);
+            }
+        }
+        woken
     }
 
     /// Grows the memory by the given number of pages, returning its previous size.

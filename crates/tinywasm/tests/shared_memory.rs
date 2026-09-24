@@ -133,6 +133,90 @@ fn atomic_rmw_is_indivisible_across_stores() -> TestResult {
 }
 
 #[test]
+fn wait_notify_across_stores() -> TestResult {
+    let wasm = wat::parse_str(
+        r#"(module
+            (import "host" "memory" (memory 1 1 shared))
+            (func (export "wait32") (param i32 i32 i64) (result i32)
+                local.get 0 local.get 1 local.get 2 memory.atomic.wait32)
+            (func (export "wait64") (param i32 i64 i64) (result i32)
+                local.get 0 local.get 1 local.get 2 memory.atomic.wait64)
+            (func (export "notify") (param i32 i32) (result i32)
+                local.get 0 local.get 1 memory.atomic.notify))"#,
+    )?;
+    let memory = MemoryShared::try_new(MemoryType::new(MemoryArch::I32, 1, Some(1), None))?;
+    std::thread::scope(|scope| -> TestResult {
+        let mut workers = Vec::new();
+        for (address, width) in [(0, 4), (0, 4), (8, 8)] {
+            let worker_memory = memory.clone();
+            let wasm = &wasm;
+            workers.push(scope.spawn(move || -> tinywasm::Result<i32> {
+                let module = tinywasm::parse_bytes(wasm)?;
+                let mut imports = Imports::new();
+                imports.define("host", "memory", worker_memory);
+                let mut store = Store::default();
+                let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+                if width == 4 {
+                    instance
+                        .func::<(i32, i32, i64), i32>(&store, "wait32")?
+                        .call(&mut store, (address, 0, 10_000_000_000))
+                } else {
+                    instance
+                        .func::<(i32, i64, i64), i32>(&store, "wait64")?
+                        .call(&mut store, (address, 0, 10_000_000_000))
+                }
+            }));
+        }
+        let module = tinywasm::parse_bytes(&wasm)?;
+        let mut imports = Imports::new();
+        imports.define("host", "memory", memory.clone());
+        let mut store = Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+        let notify = instance.func::<(i32, i32), i32>(&store, "notify")?;
+        for address in [8, 0, 0] {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                if notify.call(&mut store, (address, 1))? == 1 {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "waiter did not register");
+                std::thread::yield_now();
+            }
+        }
+        for worker in workers {
+            assert_eq!(worker.join().unwrap()?, 0);
+        }
+        assert_eq!(notify.call(&mut store, (0, 1))?, 0);
+        assert_eq!(notify.call(&mut store, (8, 1))?, 0);
+        Ok(())
+    })
+}
+
+#[test]
+fn wait_checks_values_timeouts_and_addresses() -> TestResult {
+    let module = tinywasm::parse_bytes(&wat::parse_str(
+        r#"(module
+            (memory 1 1 shared)
+            (func (export "wait") (param i32 i64 i64) (result i32)
+                local.get 0 local.get 1 local.get 2 memory.atomic.wait64)
+            (func (export "notify") (param i32 i32) (result i32)
+                local.get 0 local.get 1 memory.atomic.notify))"#,
+    )?)?;
+    let mut store = Store::default();
+    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+    let wait = instance.func::<(i32, i64, i64), i32>(&store, "wait")?;
+    assert_eq!(wait.call(&mut store, (0, 1, -1))?, 1);
+    assert_eq!(wait.call(&mut store, (0, 0, 0))?, 2);
+    assert_eq!(wait.call(&mut store, (0, 0, 1_000_000))?, 2);
+    assert!(wait.call(&mut store, (1, 0, 0)).is_err());
+    assert!(wait.call(&mut store, (65536, 0, 0)).is_err());
+    let notify = instance.func::<(i32, i32), i32>(&store, "notify")?;
+    assert_eq!(notify.call(&mut store, (0, 1))?, 0);
+    assert!(notify.call(&mut store, (65536, 1)).is_err());
+    Ok(())
+}
+
+#[test]
 fn defined_shared_memory_supports_data_and_bulk_access() -> TestResult {
     let wasm = wat::parse_str(
         r#"

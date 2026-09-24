@@ -11,9 +11,9 @@ use alloc::{
     vec::Vec,
 };
 use tinywasm_types::{
-    AtomicArg, AtomicOp, AtomicWidth, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind,
-    Instruction, MemoryType, Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType,
-    TypeSection, ValueCounts, ValueLane, WasmFunctionData,
+    AtomicArg, AtomicOp, AtomicWaitOp, AtomicWidth, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import,
+    ImportKind, Instruction, MemoryType, Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType,
+    TableDefinition, TagType, TypeSection, ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -229,6 +229,21 @@ impl<'a> FunctionBuilder<'a> {
 
     fn mark_memory(&mut self, memory: u32) {
         self.uses_local_memory |= memory >= self.metadata.imported_memories;
+    }
+
+    fn atomic_wait(&mut self, memarg: wasmparser::MemArg, width: u8, op: AtomicWaitOp) -> Result<()> {
+        if memarg.align != width.trailing_zeros() as u8 {
+            return Err(crate::ParseError::Other("invalid atomic alignment".into()));
+        }
+        let address = self.metadata.memory_size(memarg.memory)?;
+        self.mark_memory(memarg.memory);
+        let memory = self.push128(Operand128::<tinywasm_types::MemoryOperand>::new(memarg.offset, memarg.memory))?;
+        let inputs: &[ValueLane] = match op {
+            AtomicWaitOp::Notify => &[address, ValueLane::S32],
+            AtomicWaitOp::Wait32 => &[address, ValueLane::S32, ValueLane::S64],
+            AtomicWaitOp::Wait64 => &[address, ValueLane::S64, ValueLane::S64],
+        };
+        self.emit(inputs, &[ValueLane::S32], Instruction::AtomicWait(memory, op))
     }
 
     fn visit_struct_get_impl(
@@ -539,14 +554,14 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.emit(&[], &[], Instruction::AtomicFence)
     }
 
-    fn visit_memory_atomic_notify(&mut self, _: wasmparser::MemArg) -> Self::Output {
-        Err(crate::ParseError::UnsupportedOperator("memory.atomic.notify".into()))
+    fn visit_memory_atomic_notify(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 4, AtomicWaitOp::Notify)
     }
-    fn visit_memory_atomic_wait32(&mut self, _: wasmparser::MemArg) -> Self::Output {
-        Err(crate::ParseError::UnsupportedOperator("memory.atomic.wait32".into()))
+    fn visit_memory_atomic_wait32(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 4, AtomicWaitOp::Wait32)
     }
-    fn visit_memory_atomic_wait64(&mut self, _: wasmparser::MemArg) -> Self::Output {
-        Err(crate::ParseError::UnsupportedOperator("memory.atomic.wait64".into()))
+    fn visit_memory_atomic_wait64(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 8, AtomicWaitOp::Wait64)
     }
 
     atomic_visitors! {

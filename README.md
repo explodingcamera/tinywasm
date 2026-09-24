@@ -46,7 +46,7 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 ## Cargo Features
 
 - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.
-- **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
+- **`std`:** Enables parsing from files and streams, shared memory handles, and blocking atomic wait/notify across stores. Enabled by default.
 - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through [`ParserOptions`](https://docs.rs/tinywasm/latest/tinywasm/parser/struct.ParserOptions.html).
 - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
@@ -104,8 +104,8 @@ TinyWasm generally implements non-JavaScript core proposals at [phase 4](https:/
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | 0.11.0             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | 0.11.0             |
 | [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | 0.11.0             |
+| [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🚧     | next               |
 | [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
-| [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🌑     | -                  |
 
 **Legend**\
 🌑 -- not available\

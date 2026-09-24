@@ -561,10 +561,7 @@ impl<'store> Executor<'store> {
     fn throw_exception(&mut self, exception: ValueRef, protected_ip: usize) -> ExecResult<ExecFlow> {
         match self.dispatch_exception(exception, protected_ip)? {
             Some(landing_pad) => Ok(ExecFlow::next(landing_pad)),
-            None => match self.store.root_exception(exception) {
-                Ok(exception) => Err(Error::Exception(exception).into()),
-                Err(error) => Err(error.into()),
-            },
+            None => Err(Error::Exception(self.store.root_exception(exception)?).into()),
         }
     }
 
@@ -734,6 +731,7 @@ impl<'store> Executor<'store> {
         let type_addr = operand.a();
         let table_addr = operand.b();
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+
         // verify that the table is of the right type, this should be validated by the parser already
         let table_addr = self.module.resolve_table_addr(table_addr);
         let table_idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
@@ -1100,14 +1098,13 @@ impl<'store> Executor<'store> {
         let type_index = operand.a();
         let len = operand.b();
         let type_addr = self.module.resolve_type_addr(type_index);
-        let storage =
-            self.store.state.get_type(type_addr).as_array().expect("validated array.new_fixed type").field.storage;
+        let arr_type = self.store.state.get_type(type_addr).as_array().expect("validated array.new_fixed type");
         let len = len as usize;
         self.store.state.gc.check_allocation(len, self.store.state.gc_type_has_references(type_addr))?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         for _ in 0..len {
-            values.push(pop_value(&mut self.store.value_stack, storage));
+            values.push(pop_value(&mut self.store.value_stack, arr_type.field.storage));
         }
         values.reverse();
         self.push_gc_object(type_addr, values)
@@ -1257,8 +1254,8 @@ impl<'store> Executor<'store> {
         let object = self.store.state.gc_object(reference, type_addr)?;
         let object_len = self.store.state.gc.get_handle(object).expect("validated array").values.len();
         dst.checked_add(len).filter(|end| *end <= object_len).ok_or(Trap::ArrayOutOfBounds)?;
-        let items =
-            self.store.state.elements[self.module.resolve_elem_addr(elem_index) as usize].items_range(src, len)?;
+        let elem_addr = self.module.resolve_elem_addr(elem_index);
+        let items = self.store.state.elements[elem_addr as usize].items_range(src, len)?;
         let mut values = Vec::new();
         cold_err!(values.try_reserve_exact(len)).map_err(|_| Trap::OutOfMemory)?;
         values.extend(items.iter().copied().map(RuntimeValue::ValueRef));
@@ -1267,11 +1264,9 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_memory_size(&mut self, addr: u32) -> Result<(), Trap> {
-        let mem_addr = self.mem_addr(addr);
-        let (arch, pages) = self.store.state.memory_size(mem_addr);
-        match arch {
-            MemoryArch::I64 => i64::stack_push(&mut self.store.value_stack, pages as i64),
-            MemoryArch::I32 => i32::stack_push(&mut self.store.value_stack, pages as i32),
+        match self.store.state.memory_size(self.mem_addr(addr)) {
+            (MemoryArch::I64, pages) => i64::stack_push(&mut self.store.value_stack, pages as i64),
+            (MemoryArch::I32, pages) => i32::stack_push(&mut self.store.value_stack, pages as i32),
         }
     }
 
@@ -1441,24 +1436,65 @@ impl<'store> Executor<'store> {
         }
     }
 
+    fn exec_atomic_wait(&mut self, arg: Operand128Idx<MemoryOperand>, op: AtomicWaitOp) -> Result<(), Trap> {
+        let timeout = if op == AtomicWaitOp::Notify { 0 } else { i64::stack_pop(&mut self.store.value_stack) };
+        let value = match op {
+            AtomicWaitOp::Wait64 => u64::stack_pop(&mut self.store.value_stack),
+            _ => u32::stack_pop(&mut self.store.value_stack) as u64,
+        };
+        let memory = arg.resolve(&self.func.data);
+        let mem_addr = self.mem_addr(memory.memory());
+        let width = if op == AtomicWaitOp::Wait64 { 8 } else { 4 };
+        let addr = crate::store::with_memory!(self.store.state, mem_addr, |mem, kind| {
+            let base = self.store.value_stack.pop_memory_operand(kind.arch())?;
+            let addr = cold_err!(mem.effective_addr::<1>(base, memory.offset()))?;
+            if addr % width != 0 {
+                return cold!(Err(Trap::UnalignedAtomic));
+            }
+
+            if op != AtomicWaitOp::Notify && !kind.shared() {
+                return cold!(Err(Trap::Other("atomic wait requires shared memory")));
+            }
+
+            // Check the entire access even for notify and even when no waiter exists.
+            if mem.checked_range(addr, width).is_none() {
+                return cold!(Err(Trap::MemoryOutOfBounds { offset: addr, len: width, max: mem.len() }));
+            }
+
+            Ok(addr)
+        })?;
+
+        #[cfg(not(feature = "std"))]
+        let _ = (timeout, value, addr);
+
+        #[cfg(feature = "std")]
+        if mem_addr & crate::store::SHARED_MEM_BIT != 0 {
+            let shared = &self.store.state.shared_memories[(mem_addr & !crate::store::SHARED_MEM_BIT) as usize];
+            let result = match op {
+                AtomicWaitOp::Notify => shared.notify(addr, value as u32),
+                AtomicWaitOp::Wait32 => shared.wait::<4>(addr, value, timeout)?,
+                AtomicWaitOp::Wait64 => shared.wait::<8>(addr, value, timeout)?,
+            };
+            return u32::stack_push(&mut self.store.value_stack, result);
+        }
+
+        u32::stack_push(&mut self.store.value_stack, 0)
+    }
+
     fn exec_atomic_width<const N: usize>(&mut self, arg: AtomicArg) -> Result<(), Trap> {
         let op = arg.op();
-        let value = if op == AtomicOp::Load {
-            0
-        } else if arg.is_64() {
-            u64::stack_pop(&mut self.store.value_stack)
-        } else {
-            u32::stack_pop(&mut self.store.value_stack) as u64
+        let value = match op {
+            AtomicOp::Load => 0,
+            _ if arg.is_64() => u64::stack_pop(&mut self.store.value_stack),
+            _ => u32::stack_pop(&mut self.store.value_stack) as u64,
         };
-        let expected = if op == AtomicOp::Cmpxchg {
-            if arg.is_64() {
-                u64::stack_pop(&mut self.store.value_stack)
-            } else {
-                u32::stack_pop(&mut self.store.value_stack) as u64
-            }
-        } else {
-            0
+
+        let expected = match op {
+            AtomicOp::Cmpxchg if arg.is_64() => u64::stack_pop(&mut self.store.value_stack),
+            AtomicOp::Cmpxchg => u32::stack_pop(&mut self.store.value_stack) as u64,
+            _ => 0,
         };
+
         let memory = arg.memory.resolve(&self.func.data);
         let mem_addr = self.mem_addr(memory.memory());
         crate::store::with_memory!(self.store.state, mem_addr, |mem, kind| {
@@ -1493,10 +1529,10 @@ impl<'store> Executor<'store> {
                 bytes.copy_from_slice(&next.to_le_bytes()[..N]);
                 cold_err!(mem.write_fixed::<N>(addr, &bytes))?;
             }
-            if arg.is_64() {
-                u64::stack_push(&mut self.store.value_stack, old)?;
-            } else {
-                u32::stack_push(&mut self.store.value_stack, old as u32)?;
+
+            match arg.is_64() {
+                true => u64::stack_push(&mut self.store.value_stack, old)?,
+                false => u32::stack_push(&mut self.store.value_stack, old as u32)?,
             }
             Ok(())
         })
@@ -1580,19 +1616,16 @@ impl<'store> Executor<'store> {
 
     fn exec_table_init(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
         let operand = index.resolve(&self.func.data);
-        let elem_index = operand.a();
-        let table_index = operand.b();
         let size = self.pop_table_operand(MemoryArch::I32)?; // n
         let offset = self.pop_table_operand(MemoryArch::I32)?; // s
-        let table_addr = self.module.resolve_table_addr(table_index);
+        let table_addr = self.module.resolve_table_addr(operand.b());
         let dst = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?; // d
-        let elem_addr = self.module.resolve_elem_addr(elem_index) as usize;
+        let elem_addr = self.module.resolve_elem_addr(operand.a()) as usize;
         let elem = self.store.state.elements.get(elem_addr).ok_or_else(|| Trap::Other("element not found"))?;
         let items = elem.items_range(offset, size)?;
 
-        let table =
-            self.store.state.tables.get_mut(table_addr as usize).ok_or_else(|| Trap::Other("table not found"))?;
-        table.init(dst, items)
+        let table = self.store.state.tables.get_mut(table_addr as usize);
+        table.ok_or_else(|| Trap::Other("table not found"))?.init(dst, items)
     }
 
     fn exec_table_grow(&mut self, table_index: u32) -> Result<(), Trap> {
