@@ -29,7 +29,7 @@ jobs:
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
     with:
-      runs-on: ubuntu-24.04
+      runs-on: ubuntu-26.04
       upload-sarif: false
       scan-args: --lockfile=./Cargo.lock
 
@@ -41,6 +41,6 @@ jobs:
       security-events: write
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
     with:
-      runs-on: ubuntu-24.04
+      runs-on: ubuntu-26.04
       fail-on-vuln: false
       scan-args: --lockfile=./Cargo.lock
