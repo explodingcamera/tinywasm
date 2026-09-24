@@ -1023,6 +1023,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinywasm-component-abi"
+version = "0.11.0"
+dependencies = [
+ "tinywasm",
+ "wat",
+]
+
+[[package]]
 name = "tinywasm-parser"
 version = "0.11.0"
 dependencies = [

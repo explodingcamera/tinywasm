@@ -1,0 +1,21 @@
+[package]
+name = "tinywasm-component-abi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Opt-in canonical ABI memory helpers for TinyWasm hosts"
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+keywords = ["tinywasm", "component-model", "wasm", "wit"]
+categories = ["wasm", "no-std"]
+
+[dependencies]
+tinywasm = { workspace = true, default-features = false }
+
+[dev-dependencies]
+tinywasm = { workspace = true, features = ["parser"] }
+wat.workspace = true
+
+[lints]
+workspace = true
