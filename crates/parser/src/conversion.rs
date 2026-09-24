@@ -109,6 +109,7 @@ pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryTyp
         memory.maximum,
         memory.page_size_log2.map(|x| 1 << x),
     )
+    .with_shared(memory.shared)
 }
 
 pub(crate) fn convert_module_globals(

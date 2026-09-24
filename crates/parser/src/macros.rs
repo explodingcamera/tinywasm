@@ -45,6 +45,12 @@ pub(crate) mod visit {
     // and fallback opcode. Instructions without a family use plain emission.
     macro_rules! lowering_ops {
         () => {};
+        (atomic $op:ident $inputs:tt => $outputs:tt {
+            $($visit:ident => $width:literal),* $(,)?
+        } $($rest:tt)*) => {
+            $(lowering_ops!(@atomic $op $inputs => $outputs $visit $width);)*
+            lowering_ops!($($rest)*);
+        };
         ($kind:ident $inputs:tt => $outputs:tt {
             $($visit:ident $(($($arg:ident: $ty:ty),+))? => $instr:ident $([$family:ident($($rule_arg:expr),*)])?),* $(,)?
         } $($rest:tt)*) => {
@@ -104,6 +110,30 @@ pub(crate) mod visit {
         (@memory_arg $memory_arg_idx:ident, $lane:ident) => {
             tinywasm_types::MemoryLaneArg { memory_arg_idx: $memory_arg_idx, lane: $lane }
         };
+        (@atomic $op:ident [$($input:ident),*] => [$($output:ident),*] $visit:ident $width:literal) => {
+            fn $visit(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+                if memarg.align != ($width as u32).trailing_zeros() as u8 {
+                    return Err(crate::ParseError::Other("invalid atomic alignment".into()));
+                }
+                let address = self.metadata.memory_size(memarg.memory)?;
+                self.mark_memory(memarg.memory);
+                let memory = self.push128(tinywasm_types::Operand128::<tinywasm_types::MemoryOperand>::new(
+                    memarg.offset, memarg.memory,
+                ))?;
+                let is_64 = lowering_ops!(@atomic_is64 [$($input),*] [$($output),*]);
+                let arg = tinywasm_types::AtomicArg::new(
+                    memory, tinywasm_types::AtomicWidth::from_bytes($width), is_64, tinywasm_types::AtomicOp::$op,
+                );
+                self.emit(
+                    &[$(lowering_ops!(@size $input, address)),*],
+                    &[$(lowering_ops!(@size $output, address)),*],
+                    tinywasm_types::Instruction::Atomic(arg),
+                )
+            }
+        };
+        (@atomic_is64 [Addr, S64 $(, S64)*] $outputs:tt) => { true };
+        (@atomic_is64 [Addr] [S64]) => { true };
+        (@atomic_is64 $inputs:tt $outputs:tt) => { false };
         (@global $inputs:tt => $outputs:tt $($operator:tt)*) => {
             lowering_ops!(@resolved global_size $inputs => $outputs $($operator)*);
         };
@@ -203,6 +233,7 @@ pub(crate) mod visit {
         (@@function_references $($rest:tt)* ) => {};
         (@@gc $($rest:tt)* ) => {};
         (@@exceptions $($rest:tt)* ) => {};
+        (@@threads $($rest:tt)* ) => {};
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {

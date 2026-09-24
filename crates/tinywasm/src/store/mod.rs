@@ -24,10 +24,16 @@ mod table;
 mod tag;
 mod types;
 
+// The high bit selects shared storage. MemAddr::MAX is reserved for modules without a first memory.
+pub(crate) const SHARED_MEM_BIT: MemAddr = 1 << 31;
+
 use const_expr::eval_const;
 pub(crate) use gc::{GcObjectKind, data_range, decode_data, default_value, pop_value, push_value};
 pub(crate) use memory::{MemValue, MemoryInstance};
+#[cfg(feature = "std")]
+pub use memory::{MemoryShared, MemorySharedGuard};
 pub(crate) use state::State;
+pub(crate) use state::with_memory;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
 pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 
@@ -626,12 +632,33 @@ impl Store {
         memories: &[MemoryType],
         init: impl Fn(MemoryType) -> Result<MemoryInstance>,
     ) -> Result<impl ExactSizeIterator<Item = MemAddr>> {
-        let start = self.state.memories.len() as MemAddr;
-        self.state.memories.reserve_exact(memories.len());
-        for mem in memories {
-            self.state.memories.push(cold_err!(init(*mem))?);
+        let mut addresses = Vec::with_capacity(memories.len());
+        for &ty in memories {
+            let instance = cold_err!(init(ty))?;
+            if ty.shared() {
+                #[cfg(feature = "std")]
+                {
+                    let index = MemAddr::try_from(self.state.shared_memories.len())
+                        .map_err(|_| Error::UnsupportedFeature("too many shared memories"))?;
+                    if index >= SHARED_MEM_BIT - 1 {
+                        return Err(Error::UnsupportedFeature("too many shared memories"));
+                    }
+                    self.state.shared_memories.push(MemoryShared::from_instance(instance));
+                    addresses.push(index | SHARED_MEM_BIT);
+                }
+                #[cfg(not(feature = "std"))]
+                unreachable!("shared memory instantiation requires std");
+            } else {
+                let index = MemAddr::try_from(self.state.memories.len())
+                    .map_err(|_| Error::UnsupportedFeature("too many memories"))?;
+                if index >= SHARED_MEM_BIT {
+                    return Err(Error::UnsupportedFeature("too many memories"));
+                }
+                self.state.memories.push(instance);
+                addresses.push(index);
+            }
         }
-        Ok(start..start + memories.len() as MemAddr)
+        Ok(addresses.into_iter())
     }
 
     /// Add globals to the store, returning their addresses in the store
@@ -793,19 +820,12 @@ impl Store {
                         RuntimeValue::Value64(value) => value,
                         other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
                     };
-                    let Some(mem) = self.state.memories.get_mut(*mem_addr as usize) else {
-                        return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
-                    };
-
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-                    match mem.inner.write_all(offset, &data.data) {
-                        Some(()) => self.state.data[data_addrs[i] as usize].drop(),
-                        None => {
-                            return Err(
-                                Trap::MemoryOutOfBounds { offset, len: data.data.len(), max: mem.inner.len() }.into()
-                            );
-                        }
-                    }
+                    with_memory!(self.state, *mem_addr, |mem, kind| {
+                        mem.write_all(offset, &data.data)
+                            .ok_or_else(|| memory::memory_oob(offset, data.data.len(), mem.len()))?;
+                    });
+                    self.state.data[data_addrs[i] as usize].drop();
                 }
                 tinywasm_types::DataKind::Passive => {}
             };

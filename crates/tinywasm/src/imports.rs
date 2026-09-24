@@ -2,6 +2,8 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+#[cfg(feature = "std")]
+use crate::MemoryShared;
 use crate::{Function, Global, HostFunction, LinkingError, Memory, Result, Table, Tag};
 use tinywasm_types::*;
 
@@ -16,6 +18,9 @@ pub enum Extern {
     Table(Table),
     /// A memory instance.
     Memory(Memory),
+    /// A shared memory, importable into independent stores.
+    #[cfg(feature = "std")]
+    MemoryShared(MemoryShared),
     /// A function import.
     Function(Function),
     /// A reusable host function definition.
@@ -43,6 +48,13 @@ impl_conv! {
     Function => Function,
     HostFunction => HostFunction,
     Tag => Tag,
+}
+
+#[cfg(feature = "std")]
+impl From<MemoryShared> for Extern {
+    fn from(value: MemoryShared) -> Self {
+        Self::MemoryShared(value)
+    }
 }
 
 /// Imports for a module instance
@@ -188,6 +200,8 @@ impl Imports {
                     crate::ExternItem::Func(value) => Extern::Function(value),
                     crate::ExternItem::Global(value) => Extern::Global(value),
                     crate::ExternItem::Memory(value) => Extern::Memory(value),
+                    #[cfg(feature = "std")]
+                    crate::ExternItem::MemoryShared(value) => Extern::MemoryShared(value),
                     crate::ExternItem::Table(value) => Extern::Table(value),
                     crate::ExternItem::Tag(value) => Extern::Tag(value),
                 })
@@ -223,14 +237,14 @@ impl ResolvedImports {
 
     fn compare_memory_types(
         import: &Import,
-        expected: &MemoryType,
         actual: &MemoryType,
+        expected: &MemoryType,
         real_size: usize,
     ) -> Result<()> {
         Self::compare_types(import, &expected.arch(), &actual.arch())?;
+        Self::compare_types(import, &expected.shared(), &actual.shared())?;
 
-        if actual.page_count_initial() > expected.page_count_initial() && actual.page_count_initial() > real_size as u64
-        {
+        if (real_size as u64) < expected.page_count_initial() {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
@@ -238,7 +252,9 @@ impl ResolvedImports {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        if expected.page_count_max() > actual.page_count_max() {
+        if let Some(max) = expected.page_count_max_declared()
+            && actual.page_count_max_declared().is_none_or(|actual_max| actual_max > max)
+        {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
@@ -285,6 +301,16 @@ impl ResolvedImports {
                 Extern::Memory(memory) => {
                     memory.0.validate_store(store)?;
                     ExternVal::Memory(memory.0.addr)
+                }
+                #[cfg(feature = "std")]
+                Extern::MemoryShared(memory) => {
+                    let index = MemAddr::try_from(store.state.shared_memories.len())
+                        .map_err(|_| crate::Error::UnsupportedFeature("too many shared memories"))?;
+                    if index >= crate::store::SHARED_MEM_BIT - 1 {
+                        return Err(crate::Error::UnsupportedFeature("too many shared memories"));
+                    }
+                    store.state.shared_memories.push(memory.clone());
+                    ExternVal::Memory(index | crate::store::SHARED_MEM_BIT)
                 }
                 Extern::Function(func) => {
                     func.item.validate_store(store)?;
@@ -339,8 +365,9 @@ impl ResolvedImports {
                     imports.tables.push(table_addr);
                 }
                 (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
-                    let mem = store.state.get_mem(memory_addr);
-                    Self::compare_memory_types(import, &mem.kind, ty, mem.page_count)?;
+                    let kind = store.state.memory_type(memory_addr);
+                    let (_, pages) = store.state.memory_size(memory_addr);
+                    Self::compare_memory_types(import, &kind, ty, pages)?;
                     imports.memories.push(memory_addr);
                 }
                 (ExternVal::Func(func_addr), ImportKind::Function(ty)) => {

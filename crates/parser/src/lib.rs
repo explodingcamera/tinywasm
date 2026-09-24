@@ -174,7 +174,6 @@ impl Parser {
         #[cfg(feature = "validate")]
         {
             let features = WasmFeatures::WASM3
-                .difference(WasmFeatures::THREADS)
                 .union(WasmFeatures::CUSTOM_PAGE_SIZES)
                 .union(WasmFeatures::WIDE_ARITHMETIC)
                 .union(WasmFeatures::COMPACT_IMPORTS);

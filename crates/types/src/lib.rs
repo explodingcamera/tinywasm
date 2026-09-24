@@ -619,6 +619,7 @@ pub struct MemoryType {
     page_count_initial: u64,
     page_count_max: Option<u64>,
     page_size: Option<u64>,
+    shared: bool,
 }
 
 impl MemoryType {
@@ -629,7 +630,18 @@ impl MemoryType {
         page_count_max: Option<u64>,
         page_size: Option<u64>,
     ) -> Self {
-        Self { arch, page_count_initial, page_count_max, page_size }
+        Self { arch, page_count_initial, page_count_max, page_size, shared: false }
+    }
+
+    /// Whether this memory is shared.
+    pub const fn shared(&self) -> bool {
+        self.shared
+    }
+
+    /// Sets whether this memory is shared.
+    pub const fn with_shared(mut self, shared: bool) -> Self {
+        self.shared = shared;
+        self
     }
 
     #[inline]

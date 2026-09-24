@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added WebAssembly threads support, including atomic wait/notify and cross-store shared memory with `MemoryShared`.
 - Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
 - Added several internal methods to support a future c-api crate
 
