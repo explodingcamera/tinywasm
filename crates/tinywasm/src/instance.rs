@@ -9,6 +9,8 @@ use crate::store::MemoryInstance;
 use crate::{
     Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap, WasmValue,
 };
+#[cfg(feature = "std")]
+use crate::{MemoryShared, store::SHARED_MEM_BIT};
 
 /// A typed view over an exported extern value.
 pub enum ExternItem {
@@ -16,6 +18,9 @@ pub enum ExternItem {
     Func(Function),
     /// Exported memory reference.
     Memory(Memory),
+    /// Exported shared memory.
+    #[cfg(feature = "std")]
+    MemoryShared(MemoryShared),
     /// Exported table reference.
     Table(Table),
     /// Exported global reference.
@@ -57,6 +62,8 @@ struct ModuleInstanceInner {
     func_addrs: Box<[FuncAddr]>,
     table_addrs: Box<[TableAddr]>,
     mem_addrs: Box<[MemAddr]>,
+    #[cfg(feature = "std")]
+    shared_backings: Box<[(MemAddr, MemoryShared)]>,
     global_addrs: Box<[GlobalAddr]>,
     tag_addrs: Box<[TagAddr]>,
     elem_addrs: Box<[ElemAddr]>,
@@ -187,6 +194,19 @@ impl ModuleInstance {
     }
 
     fn instantiate_inner(store: &mut Store, module: &Module, imports: &[crate::Extern]) -> Result<Self> {
+        if module.memory_types.iter().any(|ty| ty.shared() && ty.page_count_max_declared().is_none())
+            || module.imports.iter().any(|import| {
+                matches!(import.kind, ImportKind::Memory(ty) if ty.shared() && ty.page_count_max_declared().is_none())
+            })
+        {
+            return Err(Error::UnsupportedFeature("shared memory requires a maximum"));
+        }
+        #[cfg(not(feature = "std"))]
+        if module.memory_types.iter().any(MemoryType::shared)
+            || module.imports.iter().any(|import| matches!(import.kind, ImportKind::Memory(ty) if ty.shared()))
+        {
+            return Err(Error::UnsupportedFeature("shared memory requires std"));
+        }
         let type_addrs = store.register_module_types(&module.types);
         let id = store.next_module_instance_id();
         let mut addrs = crate::imports::ResolvedImports::new(store, module, &type_addrs, imports)?;
@@ -205,6 +225,14 @@ impl ModuleInstance {
         let elem_addrs = store.alloc_elements(&addrs.funcs, &addrs.globals, &module.elements, &type_addrs)?;
         let data_addrs = store.alloc_data(&module.data);
 
+        #[cfg(feature = "std")]
+        let shared_backings = addrs
+            .memories
+            .iter()
+            .filter(|&&addr| addr & SHARED_MEM_BIT != 0)
+            .map(|&addr| (addr, store.state.shared_memories[(addr & !SHARED_MEM_BIT) as usize].clone()))
+            .collect();
+
         let instance = ModuleInstanceInner {
             store_id: store.id(),
             id,
@@ -212,6 +240,8 @@ impl ModuleInstance {
             func_addrs: addrs.funcs.into_boxed_slice(),
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
+            #[cfg(feature = "std")]
+            shared_backings,
             global_addrs: addrs.globals.into_boxed_slice(),
             tag_addrs: addrs.tags.into_boxed_slice(),
             elem_addrs,
@@ -295,7 +325,17 @@ impl ModuleInstance {
                     ExternItem::Table(Table(StoreItem::new(self.0.store_id, self.resolve_table_addr(export.index))))
                 }
                 ExternalKind::Memory => {
-                    ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, self.resolve_mem_addr(export.index))))
+                    let addr = self.resolve_mem_addr(export.index);
+                    #[cfg(feature = "std")]
+                    if addr & SHARED_MEM_BIT != 0 {
+                        ExternItem::MemoryShared(
+                            self.shared_backing(addr).expect("exported shared memory has a backing"),
+                        )
+                    } else {
+                        ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))
+                    }
+                    #[cfg(not(feature = "std"))]
+                    ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))
                 }
                 ExternalKind::Global => {
                     ExternItem::Global(Global(StoreItem::new(self.0.store_id, self.resolve_global_addr(export.index))))
@@ -352,7 +392,13 @@ impl ModuleInstance {
             ExternVal::Func(addr) => {
                 Ok(ExternItem::Func(Function { item: StoreItem::new(self.0.store_id, addr), module_id: self.id() }))
             }
-            ExternVal::Memory(addr) => Ok(ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))),
+            ExternVal::Memory(addr) => {
+                #[cfg(feature = "std")]
+                if addr & SHARED_MEM_BIT != 0 {
+                    return Ok(ExternItem::MemoryShared(self.shared_backing(addr)?));
+                }
+                Ok(ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr))))
+            }
             ExternVal::Table(addr) => Ok(ExternItem::Table(Table(StoreItem::new(self.0.store_id, addr)))),
             ExternVal::Global(addr) => Ok(ExternItem::Global(Global(StoreItem::new(self.0.store_id, addr)))),
             ExternVal::Tag(addr) => Ok(ExternItem::Tag(Tag(StoreItem::new(self.0.store_id, addr)))),
@@ -482,8 +528,29 @@ impl ModuleInstance {
     /// Get a memory export by name.
     pub fn memory(&self, name: &str) -> Result<Memory> {
         match self.require_export(name)? {
-            ExternVal::Memory(mem_addr) => Ok(Memory(StoreItem::new(self.0.store_id, mem_addr))),
+            ExternVal::Memory(mem_addr) if mem_addr & crate::store::SHARED_MEM_BIT == 0 => {
+                Ok(Memory(StoreItem::new(self.0.store_id, mem_addr)))
+            }
             _ => cold!(Err(Error::Other(format!("Export is not a memory: {name}")))),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    fn shared_backing(&self, addr: MemAddr) -> Result<MemoryShared> {
+        self.0
+            .shared_backings
+            .iter()
+            .find(|(index, _)| *index == addr)
+            .map(|(_, backing)| backing.clone())
+            .ok_or_else(|| Error::Other("invalid shared memory address".into()))
+    }
+
+    /// Returns a shared memory export by name.
+    #[cfg(feature = "std")]
+    pub fn memory_shared(&self, name: &str) -> Result<MemoryShared> {
+        match self.require_export(name)? {
+            ExternVal::Memory(addr) if addr & SHARED_MEM_BIT != 0 => self.shared_backing(addr),
+            _ => Err(Error::Other(format!("Export is not a shared memory: {name}"))),
         }
     }
 
@@ -496,7 +563,11 @@ impl ModuleInstance {
     #[cfg_attr(docsrs, doc(cfg(feature = "guest-debug")))]
     #[cfg(feature = "guest-debug")]
     pub fn memory_by_index(&self, memory_index: MemAddr) -> Result<Memory> {
-        Ok(Memory(StoreItem::new(self.0.store_id, Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?)))
+        let addr = Self::index_addr(&self.0.mem_addrs, memory_index, "memory")?;
+        if addr & crate::store::SHARED_MEM_BIT != 0 {
+            return Err(Error::UnsupportedFeature("use shared memory access for this index"));
+        }
+        Ok(Memory(StoreItem::new(self.0.store_id, addr)))
     }
 
     /// Get a table export by name.

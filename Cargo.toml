@@ -47,7 +47,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
 
 [dev-dependencies]
 anyhow.workspace = true
-tinywasm = { path = "crates/tinywasm", features = ["state"] }
+tinywasm = { path = "crates/tinywasm", features = ["send", "state"] }
 tinywasm-wasi.workspace = true
 wat.workspace = true
 

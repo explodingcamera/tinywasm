@@ -8,7 +8,9 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error};
 use tinywasm::types::{MemoryType, RefType, RefValue, TableType, WasmType, WasmValue};
-use tinywasm::{ExecProgress, Global, HostFunction, Imports, Memory, Module, ModuleInstance, Store, Table};
+use tinywasm::{
+    ExecProgress, Global, HostFunction, Imports, Memory, MemoryShared, Module, ModuleInstance, Store, Table,
+};
 use wast::QuoteWat;
 use wast::core::{AbstractHeapType, NanPattern};
 
@@ -17,7 +19,7 @@ const TEST_MAX_SUSPENSIONS: u32 = 1000;
 // Older suites classify encodings that wasmparser accepts with the latest feature set as malformed.
 const ACCEPTED_MALFORMED_MESSAGES: &[&str] =
     &["integer representation too long", "zero byte expected", "zero flag expected"];
-const ACCEPTED_INVALID_MESSAGES: &[&str] = &["multiple memories"];
+const ACCEPTED_INVALID_MESSAGES: &[&str] = &["multiple memories", "multiple tables"];
 
 macro_rules! float_value {
     ($pattern:expr, $float:ty, $variant:ident) => {
@@ -172,6 +174,8 @@ impl WastRunner {
         let table64 = Table::try_new(store, TableType::new64(RefType::FUNCREF, 10, Some(20)), RefValue::Null.into())?;
         let memory =
             Memory::try_new(store, MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
+        let shared_memory =
+            MemoryShared::try_new(MemoryType::default().with_page_count_initial(1).with_page_count_max(Some(2)))?;
         let global_i32 =
             Global::try_new(store, tinywasm::types::GlobalType::new(WasmType::I32, false), WasmValue::I32(666))?;
         let global_i64 =
@@ -183,6 +187,7 @@ impl WastRunner {
 
         imports
             .define("spectest", "memory", memory)
+            .define("spectest", "shared_memory", shared_memory)
             .define("spectest", "table", table)
             .define("spectest", "table64", table64)
             .define("spectest", "global_i32", global_i32)

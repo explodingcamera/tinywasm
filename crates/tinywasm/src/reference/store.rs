@@ -377,7 +377,14 @@ impl Memory {
 
     /// Create a new memory in the given store.
     pub fn try_new(store: &mut Store, ty: MemoryType) -> Result<Self> {
-        let addr = store.state.memories.len() as MemAddr;
+        if ty.shared() {
+            return Err(Error::UnsupportedFeature("use MemoryShared for shared memory"));
+        }
+        let addr = MemAddr::try_from(store.state.memories.len())
+            .map_err(|_| Error::UnsupportedFeature("too many memories"))?;
+        if addr >= crate::store::SHARED_MEM_BIT {
+            return Err(Error::UnsupportedFeature("too many memories"));
+        }
         let limiter = store.engine.config().resource_limiter.clone();
         store.state.memories.push(MemoryInstance::new(ty, limiter.as_deref())?);
         Ok(Self(StoreItem::new(store.id(), addr)))

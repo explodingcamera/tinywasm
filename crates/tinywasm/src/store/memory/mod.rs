@@ -1,9 +1,13 @@
 use crate::interpreter::Value128;
 
 mod instance;
+#[cfg(feature = "std")]
+mod shared;
 mod vec;
 
 pub(crate) use instance::MemoryInstance;
+#[cfg(feature = "std")]
+pub use shared::{MemoryShared, MemorySharedGuard};
 pub(crate) use vec::VecMemory;
 
 /// Internal storage for a linear memory.
@@ -70,6 +74,6 @@ impl MemValue<16> for Value128 {
     }
 }
 
-const fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
+pub(super) const fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
     crate::Trap::MemoryOutOfBounds { offset, len, max }
 }
