@@ -273,6 +273,7 @@ macro_rules! impl_value_ops {
             }
         }
 
+        #[inline(always)]
         fn $binop(op: BinOp, lhs: $unsigned, rhs: $unsigned) -> $unsigned {
             match op {
                 BinOp::IAdd => lhs.wrapping_add(rhs),
@@ -296,6 +297,7 @@ macro_rules! impl_value_ops {
             }
         }
 
+        #[inline(always)]
         fn $cmp(op: CmpOp, lhs: $signed, rhs: $signed) -> bool {
             match op {
                 CmpOp::Eq => lhs == rhs,
