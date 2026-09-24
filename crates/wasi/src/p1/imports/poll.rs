@@ -1,5 +1,6 @@
 use std::io::Seek;
 
+#[cfg(unix)]
 use rustix::event::{PollFd, PollFlags, Timespec};
 use tinywasm::FuncContext;
 
@@ -12,6 +13,7 @@ use super::WasiResult;
 enum Readiness {
     Ready,
     Clock(u64),
+    #[cfg(unix)]
     Poll,
 }
 
@@ -20,11 +22,15 @@ struct PendingEvent {
     readiness: Readiness,
 }
 
+#[cfg(unix)]
 struct PollTarget {
     event_index: usize,
     fd: i32,
     event_type: u8,
 }
+
+#[cfg(not(unix))]
+struct PollTarget;
 
 impl PendingEvent {
     fn new(userdata: u64, error: Errno, event_type: u8, available: u64, readiness: Readiness) -> Self {
@@ -134,11 +140,21 @@ fn subscribe_fd(
         pending_events.push(PendingEvent::new(userdata, SUCCESS, event_type, available, Readiness::Ready));
         return Ok(());
     }
-    poll_targets.push(PollTarget { event_index: pending_events.len(), fd, event_type });
-    pending_events.push(PendingEvent::new(userdata, SUCCESS, event_type, 0, Readiness::Poll));
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let _ = poll_targets;
+        pending_events.push(PendingEvent::new(userdata, NOTSUP, event_type, 0, Readiness::Ready));
+        Ok(())
+    }
+    #[cfg(unix)]
+    {
+        poll_targets.push(PollTarget { event_index: pending_events.len(), fd, event_type });
+        pending_events.push(PendingEvent::new(userdata, SUCCESS, event_type, 0, Readiness::Poll));
+        Ok(())
+    }
 }
 
+#[cfg(unix)]
 fn wait_for_events(
     ctx: &FuncContext<'_>,
     poll_targets: &[PollTarget],
@@ -216,4 +232,22 @@ fn wait_for_events(
         }
     }
     Ok(u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX))
+}
+
+#[cfg(not(unix))]
+fn wait_for_events(
+    _ctx: &FuncContext<'_>,
+    poll_targets: &[PollTarget],
+    _pending_events: &mut [PendingEvent],
+    timeout_ns: Option<u64>,
+) -> WasiResult<u64> {
+    if !poll_targets.is_empty() {
+        return Err(NOTSUP.into());
+    }
+    if let Some(nanoseconds) = timeout_ns {
+        std::thread::sleep(std::time::Duration::from_nanos(nanoseconds));
+        Ok(nanoseconds)
+    } else {
+        Ok(0)
+    }
 }

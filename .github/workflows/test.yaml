@@ -19,34 +19,43 @@ jobs:
           - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable)"
+            target: x86_64-unknown-linux-gnu
           - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly)"
+            target: x86_64-unknown-linux-gnu
           - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls)"
+            target: x86_64-unknown-linux-gnu
             args: "--features tinywasm/nightly-tail-calls"
           - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features"
           - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features"
           - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features --features tinywasm/nightly-tail-calls"
           - os: macos-26
             rust: stable
             name: "macOS arm64 (Apple M1)"
+            target: aarch64-apple-darwin
           - os: windows-2025
             rust: stable
             name: "Windows x86_64"
+            target: x86_64-pc-windows-msvc
           - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux arm64"
+            target: aarch64-unknown-linux-gnu
           - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux armv7"
@@ -65,33 +74,25 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
           rustflags: ""
+          build-warnings: warn
           components: rustfmt, clippy
-        if: matrix.target == ''
-
-      - name: Run tests
-        run: cargo test --workspace ${{ matrix.args }} && cargo test --workspace ${{ matrix.args }} --examples
-        if: matrix.target == ''
-
-      - name: Run clippy
-        run: cargo clippy --workspace ${{ matrix.args }}
-        if: matrix.target == ''
 
       - name: Install armv7 tools
         run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf qemu-user
-        if: matrix.target != ''
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
 
-      - name: Install Rust toolchain (${{ matrix.target }})
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          toolchain: ${{ matrix.rust }}
-          target: ${{ matrix.target }}
-          rustflags: ""
-        if: matrix.target != ''
-
-      - name: Run tests (${{ matrix.target }})
-        run: cargo test --workspace --target ${{ matrix.target }}
+      - name: Run tests
+        run: cargo test --workspace --target ${{ matrix.target }} ${{ matrix.args }}
         env:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
-        if: matrix.target != ''
+
+      - name: Run examples
+        run: cargo test --workspace --target ${{ matrix.target }} ${{ matrix.args }} --examples
+        if: matrix.target != 'armv7-unknown-linux-gnueabihf'
+
+      - name: Run clippy
+        run: cargo clippy --workspace --target ${{ matrix.target }} ${{ matrix.args }}
+        if: matrix.target != 'armv7-unknown-linux-gnueabihf'

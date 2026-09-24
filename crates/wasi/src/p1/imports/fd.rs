@@ -1,6 +1,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use cap_fs_ext::{DirEntryExt, DirExt, MetadataExt};
+#[cfg(unix)]
 use cap_std::fs::FileExt;
 use tinywasm::FuncContext;
 
@@ -185,9 +186,12 @@ fn read_from_fd(
     buffer.resize(iovecs.byte_len, 0);
     let read = match &mut descriptor.resource {
         Resource::Stdin => std::io::stdin().lock().read(&mut buffer),
+        #[cfg(unix)]
         Resource::File(file) if let Some(offset) = offset => {
             file.read_at(&mut buffer, checked_offset(offset, iovecs.byte_len)?)
         }
+        #[cfg(not(unix))]
+        Resource::File(_) if offset.is_some() => return Ok(NOTSUP),
         Resource::File(file) => file.read(&mut buffer),
         Resource::TcpStream(stream) => stream.read(&mut buffer),
         Resource::UdpSocket(socket) => socket.recv(&mut buffer),
@@ -224,7 +228,10 @@ fn write_to_fd(
     let written = match &mut descriptor.resource {
         Resource::Stdout => std::io::stdout().lock().write(&data),
         Resource::Stderr => std::io::stderr().lock().write(&data),
+        #[cfg(unix)]
         Resource::File(file) if let Some(offset) = offset => file.write_at(&data, checked_offset(offset, data.len())?),
+        #[cfg(not(unix))]
+        Resource::File(_) if offset.is_some() => return Ok(NOTSUP),
         Resource::File(file) => file.write(&data),
         Resource::TcpStream(stream) => stream.write(&data),
         Resource::UdpSocket(socket) => socket.send(&data),
@@ -237,6 +244,7 @@ fn write_to_fd(
         .map_or_else(|errno| errno, |()| SUCCESS))
 }
 
+#[cfg(unix)]
 fn checked_offset(offset: u64, len: usize) -> Result<u64, Errno> {
     offset.checked_add(len as u64).map(|_| offset).ok_or(OVERFLOW)
 }
