@@ -34,10 +34,18 @@ fn shared_memory_is_visible_across_stores() -> TestResult {
     memory.lock().data_mut()[..4].copy_from_slice(&41u32.to_le_bytes());
     assert_eq!(first.func::<(), i32>(&first_store, "add")?.call(&mut first_store, ())?, 41);
     assert_eq!(second.func::<(), i32>(&second_store, "add")?.call(&mut second_store, ())?, 42);
-    assert_eq!(memory.read_vec(0, 4)?, 43u32.to_le_bytes());
+    assert_eq!(memory.lock().read_vec(0, 4)?, 43u32.to_le_bytes());
     assert_eq!(first.memory_shared("memory")?.lock().data()[..4], 43u32.to_le_bytes());
 
-    assert_eq!(first.func::<(), i32>(&first_store, "grow")?.call(&mut first_store, ())?, 1);
+    {
+        let mut guard = memory.lock();
+        assert_eq!(guard.grow(1)?, Some(1));
+        assert_eq!(guard.page_count(), 2);
+        assert!(guard.data()[65536..].iter().all(|&byte| byte == 0));
+        assert_eq!(guard.grow(1)?, None);
+    }
+    assert_eq!(first.func::<(), i32>(&first_store, "size")?.call(&mut first_store, ())?, 2);
+    assert_eq!(first.func::<(), i32>(&first_store, "grow")?.call(&mut first_store, ())?, -1);
     assert_eq!(second.func::<(), i32>(&second_store, "size")?.call(&mut second_store, ())?, 2);
     assert_eq!(memory.lock().page_count(), 2);
     Ok(())
@@ -54,7 +62,7 @@ fn concurrent_growth_publishes_page_count() -> TestResult {
                 let barrier = &barrier;
                 scope.spawn(move || {
                     barrier.wait();
-                    memory.grow(1).unwrap().unwrap()
+                    memory.lock().grow(1).unwrap().unwrap()
                 })
             })
             .collect();
@@ -63,8 +71,9 @@ fn concurrent_growth_publishes_page_count() -> TestResult {
     });
     sizes.sort();
     assert_eq!(sizes, [1, 2]);
-    assert_eq!(memory.page_count(), 3);
-    assert_eq!(memory.len(), 3 * 65536);
+    let guard = memory.lock();
+    assert_eq!(guard.page_count(), 3);
+    assert_eq!(guard.data().len(), 3 * 65536);
     Ok(())
 }
 
@@ -128,7 +137,7 @@ fn atomic_rmw_is_indivisible_across_stores() -> TestResult {
         }
         Ok(())
     })?;
-    assert_eq!(memory.read_vec(0, 4)?, 4000u32.to_le_bytes());
+    assert_eq!(memory.lock().read_vec(0, 4)?, 4000u32.to_le_bytes());
     Ok(())
 }
 
@@ -223,6 +232,10 @@ fn defined_shared_memory_supports_data_and_bulk_access() -> TestResult {
         (module
           (memory (export "memory") 1 2 shared)
           (data (i32.const 0) "abc")
+          (data $passive "xyz")
+          (func (export "init") (param i32 i32 i32)
+            local.get 0 local.get 1 local.get 2 memory.init $passive)
+          (func (export "drop") data.drop $passive)
           (func (export "copy")
             i32.const 4
             i32.const 0
@@ -242,11 +255,22 @@ fn defined_shared_memory_supports_data_and_bulk_access() -> TestResult {
         instance.exports().find(|(name, _)| *name == "memory"),
         Some((_, tinywasm::ExternItem::MemoryShared(_)))
     ));
-    assert_eq!(memory.read_vec(0, 3)?, b"abc");
+    assert_eq!(memory.lock().read_vec(0, 3)?, b"abc");
     instance.func::<(), ()>(&store, "copy")?.call(&mut store, ())?;
-    assert_eq!(memory.read_vec(4, 3)?, b"abc");
+    assert_eq!(memory.lock().read_vec(4, 3)?, b"abc");
     memory.lock().data_mut()[4] = b'z';
     assert_eq!(instance.func::<(), i32>(&store, "read")?.call(&mut store, ())?, i32::from(b'z'));
+
+    let init = instance.func::<(i32, i32, i32), ()>(&store, "init")?;
+    init.call(&mut store, (8, 0, 3))?;
+    assert_eq!(memory.lock().read_vec(8, 3)?, b"xyz");
+    assert!(init.call(&mut store, (8, 2, 2)).is_err());
+    assert_eq!(memory.lock().read_vec(8, 3)?, b"xyz");
+    instance.func::<(), ()>(&store, "drop")?.call(&mut store, ())?;
+    init.call(&mut store, (65536, 0, 0))?;
+    assert!(init.call(&mut store, (65537, 0, 0)).is_err());
+    assert!(init.call(&mut store, (0, 1, 0)).is_err());
+    assert!(init.call(&mut store, (0, 0, 1)).is_err());
 
     let consumer = tinywasm::parse_bytes(&wat::parse_str(
         r#"
@@ -294,12 +318,12 @@ fn copy_between_shared_memories_checks_ranges() -> TestResult {
     let source = instance.memory_shared("source")?;
     let destination = instance.memory_shared("destination")?;
     let bytes = vec![0xa5; 8192];
-    source.copy_from_slice(0, &bytes)?;
+    source.lock().copy_from_slice(0, &bytes)?;
     let copy = instance.func::<(i32, i32, i32), ()>(&store, "copy")?;
     copy.call(&mut store, (8, 0, bytes.len() as i32))?;
-    assert_eq!(destination.read_vec(8, bytes.len())?, bytes);
+    assert_eq!(destination.lock().read_vec(8, bytes.len())?, bytes);
     assert!(copy.call(&mut store, (65535, 0, 2)).is_err());
-    assert_eq!(destination.read_vec(8, bytes.len())?, bytes);
+    assert_eq!(destination.lock().read_vec(8, bytes.len())?, bytes);
     Ok(())
 }
 
@@ -329,9 +353,9 @@ fn copy_between_ordinary_and_shared_memory() -> TestResult {
 
     ordinary.copy_from_slice(&mut store, 0, b"abc")?;
     instance.func::<(), ()>(&store, "to_shared")?.call(&mut store, ())?;
-    assert_eq!(shared.read_vec(4, 3)?, b"abc");
+    assert_eq!(shared.lock().read_vec(4, 3)?, b"abc");
 
-    shared.copy_from_slice(4, b"xyz")?;
+    shared.lock().copy_from_slice(4, b"xyz")?;
     instance.func::<(), ()>(&store, "to_ordinary")?.call(&mut store, ())?;
     assert_eq!(ordinary.read_vec(&store, 8, 3)?, b"xyz");
     Ok(())
@@ -352,13 +376,13 @@ fn copy_between_aliases_of_one_shared_memory() -> TestResult {
     "#,
     )?)?;
     let memory = MemoryShared::try_new(MemoryType::new(MemoryArch::I32, 1, Some(1), None))?;
-    memory.copy_from_slice(0, b"abc")?;
+    memory.lock().copy_from_slice(0, b"abc")?;
     let mut imports = Imports::new();
     imports.define("host", "source", memory.clone()).define("host", "destination", memory.clone());
     let mut store = Store::default();
     let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
     instance.func::<(), ()>(&store, "copy")?.call(&mut store, ())?;
-    assert_eq!(memory.read_vec(0, 4)?, b"aabc");
+    assert_eq!(memory.lock().read_vec(0, 4)?, b"aabc");
     Ok(())
 }
 

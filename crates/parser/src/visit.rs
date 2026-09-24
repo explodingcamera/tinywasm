@@ -527,10 +527,12 @@ macro_rules! atomic_visitors {
             let address = self.metadata.memory_size(memarg.memory)?;
             self.mark_memory(memarg.memory);
             let memory = self.push128(Operand128::<tinywasm_types::MemoryOperand>::new(memarg.offset, memarg.memory))?;
+            let is_64 = atomic_visitors!(@is64 [$($input),*] [$($output),*]);
+            let arg = AtomicArg::new(memory, AtomicWidth::from_bytes($width), is_64, AtomicOp::$op);
             self.emit(
                 &[$(atomic_visitors!(@size $input, address)),*],
                 &[$(atomic_visitors!(@size $output, address)),*],
-                Instruction::Atomic(AtomicArg::new(memory, AtomicWidth::from_bytes($width), atomic_visitors!(@is64 [$($input),*] [$($output),*]), AtomicOp::$op)),
+                Instruction::Atomic(arg),
             )
         }
     };

@@ -44,8 +44,9 @@ fn main() -> Result<()> {
     })?;
 
     // Atomic read-modify-write operations serialize updates to the shared memory.
-    assert_eq!(memory.read_vec(0, 4)?, 4000u32.to_le_bytes());
-    assert_eq!(memory.grow(1)?, Some(1));
-    assert_eq!(memory.page_count(), 2);
+    let mut guard = memory.lock();
+    assert_eq!(guard.data()[..4], 4000u32.to_le_bytes());
+    assert_eq!(guard.grow(1)?, Some(1));
+    assert_eq!(guard.page_count(), 2);
     Ok(())
 }

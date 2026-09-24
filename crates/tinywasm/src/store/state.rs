@@ -26,7 +26,7 @@ pub(crate) struct State {
     pub(crate) roots: gc::Roots,
 }
 
-// Select ordinary bytes or a locked shared backing, then run the operation once.
+// Dispatch once per operation, keeping ordinary memory on the direct-access path
 macro_rules! with_memory {
     ($state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
         let state = &mut $state;
@@ -82,7 +82,7 @@ impl State {
         addr: MemAddr,
         pages: i64,
         limiter: Option<&dyn ResourceLimiter>,
-    ) -> core::result::Result<Option<i64>, Trap> {
+    ) -> Result<Option<i64>, Trap> {
         #[cfg(feature = "std")]
         if addr & SHARED_MEM_BIT != 0 {
             return self.shared_memories[(addr & !SHARED_MEM_BIT) as usize].grow_with_limiter(pages, limiter);
@@ -98,7 +98,7 @@ impl State {
         src_addr: MemAddr,
         src: usize,
         size: usize,
-    ) -> core::result::Result<(), Trap> {
+    ) -> Result<(), Trap> {
         if dst_addr != src_addr && (dst_addr | src_addr) & SHARED_MEM_BIT == 0 {
             let (destination, source) = self.get_mems_mut(dst_addr, src_addr);
             return destination.copy_from_memory(dst, source, src, size);
@@ -117,6 +117,7 @@ impl State {
             });
         }
 
+        // Never hold two backing locks, since another store may copy in the opposite direction.
         // Growth cannot invalidate these ranges. Check both before changing the destination.
         with_memory!(*self, src_addr, |source, kind| {
             source.checked_range(src, size).ok_or_else(|| memory_oob(src, size, source.len()))?;

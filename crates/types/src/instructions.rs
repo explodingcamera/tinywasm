@@ -61,7 +61,7 @@ pub struct AtomicArg {
     code: u8,
 }
 
-/// A wait or notify instruction with its module-local memory operand.
+/// Operation performed by an atomic wait or notify instruction.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -72,7 +72,7 @@ pub enum AtomicWaitOp {
 }
 
 impl AtomicArg {
-    /// Packs the operation, access width, and result type into one byte.
+    /// Packs the operation, access width, and value type into one byte.
     pub const fn new(memory: Operand128Idx<MemoryOperand>, width: AtomicWidth, is_64: bool, op: AtomicOp) -> Self {
         Self { memory, code: (op as u8) | ((width as u8).trailing_zeros() as u8) << 4 | (is_64 as u8) << 6 }
     }

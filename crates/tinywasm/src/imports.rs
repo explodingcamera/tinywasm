@@ -237,15 +237,14 @@ impl ResolvedImports {
 
     fn compare_memory_types(
         import: &Import,
-        expected: &MemoryType,
         actual: &MemoryType,
+        expected: &MemoryType,
         real_size: usize,
     ) -> Result<()> {
         Self::compare_types(import, &expected.arch(), &actual.arch())?;
         Self::compare_types(import, &expected.shared(), &actual.shared())?;
 
-        if actual.page_count_initial() > expected.page_count_initial() && actual.page_count_initial() > real_size as u64
-        {
+        if (real_size as u64) < expected.page_count_initial() {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
@@ -253,7 +252,9 @@ impl ResolvedImports {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
-        if expected.page_count_max() > actual.page_count_max() {
+        if let Some(max) = expected.page_count_max_declared()
+            && actual.page_count_max_declared().is_none_or(|actual_max| actual_max > max)
+        {
             return Err(LinkingError::incompatible_import_type(import).into());
         }
 
@@ -364,20 +365,8 @@ impl ResolvedImports {
                     imports.tables.push(table_addr);
                 }
                 (ExternVal::Memory(memory_addr), ImportKind::Memory(ty)) => {
-                    #[cfg(feature = "std")]
-                    let (kind, pages) = if memory_addr & crate::store::SHARED_MEM_BIT != 0 {
-                        let memory =
-                            &store.state.shared_memories[(memory_addr & !crate::store::SHARED_MEM_BIT) as usize];
-                        (memory.ty(), memory.page_count())
-                    } else {
-                        let memory = store.state.get_mem(memory_addr);
-                        (memory.kind, memory.page_count)
-                    };
-                    #[cfg(not(feature = "std"))]
-                    let (kind, pages) = {
-                        let memory = store.state.get_mem(memory_addr);
-                        (memory.kind, memory.page_count)
-                    };
+                    let kind = store.state.memory_type(memory_addr);
+                    let (_, pages) = store.state.memory_size(memory_addr);
                     Self::compare_memory_types(import, &kind, ty, pages)?;
                     imports.memories.push(memory_addr);
                 }

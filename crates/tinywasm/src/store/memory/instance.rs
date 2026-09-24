@@ -23,16 +23,19 @@ impl core::fmt::Debug for MemoryInstance {
 }
 
 impl MemoryInstance {
+    /// Converts a page count to a byte length that fits the host address space.
     #[inline]
     pub(super) fn host_size(kind: MemoryType, pages: u64) -> Option<usize> {
         pages.checked_mul(kind.page_size()).and_then(|size| usize::try_from(size).ok())
     }
 
+    /// Returns the declared byte limit, saturating when it exceeds the host address space.
     #[inline]
-    fn maximum_size(kind: MemoryType) -> Option<usize> {
+    pub(super) fn maximum_size(kind: MemoryType) -> Option<usize> {
         kind.page_count_max_declared().map(|pages| Self::host_size(kind, pages).unwrap_or(usize::MAX))
     }
 
+    /// Applies the runtime's memory64 allocation cap to the declared page limit.
     #[inline]
     pub(super) fn page_count_max(kind: MemoryType) -> u64 {
         match kind.arch() {
@@ -101,6 +104,7 @@ impl MemoryInstance {
         Self::grow_storage(self.kind, &mut self.inner, &mut self.page_count, pages_delta, limiter)
     }
 
+    /// Grows exclusively borrowed storage after checking limits and the host limiter.
     pub(super) fn grow_storage(
         kind: MemoryType,
         inner: &mut MemoryStorage,

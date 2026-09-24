@@ -215,9 +215,9 @@ impl ModuleInstance {
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         let limiter = store.engine.config().resource_limiter.clone();
         if !module.skip_local_memory_allocation {
-            addrs
-                .memories
-                .extend(store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?);
+            let memories =
+                store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?;
+            addrs.memories.extend(memories);
         }
 
         store.init_globals(&mut addrs.globals, &module.globals, &addrs.funcs, &type_addrs)?;
@@ -316,35 +316,15 @@ impl ModuleInstance {
     /// ```
     pub fn exports(&self) -> impl Iterator<Item = (&str, ExternItem)> + '_ {
         self.0.exports.iter().map(move |export| {
-            let item = match export.kind {
-                ExternalKind::Func => ExternItem::Func(Function {
-                    item: StoreItem::new(self.0.store_id, self.resolve_func_addr(export.index)),
-                    module_id: self.id(),
-                }),
-                ExternalKind::Table => {
-                    ExternItem::Table(Table(StoreItem::new(self.0.store_id, self.resolve_table_addr(export.index))))
-                }
-                ExternalKind::Memory => {
-                    let addr = self.resolve_mem_addr(export.index);
-                    #[cfg(feature = "std")]
-                    if addr & SHARED_MEM_BIT != 0 {
-                        ExternItem::MemoryShared(
-                            self.shared_backing(addr).expect("exported shared memory has a backing"),
-                        )
-                    } else {
-                        ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))
-                    }
-                    #[cfg(not(feature = "std"))]
-                    ExternItem::Memory(Memory(StoreItem::new(self.0.store_id, addr)))
-                }
-                ExternalKind::Global => {
-                    ExternItem::Global(Global(StoreItem::new(self.0.store_id, self.resolve_global_addr(export.index))))
-                }
-                ExternalKind::Tag => {
-                    ExternItem::Tag(Tag(StoreItem::new(self.0.store_id, self.resolve_tag_addr(export.index))))
-                }
+            let addr = match export.kind {
+                ExternalKind::Func => self.resolve_func_addr(export.index),
+                ExternalKind::Table => self.resolve_table_addr(export.index),
+                ExternalKind::Memory => self.resolve_mem_addr(export.index),
+                ExternalKind::Global => self.resolve_global_addr(export.index),
+                ExternalKind::Tag => self.resolve_tag_addr(export.index),
             };
-
+            let value = ExternVal::new(export.kind, addr);
+            let item = self.resolve_extern(value).expect("exported extern has a backing");
             (export.name.as_ref(), item)
         })
     }
@@ -388,7 +368,11 @@ impl ModuleInstance {
     /// # }
     /// ```
     pub fn extern_item(&self, name: &str) -> Result<ExternItem> {
-        match self.require_export(name)? {
+        self.resolve_extern(self.require_export(name)?)
+    }
+
+    fn resolve_extern(&self, value: ExternVal) -> Result<ExternItem> {
+        match value {
             ExternVal::Func(addr) => {
                 Ok(ExternItem::Func(Function { item: StoreItem::new(self.0.store_id, addr), module_id: self.id() }))
             }
