@@ -55,7 +55,7 @@ pub(crate) fn push_value(
         (value, _, None) => value,
         _ => unreachable!("validated packed field access"),
     };
-    stack.push_dyn(value)
+    stack.push_reserved(value)
 }
 
 /// Decodes numeric array elements from a data segment.
