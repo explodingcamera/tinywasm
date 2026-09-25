@@ -1000,6 +1000,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinywasm-c-api"
+version = "0.11.0"
+dependencies = [
+ "tinywasm",
+]
+
+[[package]]
 name = "tinywasm-cli"
 version = "0.11.0"
 dependencies = [

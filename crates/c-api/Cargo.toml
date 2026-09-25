@@ -1,0 +1,22 @@
+[package]
+name = "tinywasm-c-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "WebAssembly C API for TinyWasm"
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "tinywasm"
+
+[dependencies]
+tinywasm = { workspace = true, features = ["archive", "parser", "std", "validate"] }
+
+[features]
+custom-prefix = []
+
+[lints]
+workspace = true

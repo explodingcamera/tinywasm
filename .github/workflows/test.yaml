@@ -2,7 +2,7 @@ name: Rust CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ["next", "main"]
   pull_request:
     branches: ["next", "main"]
   schedule:
@@ -12,6 +12,23 @@ permissions:
   contents: read
 
 jobs:
+  c-api:
+    name: C API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          toolchain: nightly
+          components: miri
+          rustflags: ""
+          build-warnings: warn
+      - run: cargo miri test -p tinywasm-c-api --lib
+      - run: make -C crates/c-api test
+      - run: make -C crates/c-api test TINYWASM_C_API_PREFIX=test_ TARGET_DIR=../../target/c-api-prefixed
+
   run-tests:
     strategy:
       matrix:
