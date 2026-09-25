@@ -5,8 +5,14 @@ use crate::{objects::*, types::*, values::wasm_val_t};
 /// An element owned by a C API vector.
 pub trait Element: Default {
     /// Copies the element and any owned handle.
+    ///
+    /// # Safety
+    /// The element and any handle it contains must be initialized and live.
     unsafe fn copy(&self) -> Self;
     /// Releases any owned handle.
+    ///
+    /// # Safety
+    /// The element must own its handle and must not have been destroyed already.
     unsafe fn destroy(&mut self);
 }
 
@@ -51,11 +57,19 @@ impl<T: Element> Vector<T> {
     }
 
     /// Borrows initialized elements. Zero-length vectors may have null data.
+    ///
+    /// # Safety
+    /// For nonempty vectors, `data` must point to `size` live, initialized
+    /// elements that are not mutated for the duration of the borrow.
     pub(crate) unsafe fn as_slice(&self) -> &[T] {
         if self.size == 0 { &[] } else { unsafe { slice::from_raw_parts(self.data, self.size) } }
     }
 
     /// Borrows initialized elements exclusively.
+    ///
+    /// # Safety
+    /// For nonempty vectors, `data` must point to `size` live, initialized
+    /// elements exclusively accessible for the duration of the borrow.
     pub(crate) unsafe fn as_mut_slice(&mut self) -> &mut [T] {
         if self.size == 0 { &mut [] } else { unsafe { slice::from_raw_parts_mut(self.data, self.size) } }
     }
@@ -63,7 +77,7 @@ impl<T: Element> Vector<T> {
 
 impl<T: Element> Clone for Vector<T> {
     fn clone(&self) -> Self {
-        // SAFETY: Rust-owned vectors always contain initialized, live elements.
+        // SAFETY: the source vector must contain initialized, live elements.
         unsafe { Self::from_vec(self.as_slice().iter().map(|value| value.copy()).collect()) }
     }
 }

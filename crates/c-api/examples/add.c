@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include "tinywasm.h"
 
@@ -30,8 +31,10 @@ int main(void) {
   assert(instance && !trap);
   wasm_extern_vec_t exports;
   wasm_instance_exports(instance, &exports);
+  /* The export vector owns its handles. wasm_extern_as_func borrows one. */
   wasm_val_t arguments[] = { WASM_I32_VAL(20), WASM_I32_VAL(22) };
   wasm_val_t result[1];
+  /* Stack-backed vectors need no vector delete. The call writes the result slot. */
   wasm_val_vec_t args = WASM_ARRAY_VEC(arguments);
   wasm_val_vec_t results = WASM_ARRAY_VEC(result);
   trap = wasm_func_call(wasm_extern_as_func(exports.data[0]), &args, &results);

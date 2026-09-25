@@ -45,6 +45,9 @@ impl Element for wasm_val_t {
 
 impl wasm_val_t {
     /// Reads a valid C value and roots any reference in the owning runtime store.
+    ///
+    /// # Safety
+    /// The value must be initialized, including the union field selected by `kind`.
     pub(crate) unsafe fn to_runtime(&self, state: &Rc<StoreState>, store: &mut Store) -> tinywasm::Result<WasmValue> {
         Ok(unsafe {
             match self.kind {
@@ -92,6 +95,9 @@ impl wasm_val_t {
 }
 
 /// Converts a borrowed C reference, preserving store identity.
+///
+/// # Safety
+/// `value` must be null or a live C handle for the duration of this call.
 pub(crate) unsafe fn reference_to_runtime(
     value: *const wasm_ref_t,
     kind: u8,

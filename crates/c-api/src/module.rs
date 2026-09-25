@@ -122,17 +122,15 @@ export! { pub unsafe extern "C" fn wasm_instance_exports(value: *const wasm_inst
         let state = object.state()?;
         let ObjectKind::Instance(instance) = &object.kind else { return Err(tinywasm::Error::Other("expected instance".into())); };
         state.access(|access| {
-            // Build owned handles only after all fallible conversions complete.
-            let objects = instance.exports().map(|(_, item)| {
-                let kind = match item {
+            let kinds = instance.exports().map(|(_, item)| {
+                Ok(match item {
                     ExternItem::Func(func) => { let reference = func.as_func_ref(access.store())?; ObjectKind::Func(func, reference) },
                     ExternItem::Global(global) => ObjectKind::Global(global), ExternItem::Memory(memory) => ObjectKind::Memory(memory),
                     ExternItem::Table(table) => ObjectKind::Table(table), ExternItem::Tag(_) => return Err(tinywasm::Error::Other("tag exports are unsupported".into())),
                     ExternItem::MemoryShared(_) => return Err(tinywasm::Error::Other("shared memory exports are unsupported".into())),
-                };
-                Ok(state.intern(kind))
+                })
             }).collect::<tinywasm::Result<Vec<_>>>()?;
-            Ok(Vector::from_vec(objects.into_iter().map(|object| boxed(wasm_ref_t(object))).collect()))
+            Ok(Vector::from_vec(kinds.into_iter().map(|kind| boxed(wasm_ref_t(state.intern(kind)))).collect()))
         })
     })();
     unsafe { out.write(result.unwrap_or_else(failure)) };

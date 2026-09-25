@@ -1,8 +1,27 @@
-//! Cargo-built implementation of the WebAssembly C API.
+//! C API implementation for TinyWasm.
 //!
-//! The public contract is in `include/wasm.h` and `include/tinywasm.h`.
-//! All pointer arguments follow those headers' ownership and lifetime rules.
-//! Stores and their objects are confined to the creating thread.
+//! See `include/wasm.h` and `include/tinywasm.h` for the C interface and ownership rules.
+//! Use a store and its objects only on the thread that created the store.
+//!
+//! # Symbol prefix
+//!
+//! By default, the library exports the names in `wasm.h`. To avoid collisions
+//! with another WebAssembly C API implementation, build with a prefix:
+//!
+//! ```sh
+//! make -C crates/c-api TINYWASM_C_API_PREFIX=my_
+//! ```
+//!
+//! Define the same prefix before including `tinywasm.h` in C or C++:
+//!
+//! ```c
+//! #define TINYWASM_C_API_PREFIX my_
+//! #include "tinywasm.h"
+//! ```
+//!
+//! When building with Cargo directly, enable `custom-prefix` and set
+//! `TINYWASM_C_API_PREFIX`. Include `tinywasm.h` before `wasm.h` so the aliases
+//! take effect.
 #![allow(non_camel_case_types)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
@@ -38,9 +57,12 @@ fn boxed<T>(value: T) -> *mut T {
 }
 
 /// Deletes a nullable owned opaque handle.
+///
+/// # Safety
+/// `value` must be null or a live handle returned by `boxed` whose ownership
+/// has been transferred to this call exactly once.
 unsafe fn delete<T>(value: *mut T) {
     if !value.is_null() {
-        // SAFETY: the caller transfers a handle allocated by `boxed` exactly once.
         unsafe { drop(Box::from_raw(value)) };
     }
 }

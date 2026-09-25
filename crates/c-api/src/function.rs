@@ -39,6 +39,9 @@ impl<T> ThreadConfined<T> {
 }
 
 impl CallbackData {
+    /// # Safety
+    /// The C callback and its environment must remain valid for this call, and
+    /// `args` and `results` must point to valid callback vectors.
     unsafe fn call(&self, args: *const wasm_val_vec_t, results: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
         unsafe {
             match self.function {
@@ -123,7 +126,10 @@ export! { pub unsafe extern "C" fn wasm_func_result_arity(value: *const wasm_fun
 
 export! { pub unsafe extern "C" fn wasm_func_call(value: *const wasm_func_t, args: *const wasm_val_vec_t, results: *mut wasm_val_vec_t) -> *mut wasm_trap_t {
     let object = unsafe { (*value).0.clone() };
-    let state = object.state().expect("function store must be alive");
+    let state = match object.state() {
+        Ok(state) => state,
+        Err(error) => return failure(error),
+    };
     let result = state.access(|access| {
         let ObjectKind::Func(function, _) = &object.kind else { return Err(tinywasm::Error::Other("expected function".into())); };
         let ty = function.ty(access.store())?.clone();

@@ -48,7 +48,6 @@ export! { pub unsafe extern "C" fn wasm_table_new(store: *mut wasm_store_t, ty: 
     }).map_or_else(failure, |object| boxed(wasm_ref_t(object)))
 }}
 
-/// Runs a checked store operation on an opaque object.
 fn with_object<T: Default>(
     object: &Object,
     action: impl FnOnce(&Rc<StoreState>, &mut Access<'_>) -> tinywasm::Result<T>,

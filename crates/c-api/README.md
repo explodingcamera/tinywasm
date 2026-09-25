@@ -15,6 +15,26 @@ This builds `libtinywasm.so` (or `.dylib` on macOS) and `libtinywasm.a` in
 `pkg-config` file, run `make -C crates/c-api install`. Run `make -C crates/c-api example` to
 build and run the C example.
 
+## Symbol prefix
+
+By default, the library exports the names in `wasm.h`. To avoid symbol
+collisions with another WebAssembly C API implementation, build with a prefix:
+
+```sh
+make -C crates/c-api TINYWASM_C_API_PREFIX=my_
+```
+
+Define the same prefix before including `tinywasm.h` in C or C++:
+
+```c
+#define TINYWASM_C_API_PREFIX my_
+#include "tinywasm.h"
+```
+
+When building with Cargo directly, enable `custom-prefix` and set the
+`TINYWASM_C_API_PREFIX` environment variable. Include `tinywasm.h` before
+`wasm.h` so the symbol aliases take effect.
+
 ## Notes
 
 - Follow the ownership annotations in `wasm.h` and use the matching delete
@@ -28,5 +48,5 @@ build and run the C example.
   the module boundary.
 
 `wasm.h` is vendored from WebAssembly/wasm-c-api commit
-`9d6b93764ac96cdd9db51081c363e09d2d488b4d` under
+`9d6b93764ac96cdd9db51081c363e09d2d488b4d`, under
 [`include/LICENSE-wasm-c-api`](include/LICENSE-wasm-c-api).

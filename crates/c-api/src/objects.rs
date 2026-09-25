@@ -11,7 +11,7 @@ use std::{
 };
 use tinywasm::{FuncRef, Function, Global, Memory, Module, ModuleInstance, Table};
 
-/// A finalizer owns exactly one C environment or host-info value.
+/// Calls the optional finalizer when replaced or dropped.
 pub(crate) struct HostInfo {
     pub(crate) data: *mut c_void,
     pub(crate) finalizer: Option<unsafe extern "C" fn(*mut c_void)>,

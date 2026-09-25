@@ -150,3 +150,32 @@ fn memory_pointer_lifetime() {
         wasm_engine_delete(engine);
     }
 }
+
+#[test]
+fn function_call_after_store_delete() {
+    let binary = Vector::from_vec(wat::parse_str(r#"(module (func (export "noop")))"#).unwrap());
+    unsafe {
+        let engine = wasm_engine_new();
+        let store = wasm_store_new(engine);
+        let module = wasm_module_new(store, &binary);
+        let imports = Vector::default();
+        let instance = wasm_instance_new(store, module, &imports, ptr::null_mut());
+        let mut exports = Vector::default();
+        wasm_instance_exports(instance, &mut exports);
+        let function = wasm_func_copy(wasm_extern_as_func(exports.as_slice()[0]));
+        drop(exports);
+        wasm_instance_delete(instance);
+        wasm_module_delete(module);
+        wasm_store_delete(store);
+
+        let empty = Vector::default();
+        let mut results = Vector::default();
+        assert!(wasm_func_call(function, &empty, &mut results).is_null());
+        let mut message = Vector::default();
+        crate::tinywasm_last_error_message(&mut message);
+        assert!(message.as_slice().ends_with(b"store has been deleted\0"));
+
+        wasm_func_delete(function);
+        wasm_engine_delete(engine);
+    }
+}
