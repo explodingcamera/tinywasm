@@ -903,6 +903,9 @@ define_instructions! {
     I32x4RelaxedDotI8x16I7x16AddS,
 
     SelectStore32(Operand128Idx<MemoryOperand>), SelectStore64(Operand128Idx<MemoryOperand>),
+
+    // Selected memory-0 operations carry a 32-bit static offset in the instruction.
+    I32LoadInline(u32), I32Load8UInline(u32), I32Load16SInline(u32),
 }
 
 const _: () = assert!(core::mem::size_of::<Instruction>() == 8);

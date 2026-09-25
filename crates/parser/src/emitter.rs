@@ -4,7 +4,10 @@ use crate::{
     ParseError, ParserOptions, Result, conversion::FunctionLoweringContext, selection, visit::FunctionDataBuilder,
 };
 use alloc::vec::Vec;
-use tinywasm_types::{BranchTableOperand, ExceptionCatch, ExceptionHandler, Instruction, Operand128, ValueCounts};
+use tinywasm_types::{
+    BranchTableOperand, ExceptionCatch, ExceptionHandler, Instruction, MemoryOperand, Operand128, Operand128Idx,
+    ValueCounts,
+};
 
 const LOOKBEHIND: usize = 3;
 
@@ -306,6 +309,25 @@ impl Emitter {
         for handler in &data.exception_handlers {
             if handler.start_ip > handler.end_ip || handler.end_ip as usize > self.instructions.len() {
                 return Err(ParseError::Other("exception handler range out of bounds".into()));
+            }
+        }
+        // Run after fusion so only surviving memory-0 loads become inline-offset instructions.
+        if self.select {
+            let inline_offset = |index: Operand128Idx<MemoryOperand>| {
+                let arg = data.operand128(index);
+                if arg.memory() == 0 { u32::try_from(arg.offset()).ok() } else { None }
+            };
+            for instruction in &mut self.instructions {
+                use Instruction::*;
+                let replacement = match *instruction {
+                    I32Load(index) => inline_offset(index).map(I32LoadInline),
+                    I32Load8U(index) => inline_offset(index).map(I32Load8UInline),
+                    I32Load16S(index) => inline_offset(index).map(I32Load16SInline),
+                    _ => None,
+                };
+                if let Some(replacement) = replacement {
+                    *instruction = replacement;
+                }
             }
         }
         Ok(self.instructions)

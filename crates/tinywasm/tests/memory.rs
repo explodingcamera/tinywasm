@@ -200,3 +200,86 @@ fn resource_limiter_allows_guest_memory_grow_by_default() -> TestResult {
     assert_eq!(grow.call(&mut store, ())?, 1);
     Ok(())
 }
+
+#[test]
+fn inline_memory_immediates_preserve_multi_memory_behavior() -> TestResult {
+    use tinywasm::parser::{Parser, ParserOptions};
+    use tinywasm::types::Instruction;
+
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (memory 1)
+          (memory $other 1)
+          (data (memory $other) (i32.const 1) "\7f")
+          (func (export "inline") (result i32)
+            i32.const 0
+            i32.const 0x12345678
+            i32.store offset=4
+            i32.const 0
+            i32.load offset=4
+            drop
+            i32.const 0
+            i32.const -2
+            i32.store16 offset=8
+            i32.const 0
+            i32.load16_s offset=8
+            drop
+            i32.const 0
+            i32.load8_u offset=4)
+          (func (export "other") (result i32)
+            i32.const 0
+            i32.load8_u $other offset=1))
+        "#,
+    )?;
+    let optimized = Parser::default().parse_module_bytes(&wasm)?;
+    let instructions = &optimized.funcs[0].instructions;
+    assert!(instructions.iter().any(|op| matches!(op, Instruction::I32LoadInline(4))));
+    assert!(instructions.iter().any(|op| matches!(op, Instruction::I32Load16SInline(8))));
+    assert!(instructions.iter().any(|op| matches!(op, Instruction::I32Load8UInline(4))));
+    assert!(optimized.funcs[1].instructions.iter().any(|op| matches!(op, Instruction::I32Load8U(_))));
+
+    for optimize in [true, false] {
+        let module = Parser::new(ParserOptions::new().with_optimize(optimize)).parse_module_bytes(&wasm)?;
+        let mut store = Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+        assert_eq!(instance.func::<(), i32>(&store, "inline")?.call(&mut store, ())?, 0x78);
+        assert_eq!(instance.func::<(), i32>(&store, "other")?.call(&mut store, ())?, 0x7f);
+    }
+    Ok(())
+}
+
+#[test]
+fn inline_memory_loads_preserve_memory64_and_wide_offsets() -> TestResult {
+    use tinywasm::parser::{Parser, ParserOptions};
+    use tinywasm::types::Instruction;
+
+    let wasm = wat::parse_str(
+        r#"
+        (module
+          (memory i64 1)
+          (data (i64.const 0) "\2a")
+          (func (export "small") (result i32)
+            i64.const 0
+            i32.load8_u)
+          (func (export "wide") (result i32)
+            i64.const 0
+            i32.load8_u offset=4294967296))
+        "#,
+    )?;
+    let optimized = Parser::default().parse_module_bytes(&wasm)?;
+    assert!(optimized.funcs[0].instructions.iter().any(|op| matches!(op, Instruction::I32Load8UInline(0))));
+    assert!(optimized.funcs[1].instructions.iter().any(|op| matches!(op, Instruction::I32Load8U(_))));
+
+    for optimize in [true, false] {
+        let module = Parser::new(ParserOptions::new().with_optimize(optimize)).parse_module_bytes(&wasm)?;
+        let mut store = Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
+        assert_eq!(instance.func::<(), i32>(&store, "small")?.call(&mut store, ())?, 42);
+        assert!(matches!(
+            instance.func::<(), i32>(&store, "wide")?.call(&mut store, ()),
+            Err(tinywasm::Error::Trap(Trap::MemoryOutOfBounds { .. }))
+        ));
+    }
+    Ok(())
+}
