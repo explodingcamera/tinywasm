@@ -38,6 +38,9 @@ mod selection;
 mod validation;
 mod visit;
 
+#[cfg(all(test, feature = "std"))]
+mod tests;
+
 #[cfg(parallel_parser)]
 mod parallel;
 
@@ -49,6 +52,79 @@ use validation::Validator;
 use wasmparser::WasmFeatures;
 
 pub use tinywasm_types::Module;
+
+/// Optional limits for parsing modules from untrusted sources.
+///
+/// These limit encoded input and specific forms of parse-time expansion. They do
+/// not constitute a hard bound on the parser's total memory use. Validation
+/// should remain enabled for untrusted modules.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ParseLimits {
+    /// Maximum encoded module size in bytes, including custom sections.
+    pub max_module_bytes: Option<usize>,
+    /// Maximum materialized entries in any one section. Recursive type groups
+    /// and compact imports count by their expanded entries.
+    pub max_section_items: Option<usize>,
+    /// Maximum parameters plus declared locals in any one function.
+    pub max_function_locals: Option<usize>,
+    /// Maximum explicit targets in one `br_table` (excluding its default).
+    pub max_br_table_targets: Option<usize>,
+    /// Maximum elements in one `array.new_fixed`.
+    pub max_array_new_fixed_elements: Option<usize>,
+}
+
+impl ParseLimits {
+    /// Create limits with every bound disabled.
+    pub const fn new() -> Self {
+        Self {
+            max_module_bytes: None,
+            max_section_items: None,
+            max_function_locals: None,
+            max_br_table_targets: None,
+            max_array_new_fixed_elements: None,
+        }
+    }
+
+    /// Bound the encoded size of a module.
+    pub const fn with_max_module_bytes(mut self, limit: usize) -> Self {
+        self.max_module_bytes = Some(limit);
+        self
+    }
+
+    /// Bound the number of materialized entries in each section.
+    pub const fn with_max_section_items(mut self, limit: usize) -> Self {
+        self.max_section_items = Some(limit);
+        self
+    }
+
+    /// Bound parameters plus declared locals in each function.
+    pub const fn with_max_function_locals(mut self, limit: usize) -> Self {
+        self.max_function_locals = Some(limit);
+        self
+    }
+
+    /// Bound explicit targets in each `br_table`.
+    pub const fn with_max_br_table_targets(mut self, limit: usize) -> Self {
+        self.max_br_table_targets = Some(limit);
+        self
+    }
+
+    /// Bound elements in each `array.new_fixed`.
+    pub const fn with_max_array_new_fixed_elements(mut self, limit: usize) -> Self {
+        self.max_array_new_fixed_elements = Some(limit);
+        self
+    }
+}
+
+pub(crate) fn check_parse_limit(kind: ParseLimitKind, limit: Option<usize>, observed: usize) -> Result<()> {
+    if let Some(limit) = limit
+        && observed > limit
+    {
+        return Err(ParseError::LimitExceeded { kind, limit });
+    }
+    Ok(())
+}
 
 /// Parser optimization and lowering options.
 #[non_exhaustive]
@@ -69,6 +145,9 @@ pub struct ParserOptions {
     /// Whether to deduplicate immutable function operands while parsing.
     pub deduplicate_operands: bool,
 
+    /// Optional limits for parsing untrusted modules. Unlimited by default.
+    pub limits: ParseLimits,
+
     #[cfg(parallel_parser)]
     /// Number of threads to use for parallel parsing.
     ///
@@ -86,6 +165,7 @@ impl Default for ParserOptions {
             validation: cfg!(feature = "validate"),
             optimize: true,
             deduplicate_operands: true,
+            limits: ParseLimits::default(),
             #[cfg(parallel_parser)]
             threads: None,
         }
@@ -135,6 +215,17 @@ impl ParserOptions {
     /// Returns whether immutable function operands are deduplicated while parsing.
     pub const fn deduplicate_operands(&self) -> bool {
         self.deduplicate_operands
+    }
+
+    /// Set parse-time limits.
+    pub const fn with_limits(mut self, limits: ParseLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// Returns the configured parse-time limits.
+    pub const fn limits(&self) -> &ParseLimits {
+        &self.limits
     }
 
     #[cfg(parallel_parser)]
@@ -187,10 +278,35 @@ impl Parser {
     }
 
     #[cfg(feature = "std")]
-    fn read_more(stream: &mut impl std::io::Read, buffer: &mut alloc::vec::Vec<u8>, hint: usize) -> Result<usize> {
+    fn read_more(
+        stream: &mut impl std::io::Read,
+        buffer: &mut alloc::vec::Vec<u8>,
+        hint: usize,
+        total_read: &mut usize,
+        max_module_bytes: Option<usize>,
+    ) -> Result<usize> {
         let len = buffer.len();
         // Size hints can come from untrusted section lengths.
-        let increment = hint.clamp(1, 64 * 1024);
+        let mut increment = hint.clamp(1, 64 * 1024);
+        if let Some(limit) = max_module_bytes {
+            let remaining = limit.saturating_sub(*total_read);
+            if remaining == 0 {
+                // A module exactly at the limit may still need an EOF probe.
+                let mut extra = [0];
+                let read_bytes = loop {
+                    match stream.read(&mut extra) {
+                        Ok(read_bytes) => break read_bytes,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => return Err(ParseError::Other(alloc::format!("Error reading from stream: {e}"))),
+                    }
+                };
+                if read_bytes != 0 {
+                    return Err(ParseError::LimitExceeded { kind: ParseLimitKind::ModuleBytes, limit });
+                }
+                return Ok(0);
+            }
+            increment = increment.min(remaining);
+        }
         let new_len =
             len.checked_add(increment).ok_or_else(|| ParseError::Other("stream buffer is too large".into()))?;
         buffer
@@ -208,12 +324,15 @@ impl Parser {
             }
         };
         buffer.truncate(len + read_bytes);
+        *total_read =
+            total_read.checked_add(read_bytes).ok_or_else(|| ParseError::Other("stream byte count overflow".into()))?;
         Ok(read_bytes)
     }
 
     /// Parse a [`Module`] from bytes
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<Module> {
         let wasm = wasm.as_ref();
+        check_parse_limit(ParseLimitKind::ModuleBytes, self.options.limits.max_module_bytes, wasm.len())?;
         let mut validator = self.validator();
         let mut reader = ModuleReader::default();
 
@@ -225,7 +344,7 @@ impl Parser {
                 wasmparser::Payload::CodeSectionEntry(function) => {
                     reader.process_borrowed_code_section_entry(function, validator.as_mut(), &self.options)?;
                 }
-                payload => reader.process_payload(payload, validator.as_mut())?,
+                payload => reader.process_payload(payload, validator.as_mut(), &self.options)?,
             }
         }
 
@@ -254,6 +373,7 @@ impl Parser {
         let mut parser = wasmparser::Parser::new(0);
         let mut eof = false;
         let mut buffer_offset = 0;
+        let mut total_read = 0;
 
         loop {
             match parser.parse(&buffer[buffer_offset..], eof)? {
@@ -263,7 +383,13 @@ impl Parser {
                         buffer.truncate(buffer.len() - buffer_offset);
                         buffer_offset = 0;
                     }
-                    let read_bytes = Self::read_more(&mut stream, &mut buffer, hint)?;
+                    let read_bytes = Self::read_more(
+                        &mut stream,
+                        &mut buffer,
+                        hint,
+                        &mut total_read,
+                        self.options.limits.max_module_bytes,
+                    )?;
                     eof = read_bytes == 0;
                 }
                 wasmparser::Chunk::Parsed { consumed, payload } => {
@@ -287,7 +413,7 @@ impl Parser {
                             reader.process_inline_code_section_entry(function, validator.as_mut(), &self.options)?;
                         }
                         payload => {
-                            reader.process_payload(payload, validator.as_mut())?;
+                            reader.process_payload(payload, validator.as_mut(), &self.options)?;
                         }
                     }
                     buffer_offset += consumed;
@@ -296,7 +422,13 @@ impl Parser {
                     if let Some((count, section_size)) = deferred_code_section {
                         while buffer.len() - buffer_offset < section_size {
                             let remaining = section_size - (buffer.len() - buffer_offset);
-                            let read_bytes = Self::read_more(&mut stream, &mut buffer, remaining)?;
+                            let read_bytes = Self::read_more(
+                                &mut stream,
+                                &mut buffer,
+                                remaining,
+                                &mut total_read,
+                                self.options.limits.max_module_bytes,
+                            )?;
                             if read_bytes == 0 {
                                 return Err(ParseError::ParseError {
                                     message: "unexpected end-of-file".into(),
@@ -320,7 +452,13 @@ impl Parser {
                         }
 
                         if !eof {
-                            let read_bytes = Self::read_more(&mut stream, &mut buffer, 1)?;
+                            let read_bytes = Self::read_more(
+                                &mut stream,
+                                &mut buffer,
+                                1,
+                                &mut total_read,
+                                self.options.limits.max_module_bytes,
+                            )?;
                             eof = read_bytes == 0;
 
                             if !eof {

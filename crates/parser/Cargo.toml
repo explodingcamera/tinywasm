@@ -15,6 +15,9 @@ log = { workspace = true, optional = true }
 tinywasm-types = { workspace = true }
 wasmparser = { workspace = true, features = ["simd"] }
 
+[dev-dependencies]
+wat.workspace = true
+
 [features]
 default = ["log", "parallel", "std", "validate"]
 

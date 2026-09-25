@@ -75,7 +75,7 @@ Applications that only load `.twasm` can remove the parser and validator from th
 
 WebAssembly [validation](https://webassembly.github.io/spec/core/valid/index.html) is enabled by default through the `validate` feature. Keep this feature enabled and leave `ParserOptions::validation` enabled for modules from untrusted sources. Without validation, parsing can produce modules that violate runtime assumptions and may panic during instantiation or execution.
 
-Validation does not limit parsing or execution resources. Hosts that run untrusted code should also set input limits, configure stack and `ResourceLimiter` limits, and use fuel- or time-budgeted execution as needed.
+Validation does not limit parsing or execution resources. Hosts that run untrusted code should also set opt-in `parser::ParseLimits` for input and known parse-time amplification points, configure stack and `ResourceLimiter` limits, and use fuel- or time-budgeted execution as needed.
 
 Loading `.twasm` checks the archive header and encoding but does not run WebAssembly validation or verify TinyWasm's runtime invariants. Load archives only from trusted sources. For untrusted input, parse a WebAssembly binary with validation enabled.
 
