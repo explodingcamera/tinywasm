@@ -107,7 +107,7 @@ impl TestSuite {
             return Ok(());
         }
 
-        let mut file = OpenOptions::new().create(true).read(true).write(true).open(path)?;
+        let mut file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
         let last_line = BufReader::new(&file).lines().last().transpose()?;
 
         if let Some(last) = last_line

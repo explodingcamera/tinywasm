@@ -90,8 +90,7 @@ mod tests {
     #[test]
     fn v128_operands_round_trip_archive() {
         let bytes = [0x00, 0x01, 0x02, 0x03, 0x7f, 0x80, 0xfe, 0xff, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x90];
-        let mut function = WasmFunction::default();
-        function.max_stack = ValueCounts { c32: 2, c64: 3, c128: 4 };
+        let mut function = WasmFunction { max_stack: ValueCounts { c32: 2, c64: 3, c128: 4 }, ..Default::default() };
         let constant = Operand128Idx::new(0);
         function.data.operands128 = Box::new([Operand128::<[u8; 16]>::new(bytes).cast()]);
         function.instructions = Box::new([Instruction::Const128(constant), Instruction::I8x16Shuffle(constant)]);
