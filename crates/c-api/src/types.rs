@@ -92,7 +92,7 @@ impl wasm_externtype_t {
     }
 
     pub(crate) fn from_memory(ty: MemoryType) -> Option<Self> {
-        if ty.arch() != MemoryArch::I32 || ty.page_size() != 65536 {
+        if ty.arch() != MemoryArch::I32 || ty.page_size() != 65536 || ty.shared() {
             return None;
         }
         Some(Self::Memory(wasm_limits_t {

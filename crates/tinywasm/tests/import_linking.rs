@@ -40,6 +40,16 @@ fn link_module_links_same_store_instance() -> Result<(), Box<dyn core::error::Er
 }
 
 #[test]
+fn memory_import_requires_declared_maximum() -> Result<(), Box<dyn core::error::Error>> {
+    let module = tinywasm::parse_bytes(&wat::parse_str(r#"(module (import "host" "memory" (memory 0 65536)))"#)?)?;
+    let mut store = Store::default();
+    let mut imports = Imports::new();
+    imports.define("host", "memory", tinywasm::Memory::try_new(&mut store, tinywasm::types::MemoryType::default())?);
+    assert!(matches!(ModuleInstance::instantiate(&mut store, &module, Some(&imports)), Err(Error::Linker(_))));
+    Ok(())
+}
+
+#[test]
 fn link_module_rejects_cross_store_instance() -> Result<(), Box<dyn core::error::Error>> {
     let (add_module, import_module) = parse_modules()?;
 

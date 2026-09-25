@@ -57,7 +57,7 @@ impl Runtime {
             .and_then(|data| data.get(..SCREEN_WIDTH * SCREEN_HEIGHT * 4))
             .context("framebuffer is outside guest memory")?;
         anyhow::ensure!(dst.len() <= SCREEN_WIDTH * SCREEN_HEIGHT, "framebuffer destination is too large");
-        for (pixel, chunk) in dst.iter_mut().zip(framebuffer.chunks_exact(4)) {
+        for (pixel, chunk) in dst.iter_mut().zip(framebuffer.as_chunks::<4>().0) {
             *pixel = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | chunk[2] as u32;
         }
         Ok(())

@@ -103,7 +103,11 @@ impl TestSuite {
         use std::fs::OpenOptions;
         use std::io::Write;
 
-        let mut file = OpenOptions::new().create(true).append(true).read(true).open(path)?;
+        if std::env::var("CI").is_ok_and(|value| value == "true") {
+            return Ok(());
+        }
+
+        let mut file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
         let last_line = BufReader::new(&file).lines().last().transpose()?;
 
         if let Some(last) = last_line

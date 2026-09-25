@@ -4,12 +4,32 @@ use tinywasm::{ExecProgress, ModuleInstance, Result, types::WasmValue};
 #[cfg(feature = "std")]
 use std::time::Duration;
 
-const FIBONACCI_WASM: &[u8] = include_bytes!("../../../examples/rust/out/fibonacci.wasm");
+const FIBONACCI_WAT: &str = r#"
+    (module
+      (func $fib (export "fibonacci_recursive") (param $n i32) (result i32)
+        local.get $n
+        i32.const 2
+        i32.lt_s
+        if (result i32)
+          local.get $n
+        else
+          local.get $n
+          i32.const 1
+          i32.sub
+          call $fib
+          local.get $n
+          i32.const 2
+          i32.sub
+          call $fib
+          i32.add
+        end))
+"#;
 const ADD_WASM: &[u8] = include_bytes!("../../../examples/wasm/add.wasm");
 
 #[test]
 fn typed_resume_matches_non_budgeted_call() -> Result<()> {
-    let module = tinywasm::parse_bytes(FIBONACCI_WASM)?;
+    let wasm = wat::parse_str(FIBONACCI_WAT).expect("valid Fibonacci fixture");
+    let module = tinywasm::parse_bytes(&wasm)?;
 
     let mut store_full = tinywasm::Store::default();
     let instance_full = ModuleInstance::instantiate(&mut store_full, &module, None)?;
@@ -59,7 +79,8 @@ fn untyped_resume_supports_zero_fuel() -> Result<()> {
 
 #[test]
 fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
-    let module = tinywasm::parse_bytes(FIBONACCI_WASM)?;
+    let wasm = wat::parse_str(FIBONACCI_WAT).expect("valid Fibonacci fixture");
+    let module = tinywasm::parse_bytes(&wasm)?;
 
     let mut per_instr_store = tinywasm::Store::default();
     let instance_per_instr = ModuleInstance::instantiate(&mut per_instr_store, &module, None)?;

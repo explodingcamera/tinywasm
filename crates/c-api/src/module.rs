@@ -128,6 +128,7 @@ export! { pub unsafe extern "C" fn wasm_instance_exports(value: *const wasm_inst
                     ExternItem::Func(func) => { let reference = func.as_func_ref(access.store())?; ObjectKind::Func(func, reference) },
                     ExternItem::Global(global) => ObjectKind::Global(global), ExternItem::Memory(memory) => ObjectKind::Memory(memory),
                     ExternItem::Table(table) => ObjectKind::Table(table), ExternItem::Tag(_) => return Err(tinywasm::Error::Other("tag exports are unsupported".into())),
+                    ExternItem::MemoryShared(_) => return Err(tinywasm::Error::Other("shared memory exports are unsupported".into())),
                 };
                 Ok(state.intern(kind))
             }).collect::<tinywasm::Result<Vec<_>>>()?;

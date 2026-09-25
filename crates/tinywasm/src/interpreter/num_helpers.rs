@@ -51,6 +51,7 @@ pub(crate) trait TinywasmFloatExt {
 use crate::{Result, Trap};
 
 #[cfg(not(feature = "std"))]
+#[allow(unused_imports)]
 use super::no_std_floats::NoStdFloatExt;
 
 macro_rules! impl_wasm_float_ops {

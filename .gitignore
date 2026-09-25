@@ -1,4 +1,5 @@
 /target
+/crates/bench/guest/target
 notes.md
 examples/*/out/*
 examples/*/target

@@ -24,7 +24,7 @@ build and run the C example.
 - Include `tinywasm.h` for `tinywasm_last_error_message`, which copies the
   calling thread's last error into a vector you delete with `wasm_byte_vec_delete`.
 - Module imports and exports must have types representable in `wasm.h`. SIMD
-  signatures, memory64/table64, GC references, and tags are not supported at
+  signatures, shared memory, memory64/table64, GC references, and tags are not supported at
   the module boundary.
 
 `wasm.h` is vendored from WebAssembly/wasm-c-api commit

@@ -23,43 +23,35 @@ impl core::fmt::Debug for MemoryInstance {
 }
 
 impl MemoryInstance {
+    /// Converts a page count to a byte length that fits the host address space.
     #[inline]
-    fn host_size(kind: MemoryType, pages: u64) -> Option<usize> {
+    pub(super) fn host_size(kind: MemoryType, pages: u64) -> Option<usize> {
         pages.checked_mul(kind.page_size()).and_then(|size| usize::try_from(size).ok())
     }
 
+    /// Returns the declared byte limit, saturating when it exceeds the host address space.
     #[inline]
-    fn maximum_size(kind: MemoryType) -> Option<usize> {
+    pub(super) fn maximum_size(kind: MemoryType) -> Option<usize> {
         kind.page_count_max_declared().map(|pages| Self::host_size(kind, pages).unwrap_or(usize::MAX))
     }
 
+    /// Applies the runtime's memory64 allocation cap to the declared page limit.
     #[inline]
-    fn page_count_max(kind: MemoryType) -> u64 {
+    pub(super) fn page_count_max(kind: MemoryType) -> u64 {
         match kind.arch() {
             MemoryArch::I32 => kind.page_count_max(),
             MemoryArch::I64 => kind.page_count_max().min(MEMORY64_MAX_BYTES / kind.page_size()),
         }
     }
 
-    #[cfg(target_pointer_width = "64")]
-    #[inline(always)]
-    pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
-        match base.checked_add(offset as usize) {
-            Some(addr) => Ok(addr),
-            None => cold!(Err(memory_oob(base, N, self.inner.len()))),
-        }
-    }
-
-    #[cfg(not(target_pointer_width = "64"))]
-    #[inline(always)]
-    pub(crate) fn effective_addr<const N: usize>(&self, base: usize, offset: u64) -> Result<usize, Trap> {
-        match usize::try_from(offset).ok().and_then(|offset| base.checked_add(offset)) {
-            Some(addr) => Ok(addr),
-            None => cold!(Err(memory_oob(base, N, self.inner.len()))),
-        }
-    }
-
     pub(crate) fn new(kind: MemoryType, limiter: Option<&dyn ResourceLimiter>) -> Result<Self> {
+        if kind.shared() && kind.page_count_max_declared().is_none() {
+            return Err(Error::UnsupportedFeature("shared memory requires a maximum"));
+        }
+        #[cfg(not(feature = "std"))]
+        if kind.shared() {
+            return Err(Error::UnsupportedFeature("shared memory requires std"));
+        }
         if kind.page_size() == 0 {
             return Err(Error::UnsupportedFeature("zero-byte memory pages"));
         }
@@ -90,10 +82,6 @@ impl MemoryInstance {
         Ok(Self { kind, inner: storage, page_count: kind.page_count_initial() as usize })
     }
 
-    pub(crate) const fn is_64bit(&self) -> bool {
-        matches!(self.kind.arch(), MemoryArch::I64)
-    }
-
     pub(crate) fn copy_from_memory(
         &mut self,
         dst: usize,
@@ -113,12 +101,23 @@ impl MemoryInstance {
         pages_delta: i64,
         limiter: Option<&dyn ResourceLimiter>,
     ) -> Result<Option<i64>, Trap> {
-        let current_pages = self.page_count;
+        Self::grow_storage(self.kind, &mut self.inner, &mut self.page_count, pages_delta, limiter)
+    }
+
+    /// Grows exclusively borrowed storage after checking limits and the host limiter.
+    pub(super) fn grow_storage(
+        kind: MemoryType,
+        inner: &mut MemoryStorage,
+        page_count: &mut usize,
+        pages_delta: i64,
+        limiter: Option<&dyn ResourceLimiter>,
+    ) -> Result<Option<i64>, Trap> {
+        let current_pages = *page_count;
         let Some(new_pages) = usize::try_from(pages_delta).ok().and_then(|delta| current_pages.checked_add(delta))
         else {
             return cold!(Ok(None));
         };
-        let max_pages = Self::page_count_max(self.kind).try_into().unwrap_or(usize::MAX);
+        let max_pages = Self::page_count_max(kind).try_into().unwrap_or(usize::MAX);
 
         if new_pages > max_pages {
             return cold!({
@@ -127,23 +126,23 @@ impl MemoryInstance {
             });
         }
 
-        let Some(new_size) = Self::host_size(self.kind, new_pages as u64) else {
+        let Some(new_size) = Self::host_size(kind, new_pages as u64) else {
             return cold!(Ok(None));
         };
-        if new_size == self.inner.len() {
+        if new_size == inner.len() {
             return Ok(i64::try_from(current_pages).ok());
         }
 
         if let Some(limiter) = limiter
-            && !limiter.memory_growing(self.inner.len(), new_size, Self::maximum_size(self.kind))?
+            && !limiter.memory_growing(inner.len(), new_size, Self::maximum_size(kind))?
         {
             return cold!(Ok(None));
         }
 
-        if self.inner.grow_to(new_size).is_err() {
+        if inner.grow_to(new_size).is_err() {
             return cold!(Ok(None));
         }
-        self.page_count = new_pages;
+        *page_count = new_pages;
         Ok(i64::try_from(current_pages).ok())
     }
 }

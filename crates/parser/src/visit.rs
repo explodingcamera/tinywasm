@@ -11,9 +11,9 @@ use alloc::{
     vec::Vec,
 };
 use tinywasm_types::{
-    BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType, Operand64,
-    Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts,
-    ValueLane, WasmFunctionData,
+    AtomicWaitOp, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType,
+    Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection,
+    ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -185,6 +185,7 @@ pub(crate) struct FunctionBuilder<'a> {
     control_stack: Vec<ControlFrame<'a>>,
     operand_stack: Vec<ValueLane>,
     lane_counts: ValueCounts,
+    max_lane_counts: ValueCounts,
     metadata: &'a ModuleMetadata,
     local_types: Vec<ValueLane>,
     local_addr_map: Vec<u16>,
@@ -223,12 +224,28 @@ impl<'a> FunctionBuilder<'a> {
             }],
             operand_stack: Vec::new(),
             lane_counts: ValueCounts::default(),
+            max_lane_counts: ValueCounts::default(),
             uses_local_memory: false,
         }
     }
 
     fn mark_memory(&mut self, memory: u32) {
         self.uses_local_memory |= memory >= self.metadata.imported_memories;
+    }
+
+    fn atomic_wait(&mut self, memarg: wasmparser::MemArg, width: u8, op: AtomicWaitOp) -> Result<()> {
+        if memarg.align != width.trailing_zeros() as u8 {
+            return Err(crate::ParseError::Other("invalid atomic alignment".into()));
+        }
+        let address = self.metadata.memory_size(memarg.memory)?;
+        self.mark_memory(memarg.memory);
+        let memory = self.push128(Operand128::<tinywasm_types::MemoryOperand>::new(memarg.offset, memarg.memory))?;
+        let inputs: &[ValueLane] = match op {
+            AtomicWaitOp::Notify => &[address, ValueLane::S32],
+            AtomicWaitOp::Wait32 => &[address, ValueLane::S32, ValueLane::S64],
+            AtomicWaitOp::Wait64 => &[address, ValueLane::S64, ValueLane::S64],
+        };
+        self.emit(inputs, &[ValueLane::S32], Instruction::AtomicWait(memory, op))
     }
 
     fn visit_struct_get_impl(
@@ -436,7 +453,7 @@ pub(crate) fn process_operators(
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
     options: &ParserOptions,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, OperatorsReaderAllocations)> {
+) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, ValueCounts, OperatorsReaderAllocations)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -459,7 +476,7 @@ pub(crate) fn process_operators(
 
     reader.finish()?;
     let instructions = builder.emitter.finish(&mut builder.data)?;
-    Ok((instructions, builder.data, builder.uses_local_memory, reader.into_allocations()))
+    Ok((instructions, builder.data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
@@ -471,7 +488,14 @@ pub(crate) fn process_operators_and_validate(
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
     options: &ParserOptions,
-) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, FuncValidatorAllocations, OperatorsReaderAllocations)> {
+) -> Result<(
+    Vec<Instruction>,
+    FunctionDataBuilder,
+    bool,
+    ValueCounts,
+    FuncValidatorAllocations,
+    OperatorsReaderAllocations,
+)> {
     let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
@@ -494,7 +518,14 @@ pub(crate) fn process_operators_and_validate(
 
     reader.finish()?;
     let instructions = builder.emitter.finish(&mut builder.data)?;
-    Ok((instructions, builder.data, builder.uses_local_memory, validator.into_allocations(), reader.into_allocations()))
+    Ok((
+        instructions,
+        builder.data,
+        builder.uses_local_memory,
+        builder.max_lane_counts,
+        validator.into_allocations(),
+        reader.into_allocations(),
+    ))
 }
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
@@ -506,7 +537,85 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     wasmparser::for_each_visit_operator!(impl_visit_operator);
 
+    fn visit_atomic_fence(&mut self) -> Self::Output {
+        self.emit(&[], &[], Instruction::AtomicFence)
+    }
+
+    fn visit_memory_atomic_notify(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 4, AtomicWaitOp::Notify)
+    }
+    fn visit_memory_atomic_wait32(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 4, AtomicWaitOp::Wait32)
+    }
+    fn visit_memory_atomic_wait64(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+        self.atomic_wait(memarg, 8, AtomicWaitOp::Wait64)
+    }
+
     lowering_ops! {
+        atomic Load [Addr] => [S32] {
+            visit_i32_atomic_load => 4, visit_i32_atomic_load8_u => 1, visit_i32_atomic_load16_u => 2,
+        }
+        atomic Load [Addr] => [S64] {
+            visit_i64_atomic_load => 8, visit_i64_atomic_load8_u => 1,
+            visit_i64_atomic_load16_u => 2, visit_i64_atomic_load32_u => 4,
+        }
+        atomic Store [Addr, S32] => [] {
+            visit_i32_atomic_store => 4, visit_i32_atomic_store8 => 1, visit_i32_atomic_store16 => 2,
+        }
+        atomic Store [Addr, S64] => [] {
+            visit_i64_atomic_store => 8, visit_i64_atomic_store8 => 1,
+            visit_i64_atomic_store16 => 2, visit_i64_atomic_store32 => 4,
+        }
+        atomic Add [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_add => 4, visit_i32_atomic_rmw8_add_u => 1, visit_i32_atomic_rmw16_add_u => 2,
+        }
+        atomic Add [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_add => 8, visit_i64_atomic_rmw8_add_u => 1,
+            visit_i64_atomic_rmw16_add_u => 2, visit_i64_atomic_rmw32_add_u => 4,
+        }
+        atomic Sub [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_sub => 4, visit_i32_atomic_rmw8_sub_u => 1, visit_i32_atomic_rmw16_sub_u => 2,
+        }
+        atomic Sub [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_sub => 8, visit_i64_atomic_rmw8_sub_u => 1,
+            visit_i64_atomic_rmw16_sub_u => 2, visit_i64_atomic_rmw32_sub_u => 4,
+        }
+        atomic And [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_and => 4, visit_i32_atomic_rmw8_and_u => 1, visit_i32_atomic_rmw16_and_u => 2,
+        }
+        atomic And [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_and => 8, visit_i64_atomic_rmw8_and_u => 1,
+            visit_i64_atomic_rmw16_and_u => 2, visit_i64_atomic_rmw32_and_u => 4,
+        }
+        atomic Or [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_or => 4, visit_i32_atomic_rmw8_or_u => 1, visit_i32_atomic_rmw16_or_u => 2,
+        }
+        atomic Or [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_or => 8, visit_i64_atomic_rmw8_or_u => 1,
+            visit_i64_atomic_rmw16_or_u => 2, visit_i64_atomic_rmw32_or_u => 4,
+        }
+        atomic Xor [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_xor => 4, visit_i32_atomic_rmw8_xor_u => 1, visit_i32_atomic_rmw16_xor_u => 2,
+        }
+        atomic Xor [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_xor => 8, visit_i64_atomic_rmw8_xor_u => 1,
+            visit_i64_atomic_rmw16_xor_u => 2, visit_i64_atomic_rmw32_xor_u => 4,
+        }
+        atomic Xchg [Addr, S32] => [S32] {
+            visit_i32_atomic_rmw_xchg => 4, visit_i32_atomic_rmw8_xchg_u => 1, visit_i32_atomic_rmw16_xchg_u => 2,
+        }
+        atomic Xchg [Addr, S64] => [S64] {
+            visit_i64_atomic_rmw_xchg => 8, visit_i64_atomic_rmw8_xchg_u => 1,
+            visit_i64_atomic_rmw16_xchg_u => 2, visit_i64_atomic_rmw32_xchg_u => 4,
+        }
+        atomic Cmpxchg [Addr, S32, S32] => [S32] {
+            visit_i32_atomic_rmw_cmpxchg => 4, visit_i32_atomic_rmw8_cmpxchg_u => 1,
+            visit_i32_atomic_rmw16_cmpxchg_u => 2,
+        }
+        atomic Cmpxchg [Addr, S64, S64] => [S64] {
+            visit_i64_atomic_rmw_cmpxchg => 8, visit_i64_atomic_rmw8_cmpxchg_u => 1,
+            visit_i64_atomic_rmw16_cmpxchg_u => 2, visit_i64_atomic_rmw32_cmpxchg_u => 4,
+        }
         memory [Addr] => [S32] {
             visit_i32_load => I32Load [load(Instruction::LoadLocal32)],
             visit_f32_load => F32Load [load(Instruction::LoadLocal32)],
@@ -859,11 +968,23 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
                 wasmparser::Catch::All { label } => (None, label, false),
                 wasmparser::Catch::AllRef { label } => (None, label, true),
             };
-            if let Some(tag) = tag {
-                self.metadata.tag_signature(tag)?;
-            }
             let target_idx = self.get_ctx_idx(depth)?;
             let target_base = self.control_stack[target_idx].base;
+            // The runtime truncates to the target base, then injects the exception payload and
+            // optional reference before executing this landing pad. These pushes do not pass
+            // through the ordinary logical operand stack, but still need function-entry capacity.
+            let mut landing_counts = target_base;
+            if let Some(tag) = tag {
+                for &lane in &self.metadata.tag_signature(tag)?.params {
+                    Self::increment_lane(&mut landing_counts, lane)?;
+                }
+            }
+            if with_ref {
+                Self::increment_lane(&mut landing_counts, ValueLane::S32)?;
+            }
+            self.max_lane_counts.c32 = self.max_lane_counts.c32.max(landing_counts.c32);
+            self.max_lane_counts.c64 = self.max_lane_counts.c64.max(landing_counts.c64);
+            self.max_lane_counts.c128 = self.max_lane_counts.c128.max(landing_counts.c128);
             let landing_label = self.emitter.new_label();
             self.emitter.bind(landing_label)?;
             self.emit_branch_jump_or_return(depth)?;
@@ -1432,17 +1553,29 @@ impl<'a> FunctionBuilder<'a> {
         Ok((size, addr))
     }
 
-    /// Pushes logical operands while maintaining the lane counts used by `DropKeep`.
+    /// Increments a physical lane count, rejecting functions too large for the encoded count.
+    fn increment_lane(counts: &mut ValueCounts, lane: ValueLane) -> Result<()> {
+        let count = match lane {
+            ValueLane::S32 => &mut counts.c32,
+            ValueLane::S64 => &mut counts.c64,
+            ValueLane::S128 => &mut counts.c128,
+        };
+        *count = count
+            .checked_add(1)
+            .ok_or_else(|| crate::ParseError::Other("logical operand lane count is too large".into()))?;
+        Ok(())
+    }
+
+    /// Pushes logical operands while maintaining the lane counts used by `DropKeep` and their
+    /// maximum, which the runtime reserves when it enters the function.
     fn push_sizes(&mut self, sizes: &[ValueLane]) -> Result<()> {
         for &size in sizes {
-            let count = match size {
-                ValueLane::S32 => &mut self.lane_counts.c32,
-                ValueLane::S64 => &mut self.lane_counts.c64,
-                ValueLane::S128 => &mut self.lane_counts.c128,
-            };
-            *count = count
-                .checked_add(1)
-                .ok_or_else(|| crate::ParseError::Other("logical operand lane count is too large".into()))?;
+            Self::increment_lane(&mut self.lane_counts, size)?;
+            match size {
+                ValueLane::S32 => self.max_lane_counts.c32 = self.max_lane_counts.c32.max(self.lane_counts.c32),
+                ValueLane::S64 => self.max_lane_counts.c64 = self.max_lane_counts.c64.max(self.lane_counts.c64),
+                ValueLane::S128 => self.max_lane_counts.c128 = self.max_lane_counts.c128.max(self.lane_counts.c128),
+            }
             self.operand_stack.push(size);
         }
         Ok(())

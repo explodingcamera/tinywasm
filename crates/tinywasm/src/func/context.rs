@@ -30,6 +30,12 @@ impl FuncContext<'_> {
         self.module().memory(name)
     }
 
+    /// Get a shared memory export.
+    #[cfg(feature = "std")]
+    pub fn memory_shared(&self, name: &str) -> Result<crate::MemoryShared> {
+        self.module().memory_shared(name)
+    }
+
     /// Get any exported extern value by name.
     pub fn extern_item(&self, name: &str) -> Result<crate::ExternItem> {
         self.module().extern_item(name)

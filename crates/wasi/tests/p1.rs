@@ -236,6 +236,7 @@ fn provides_clocks_randomness_and_timer_polling() -> tinywasm::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn polls_accepts_and_uses_tcp_streams() -> tinywasm::Result<()> {
     use std::io::{Read, Write};
@@ -282,6 +283,7 @@ fn polls_accepts_and_uses_tcp_streams() -> tinywasm::Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
 #[test]
 fn sends_and_receives_udp_datagrams() -> tinywasm::Result<()> {
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();

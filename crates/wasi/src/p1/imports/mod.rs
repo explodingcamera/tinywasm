@@ -5,6 +5,10 @@ mod path;
 mod poll;
 mod process;
 mod random;
+#[cfg(unix)]
+mod sock;
+#[cfg(not(unix))]
+#[path = "sock_windows.rs"]
 mod sock;
 
 use tinywasm::{HostFunction, Imports};

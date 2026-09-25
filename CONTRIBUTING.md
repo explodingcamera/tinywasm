@@ -23,7 +23,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace
 cargo test --workspace
 cargo run --example basic
-cargo bench --bench tinywasm
+cargo bench-suite
 ```
 
 WebAssembly test commands:
@@ -38,18 +38,11 @@ cargo test-wast crates/tinywasm/tests/wasm-custom/table-basics.wast
 
 Set `RUST_LOG=debug` when running `cargo test-wast` to see executor debug logs.
 
-The `rust` example requires the `wasm32-unknown-unknown` target, the `rust-src` component, [Binaryen](https://github.com/WebAssembly/binaryen), and [WABT](https://github.com/WebAssembly/wabt):
-
-```bash
-./examples/rust/build.sh
-cargo run --example rust -- hello
-```
-
 You can use [samply](https://github.com/mstange/samply/) for profiling:
 
 ```bash
 cargo install --locked samply
-samply record -- cargo run --profile samply --example rust -- tinywasm
+samply record -- cargo bench-suite execute/nested_tinywasm
 ```
 
 Keep changes focused and external dependencies to a minimum. Update public documentation, the README, and the unreleased changelog when applicable.

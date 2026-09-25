@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use super::*;
 use crate::engine::Config;
 use crate::interpreter::{InternalValue, Value32, Value64, Value128};
+use crate::store::memory::memory_oob;
 
 /// Global state that can be manipulated by WebAssembly programs
 ///
@@ -15,6 +16,8 @@ pub(crate) struct State {
     pub(crate) funcs: Functions,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
+    #[cfg(feature = "std")]
+    pub(crate) shared_memories: Vec<MemoryShared>,
     pub(crate) globals: Globals,
     pub(crate) tags: Vec<TagInstance>,
     pub(crate) elements: Vec<ElementInstance>,
@@ -23,7 +26,118 @@ pub(crate) struct State {
     pub(crate) roots: gc::Roots,
 }
 
+// Dispatch once per operation, keeping ordinary memory on the direct-access path
+macro_rules! with_memory {
+    ($state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
+        let state = &mut $state;
+        let addr = $addr;
+        #[cfg(feature = "std")]
+        let mut guard;
+        #[cfg(feature = "std")]
+        let (kind, bytes) = if addr & $crate::store::SHARED_MEM_BIT != 0 {
+            core::hint::cold_path();
+            guard = state.shared_memories[(addr & !$crate::store::SHARED_MEM_BIT) as usize].lock();
+            (guard.kind, &mut *guard.inner)
+        } else {
+            let ordinary = &mut state.memories[addr as usize];
+            (ordinary.kind, &mut ordinary.inner)
+        };
+        #[cfg(not(feature = "std"))]
+        let (kind, bytes) = {
+            let ordinary = state.get_mem_mut(addr);
+            (ordinary.kind, &mut ordinary.inner)
+        };
+        #[allow(unused_variables)]
+        let $kind = kind;
+        let $memory = bytes;
+        $body
+    }};
+}
+pub(crate) use with_memory;
+
 impl State {
+    /// Returns the immutable memory type without taking a shared-memory lock.
+    pub(crate) fn memory_type(&self, addr: MemAddr) -> MemoryType {
+        #[cfg(feature = "std")]
+        if addr & SHARED_MEM_BIT != 0 {
+            return self.shared_memories[(addr & !SHARED_MEM_BIT) as usize].ty();
+        }
+        self.get_mem(addr).kind
+    }
+
+    /// Returns the memory architecture and published page count without locking.
+    pub(crate) fn memory_size(&self, addr: MemAddr) -> (MemoryArch, usize) {
+        #[cfg(feature = "std")]
+        if addr & SHARED_MEM_BIT != 0 {
+            let memory = &self.shared_memories[(addr & !SHARED_MEM_BIT) as usize];
+            return (memory.ty().arch(), memory.page_count());
+        }
+        let memory = self.get_mem(addr);
+        (memory.kind.arch(), memory.page_count)
+    }
+
+    /// Grows ordinary or shared memory without holding a shared lock during limiter callbacks.
+    pub(crate) fn grow_mem(
+        &mut self,
+        addr: MemAddr,
+        pages: i64,
+        limiter: Option<&dyn ResourceLimiter>,
+    ) -> Result<Option<i64>, Trap> {
+        #[cfg(feature = "std")]
+        if addr & SHARED_MEM_BIT != 0 {
+            return self.shared_memories[(addr & !SHARED_MEM_BIT) as usize].grow_with_limiter(pages, limiter);
+        }
+        self.get_mem_mut(addr).grow(pages, limiter)
+    }
+
+    /// Copies between memories, locking at most one shared backing at a time.
+    pub(crate) fn copy_memories(
+        &mut self,
+        dst_addr: MemAddr,
+        dst: usize,
+        src_addr: MemAddr,
+        src: usize,
+        size: usize,
+    ) -> Result<(), Trap> {
+        if dst_addr != src_addr && (dst_addr | src_addr) & SHARED_MEM_BIT == 0 {
+            let (destination, source) = self.get_mems_mut(dst_addr, src_addr);
+            return destination.copy_from_memory(dst, source, src, size);
+        }
+
+        let same_memory = dst_addr == src_addr;
+        #[cfg(feature = "std")]
+        let same_memory = same_memory
+            || (dst_addr & src_addr & SHARED_MEM_BIT != 0
+                && self.shared_memories[(dst_addr & !SHARED_MEM_BIT) as usize]
+                    .same_instance(&self.shared_memories[(src_addr & !SHARED_MEM_BIT) as usize]));
+
+        if same_memory {
+            return with_memory!(*self, dst_addr, |memory, kind| {
+                memory.copy_within(dst, src, size).ok_or_else(|| memory_oob(dst, size, memory.len()))
+            });
+        }
+
+        // Never hold two backing locks, since another store may copy in the opposite direction.
+        // Growth cannot invalidate these ranges. Check both before changing the destination.
+        with_memory!(*self, src_addr, |source, kind| {
+            source.checked_range(src, size).ok_or_else(|| memory_oob(src, size, source.len()))?;
+        });
+        with_memory!(*self, dst_addr, |destination, kind| {
+            destination.checked_range(dst, size).ok_or_else(|| memory_oob(dst, size, destination.len()))?;
+        });
+        let mut bytes = [0u8; 4096];
+        for offset in (0..size).step_by(bytes.len()) {
+            let chunk = bytes.len().min(size - offset);
+            with_memory!(*self, src_addr, |source, kind| {
+                source.read_exact(src + offset, &mut bytes[..chunk]).expect("source range checked before copy");
+            });
+            with_memory!(*self, dst_addr, |destination, kind| {
+                destination.write_all(dst + offset, &bytes[..chunk]).expect("destination range checked before copy");
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(config: &Config) -> Self {
         Self {
             canonical_types: Vec::new(),
@@ -31,6 +145,8 @@ impl State {
             funcs: Functions::default(),
             tables: Vec::new(),
             memories: Vec::new(),
+            #[cfg(feature = "std")]
+            shared_memories: Vec::new(),
             globals: Globals::default(),
             tags: Vec::new(),
             elements: Vec::new(),
@@ -84,15 +200,15 @@ impl State {
         )
     }
 
-    pub(crate) fn check_gc_allocation(&self, type_addr: TypeAddr, value_count: usize) -> Result<(), Trap> {
-        let trace_references = match &self.get_type(type_addr).composite {
+    #[inline]
+    pub(crate) fn gc_type_has_references(&self, type_addr: TypeAddr) -> bool {
+        match &self.get_type(type_addr).composite {
             CompositeType::Struct(ty) => {
                 ty.fields.iter().any(|field| matches!(field.storage, StorageType::Value(WasmType::Ref(_))))
             }
             CompositeType::Array(ty) => matches!(ty.field.storage, StorageType::Value(WasmType::Ref(_))),
             CompositeType::Func(_) => unreachable!("GC object type is not a function"),
-        };
-        self.gc.check_allocation(value_count, trace_references)
+        }
     }
 
     /// Allocates an object, collecting from all runtime roots when needed.
@@ -102,13 +218,7 @@ impl State {
         values: Vec<RuntimeValue>,
         additional_roots: impl IntoIterator<Item = ValueRef>,
     ) -> Result<ValueRef, Trap> {
-        let trace_references = match &self.get_type(type_addr).composite {
-            CompositeType::Struct(ty) => {
-                ty.fields.iter().any(|field| matches!(field.storage, StorageType::Value(WasmType::Ref(_))))
-            }
-            CompositeType::Array(ty) => matches!(ty.field.storage, StorageType::Value(WasmType::Ref(_))),
-            CompositeType::Func(_) => unreachable!("GC object type is not a function"),
-        };
+        let trace_references = self.gc_type_has_references(type_addr);
         if self.gc.should_collect(values.len(), trace_references) {
             let roots = additional_roots.into_iter().chain(values.iter().filter_map(|value| match value {
                 RuntimeValue::ValueRef(value) => Some(*value),
@@ -303,18 +413,21 @@ impl State {
     /// Get the memory at the actual index in the store
     #[inline]
     pub(crate) fn get_mem(&self, addr: MemAddr) -> &MemoryInstance {
+        debug_assert_eq!(addr & SHARED_MEM_BIT, 0);
         &self.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline]
     pub(crate) fn get_mem_mut(&mut self, addr: MemAddr) -> &mut MemoryInstance {
+        debug_assert_eq!(addr & SHARED_MEM_BIT, 0);
         &mut self.memories[addr as usize]
     }
 
     /// Get the memory at the actual index in the store
     #[inline]
     pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
+        debug_assert_eq!((addr | addr2) & SHARED_MEM_BIT, 0);
         Self::get_disjoint_mut(&mut self.memories, addr, addr2, "memory")
     }
 

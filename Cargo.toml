@@ -45,32 +45,9 @@ unused_dependencies = "allow"  # false-positive on libm
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
 
-[[example]]
-name = "rust"
-test = false
-
-[[bench]]
-harness = false
-name = "argon2id"
-
-[[bench]]
-harness = false
-name = "fibonacci"
-
-[[bench]]
-harness = false
-name = "tinywasm"
-
-[[bench]]
-harness = false
-name = "tinywasm_modes"
-
 [dev-dependencies]
 anyhow.workspace = true
-criterion.workspace = true
-pretty_env_logger.workspace = true
-tinywasm = { path = "crates/tinywasm", features = ["state"] }
-tinywasm-parser.workspace = true
+tinywasm = { path = "crates/tinywasm", features = ["send", "state"] }
 tinywasm-wasi.workspace = true
 wat.workspace = true
 

@@ -79,15 +79,15 @@ impl Function {
                 return Ok(ExecState::Completed(Some(CallResult::Written)));
             }
 
-            let (wasm_params, wasm_locals) = {
+            let (wasm_params, wasm_locals, wasm_max_stack) = {
                 let wasm = store.state.funcs.wasm(self.addr());
-                (wasm.func.params, wasm.func.locals)
+                (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
             };
 
             store.call_stack.clear();
             store.value_stack.clear();
             store.push_wasm_values(params)?;
-            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals)?;
+            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)?;
             let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
 
             Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
@@ -224,9 +224,9 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
             let execution = ExecutionInner { store, state: ExecState::Completed(None) };
             return Ok(FuncExecutionTyped { execution, result: Some(result) });
         }
-        let (type_addr, wasm_params, wasm_locals) = {
+        let (type_addr, wasm_params, wasm_locals, wasm_max_stack) = {
             let wasm = store.state.funcs.wasm(self.func.addr());
-            (wasm.type_addr, wasm.func.params, wasm.func.locals)
+            (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
         };
 
         store.enter_execution()?;
@@ -236,7 +236,7 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
             store.push_typed_values::<false>(type_addr, params.into_wasm_values(), StackBase::default())?;
             let locals_base = store
                 .value_stack
-                .enter_locals(&wasm_params, &wasm_locals)
+                .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
                 .inspect_err(|_| store.value_stack.clear())?;
             let callframe = CallFrame::new(self.func.addr(), locals_base, wasm_locals);
             Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() })

@@ -114,59 +114,18 @@ macro_rules! simd_minmax {
     }};
 }
 
-macro_rules! impl_simd_shifts {
-    ($($alias:literal => $name:ident($as_lanes:ident, $from_lanes:ident, $mask:expr, $op:ident);)*) => {
+/// Emits the named SIMD operations without adding another dispatch or helper call.
+macro_rules! impl_simd_methods {
+    ($($alias:literal => $name:ident($($signature:tt)*) $(-> $return:ty)? => $body:expr;)*) => {
         $(
             #[doc(alias = $alias)]
-            pub(crate) fn $name(self, shift: u32) -> Self {
-                simd_shift!(self, shift, $as_lanes, $from_lanes, $mask, $op)
+            pub(crate) fn $name($($signature)*) -> impl_simd_methods!(@return $($return)?) {
+                $body
             }
         )*
     };
-}
-
-macro_rules! impl_simd_binary_methods {
-    ($helper:ident; $($alias:literal => $name:ident($($args:tt)*);)*) => {
-        $(
-            #[doc(alias = $alias)]
-            pub(crate) fn $name(self, rhs: Self) -> Self {
-                $helper!(self, rhs, $($args)*)
-            }
-        )*
-    };
-}
-
-macro_rules! impl_simd_extend {
-    ($($alias:literal => $name:ident($src_as:ident, $dst_from:ident, $dst_ty:ty, $offset:expr);)*) => {
-        $(
-            #[doc(alias = $alias)]
-            pub(crate) fn $name(self) -> Self {
-                simd_extend_cast!(self, $src_as, $dst_from, $dst_ty, $offset)
-            }
-        )*
-    };
-}
-
-macro_rules! impl_simd_relaxed_laneselect {
-    ($($alias:literal => $name:ident;)*) => {
-        $(
-            #[doc(alias = $alias)]
-            pub(crate) fn $name(v1: Self, v2: Self, c: Self) -> Self {
-                Self::v128_bitselect(v1, v2, c)
-            }
-        )*
-    };
-}
-
-macro_rules! impl_simd_reverse_comparisons {
-    ($($alias:literal => $name:ident($reverse:ident);)*) => {
-        $(
-            #[doc(alias = $alias)]
-            pub(crate) fn $name(self, rhs: Self) -> Self {
-                rhs.$reverse(self)
-            }
-        )*
-    };
+    (@return) => { Self };
+    (@return $return:ty) => { $return };
 }
 
 #[rustfmt::skip]

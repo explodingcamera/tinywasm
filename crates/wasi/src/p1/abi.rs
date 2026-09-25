@@ -31,6 +31,7 @@ pub(super) const INTR: Errno = Errno(27);
 pub(super) const INVAL: Errno = Errno(28);
 pub(super) const IO: Errno = Errno(29);
 pub(super) const ISDIR: Errno = Errno(31);
+#[cfg(any(unix, target_os = "android"))]
 pub(super) const LOOP: Errno = Errno(32);
 pub(super) const MFILE: Errno = Errno(33);
 pub(super) const MLINK: Errno = Errno(34);
@@ -41,6 +42,7 @@ pub(super) const NOSPC: Errno = Errno(51);
 pub(super) const NOTCONN: Errno = Errno(53);
 pub(super) const NOTDIR: Errno = Errno(54);
 pub(super) const NOTEMPTY: Errno = Errno(55);
+#[cfg(unix)]
 pub(super) const NOTSOCK: Errno = Errno(57);
 pub(super) const NOTSUP: Errno = Errno(58);
 pub(super) const OVERFLOW: Errno = Errno(61);
@@ -187,6 +189,7 @@ fn platform_io_errno(_error: &io::Error) -> Errno {
     IO
 }
 
+#[cfg(unix)]
 impl From<rustix::io::Errno> for Errno {
     fn from(error: rustix::io::Errno) -> Self {
         use rustix::io::Errno as E;

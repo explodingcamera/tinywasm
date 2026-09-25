@@ -28,78 +28,55 @@ jobs:
       - run: make -C crates/c-api test
       - run: make -C crates/c-api test TINYWASM_C_API_PREFIX=test_ TARGET_DIR=../../target/c-api-prefixed
 
-  build-wasm:
-    name: Build wasm
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: true
-          persist-credentials: false
-      - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          toolchain: nightly
-          components: rust-src
-          rustflags: ""
-          target: wasm32-unknown-unknown
-      - name: Install Binaryen
-        run: |
-          BINARYEN_VERSION=version_129
-          BINARYEN_DIR="binaryen-${BINARYEN_VERSION}"
-          BINARYEN_ARCHIVE="${BINARYEN_DIR}-x86_64-linux.tar.gz"
-          curl -L "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/${BINARYEN_ARCHIVE}" -o "/tmp/${BINARYEN_ARCHIVE}"
-          echo "50b9fa62b9abea752da92ec57e0c555fee578760cd237c40107957715d2976ba  /tmp/${BINARYEN_ARCHIVE}" | sha256sum -c -
-          tar -xzf "/tmp/${BINARYEN_ARCHIVE}" -C /tmp
-          sudo install "/tmp/${BINARYEN_DIR}/bin/wasm-opt" /usr/local/bin/wasm-opt
-      - name: Install WABT
-        run: sudo apt-get install -y wabt
-      - name: Build wasm
-        run: ./examples/rust/build.sh
-      - name: Save artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: wasm
-          path: examples/rust/out
-
   run-tests:
-    needs: build-wasm
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable)"
-          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly)"
-          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls)"
+            target: x86_64-unknown-linux-gnu
             args: "--features tinywasm/nightly-tail-calls"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features"
-          - os: ubuntu-latest
+          - os: ubuntu-26.04
             rust: nightly
             name: "Linux x86 (nightly tail calls, no default features)"
+            target: x86_64-unknown-linux-gnu
             args: "--no-default-features --features tinywasm/nightly-tail-calls"
-          - os: macos-14
+          - os: macos-26
             rust: stable
             name: "macOS arm64 (Apple M1)"
-          - os: ubuntu-latest
+            target: aarch64-apple-darwin
+          - os: windows-2025
+            rust: stable
+            name: "Windows x86_64"
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux arm64"
             target: aarch64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: ubuntu-26.04-arm
             rust: stable
             name: "Linux armv7"
             target: armv7-unknown-linux-gnueabihf
+            args: "--release"
 
     name: Run tests on ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -114,28 +91,25 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
           rustflags: ""
+          build-warnings: warn
           components: rustfmt, clippy
-        if: matrix.target == ''
 
-      - name: Load wasm
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: wasm
-          path: examples/rust/out
+      - name: Install armv7 tools
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf qemu-user
+        if: matrix.target == 'armv7-unknown-linux-gnueabihf'
 
       - name: Run tests
-        run: cargo test --workspace ${{ matrix.args }} && cargo test --workspace ${{ matrix.args }} --examples
-        if: matrix.target == ''
+        run: cargo test --workspace --target ${{ matrix.target }} ${{ matrix.args }}
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER: qemu-arm -L /usr/arm-linux-gnueabihf
+
+      - name: Run examples
+        run: cargo test --workspace --target ${{ matrix.target }} ${{ matrix.args }} --examples
+        if: matrix.target != 'armv7-unknown-linux-gnueabihf'
 
       - name: Run clippy
-        run: cargo clippy --workspace ${{ matrix.args }}
-        if: matrix.target == ''
-
-      - name: Run tests (${{ matrix.target }})
-        uses: houseabsolute/actions-rust-cross@21b0f18dc621b25bfae556ff2791fca4173121e8 # v1.0.8
-        with:
-          command: test
-          target: ${{ matrix.target }}
-          toolchain: ${{ matrix.rust }}
-        if: matrix.target != ''
+        run: cargo clippy --workspace --target ${{ matrix.target }} ${{ matrix.args }}
+        if: matrix.target != 'armv7-unknown-linux-gnueabihf'

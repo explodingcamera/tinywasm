@@ -42,7 +42,6 @@ name = "test-wasm-multi-memory"
 [[test]]
 harness = false
 name = "test-wasm-threads"
-test = false
 
 [[test]]
 harness = false
