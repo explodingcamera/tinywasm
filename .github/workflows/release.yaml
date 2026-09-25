@@ -3,73 +3,7 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: read
-
 jobs:
-  artifacts:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            shared-library: libtinywasm.so
-          - os: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
-            shared-library: libtinywasm.so
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            shared-library: libtinywasm.dylib
-          - os: macos-15
-            target: aarch64-apple-darwin
-            shared-library: libtinywasm.dylib
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          rustflags: ""
-      - name: Build CLI and C API
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          cargo build --locked --release --target "$TARGET" -p tinywasm-cli
-          if [[ "$TARGET" == *-apple-darwin ]]; then
-            cargo rustc --locked --release --target "$TARGET" -p tinywasm-c-api -- \
-              -C link-arg=-Wl,-install_name,@rpath/libtinywasm.dylib
-          else
-            cargo build --locked --release --target "$TARGET" -p tinywasm-c-api
-          fi
-      - name: Package and smoke-test
-        env:
-          TARGET: ${{ matrix.target }}
-          SHARED_LIBRARY: ${{ matrix.shared-library }}
-        run: |
-          name="tinywasm-${GITHUB_REF_NAME}-${TARGET}"
-          package="$RUNNER_TEMP/$name"
-          mkdir -p "$package/bin" "$package/lib" "$package/include" "$package/licenses" dist
-          cp "target/$TARGET/release/tinywasm" "$package/bin/"
-          cp "target/$TARGET/release/$SHARED_LIBRARY" "target/$TARGET/release/libtinywasm.a" "$package/lib/"
-          cp crates/c-api/include/*.h "$package/include/"
-          cp LICENSE-MIT LICENSE-APACHE crates/c-api/include/LICENSE-wasm-c-api "$package/licenses/"
-          cp crates/c-api/README.md "$package/README.md"
-          "$package/bin/tinywasm" --version
-          cc -std=c11 -I"$package/include" crates/c-api/examples/add.c \
-            -L"$package/lib" -Wl,-rpath,"$package/lib" -ltinywasm -o "$RUNNER_TEMP/c-api-example"
-          "$RUNNER_TEMP/c-api-example"
-          tar -czf "dist/$name.tar.gz" -C "$RUNNER_TEMP" "$name"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tinywasm-${{ matrix.target }}
-          path: dist/*.tar.gz
-          if-no-files-found: error
-
   publish:
     runs-on: ubuntu-26.04
     environment: release
@@ -85,28 +19,3 @@ jobs:
       - run: cargo publish --workspace
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-
-  release:
-    name: Attach release archives
-    needs: [publish, artifacts]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: tinywasm-*
-          merge-multiple: true
-          path: dist
-      - name: Create checksums and upload
-        working-directory: dist
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          sha256sum -- *.tar.gz > SHA256SUMS
-          if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --generate-notes
-          fi
-          gh release upload "$TAG" ./*.tar.gz SHA256SUMS --clobber

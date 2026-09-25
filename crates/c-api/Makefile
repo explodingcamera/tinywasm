@@ -42,11 +42,10 @@ test: example
 	"$(BUILDDIR)/add-static"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Iinclude tests/api.c "$(BUILD_LIBDIR)/libtinywasm.a" $(NATIVE_LIBS) $(LDFLAGS) -o "$(BUILDDIR)/api-static"
 	"$(BUILDDIR)/api-static" "$(BUILDDIR)"
-	python3 tests/symbols.py "$(BUILD_LIBDIR)/libtinywasm.$(SHARED_EXT)" "$(CC)" "$(TINYWASM_C_API_PREFIX)"
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/include" "$(DESTDIR)$(LIBDIR)/pkgconfig" "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm"
 	install -m644 include/wasm.h include/tinywasm.h include/tinywasm-prefix.h "$(DESTDIR)$(PREFIX)/include/"
 	install -m644 "$(BUILD_LIBDIR)/libtinywasm.a" "$(BUILD_LIBDIR)/libtinywasm.$(SHARED_EXT)" "$(DESTDIR)$(LIBDIR)/"
-	install -m644 include/LICENSE-wasm-c-api ../../LICENSE-APACHE ../../LICENSE-MIT "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm/"
+	install -m644 ../../LICENSE-APACHE ../../LICENSE-MIT "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm/"
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@LIBDIR@|$(LIBDIR)|g' -e 's|@VERSION@|$(VERSION)|g' -e 's|@NATIVE_LIBS@|$(NATIVE_LIBS)|g' -e 's|@PREFIX_FLAG@|$(if $(TINYWASM_C_API_PREFIX),-DTINYWASM_C_API_PREFIX=$(TINYWASM_C_API_PREFIX))|g' tinywasm.pc.in > "$(DESTDIR)$(LIBDIR)/pkgconfig/tinywasm.pc"

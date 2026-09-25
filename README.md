@@ -43,18 +43,6 @@ assert_eq!(result, 3);
 
 See the [examples](./examples) directory and [documentation](https://docs.rs/tinywasm) for more information.
 
-### C and C++
-
-The experimental [`tinywasm-c-api` crate](./crates/c-api) provides `wasm.h`,
-TinyWasm extensions in `tinywasm.h`, and static and shared libraries. Build the
-libraries with:
-
-```sh
-make -C crates/c-api
-```
-
-See its [README](./crates/c-api/README.md) for installation and usage.
-
 ## Cargo Features
 
 - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.

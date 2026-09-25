@@ -49,4 +49,4 @@ When building with Cargo directly, enable `custom-prefix` and set the
 
 `wasm.h` is vendored from WebAssembly/wasm-c-api commit
 `9d6b93764ac96cdd9db51081c363e09d2d488b4d`, under
-[`include/LICENSE-wasm-c-api`](include/LICENSE-wasm-c-api).
+[Apache 2.0](../../LICENSE-APACHE).
