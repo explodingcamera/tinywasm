@@ -35,13 +35,12 @@ example: build
 
 test: example
 	$(CXX) $(CPPFLAGS) -std=c++17 -Wall -Wextra -Werror -fsyntax-only -x c++ -Iinclude include/tinywasm.h
-	$(CARGO) run -p tinywasm-c-api --example fixtures --target-dir "$(abspath $(TARGET_DIR))" -- "$(BUILDDIR)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Iinclude tests/api.c -L"$(BUILD_LIBDIR)" -Wl,-rpath,"$(BUILD_LIBDIR)" -ltinywasm $(LDFLAGS) -o "$(BUILDDIR)/api"
-	"$(BUILDDIR)/api" "$(BUILDDIR)"
+	"$(BUILDDIR)/api" tests/fixtures
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Iinclude examples/add.c "$(BUILD_LIBDIR)/libtinywasm.a" $(NATIVE_LIBS) $(LDFLAGS) -o "$(BUILDDIR)/add-static"
 	"$(BUILDDIR)/add-static"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -std=c11 -Iinclude tests/api.c "$(BUILD_LIBDIR)/libtinywasm.a" $(NATIVE_LIBS) $(LDFLAGS) -o "$(BUILDDIR)/api-static"
-	"$(BUILDDIR)/api-static" "$(BUILDDIR)"
+	"$(BUILDDIR)/api-static" tests/fixtures
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/include" "$(DESTDIR)$(LIBDIR)/pkgconfig" "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm"

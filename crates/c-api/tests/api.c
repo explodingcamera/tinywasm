@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include "tinywasm.h"
 
 static wasm_byte_vec_t read_binary(const char* directory, const char* name) {

@@ -15,9 +15,6 @@ name = "tinywasm"
 [dependencies]
 tinywasm = { workspace = true, features = ["archive", "parser", "std", "validate"] }
 
-[dev-dependencies]
-wat.workspace = true
-
 [features]
 custom-prefix = []
 

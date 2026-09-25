@@ -45,18 +45,7 @@ fn callback_reentry() {
         calls: Cell::new(0),
         finalized: Cell::new(false),
     });
-    let binary = Vector::from_vec(
-        wat::parse_str(
-            r#"
-        (module
-          (import "host" "call" (func $host (param i32) (result i32)))
-          (memory (export "memory") 1 2)
-          (func (export "run") (param i32) (result i32)
-            local.get 0 call $host))
-    "#,
-        )
-        .unwrap(),
-    );
+    let binary = Vector::from_vec(include_bytes!("../tests/fixtures/callback-reentry.wasm").to_vec());
     unsafe {
         let engine = wasm_engine_new();
         let store = wasm_store_new(engine);
@@ -113,16 +102,7 @@ fn vector_ownership() {
 
 #[test]
 fn memory_pointer_lifetime() {
-    let binary = Vector::from_vec(
-        wat::parse_str(
-            r#"
-        (module
-          (memory (export "memory") 1 2)
-          (func (export "write") i32.const 0 i32.const 42 i32.store8))
-    "#,
-        )
-        .unwrap(),
-    );
+    let binary = Vector::from_vec(include_bytes!("../tests/fixtures/memory-write.wasm").to_vec());
     unsafe {
         let engine = wasm_engine_new();
         let store = wasm_store_new(engine);
@@ -153,7 +133,7 @@ fn memory_pointer_lifetime() {
 
 #[test]
 fn function_call_after_store_delete() {
-    let binary = Vector::from_vec(wat::parse_str(r#"(module (func (export "noop")))"#).unwrap());
+    let binary = Vector::from_vec(include_bytes!("../tests/fixtures/noop.wasm").to_vec());
     unsafe {
         let engine = wasm_engine_new();
         let store = wasm_store_new(engine);

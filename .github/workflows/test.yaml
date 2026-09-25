@@ -2,7 +2,7 @@ name: Rust CI
 
 on:
   push:
-    branches: ["**"]
+    branches: ["next", "main"]
   pull_request:
     branches: ["next", "main"]
   schedule:

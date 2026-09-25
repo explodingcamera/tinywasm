@@ -1004,7 +1004,6 @@ name = "tinywasm-c-api"
 version = "0.11.0"
 dependencies = [
  "tinywasm",
- "wat",
 ]
 
 [[package]]
