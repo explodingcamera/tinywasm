@@ -215,8 +215,7 @@ impl ModuleInstance {
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         let limiter = store.engine.config().resource_limiter.clone();
         if !module.skip_local_memory_allocation {
-            let memories =
-                store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.as_deref()))?;
+            let memories = store.init_memories(&module.memory_types, |ty| MemoryInstance::new(ty, limiter.clone()))?;
             addrs.memories.extend(memories);
         }
 

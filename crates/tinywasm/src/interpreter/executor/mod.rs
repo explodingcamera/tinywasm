@@ -1268,7 +1268,7 @@ impl<'store> Executor<'store> {
 
     fn exec_memory_grow(&mut self, addr: u32) -> Result<(), Trap> {
         let mem_addr = self.mem_addr(addr);
-        let limiter = self.store.engine.config().resource_limiter.as_deref();
+        let limiter = self.store.engine.config().resource_limiter.as_ref();
         let is_64bit = self.store.state.memory_type(mem_addr).arch() == MemoryArch::I64;
         let pages_delta = match is_64bit {
             true => i64::stack_pop(&mut self.store.value_stack),

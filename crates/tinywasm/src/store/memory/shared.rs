@@ -1,4 +1,4 @@
-use crate::std::sync::{Condvar, Mutex, MutexGuard};
+use crate::std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 use crate::std::time::Duration;
 use alloc::{
     collections::{BTreeMap, VecDeque},
@@ -7,7 +7,9 @@ use alloc::{
 };
 use core::sync::atomic::{AtomicUsize, Ordering};
 use tinywasm_types::MemoryType;
+use tinywasm_types::Shared;
 
+use super::instance::MemoryCharge;
 use super::{MemoryInstance, MemoryStorage, memory_oob};
 use crate::{ResourceLimiter, Result, Trap};
 
@@ -35,6 +37,8 @@ struct MemorySharedInstance {
     bytes: Mutex<MemoryStorage>,
     // Lock order: bytes, waiters, then an individual waiter's notified flag.
     waiters: Mutex<BTreeMap<usize, VecDeque<Arc<Waiter>>>>,
+    // Dropped after `bytes`, and retained until the last shared handle is gone.
+    charge: OnceLock<MemoryCharge>,
 }
 
 struct Waiter {
@@ -61,10 +65,20 @@ pub struct MemorySharedGuard<'a> {
 impl MemoryShared {
     /// Moves a newly allocated memory into a shared backing.
     pub(crate) fn from_instance(instance: MemoryInstance) -> Self {
-        let kind = instance.kind;
-        let pages = AtomicUsize::new(instance.page_count);
-        let bytes = Mutex::new(instance.inner);
-        Self(Arc::new(MemorySharedInstance { kind, pages, bytes, waiters: Mutex::new(BTreeMap::new()) }))
+        let MemoryInstance { kind, inner, page_count, charge } = instance;
+        let pages = AtomicUsize::new(page_count);
+        let bytes = Mutex::new(inner);
+        let accounting = OnceLock::new();
+        if let Some(charge) = charge {
+            let _ = accounting.set(charge);
+        }
+        Self(Arc::new(MemorySharedInstance {
+            kind,
+            pages,
+            bytes,
+            waiters: Mutex::new(BTreeMap::new()),
+            charge: accounting,
+        }))
     }
 
     /// Whether two handles reference the same instance, even across store slots.
@@ -167,9 +181,13 @@ impl MemoryShared {
     pub(crate) fn grow_with_limiter(
         &self,
         pages: i64,
-        limiter: Option<&dyn ResourceLimiter>,
+        store_limiter: Option<&Shared<dyn ResourceLimiter>>,
     ) -> Result<Option<i64>, Trap> {
-        let Some(limiter) = limiter else {
+        // A shared backing is charged to its owner, not separately to every importing store.
+        // Host-created backings acquire an owner on their first limiter-approved guest growth;
+        // their initial allocation remains host-owned.
+        let Some(limiter) = self.0.charge.get().map(MemoryCharge::limiter).or_else(|| store_limiter.map(AsRef::as_ref))
+        else {
             return self.lock().grow_inner(pages);
         };
         let kind = self.ty();
@@ -193,12 +211,46 @@ impl MemoryShared {
             let mut guard = self.lock();
             if self.page_count() != current_pages {
                 // The limiter approved a different size transition. Ask again with the new size.
+                drop(guard);
+                if allowed && desired != current {
+                    limiter.memory_grow_failed(current, desired);
+                }
                 continue;
             }
             if !allowed {
                 return Ok(None);
             }
-            return guard.grow_inner(pages);
+            let result = guard.grow_inner(pages);
+            match result {
+                Ok(Some(previous)) => {
+                    if desired != current {
+                        if let Some(charge) = self.0.charge.get() {
+                            charge.add(desired - current);
+                        } else if let Some(owner) = store_limiter {
+                            // Only a successful growth can bind an uncharged host-created memory.
+                            assert!(
+                                self.0.charge.set(MemoryCharge::new(owner.clone(), desired - current)).is_ok(),
+                                "shared memory accounting owner changed during growth"
+                            );
+                        }
+                    }
+                    return Ok(Some(previous));
+                }
+                Ok(None) => {
+                    drop(guard);
+                    if desired != current {
+                        limiter.memory_grow_failed(current, desired);
+                    }
+                    return Ok(None);
+                }
+                Err(error) => {
+                    drop(guard);
+                    if desired != current {
+                        limiter.memory_grow_failed(current, desired);
+                    }
+                    return Err(error);
+                }
+            }
         }
     }
 }

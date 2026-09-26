@@ -386,7 +386,7 @@ impl Memory {
             return Err(Error::UnsupportedFeature("too many memories"));
         }
         let limiter = store.engine.config().resource_limiter.clone();
-        store.state.memories.push(MemoryInstance::new(ty, limiter.as_deref())?);
+        store.state.memories.push(MemoryInstance::new(ty, limiter)?);
         Ok(Self(StoreItem::new(store.id(), addr)))
     }
 
@@ -487,9 +487,8 @@ impl Memory {
     /// Returns the previous size, or `None` if growth fails or is rejected by the resource limiter.
     /// A limiter-provided trap is returned as an error.
     pub fn grow(&self, store: &mut Store, delta_pages: i64) -> Result<Option<i64>> {
-        let limiter = store.engine.config().resource_limiter.clone();
         let mem = self.instance_mut(store)?;
-        mem.grow(delta_pages, limiter.as_deref()).map_err(Into::into)
+        mem.grow(delta_pages).map_err(Into::into)
     }
 
     /// Get the current size of the memory in pages.
