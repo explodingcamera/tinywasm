@@ -1,5 +1,5 @@
 use crate::{
-    ParserOptions, Result,
+    ParseLimitKind, ParserOptions, Result, check_parse_limit,
     conversion::{FunctionLoweringContext, convert_heap_type, value_lane},
     emitter::{Emitter, LabelId},
     macros::visit::*,
@@ -19,6 +19,22 @@ use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, Visi
 
 #[cfg(feature = "validate")]
 use wasmparser::{FuncValidator, FuncValidatorAllocations, ValidatorResources, VisitOperator};
+
+fn check_operator_limits(op: &wasmparser::Operator<'_>, options: &ParserOptions) -> Result<()> {
+    match op {
+        wasmparser::Operator::BrTable { targets } => check_parse_limit(
+            ParseLimitKind::BrTableTargets,
+            options.limits.max_br_table_targets,
+            targets.len() as usize,
+        ),
+        wasmparser::Operator::ArrayNewFixed { array_size, .. } => check_parse_limit(
+            ParseLimitKind::ArrayNewFixedElements,
+            options.limits.max_array_new_fixed_elements,
+            *array_size as usize,
+        ),
+        _ => Ok(()),
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum BlockKind {
@@ -464,11 +480,20 @@ pub(crate) fn process_operators(
 
     while !reader.eof() {
         let position = reader.original_position();
-        let res = reader
-            .visit_operator(&mut builder)
-            .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position });
+        let res =
+            if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {
+                let op = reader
+                    .read()
+                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
+                check_operator_limits(&op, options)?;
+                wasmparser::VisitOperator::visit_operator(&mut builder, &op)
+            } else {
+                reader
+                    .visit_operator(&mut builder)
+                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?
+            };
 
-        if let Err(e) = res.flatten() {
+        if let Err(e) = res {
             core::hint::cold_path();
             return Err(e);
         }
@@ -506,11 +531,21 @@ pub(crate) fn process_operators_and_validate(
 
     while !reader.eof() {
         let position = reader.original_position();
-        let res = reader
-            .visit_operator(&mut ValidateThenVisit { validator: &mut validator, builder: &mut builder, position })
-            .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position });
+        let mut visitor = ValidateThenVisit { validator: &mut validator, builder: &mut builder, position };
+        let res =
+            if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {
+                let op = reader
+                    .read()
+                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
+                check_operator_limits(&op, options)?;
+                visitor.visit_operator(&op)
+            } else {
+                reader
+                    .visit_operator(&mut visitor)
+                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?
+            };
 
-        if let Err(e) = res.flatten() {
+        if let Err(e) = res {
             core::hint::cold_path();
             return Err(e);
         }
