@@ -58,6 +58,10 @@ name = "test-wasm-custom"
 
 [[test]]
 harness = false
+name = "test-wasm-exceptions"
+
+[[test]]
+harness = false
 name = "test-wasm-gc"
 
 [[test]]

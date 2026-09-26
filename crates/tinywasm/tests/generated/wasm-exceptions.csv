@@ -1,0 +1,1 @@
+0.11.0,105,0,[{"name":"tag.wast","passed":10,"failed":0},{"name":"throw.wast","passed":13,"failed":0},{"name":"throw_ref.wast","passed":15,"failed":0},{"name":"try_table.wast","passed":67,"failed":0}]
