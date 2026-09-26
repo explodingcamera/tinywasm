@@ -34,6 +34,8 @@ pub(crate) use memory::{MemValue, MemoryInstance};
 pub use memory::{MemoryShared, MemorySharedGuard};
 pub(crate) use state::State;
 pub(crate) use state::with_memory;
+#[cfg(feature = "std")]
+pub(crate) use state::with_shared_memory;
 pub(crate) use types::{canonicalize_ref_type, canonicalize_value_type};
 pub(crate) use {data::*, element::*, function::*, global::*, table::*, tag::*};
 
@@ -822,9 +824,8 @@ impl Store {
                     };
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
                     with_memory!(self.state, *mem_addr, |mem, kind| {
-                        mem.write_all(offset, &data.data)
-                            .ok_or_else(|| memory::memory_oob(offset, data.data.len(), mem.len()))?;
-                    });
+                        mem.write_all(offset, &data.data).ok_or_else(|| memory::memory_oob(offset, data.data.len(), mem.len()))
+                    })?;
                     self.state.data[data_addrs[i] as usize].drop();
                 }
                 tinywasm_types::DataKind::Passive => {}

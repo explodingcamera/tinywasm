@@ -1432,7 +1432,7 @@ impl<'store> Executor<'store> {
         let memory = arg.resolve(&self.func.data);
         let mem_addr = self.mem_addr(memory.memory());
         let width = if op == AtomicWaitOp::Wait64 { 8 } else { 4 };
-        let addr = crate::store::with_memory!(self.store.state, mem_addr, |mem, kind| {
+        let addr = crate::store::with_memory!(@lock_inline self.store.state, mem_addr, |mem, kind| {
             let base = self.store.value_stack.pop_memory_operand(kind.arch())?;
             let addr = cold_err!(mem.effective_addr::<1>(base, memory.offset()))?;
             if addr % width != 0 {
@@ -1484,7 +1484,7 @@ impl<'store> Executor<'store> {
 
         let memory = arg.memory.resolve(&self.func.data);
         let mem_addr = self.mem_addr(memory.memory());
-        crate::store::with_memory!(self.store.state, mem_addr, |mem, kind| {
+        crate::store::with_memory!(@lock_inline self.store.state, mem_addr, |mem, kind| {
             let base = self.store.value_stack.pop_memory_operand(kind.arch())?;
             let addr = cold_err!(mem.effective_addr::<N>(base, memory.offset()))?;
             if addr % N != 0 {

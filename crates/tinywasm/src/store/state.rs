@@ -26,16 +26,19 @@ pub(crate) struct State {
     pub(crate) roots: gc::Roots,
 }
 
-// Dispatch once per operation, keeping ordinary memory on the direct-access path
+// Dispatch once per operation, keeping ordinary memory on the direct-access path.
+// A shared memory runs the body out of line, under its lock, so the handlers of
+// ordinary memory accesses contain no lock/unlock calls and spill no registers for them.
+// Atomic operations, whose memory is usually shared, keep the lock inline with
+// `with_memory!(@lock_inline ...)`.
 macro_rules! with_memory {
-    ($state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
+    (@lock_inline $state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
         let state = &mut $state;
         let addr = $addr;
         #[cfg(feature = "std")]
         let mut guard;
         #[cfg(feature = "std")]
         let (kind, bytes) = if addr & $crate::store::SHARED_MEM_BIT != 0 {
-            core::hint::cold_path();
             guard = state.shared_memories[(addr & !$crate::store::SHARED_MEM_BIT) as usize].lock();
             (guard.kind, &mut *guard.inner)
         } else {
@@ -52,8 +55,49 @@ macro_rules! with_memory {
         let $memory = bytes;
         $body
     }};
+    ($state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
+        let state = &mut $state;
+        let addr = $addr;
+        #[cfg(feature = "std")]
+        let result = if addr & $crate::store::SHARED_MEM_BIT != 0 {
+            $crate::store::with_shared_memory(state, addr, |$memory, kind| {
+                #[allow(unused_variables)]
+                let $kind = kind;
+                $body
+            })
+        } else {
+            let ordinary = &mut state.memories[addr as usize];
+            #[allow(unused_variables)]
+            let $kind = ordinary.kind;
+            let $memory = &mut ordinary.inner;
+            $body
+        };
+        #[cfg(not(feature = "std"))]
+        let result = {
+            let ordinary = state.get_mem_mut(addr);
+            #[allow(unused_variables)]
+            let $kind = ordinary.kind;
+            let $memory = &mut ordinary.inner;
+            $body
+        };
+        result
+    }};
 }
 pub(crate) use with_memory;
+
+/// Runs `body` on a shared memory's bytes while holding its lock.
+#[cfg(feature = "std")]
+#[cold]
+#[inline(never)]
+pub(crate) fn with_shared_memory<R>(
+    state: &mut State,
+    addr: MemAddr,
+    body: impl FnOnce(&mut super::memory::MemoryStorage, MemoryType) -> R,
+) -> R {
+    let mut guard = state.shared_memories[(addr & !SHARED_MEM_BIT) as usize].lock();
+    let kind = guard.kind;
+    body(&mut guard.inner, kind)
+}
 
 impl State {
     /// Returns the immutable memory type without taking a shared-memory lock.
@@ -120,11 +164,11 @@ impl State {
         // Never hold two backing locks, since another store may copy in the opposite direction.
         // Growth cannot invalidate these ranges. Check both before changing the destination.
         with_memory!(*self, src_addr, |source, kind| {
-            source.checked_range(src, size).ok_or_else(|| memory_oob(src, size, source.len()))?;
-        });
+            source.checked_range(src, size).ok_or_else(|| memory_oob(src, size, source.len()))
+        })?;
         with_memory!(*self, dst_addr, |destination, kind| {
-            destination.checked_range(dst, size).ok_or_else(|| memory_oob(dst, size, destination.len()))?;
-        });
+            destination.checked_range(dst, size).ok_or_else(|| memory_oob(dst, size, destination.len()))
+        })?;
         let mut bytes = [0u8; 4096];
         for offset in (0..size).step_by(bytes.len()) {
             let chunk = bytes.len().min(size - offset);
