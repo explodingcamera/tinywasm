@@ -1,5 +1,5 @@
 use crate::{
-    ParseLimitKind, ParserOptions, Result, check_parse_limit,
+    ParseLimitKind, ParserOptions, Result,
     conversion::{FunctionLoweringContext, convert_heap_type, value_lane},
     emitter::{Emitter, LabelId},
     macros::visit::*,
@@ -19,22 +19,6 @@ use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, Visi
 
 #[cfg(feature = "validate")]
 use wasmparser::{FuncValidator, FuncValidatorAllocations, ValidatorResources, VisitOperator};
-
-fn check_operator_limits(op: &wasmparser::Operator<'_>, options: &ParserOptions) -> Result<()> {
-    match op {
-        wasmparser::Operator::BrTable { targets } => check_parse_limit(
-            ParseLimitKind::BrTableTargets,
-            options.limits.max_br_table_targets,
-            targets.len() as usize,
-        ),
-        wasmparser::Operator::ArrayNewFixed { array_size, .. } => check_parse_limit(
-            ParseLimitKind::ArrayNewFixedElements,
-            options.limits.max_array_new_fixed_elements,
-            *array_size as usize,
-        ),
-        _ => Ok(()),
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 enum BlockKind {
@@ -485,7 +469,15 @@ pub(crate) fn process_operators(
                 let op = reader
                     .read()
                     .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
-                check_operator_limits(&op, options)?;
+                match &op {
+                    wasmparser::Operator::BrTable { targets } => {
+                        options.limits.check(ParseLimitKind::BrTableTargets, targets.len() as usize)?;
+                    }
+                    wasmparser::Operator::ArrayNewFixed { array_size, .. } => {
+                        options.limits.check(ParseLimitKind::ArrayNewFixedElements, *array_size as usize)?;
+                    }
+                    _ => {}
+                }
                 wasmparser::VisitOperator::visit_operator(&mut builder, &op)
             } else {
                 reader
@@ -537,7 +529,15 @@ pub(crate) fn process_operators_and_validate(
                 let op = reader
                     .read()
                     .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
-                check_operator_limits(&op, options)?;
+                match &op {
+                    wasmparser::Operator::BrTable { targets } => {
+                        options.limits.check(ParseLimitKind::BrTableTargets, targets.len() as usize)?;
+                    }
+                    wasmparser::Operator::ArrayNewFixed { array_size, .. } => {
+                        options.limits.check(ParseLimitKind::ArrayNewFixedElements, *array_size as usize)?;
+                    }
+                    _ => {}
+                }
                 visitor.visit_operator(&op)
             } else {
                 reader

@@ -165,11 +165,7 @@ pub(crate) fn convert_module_code(
 ) -> Result<(FunctionCode, Option<FuncValidatorAllocations>, OperatorsReaderAllocations)> {
     let mut locals_reader = func.get_locals_reader()?;
     let mut local_types = metadata.signature(context.ty_idx)?.params.clone();
-    crate::check_parse_limit(
-        crate::ParseLimitKind::FunctionLocals,
-        options.limits.max_function_locals,
-        local_types.len(),
-    )?;
+    options.limits.check(crate::ParseLimitKind::FunctionLocals, local_types.len())?;
 
     #[cfg(feature = "validate")]
     let mut validator = validator;
@@ -182,7 +178,7 @@ pub(crate) fn convert_module_code(
             .len()
             .checked_add(local.0 as usize)
             .ok_or_else(|| crate::ParseError::Other("function local count overflow".into()))?;
-        crate::check_parse_limit(crate::ParseLimitKind::FunctionLocals, options.limits.max_function_locals, expanded)?;
+        options.limits.check(crate::ParseLimitKind::FunctionLocals, expanded)?;
         #[cfg(feature = "validate")]
         if let Some(validator) = validator.as_mut() {
             validator.define_locals(position, local.0, local.1)?;

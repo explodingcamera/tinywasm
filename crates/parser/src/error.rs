@@ -1,34 +1,7 @@
+use crate::ParseLimitKind;
 use alloc::string::{String, ToString};
 use core::fmt::{Debug, Display};
 use wasmparser::Encoding;
-
-/// The input or parse-time expansion limit that was exceeded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParseLimitKind {
-    /// Encoded module bytes.
-    ModuleBytes,
-    /// Materialized entries in one module section.
-    SectionItems,
-    /// Parameters plus declared locals in one function.
-    FunctionLocals,
-    /// Explicit targets in one `br_table`.
-    BrTableTargets,
-    /// Elements in one `array.new_fixed`.
-    ArrayNewFixedElements,
-}
-
-impl Display for ParseLimitKind {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let name = match self {
-            Self::ModuleBytes => "module bytes",
-            Self::SectionItems => "section items",
-            Self::FunctionLocals => "function locals",
-            Self::BrTableTargets => "br_table targets",
-            Self::ArrayNewFixedElements => "array.new_fixed elements",
-        };
-        f.write_str(name)
-    }
-}
 
 #[derive(Debug, PartialEq, Eq)]
 /// Errors that can occur when parsing a WebAssembly module

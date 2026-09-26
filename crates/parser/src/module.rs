@@ -2,7 +2,7 @@ use crate::log::debug;
 #[cfg(parallel_parser)]
 use crate::validation::{FuncToValidate, ValidatorResources};
 use crate::validation::{FuncValidatorAllocations, Validator};
-use crate::{ParseError, ParseLimitKind, ParserOptions, Result, check_parse_limit, conversion::*};
+use crate::{ParseError, ParseLimitKind, ParserOptions, Result, conversion::*};
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -109,11 +109,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::TypeSection(reader) => {
                 check_section("type", self.has_type_section)?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 self.has_type_section = true;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -127,7 +123,7 @@ impl<'a> ModuleReader<'a> {
                         .len()
                         .checked_add(group.types().len())
                         .ok_or_else(|| ParseError::Other("type section item count overflow".into()))?;
-                    check_parse_limit(ParseLimitKind::SectionItems, options.limits.max_section_items, expanded)?;
+                    options.limits.check(ParseLimitKind::SectionItems, expanded)?;
                     let group_start = u32::try_from(types.len())
                         .map_err(|_| ParseError::Other("type section is too large".into()))?;
                     let group_len = convert_rec_group(group, group_start, &mut types)?;
@@ -140,11 +136,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::GlobalSection(reader) => {
                 check_section("global", !self.globals.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.global_section(&reader)?;
@@ -153,11 +145,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::TableSection(reader) => {
                 check_section("table", !self.tables.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.table_section(&reader)?;
@@ -183,11 +171,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::MemorySection(reader) => {
                 check_section("memory", !self.memory_types.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.memory_section(&reader)?;
@@ -197,11 +181,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::TagSection(reader) => {
                 check_section("tag", !self.tags.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.tag_section(&reader)?;
@@ -221,11 +201,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ElementSection(reader) => {
                 debug!("Found element section");
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.element_section(&reader)?;
@@ -237,11 +213,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::DataSection(reader) => {
                 check_section("data", !self.data.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.data_section(&reader)?;
@@ -253,7 +225,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::DataCountSection { count, range } => {
                 debug!("Found data count section");
-                check_parse_limit(ParseLimitKind::SectionItems, options.limits.max_section_items, count as usize)?;
+                options.limits.check(ParseLimitKind::SectionItems, count as usize)?;
                 if !self.data.is_empty() {
                     return Err(ParseError::UnsupportedSection("Data count section after data section".into()));
                 }
@@ -266,11 +238,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::FunctionSection(reader) => {
                 check_section("function", !self.code_type_addrs.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.function_section(&reader)?;
@@ -290,11 +258,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ImportSection(reader) => {
                 check_section("import", !self.imports.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 if options.limits.max_section_items.is_some() {
                     // Compact import groups can expand well beyond the outer
                     // section count. Count them before validation materializes
@@ -311,7 +275,7 @@ impl<'a> ModuleReader<'a> {
                         expanded = expanded
                             .checked_add(group_len)
                             .ok_or_else(|| ParseError::Other("import section item count overflow".into()))?;
-                        check_parse_limit(ParseLimitKind::SectionItems, options.limits.max_section_items, expanded)?;
+                        options.limits.check(ParseLimitKind::SectionItems, expanded)?;
                     }
                 }
                 #[cfg(feature = "validate")]
@@ -321,11 +285,6 @@ impl<'a> ModuleReader<'a> {
                 let mut imports = Vec::with_capacity(reader.count() as usize);
                 for import in reader.into_imports() {
                     let import = convert_module_import(import?)?;
-                    check_parse_limit(
-                        ParseLimitKind::SectionItems,
-                        options.limits.max_section_items,
-                        imports.len() + 1,
-                    )?;
                     match import.kind {
                         ImportKind::Function(type_idx) => {
                             if self.types.get(type_idx).and_then(SubType::as_func).is_none() {
@@ -358,11 +317,7 @@ impl<'a> ModuleReader<'a> {
             }
             Payload::ExportSection(reader) => {
                 check_section("export", !self.exports.is_empty())?;
-                check_parse_limit(
-                    ParseLimitKind::SectionItems,
-                    options.limits.max_section_items,
-                    reader.count() as usize,
-                )?;
+                options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.export_section(&reader)?;
@@ -406,7 +361,7 @@ impl<'a> ModuleReader<'a> {
         options: &ParserOptions,
     ) -> Result<bool> {
         debug!("Found code section ({count} functions)");
-        check_parse_limit(ParseLimitKind::SectionItems, options.limits.max_section_items, count as usize)?;
+        options.limits.check(ParseLimitKind::SectionItems, count as usize)?;
         if self.has_code_section {
             return Err(ParseError::DuplicateSection("Code section".into()));
         }
