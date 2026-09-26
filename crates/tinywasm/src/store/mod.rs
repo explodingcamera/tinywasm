@@ -573,14 +573,14 @@ impl Store {
         result
     }
 
-    /// Add functions to the store, returning their addresses in the store
+    /// Add functions to the store, returning their (contiguous) addresses in the store
     pub(crate) fn init_funcs(
         &mut self,
         funcs: &[Shared<WasmFunction>],
         owner: ModuleInstanceId,
         module_type_idxs: &[TypeAddr],
         type_addrs: &[TypeAddr],
-    ) -> impl ExactSizeIterator<Item = FuncAddr> {
+    ) -> core::ops::Range<FuncAddr> {
         debug_assert_eq!(funcs.len(), module_type_idxs.len());
         let funcs =
             funcs.iter().cloned().zip(module_type_idxs).map(|(func, &type_idx)| (type_addrs[type_idx as usize], func));

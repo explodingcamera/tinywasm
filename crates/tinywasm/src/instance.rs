@@ -60,6 +60,11 @@ struct ModuleInstanceInner {
     id: ModuleInstanceId,
     type_addrs: Box<[TypeAddr]>,
     func_addrs: Box<[FuncAddr]>,
+    /// The module's own (non-imported) functions, in index order. The store allocates them
+    /// contiguously from `local_func_base`, so an executor can borrow any of them for a whole run.
+    local_funcs: Box<[Shared<WasmFunction>]>,
+    local_func_base: FuncAddr,
+    imported_funcs: u32,
     table_addrs: Box<[TableAddr]>,
     mem_addrs: Box<[MemAddr]>,
     #[cfg(feature = "std")]
@@ -82,6 +87,20 @@ impl ModuleInstance {
     #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
         self.0.func_addrs[addr as usize]
+    }
+
+    /// The store address and body of the module's own function `idx`, or `None` for an import.
+    #[inline(always)]
+    pub(crate) fn local_func_by_index(&self, idx: FuncAddr) -> Option<(FuncAddr, &WasmFunction)> {
+        let local = idx.wrapping_sub(self.0.imported_funcs);
+        let func = self.0.local_funcs.get(local as usize)?;
+        Some((self.0.local_func_base + local, func))
+    }
+
+    /// The body of the function at store address `addr`, if this instance owns it.
+    #[inline(always)]
+    pub(crate) fn local_func(&self, addr: FuncAddr) -> Option<&WasmFunction> {
+        self.0.local_funcs.get(addr.wrapping_sub(self.0.local_func_base) as usize).map(|func| &**func)
     }
 
     /// resolve a table address to the global store address
@@ -211,7 +230,9 @@ impl ModuleInstance {
         let id = store.next_module_instance_id();
         let mut addrs = crate::imports::ResolvedImports::new(store, module, &type_addrs, imports)?;
         let imported_funcs = addrs.funcs.len();
-        addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
+        let local_funcs = store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs);
+        let local_func_base = local_funcs.start;
+        addrs.funcs.extend(local_funcs);
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         let limiter = store.engine.config().resource_limiter.clone();
         if !module.skip_local_memory_allocation {
@@ -238,6 +259,9 @@ impl ModuleInstance {
             id,
             type_addrs,
             func_addrs: addrs.funcs.into_boxed_slice(),
+            local_funcs: module.funcs.clone(),
+            local_func_base,
+            imported_funcs: imported_funcs as u32,
             table_addrs: addrs.tables.into_boxed_slice(),
             mem_addrs: addrs.memories.into_boxed_slice(),
             #[cfg(feature = "std")]
