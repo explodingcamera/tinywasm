@@ -7,7 +7,7 @@ macro_rules! define_stable_dispatch {
         fn exec_step($executor: &mut Self, $instr_ptr: usize) -> ExecResult<ExecFlow> {
             macro_rules! $dispatch_next {
                 ($next_instr_ptr:expr) => {{
-                    return Ok(ExecFlow::next($next_instr_ptr));
+                    return Ok(ExecFlow::Next($next_instr_ptr));
                 }};
             }
             macro_rules! $dispatch_flow {
@@ -19,7 +19,7 @@ macro_rules! define_stable_dispatch {
             match &$executor.func.instructions[$instr_ptr] {
                 $($variant $(($($arg),*))? $({ $($field),* })? => $body,)*
             }
-            Ok(ExecFlow::next($instr_ptr + 1))
+            Ok(ExecFlow::Next($instr_ptr + 1))
         }
     };
 }

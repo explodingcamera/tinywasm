@@ -824,7 +824,8 @@ impl Store {
                     };
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
                     with_memory!(self.state, *mem_addr, |mem, kind| {
-                        mem.write_all(offset, &data.data).ok_or_else(|| memory::memory_oob(offset, data.data.len(), mem.len()))
+                        mem.write_all(offset, &data.data)
+                            .ok_or_else(|| memory::memory_oob(offset, data.data.len(), mem.len()))
                     })?;
                     self.state.data[data_addrs[i] as usize].drop();
                 }

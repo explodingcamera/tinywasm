@@ -3,7 +3,7 @@ use super::*;
 struct Unbudgeted;
 struct Bounded;
 
-type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction) -> ExecResult<()>;
+type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, &[Instruction], usize, Instruction) -> ExecResult<()>;
 type BoundedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
 
 #[cold]
@@ -29,22 +29,27 @@ macro_rules! define_unbudgeted_tail_dispatch {
             #[allow(non_snake_case, unreachable_code, unused_imports, unused_macros, unused_variables)]
             fn $variant(
                 $executor: &mut Executor<'_>,
+                instructions: &[Instruction],
                 $instr_ptr: usize,
                 instruction: Instruction,
             ) -> ExecResult<()> {
                 macro_rules! $dispatch_next {
                     ($next_instr_ptr:expr) => {{
                         let next_instr_ptr = $next_instr_ptr;
-                        let instruction = $executor.func.instructions[next_instr_ptr];
+                        let instruction = instructions[next_instr_ptr];
                         let handler = Self::handler_for(instruction.opcode());
-                        become handler($executor, next_instr_ptr, instruction);
+                        become handler($executor, instructions, next_instr_ptr, instruction);
                     }};
                 }
                 macro_rules! $dispatch_flow {
                     ($flow:expr) => {{
-                        match $flow.next_instr_ptr() {
-                            Some(next_instr_ptr) => $dispatch_next!(next_instr_ptr),
-                            None => return cold!(Ok(())),
+                        match $flow {
+                            ExecFlow::Next(next_instr_ptr) => $dispatch_next!(next_instr_ptr),
+                            ExecFlow::Switch(next_instr_ptr) => {
+                                $executor.cf.instr_ptr = next_instr_ptr;
+                                return Ok(());
+                            },
+                            ExecFlow::Complete => return cold!({ $executor.completed = true; Ok(()) }),
                         }
                     }};
                 }
@@ -142,10 +147,17 @@ impl Bounded {
 impl<'store> Executor<'store> {
     #[inline(always)]
     pub(crate) fn run_to_completion(mut self) -> Result<()> {
-        let instr_ptr = self.cf.instr_ptr;
-        let instruction = self.func.instructions[instr_ptr];
-        let handler = Unbudgeted::handler_for(instruction.opcode());
-        Ok(handler(&mut self, instr_ptr, instruction)?)
+        loop {
+            let func = self.func.clone();
+            let instructions = &func.instructions;
+            let instr_ptr = self.cf.instr_ptr;
+            let instruction = instructions[instr_ptr];
+            let handler = Unbudgeted::handler_for(instruction.opcode());
+            handler(&mut self, instructions, instr_ptr, instruction)?;
+            if self.completed {
+                return Ok(());
+            }
+        }
     }
 
     #[cfg(feature = "std")]
