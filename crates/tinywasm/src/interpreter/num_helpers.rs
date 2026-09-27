@@ -35,7 +35,7 @@ macro_rules! checked_conv_float {
             core::hint::cold_path();
             return Err(crate::Trap::IntegerOverflow.into());
         }
-        <$to>::stack_push(&mut $self.store.value_stack, (v as $intermediate as $to).into())?;
+        <$to>::stack_push(&mut $self.store.value_stack, (v as $intermediate as $to).into());
     }};
 }
 

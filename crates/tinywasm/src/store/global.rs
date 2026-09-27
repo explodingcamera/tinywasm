@@ -25,12 +25,18 @@ impl<T: Copy> GlobalLane<T> {
 
     #[inline]
     fn get(&self, index: usize) -> T {
-        self.values[index]
+        match self.values.get(index) {
+            Some(value) => *value,
+            None => crate::invariant_violated("global address out of range"),
+        }
     }
 
     #[inline]
     fn set(&mut self, index: usize, value: T) {
-        self.values[index] = value;
+        match self.values.get_mut(index) {
+            Some(slot) => *slot = value,
+            None => crate::invariant_violated("global address out of range"),
+        }
     }
 
     fn ty(&self, index: usize) -> GlobalType {

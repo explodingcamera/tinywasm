@@ -300,8 +300,9 @@ impl<'store> Executor<'store> {
         let lo = a_lo.wrapping_add(b_lo);
         let carry = u64::from((lo as u64) < (a_lo as u64));
         let hi = a_hi.wrapping_add(b_hi).wrapping_add(carry as i64);
-        i64::stack_push(&mut self.store.value_stack, lo)?;
-        i64::stack_push(&mut self.store.value_stack, hi)
+        i64::stack_push(&mut self.store.value_stack, lo);
+        i64::stack_push(&mut self.store.value_stack, hi);
+        Ok(())
     }
 
     fn exec_i64_sub128(&mut self) -> Result<(), Trap> {
@@ -312,24 +313,27 @@ impl<'store> Executor<'store> {
         let lo = a_lo.wrapping_sub(b_lo);
         let borrow = u64::from((a_lo as u64) < (b_lo as u64));
         let hi = a_hi.wrapping_sub(b_hi).wrapping_sub(borrow as i64);
-        i64::stack_push(&mut self.store.value_stack, lo)?;
-        i64::stack_push(&mut self.store.value_stack, hi)
+        i64::stack_push(&mut self.store.value_stack, lo);
+        i64::stack_push(&mut self.store.value_stack, hi);
+        Ok(())
     }
 
     fn exec_i64_mul_wide_s(&mut self) -> Result<(), Trap> {
         let rhs = i64::stack_pop(&mut self.store.value_stack);
         let lhs = i64::stack_pop(&mut self.store.value_stack);
         let product = (lhs as i128).wrapping_mul(rhs as i128);
-        i64::stack_push(&mut self.store.value_stack, product as i64)?;
-        i64::stack_push(&mut self.store.value_stack, (product >> 64) as i64)
+        i64::stack_push(&mut self.store.value_stack, product as i64);
+        i64::stack_push(&mut self.store.value_stack, (product >> 64) as i64);
+        Ok(())
     }
 
     fn exec_i64_mul_wide_u(&mut self) -> Result<(), Trap> {
         let rhs = i64::stack_pop(&mut self.store.value_stack);
         let lhs = i64::stack_pop(&mut self.store.value_stack);
         let product = (lhs as u64 as u128).wrapping_mul(rhs as u64 as u128);
-        i64::stack_push(&mut self.store.value_stack, product as u64 as i64)?;
-        i64::stack_push(&mut self.store.value_stack, (product >> 64) as u64 as i64)
+        i64::stack_push(&mut self.store.value_stack, product as u64 as i64);
+        i64::stack_push(&mut self.store.value_stack, (product >> 64) as u64 as i64);
+        Ok(())
     }
 
     #[inline(always)]
@@ -339,7 +343,8 @@ impl<'store> Executor<'store> {
         operation: impl FnOnce(Value128, u8) -> TO,
     ) -> Result<(), Trap> {
         let vector = Value128::stack_pop(&mut self.store.value_stack);
-        TO::stack_push(&mut self.store.value_stack, operation(vector, lane))
+        TO::stack_push(&mut self.store.value_stack, operation(vector, lane));
+        Ok(())
     }
 
     #[inline(always)]
@@ -350,13 +355,15 @@ impl<'store> Executor<'store> {
     ) -> Result<(), Trap> {
         let vector = Value128::stack_pop(&mut self.store.value_stack);
         let value = VALUE::stack_pop(&mut self.store.value_stack);
-        Value128::stack_push(&mut self.store.value_stack, operation(value, vector, lane))
+        Value128::stack_push(&mut self.store.value_stack, operation(value, vector, lane));
+        Ok(())
     }
 
     fn exec_simd_shuffle(&mut self, lanes: Value128) -> Result<(), Trap> {
         let rhs = Value128::stack_pop(&mut self.store.value_stack);
         let lhs = Value128::stack_pop(&mut self.store.value_stack);
-        Value128::stack_push(&mut self.store.value_stack, Value128::i8x16_shuffle(lhs, rhs, lanes))
+        Value128::stack_push(&mut self.store.value_stack, Value128::i8x16_shuffle(lhs, rhs, lanes));
+        Ok(())
     }
 
     #[inline(always)]
@@ -375,7 +382,8 @@ impl<'store> Executor<'store> {
     fn exec_global_get<T: InternalValue>(&mut self, global: GlobalAddr) -> Result<(), Trap> {
         let addr = self.module.resolve_global_addr(global);
         let value = T::global_get(&self.store.state.globals, addr);
-        T::stack_push(&mut self.store.value_stack, value)
+        T::stack_push(&mut self.store.value_stack, value);
+        Ok(())
     }
 
     #[inline(always)]
@@ -401,7 +409,10 @@ impl<'store> Executor<'store> {
         if let Some(dst) = dst {
             T::local_set(&mut self.store.value_stack, &self.cf, dst, val);
         }
-        if PUSH { T::stack_push(&mut self.store.value_stack, val) } else { Ok(()) }
+        if PUSH {
+            T::stack_push(&mut self.store.value_stack, val);
+        }
+        Ok(())
     }
 
     #[inline(always)]
@@ -447,7 +458,8 @@ impl<'store> Executor<'store> {
         op: impl BinOpExt<T>,
     ) -> Result<(), Trap> {
         let lhs = T::global_get(&self.store.state.globals, self.module.resolve_global_addr(lhs));
-        T::stack_push(&mut self.store.value_stack, op.exec(lhs, rhs))
+        T::stack_push(&mut self.store.value_stack, op.exec(lhs, rhs));
+        Ok(())
     }
 
     #[inline(always)]
@@ -458,7 +470,8 @@ impl<'store> Executor<'store> {
     {
         let lhs = T::local_get(&self.store.value_stack, &self.cf, lhs);
         let rhs = T::local_get(&self.store.value_stack, &self.cf, rhs);
-        i32::stack_push(&mut self.store.value_stack, i32::from(op.cmp(lhs, rhs)))
+        i32::stack_push(&mut self.store.value_stack, i32::from(op.cmp(lhs, rhs)));
+        Ok(())
     }
 
     #[inline(always)]
@@ -617,11 +630,11 @@ impl<'store> Executor<'store> {
                     let Store { state, value_stack, .. } = self.store;
                     let object = state.gc.get(exception).ok_or(Trap::InvalidReference)?;
                     for value in object.values.iter().copied() {
-                        value_stack.push_reserved(value)?;
+                        value_stack.push_reserved(value);
                     }
                 }
                 if with_ref {
-                    ValueRef::stack_push(&mut self.store.value_stack, exception)?;
+                    ValueRef::stack_push(&mut self.store.value_stack, exception);
                 }
                 return Ok(Some(if switched {
                     ExecFlow::Switch(landing_pad as usize)
@@ -966,7 +979,7 @@ impl<'store> Executor<'store> {
                 TARGET::local_set(&mut self.store.value_stack, &self.cf, u16::from(dst_local), value);
             }
             if !SET_LOCAL || TEE {
-                TARGET::stack_push(&mut self.store.value_stack, value)?;
+                TARGET::stack_push(&mut self.store.value_stack, value);
             }
             Ok(())
         })
@@ -974,7 +987,8 @@ impl<'store> Executor<'store> {
 
     fn exec_ref_is_null(&mut self) -> Result<(), Trap> {
         let is_null = i32::from(ValueRef::stack_pop(&mut self.store.value_stack).is_null());
-        i32::stack_push(&mut self.store.value_stack, is_null)
+        i32::stack_push(&mut self.store.value_stack, is_null);
+        Ok(())
     }
 
     fn exec_ref_as_non_null(&mut self) -> Result<(), Trap> {
@@ -997,7 +1011,8 @@ impl<'store> Executor<'store> {
     fn exec_ref_test(&mut self, ty: RefType) -> Result<(), Trap> {
         let value = ValueRef::stack_pop(&mut self.store.value_stack);
         let matches = self.store.state.value_ref_matches(value, self.canonical_ref_type(ty));
-        i32::stack_push(&mut self.store.value_stack, i32::from(matches))
+        i32::stack_push(&mut self.store.value_stack, i32::from(matches));
+        Ok(())
     }
 
     fn exec_ref_cast(&self, ty: RefType) -> Result<(), Trap> {
@@ -1017,13 +1032,15 @@ impl<'store> Executor<'store> {
         } else {
             value.i31_u().expect("validated i31.get operand") as i32
         };
-        i32::stack_push(&mut self.store.value_stack, value)
+        i32::stack_push(&mut self.store.value_stack, value);
+        Ok(())
     }
 
     fn push_gc_object(&mut self, type_addr: TypeAddr, values: Vec<RuntimeValue>) -> Result<(), Trap> {
         let roots = (&self.store.value_stack.stack_32).into_iter().copied().map(ValueRef::from_raw);
         let reference = self.store.state.alloc_gc_object(type_addr, values, roots)?;
-        ValueRef::stack_push(&mut self.store.value_stack, reference)
+        ValueRef::stack_push(&mut self.store.value_stack, reference);
+        Ok(())
     }
 
     fn exec_struct_new(&mut self, type_index: TypeAddr, default: bool) -> Result<(), Trap> {
@@ -1066,7 +1083,8 @@ impl<'store> Executor<'store> {
         let object = self.store.state.gc_object(reference, type_addr)?;
         let object = self.store.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
         let value = *object.values.get(field_index as usize).expect("validated struct field index");
-        push_value(&mut self.store.value_stack, value, storage, signed)
+        push_value(&mut self.store.value_stack, value, storage, signed);
+        Ok(())
     }
 
     fn exec_struct_set(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
@@ -1121,7 +1139,8 @@ impl<'store> Executor<'store> {
         let object = self.store.state.gc_object(reference, type_addr)?;
         let object = self.store.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
         let value = *object.values.get(index).ok_or(Trap::ArrayOutOfBounds)?;
-        push_value(&mut self.store.value_stack, value, storage, signed)
+        push_value(&mut self.store.value_stack, value, storage, signed);
+        Ok(())
     }
 
     fn exec_array_set(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
@@ -1146,7 +1165,8 @@ impl<'store> Executor<'store> {
         if self.store.state.get_type(type_addr).as_array().is_none() {
             return Err(Trap::Other("GC reference is not an array"));
         }
-        i32::stack_push(&mut self.store.value_stack, object.values.len() as i32)
+        i32::stack_push(&mut self.store.value_stack, object.values.len() as i32);
+        Ok(())
     }
 
     fn exec_array_fill(&mut self, type_index: TypeAddr) -> Result<(), Trap> {
@@ -1271,6 +1291,7 @@ impl<'store> Executor<'store> {
             (MemoryArch::I64, pages) => i64::stack_push(&mut self.store.value_stack, pages as i64),
             (MemoryArch::I32, pages) => i32::stack_push(&mut self.store.value_stack, pages as i32),
         }
+        Ok(())
     }
 
     fn exec_memory_grow(&mut self, addr: u32) -> Result<(), Trap> {
@@ -1284,8 +1305,8 @@ impl<'store> Executor<'store> {
 
         let size = self.store.state.grow_mem(mem_addr, pages_delta, limiter)?.unwrap_or(-1);
         match is_64bit {
-            true => i64::stack_push(&mut self.store.value_stack, size)?,
-            false => i32::stack_push(&mut self.store.value_stack, size as i32)?,
+            true => i64::stack_push(&mut self.store.value_stack, size),
+            false => i32::stack_push(&mut self.store.value_stack, size as i32),
         };
 
         Ok(())
@@ -1417,7 +1438,8 @@ impl<'store> Executor<'store> {
             let base = self.store.value_stack.pop_memory_operand(kind.arch())?;
             let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
             let value = cold_err!(LOAD::load_at(&*mem, addr))?;
-            TARGET::stack_push(&mut self.store.value_stack, cast(value))
+            TARGET::stack_push(&mut self.store.value_stack, cast(value));
+            Ok(())
         })
     }
 
@@ -1469,10 +1491,12 @@ impl<'store> Executor<'store> {
                 AtomicWaitOp::Wait32 => shared.wait::<4>(addr, value, timeout)?,
                 AtomicWaitOp::Wait64 => shared.wait::<8>(addr, value, timeout)?,
             };
-            return u32::stack_push(&mut self.store.value_stack, result);
+            u32::stack_push(&mut self.store.value_stack, result);
+            return Ok(());
         }
 
-        u32::stack_push(&mut self.store.value_stack, 0)
+        u32::stack_push(&mut self.store.value_stack, 0);
+        Ok(())
     }
 
     fn exec_atomic_width<const N: usize>(&mut self, arg: AtomicArg) -> Result<(), Trap> {
@@ -1528,6 +1552,7 @@ impl<'store> Executor<'store> {
                 true => u64::stack_push(&mut self.store.value_stack, old),
                 false => u32::stack_push(&mut self.store.value_stack, old as u32),
             }
+            Ok(())
         })
     }
 
@@ -1587,7 +1612,8 @@ impl<'store> Executor<'store> {
         let table_addr = self.module.resolve_table_addr(table_index);
         let idx = self.pop_table_operand(self.store.state.get_table(table_addr).kind.arch())?;
         let value = *self.store.state.get_table(table_addr).get(idx)?;
-        ValueRef::stack_push(&mut self.store.value_stack, value)
+        ValueRef::stack_push(&mut self.store.value_stack, value);
+        Ok(())
     }
 
     fn exec_table_set(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -1604,6 +1630,7 @@ impl<'store> Executor<'store> {
             MemoryArch::I32 => i32::stack_push(&mut self.store.value_stack, table.size() as i32),
             MemoryArch::I64 => i64::stack_push(&mut self.store.value_stack, table.size() as i64),
         }
+        Ok(())
     }
 
     fn exec_table_init(&mut self, index: Operand64Idx<(u32, u32)>) -> Result<(), Trap> {
@@ -1635,6 +1662,7 @@ impl<'store> Executor<'store> {
             (MemoryArch::I64, true) => i64::stack_push(&mut self.store.value_stack, sz as i64),
             (MemoryArch::I64, false) => i64::stack_push(&mut self.store.value_stack, -1),
         }
+        Ok(())
     }
 
     fn exec_table_fill(&mut self, table_index: u32) -> Result<(), Trap> {

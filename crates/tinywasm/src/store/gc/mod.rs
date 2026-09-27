@@ -39,12 +39,7 @@ pub(crate) fn pop_value(stack: &mut ValueStack, storage: StorageType) -> Runtime
 }
 
 /// Extends a packed value and pushes it onto the operand stack.
-pub(crate) fn push_value(
-    stack: &mut ValueStack,
-    value: RuntimeValue,
-    storage: StorageType,
-    signed: Option<bool>,
-) -> Result<(), Trap> {
+pub(crate) fn push_value(stack: &mut ValueStack, value: RuntimeValue, storage: StorageType, signed: Option<bool>) {
     let value = match (value, storage, signed) {
         (RuntimeValue::Value32(value), StorageType::I8, Some(true)) => RuntimeValue::Value32(value as i8 as i32 as u32),
         (RuntimeValue::Value32(value), StorageType::I16, Some(true)) => {
