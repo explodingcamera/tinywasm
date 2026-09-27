@@ -874,6 +874,7 @@ impl<'store> Executor<'store> {
         self.finish_return()
     }
 
+    #[inline(always)]
     fn exec_store_local_local<T: InternalValue + MemValue<N>, const N: usize>(
         &mut self,
         index: Operand64Idx<CompactMemoryOperand>,
@@ -899,6 +900,7 @@ impl<'store> Executor<'store> {
         })
     }
 
+    #[inline(always)]
     fn exec_inc_memory_local<T: MemValue<N>, const N: usize>(
         &mut self,
         index: Operand64Idx<CompactMemoryOperand>,
@@ -925,6 +927,7 @@ impl<'store> Executor<'store> {
         })
     }
 
+    #[inline(always)]
     fn exec_fma_store<
         T: InternalValue + MemValue<N> + core::ops::Add<Output = T> + core::ops::Mul<Output = T>,
         const N: usize,
@@ -944,6 +947,7 @@ impl<'store> Executor<'store> {
         })
     }
 
+    #[inline(always)]
     fn exec_load_local<
         LOAD: MemValue<N>,
         const N: usize,
@@ -1407,6 +1411,7 @@ impl<'store> Executor<'store> {
         }
     }
 
+    #[inline(always)]
     fn exec_mem_load_lane<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize>(
         &mut self,
         arg: MemoryLaneArg,
