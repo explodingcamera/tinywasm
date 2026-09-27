@@ -55,20 +55,19 @@ impl From<ExecError> for Error {
 }
 
 #[derive(Clone, Copy)]
-struct ExecFlow(usize);
+enum ExecFlow {
+    Next(usize),
+    Switch(usize),
+    Complete,
+}
 
 impl ExecFlow {
-    const COMPLETE: Self = Self(usize::MAX);
-
-    #[inline(always)]
-    fn next(instr_ptr: usize) -> Self {
-        debug_assert_ne!(instr_ptr, Self::COMPLETE.0);
-        Self(instr_ptr)
-    }
-
     #[inline(always)]
     fn next_instr_ptr(self) -> Option<usize> {
-        (self.0 != Self::COMPLETE.0).then_some(self.0)
+        match self {
+            Self::Next(instr_ptr) | Self::Switch(instr_ptr) => Some(instr_ptr),
+            Self::Complete => None,
+        }
     }
 }
 
@@ -560,7 +559,7 @@ impl<'store> Executor<'store> {
 
     fn throw_exception(&mut self, exception: ValueRef, protected_ip: usize) -> ExecResult<ExecFlow> {
         match self.dispatch_exception(exception, protected_ip)? {
-            Some(landing_pad) => Ok(ExecFlow::next(landing_pad)),
+            Some(flow) => Ok(flow),
             None => Err(Error::Exception(self.store.root_exception(exception)?).into()),
         }
     }
@@ -595,11 +594,12 @@ impl<'store> Executor<'store> {
         }
     }
 
-    fn dispatch_exception(&mut self, exception: ValueRef, mut protected_ip: usize) -> Result<Option<usize>, Trap> {
+    fn dispatch_exception(&mut self, exception: ValueRef, mut protected_ip: usize) -> Result<Option<ExecFlow>, Trap> {
         let object = self.store.state.gc.get(exception).ok_or(Trap::InvalidReference)?;
         let crate::store::GcObjectKind::Exception(tag_addr) = object.kind else {
             return Err(Trap::InvalidReference);
         };
+        let mut switched = false;
         loop {
             if let Some(catch) = self.matching_catch(protected_ip, tag_addr) {
                 let (landing_pad, base, with_ref, include_payload) = match catch {
@@ -623,13 +623,18 @@ impl<'store> Executor<'store> {
                 if with_ref {
                     ValueRef::stack_push(&mut self.store.value_stack, exception)?;
                 }
-                return Ok(Some(landing_pad as usize));
+                return Ok(Some(if switched {
+                    ExecFlow::Switch(landing_pad as usize)
+                } else {
+                    ExecFlow::Next(landing_pad as usize)
+                }));
             }
 
             self.store.value_stack.truncate_to_base(self.cf.locals_base);
             let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
                 return Ok(None);
             };
+            switched = true;
             self.switch_to_frame(caller);
             protected_ip = self.cf.instr_ptr.checked_sub(1).expect("invalid caller IP");
         }
@@ -647,7 +652,7 @@ impl<'store> Executor<'store> {
             if TAIL {
                 return Ok(self.exec_return());
             }
-            return Ok(ExecFlow::next(return_instr_ptr));
+            return Ok(ExecFlow::Next(return_instr_ptr));
         }
 
         let (param_count, result_count, base) = {
@@ -672,7 +677,7 @@ impl<'store> Executor<'store> {
                 Error::Trap(trap) => trap,
                 other => Trap::HostFunction(Box::new(other)),
             })?;
-        if TAIL { Ok(self.exec_return()) } else { Ok(ExecFlow::next(return_instr_ptr)) }
+        if TAIL { Ok(self.exec_return()) } else { Ok(ExecFlow::Next(return_instr_ptr)) }
     }
 
     fn exec_call_direct(&mut self, v: u32, return_instr_ptr: usize) -> ExecResult<ExecFlow> {
@@ -790,13 +795,14 @@ impl<'store> Executor<'store> {
             self.store.call_stack.push(self.cf, return_instr_ptr)?;
             self.cf = CallFrame::new(func_addr, locals_base, locals);
         }
+        let switched = next_func.is_some();
         if let Some(next_func) = next_func {
             self.func = next_func;
         }
         if owner != self.module.id() {
             self.set_module(owner);
         }
-        Ok(ExecFlow::next(0))
+        Ok(if switched { ExecFlow::Switch(0) } else { ExecFlow::Next(0) })
     }
 
     fn exec_call_ref<const TAIL: bool>(&mut self, type_addr: u32, return_instr_ptr: usize) -> ExecResult<ExecFlow> {
@@ -817,15 +823,16 @@ impl<'store> Executor<'store> {
     #[inline(always)]
     fn finish_return(&mut self) -> ExecFlow {
         let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
-            return ExecFlow::COMPLETE;
+            return ExecFlow::Complete;
         };
         let instr_ptr = caller.instr_ptr;
         if caller.func_addr == self.cf.func_addr {
             self.cf = caller;
+            ExecFlow::Next(instr_ptr)
         } else {
             self.switch_to_frame(caller);
+            ExecFlow::Switch(instr_ptr)
         }
-        ExecFlow::next(instr_ptr)
     }
 
     fn exec_return_void(&mut self) -> ExecFlow {
