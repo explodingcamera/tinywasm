@@ -6,12 +6,6 @@ struct Bounded;
 type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, &[Instruction], usize, Instruction) -> ExecResult<()>;
 type BoundedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
 
-#[cold]
-#[inline(never)]
-fn instruction_handler_mismatch() -> ! {
-    unreachable!("instruction handler mismatch")
-}
-
 macro_rules! define_unbudgeted_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
@@ -141,7 +135,7 @@ impl Unbudgeted {
     #[cold]
     #[inline(never)]
     fn handler_mismatch(_: &mut Executor<'_>, _: &[Instruction], _: usize, _: Instruction) -> ExecResult<()> {
-        instruction_handler_mismatch()
+        unreachable!("instruction handler mismatch")
     }
 
     #[cold]
@@ -159,7 +153,7 @@ impl Bounded {
     #[cold]
     #[inline(never)]
     fn handler_mismatch(_: &mut Executor<'_>, _: usize, _: Instruction, _: u32) -> ExecResult<()> {
-        instruction_handler_mismatch()
+        unreachable!("instruction handler mismatch")
     }
 
     #[cold]
