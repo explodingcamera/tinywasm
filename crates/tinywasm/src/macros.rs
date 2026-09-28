@@ -7,7 +7,7 @@
 #[cfg(all(feature = "nightly-tail-calls", not(debug_assertions)))]
 #[inline(always)]
 pub(crate) fn invariant_violated(_what: &'static str) -> ! {
-    core::intrinsics::abort()
+    core::process::abort_immediate()
 }
 
 /// Stops on an interpreter invariant that validated code cannot break, such as a value-stack or

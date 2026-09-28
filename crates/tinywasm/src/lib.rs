@@ -1,8 +1,7 @@
 #![no_std]
 #![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features))]
 #![cfg_attr(feature = "nightly-tail-calls", feature(explicit_tail_calls))]
-#![cfg_attr(all(feature = "nightly-tail-calls", not(debug_assertions)), feature(core_intrinsics))]
-#![cfg_attr(all(feature = "nightly-tail-calls", not(debug_assertions)), allow(internal_features))]
+#![cfg_attr(all(feature = "nightly-tail-calls", not(debug_assertions)), feature(abort_immediate))]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
