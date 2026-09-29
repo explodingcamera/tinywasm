@@ -6,12 +6,6 @@ struct Bounded;
 type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, &[Instruction], usize, Instruction) -> ExecResult<()>;
 type BoundedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
 
-#[cold]
-#[inline(never)]
-fn instruction_handler_mismatch() -> ! {
-    unreachable!("instruction handler mismatch")
-}
-
 macro_rules! define_unbudgeted_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
@@ -36,9 +30,11 @@ macro_rules! define_unbudgeted_tail_dispatch {
                 macro_rules! $dispatch_next {
                     ($next_instr_ptr:expr) => {{
                         let next_instr_ptr = $next_instr_ptr;
-                        let instruction = instructions[next_instr_ptr];
-                        let handler = Self::handler_for(instruction.opcode());
-                        become handler($executor, instructions, next_instr_ptr, instruction);
+                        let Some(&next) = instructions.get(next_instr_ptr) else {
+                            become Self::invalid_instr_ptr($executor, instructions, next_instr_ptr, instruction);
+                        };
+                        let handler = Self::handler_for(next.opcode());
+                        become handler($executor, instructions, next_instr_ptr, next);
                     }};
                 }
                 macro_rules! $dispatch_flow {
@@ -55,10 +51,10 @@ macro_rules! define_unbudgeted_tail_dispatch {
                 }
                 use tinywasm_types::Instruction::*;
                 $(let $variant($($arg),*) = &instruction else {
-                    cold!(instruction_handler_mismatch())
+                    become Self::handler_mismatch($executor, instructions, $instr_ptr, instruction);
                 };)?
                 $(let $variant { $($field),* } = &instruction else {
-                    cold!(instruction_handler_mismatch())
+                    become Self::handler_mismatch($executor, instructions, $instr_ptr, instruction);
                 };)?
                 $body;
                 $dispatch_next!($instr_ptr + 1)
@@ -98,9 +94,11 @@ macro_rules! define_bounded_tail_dispatch {
                             });
                         }
 
-                        let instruction = $executor.func.instructions[next_instr_ptr];
-                        let handler = Self::handler_for(instruction.opcode());
-                        become handler($executor, next_instr_ptr, instruction, instructions_until_checkpoint - 1);
+                        let Some(&next) = $executor.func.instructions.get(next_instr_ptr) else {
+                            become Self::invalid_instr_ptr($executor, next_instr_ptr, instruction, instructions_until_checkpoint);
+                        };
+                        let handler = Self::handler_for(next.opcode());
+                        become handler($executor, next_instr_ptr, next, instructions_until_checkpoint - 1);
                     }};
                 }
                 macro_rules! $dispatch_flow {
@@ -116,10 +114,10 @@ macro_rules! define_bounded_tail_dispatch {
                 }
                 use tinywasm_types::Instruction::*;
                 $(let $variant($($arg),*) = &instruction else {
-                    cold!(instruction_handler_mismatch())
+                    become Self::handler_mismatch($executor, $instr_ptr, instruction, instructions_until_checkpoint);
                 };)?
                 $(let $variant { $($field),* } = &instruction else {
-                    cold!(instruction_handler_mismatch())
+                    become Self::handler_mismatch($executor, $instr_ptr, instruction, instructions_until_checkpoint);
                 };)?
                 $body;
                 $dispatch_next!($instr_ptr + 1)
@@ -130,10 +128,39 @@ macro_rules! define_bounded_tail_dispatch {
 
 impl Unbudgeted {
     instruction_handlers!(define_unbudgeted_tail_dispatch);
+
+    // The handlers tail-call these cold paths instead of calling them: a call would make every
+    // handler save a stack frame.
+
+    #[cold]
+    #[inline(never)]
+    fn handler_mismatch(_: &mut Executor<'_>, _: &[Instruction], _: usize, _: Instruction) -> ExecResult<()> {
+        unreachable!("instruction handler mismatch")
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn invalid_instr_ptr(_: &mut Executor<'_>, _: &[Instruction], instr_ptr: usize, _: Instruction) -> ExecResult<()> {
+        unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+    }
 }
 
 impl Bounded {
     instruction_handlers!(define_bounded_tail_dispatch);
+
+    // Tail-called like `Unbudgeted`'s.
+
+    #[cold]
+    #[inline(never)]
+    fn handler_mismatch(_: &mut Executor<'_>, _: usize, _: Instruction, _: u32) -> ExecResult<()> {
+        unreachable!("instruction handler mismatch")
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn invalid_instr_ptr(_: &mut Executor<'_>, instr_ptr: usize, _: Instruction, _: u32) -> ExecResult<()> {
+        unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+    }
 
     #[inline(always)]
     fn run(executor: &mut Executor<'_>) -> ExecResult<()> {

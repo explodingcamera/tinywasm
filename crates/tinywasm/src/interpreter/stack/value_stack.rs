@@ -24,12 +24,6 @@ pub(crate) struct Stack<T: Copy + Default> {
     dynamic: bool,
 }
 
-#[cold]
-#[inline(never)]
-fn stack_underflow() -> ! {
-    unreachable!("ValueStack underflow, this is a bug")
-}
-
 impl<T: Copy + Default> Stack<T> {
     pub(crate) fn new(config: StackConfig) -> Self {
         Self { data: Vec::with_capacity(config.initial_size), max_size: config.max_size, dynamic: config.dynamic }
@@ -45,15 +39,14 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     /// Pushes a value inside a function body. `enter_locals` reserved the function's whole operand
-    /// stack, so a full stack here is the limit and there is nothing to grow. After this check
-    /// `Vec::push` cannot reach its own growth path, so the instruction handlers make no calls.
+    /// stack, so the stack is never full here. After this check `Vec::push` cannot reach its own
+    /// growth path, so the instruction handlers make no calls.
     #[inline(always)]
-    pub(crate) fn push(&mut self, value: T) -> Result<(), Trap> {
+    pub(crate) fn push(&mut self, value: T) {
         if self.data.len() == self.data.capacity() {
-            return cold!(Err(Trap::ValueStackOverflow));
+            crate::invariant_violated("value stack push beyond the function's reservation");
         }
         self.data.push(value);
-        Ok(())
     }
 
     /// Pushes a value outside a function body (host arguments and results), which no reservation
@@ -68,9 +61,9 @@ impl<T: Copy + Default> Stack<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn push_copy(&mut self, index: usize) -> Result<(), Trap> {
-        let value = self.data[index];
-        self.push(value)
+    pub(crate) fn push_copy(&mut self, index: usize) {
+        let value = *self.get(index);
+        self.push(value);
     }
 
     #[cold]
@@ -89,7 +82,7 @@ impl<T: Copy + Default> Stack<T> {
     pub(crate) fn pop(&mut self) -> T {
         match self.data.pop() {
             Some(value) => value,
-            None => cold!(stack_underflow()),
+            None => crate::invariant_violated("value stack underflow"),
         }
     }
 
@@ -97,23 +90,30 @@ impl<T: Copy + Default> Stack<T> {
     pub(crate) fn last(&self) -> &T {
         match self.data.last() {
             Some(value) => value,
-            None => cold!(stack_underflow()),
+            None => crate::invariant_violated("value stack underflow"),
         }
     }
 
     #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> &T {
-        &self.data[index]
+        match self.data.get(index) {
+            Some(value) => value,
+            None => crate::invariant_violated("value stack index out of range"),
+        }
     }
 
     #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
-        self.data[index] = value;
+        match self.data.get_mut(index) {
+            Some(slot) => *slot = value,
+            None => crate::invariant_violated("value stack index out of range"),
+        }
     }
 
     #[inline(always)]
     pub(crate) fn copy(&mut self, from: usize, to: usize) {
-        self.data[to] = self.data[from];
+        let value = *self.get(from);
+        self.set(to, value);
     }
 
     #[inline(always)]
@@ -187,7 +187,7 @@ impl<T: Copy + Default> Stack<T> {
         let needed = count.wrapping_mul(2);
 
         if len < needed {
-            cold!(stack_underflow());
+            crate::invariant_violated("value stack underflow");
         }
 
         if !condition {
@@ -298,7 +298,7 @@ impl ValueStack {
     }
 
     /// Pushes a dynamically typed value inside a function body using its entry reservation.
-    pub(crate) fn push_reserved(&mut self, value: RuntimeValue) -> Result<(), Trap> {
+    pub(crate) fn push_reserved(&mut self, value: RuntimeValue) {
         match value {
             RuntimeValue::Value32(value) => self.stack_32.push(value),
             RuntimeValue::Value64(value) => self.stack_64.push(value),

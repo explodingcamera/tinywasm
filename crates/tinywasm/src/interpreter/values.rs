@@ -107,13 +107,13 @@ impl RuntimeValue {
 
 /// Typed access to values in their physical [`ValueStack`] and [`Globals`] lanes.
 pub(crate) trait InternalValue: Copy + Default {
-    fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap>;
+    fn stack_push(stack: &mut ValueStack, value: Self);
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
     fn stack_update(stack: &mut ValueStack, f: impl FnOnce(Self) -> Self) -> Self;
     fn stack_select(stack: &mut ValueStack);
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
-    fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) -> Result<(), crate::Trap>;
+    fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr);
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
     fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) -> Self;
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
@@ -140,8 +140,8 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
-                fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) -> Result<(), crate::Trap> {
-                    stack.$stack.push_copy(frame.locals_base.$stack_base as usize + index as usize)
+                fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) {
+                    stack.$stack.push_copy(frame.locals_base.$stack_base as usize + index as usize);
                 }
 
                 #[inline(always)]
@@ -195,10 +195,9 @@ macro_rules! impl_internalvalue {
                 }
 
                 #[inline(always)]
-                fn stack_push(stack: &mut ValueStack, value: Self) -> Result<(), crate::Trap> {
+                fn stack_push(stack: &mut ValueStack, value: Self) {
                     let $to_stack_v = value;
-                    cold_err!(stack.$stack.push($to_stack))?;
-                    Ok(())
+                    stack.$stack.push($to_stack);
                 }
 
                 #[inline(always)]
