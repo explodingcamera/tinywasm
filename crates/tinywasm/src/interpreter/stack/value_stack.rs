@@ -6,6 +6,7 @@ use crate::engine::{Config, StackConfig};
 use crate::interpreter::*;
 use crate::{Result, Trap};
 
+#[derive(Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 /// Physical value lanes used by the interpreter.
 ///
@@ -34,6 +35,13 @@ pub(crate) struct Stack<T: Copy + Default> {
 
 /// The most slots [`Stack::enter_locals`] writes ahead of the pushes that reach them.
 const WRITTEN_RESERVATION: usize = 64;
+
+/// An empty stack without an allocation: what a store holds while an executor runs.
+impl<T: Copy + Default> Default for Stack<T> {
+    fn default() -> Self {
+        Self { data: Vec::new(), len: 0, max_size: 0, dynamic: false }
+    }
+}
 
 impl<T: Copy + Default> Stack<T> {
     pub(crate) fn new(config: StackConfig) -> Self {
