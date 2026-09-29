@@ -47,6 +47,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             args: "--features tinywasm/nightly-tail-calls"
           - os: ubuntu-26.04
+            rust: nightly
+            name: "Linux x86 (nightly tail calls, release with debug assertions)"
+            target: x86_64-unknown-linux-gnu
+            args: "--release --config profile.release.debug-assertions=true --features tinywasm/nightly-tail-calls"
+          - os: ubuntu-26.04
             rust: stable
             name: "Linux x86 (stable, no default features)"
             target: x86_64-unknown-linux-gnu
