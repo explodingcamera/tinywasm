@@ -3,8 +3,35 @@ use super::*;
 struct Unbudgeted;
 struct Bounded;
 
-type UnbudgetedHandler = for<'store> fn(&mut Executor<'store>, &[Instruction], usize, Instruction) -> ExecResult<()>;
-type BoundedHandler = for<'store> fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
+// Between two handlers only what the calling convention passes in registers stays out of memory.
+// On arm64_32 (watchOS) the Rust ABI passes an aggregate larger than a pointer, the 8-byte
+// `Instruction`, by reference, so every dispatch would store it and the next handler load it back.
+// The C convention passes it in a register; `C-unwind` still lets a host function's panic unwind.
+// Elsewhere the handlers keep the Rust ABI.
+macro_rules! handler_fn {
+    ($(#[$meta:meta])* fn $($rest:tt)*) => {
+        #[cfg(all(target_arch = "aarch64", target_pointer_width = "32"))]
+        #[allow(improper_ctypes_definitions)]
+        $(#[$meta])* extern "C-unwind" fn $($rest)*
+        #[cfg(not(all(target_arch = "aarch64", target_pointer_width = "32")))]
+        $(#[$meta])* fn $($rest)*
+    };
+}
+
+macro_rules! handler_types {
+    ($($abi:literal)?) => {
+        // Both sides are Rust, so the C convention's view of these types need not be FFI-safe.
+        #[allow(improper_ctypes_definitions)]
+        type UnbudgetedHandler =
+            for<'store> $(extern $abi)? fn(&mut Executor<'store>, &[Instruction], usize, Instruction) -> ExecResult<()>;
+        #[allow(improper_ctypes_definitions)]
+        type BoundedHandler = for<'store> $(extern $abi)? fn(&mut Executor<'store>, usize, Instruction, u32) -> ExecResult<()>;
+    };
+}
+#[cfg(all(target_arch = "aarch64", target_pointer_width = "32"))]
+handler_types!("C-unwind");
+#[cfg(not(all(target_arch = "aarch64", target_pointer_width = "32")))]
+handler_types!();
 
 macro_rules! define_unbudgeted_tail_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
@@ -19,7 +46,7 @@ macro_rules! define_unbudgeted_tail_dispatch {
             HANDLERS[opcode as usize]
         }
 
-        $(
+        $(handler_fn! {
             #[allow(non_snake_case, unreachable_code, unused_imports, unused_macros, unused_variables)]
             fn $variant(
                 $executor: &mut Executor<'_>,
@@ -59,7 +86,7 @@ macro_rules! define_unbudgeted_tail_dispatch {
                 $body;
                 $dispatch_next!($instr_ptr + 1)
             }
-        )*
+        })*
     };
 }
 
@@ -76,7 +103,7 @@ macro_rules! define_bounded_tail_dispatch {
             HANDLERS[opcode as usize]
         }
 
-        $(
+        $(handler_fn! {
             #[allow(non_snake_case, unreachable_code, unused_imports, unused_macros, unused_variables)]
             fn $variant(
                 $executor: &mut Executor<'_>,
@@ -122,7 +149,7 @@ macro_rules! define_bounded_tail_dispatch {
                 $body;
                 $dispatch_next!($instr_ptr + 1)
             }
-        )*
+        })*
     };
 }
 
@@ -132,16 +159,20 @@ impl Unbudgeted {
     // The handlers tail-call these cold paths instead of calling them: a call would make every
     // handler save a stack frame.
 
-    #[cold]
-    #[inline(never)]
-    fn handler_mismatch(_: &mut Executor<'_>, _: &[Instruction], _: usize, _: Instruction) -> ExecResult<()> {
-        unreachable!("instruction handler mismatch")
+    handler_fn! {
+        #[cold]
+        #[inline(never)]
+        fn handler_mismatch(_: &mut Executor<'_>, _: &[Instruction], _: usize, _: Instruction) -> ExecResult<()> {
+            unreachable!("instruction handler mismatch")
+        }
     }
 
-    #[cold]
-    #[inline(never)]
-    fn invalid_instr_ptr(_: &mut Executor<'_>, _: &[Instruction], instr_ptr: usize, _: Instruction) -> ExecResult<()> {
-        unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+    handler_fn! {
+        #[cold]
+        #[inline(never)]
+        fn invalid_instr_ptr(_: &mut Executor<'_>, _: &[Instruction], instr_ptr: usize, _: Instruction) -> ExecResult<()> {
+            unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+        }
     }
 }
 
@@ -150,16 +181,20 @@ impl Bounded {
 
     // Tail-called like `Unbudgeted`'s.
 
-    #[cold]
-    #[inline(never)]
-    fn handler_mismatch(_: &mut Executor<'_>, _: usize, _: Instruction, _: u32) -> ExecResult<()> {
-        unreachable!("instruction handler mismatch")
+    handler_fn! {
+        #[cold]
+        #[inline(never)]
+        fn handler_mismatch(_: &mut Executor<'_>, _: usize, _: Instruction, _: u32) -> ExecResult<()> {
+            unreachable!("instruction handler mismatch")
+        }
     }
 
-    #[cold]
-    #[inline(never)]
-    fn invalid_instr_ptr(_: &mut Executor<'_>, instr_ptr: usize, _: Instruction, _: u32) -> ExecResult<()> {
-        unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+    handler_fn! {
+        #[cold]
+        #[inline(never)]
+        fn invalid_instr_ptr(_: &mut Executor<'_>, instr_ptr: usize, _: Instruction, _: u32) -> ExecResult<()> {
+            unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+        }
     }
 
     #[inline(always)]
