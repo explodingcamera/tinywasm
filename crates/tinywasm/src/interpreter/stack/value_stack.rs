@@ -62,6 +62,16 @@ impl<T: Copy + Default> Stack<T> {
         self.len
     }
 
+    /// Sets the height to one read from [`Self::len`] earlier, with nothing pushed or popped since.
+    /// The tail-call handlers pass the height between them and write it back on entry, so the
+    /// compiler can use the value in a register instead of reloading it from memory.
+    #[cfg(feature = "nightly-tail-calls")]
+    #[inline(always)]
+    pub(crate) fn set_len(&mut self, len: usize) {
+        debug_assert!(len <= self.data.len());
+        self.len = len;
+    }
+
     /// Pushes a value inside a function body. `enter_locals` reserved the function's whole operand
     /// stack, so the stack is never full here, and the handlers make no calls.
     #[inline(always)]
