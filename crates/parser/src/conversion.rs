@@ -251,8 +251,14 @@ pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, type
             return Err(crate::ParseError::UnsupportedOperator("descriptor types are unsupported".into()));
         }
 
-        let supertype =
-            ty.supertype_idx.map(|idx| convert_type_index(idx.unpack(), group_start, group_len)).transpose()?;
+        if ty.supertype_idxs.len() > 1 {
+            return Err(crate::ParseError::UnsupportedOperator("multiple supertypes are unsupported".into()));
+        }
+        let supertype = ty
+            .supertype_idxs
+            .first()
+            .map(|idx| convert_type_index(idx.unpack(), group_start, group_len))
+            .transpose()?;
         let composite = match &composite.inner {
             CompositeInnerType::Func(ty) => {
                 let params = ty
