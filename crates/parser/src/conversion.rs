@@ -79,7 +79,12 @@ pub(crate) fn convert_module_data(
 }
 
 pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Import> {
-    let kind = match import.ty {
+    let kind = convert_import_kind(import.ty)?;
+    Ok(Import { module: import.module.into(), name: import.name.into(), kind })
+}
+
+pub(crate) fn convert_import_kind(ty: wasmparser::TypeRef) -> Result<ImportKind> {
+    Ok(match ty {
         wasmparser::TypeRef::Func(ty) => ImportKind::Function(ty),
         wasmparser::TypeRef::Table(ty) => {
             let element_type = convert_ref_type(ty.element_type)?;
@@ -95,11 +100,9 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
         }
         wasmparser::TypeRef::Tag(ty) => ImportKind::Tag(convert_tag_type(ty)),
         _ => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", import.ty)));
+            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {ty:?}")));
         }
-    };
-
-    Ok(Import { module: import.module.into(), name: import.name.into(), kind })
+    })
 }
 
 pub(crate) fn convert_module_memory(memory: wasmparser::MemoryType) -> MemoryType {

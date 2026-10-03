@@ -8,6 +8,11 @@ This crate provides the parser and lowering pipeline that converts WebAssembly b
 - `log`: Enables logging of the parsing process using the `log` crate.
 - `parallel`: Enables multithreaded function parsing. Requires `std`.
 - `validate`: Enables `wasmparser` validation. Enabled by default and configurable through `ParserOptions`.
+- `unstable-component-model`: Enables `parse_component_bytes` and, with `std`, `parse_component_file` and `parse_component_stream`. These return an owned `Component` for future linking, not an executable module.
+
+With validation enabled, component parsing accepts the base Component Model and the features shipped through WASI Preview 0.3.1: async, maps, and implements annotations. The final Component Model 1.0 feature set is not yet defined.
+
+Embedded core modules use the ordinary `Module` parser. Core proposals that it cannot lower remain unsupported inside components.
 
 ## Usage
 

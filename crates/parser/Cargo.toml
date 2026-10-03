@@ -36,5 +36,7 @@ std = ["tinywasm-types/std", "wasmparser/std"]
 # validate WebAssembly while parsing
 validate = ["wasmparser/features", "wasmparser/validate"]
 
+unstable-component-model = ["tinywasm-types/unstable-component-model", "wasmparser/component-model"]
+
 [lints]
 workspace = true

@@ -29,6 +29,8 @@ pub(crate) mod log {
     pub(crate) use info;
 }
 
+#[cfg(feature = "unstable-component-model")]
+mod component;
 mod conversion;
 mod emitter;
 mod error;
@@ -50,6 +52,8 @@ use validation::Validator;
 #[cfg(feature = "validate")]
 use wasmparser::WasmFeatures;
 
+#[cfg(feature = "unstable-component-model")]
+pub use tinywasm_types::Component;
 pub use tinywasm_types::Module;
 
 /// Parser optimization and lowering options.
@@ -187,20 +191,35 @@ impl Parser {
         &self.options
     }
 
-    fn validator(&self) -> Option<Validator> {
-        #[cfg(feature = "validate")]
-        {
-            let features = WasmFeatures::WASM3
-                .union(WasmFeatures::CUSTOM_PAGE_SIZES)
-                .union(WasmFeatures::WIDE_ARITHMETIC)
-                .union(WasmFeatures::COMPACT_IMPORTS);
-            self.options.validation().then(|| Validator::new_with_features(features))
+    #[cfg(feature = "validate")]
+    fn wasm_features() -> WasmFeatures {
+        WasmFeatures::WASM3
+            .union(WasmFeatures::CUSTOM_PAGE_SIZES)
+            .union(WasmFeatures::WIDE_ARITHMETIC)
+            .union(WasmFeatures::COMPACT_IMPORTS)
+    }
+
+    #[cfg(feature = "validate")]
+    fn validator(&self, encoding: wasmparser::Encoding) -> Option<Validator> {
+        let mut features = Self::wasm_features();
+        if encoding == wasmparser::Encoding::Component {
+            // Validator::new_with_features replaces wasmparser's defaults.
+            // Decoding component syntax alone does not enable these proposals
+            // during validation. Enable the features shipped through WASI
+            // Preview 0.3.1 rather than every experimental CM proposal.
+            features = features
+                .union(WasmFeatures::COMPONENT_MODEL)
+                .union(WasmFeatures::CM_ASYNC)
+                .union(WasmFeatures::CM_MAP)
+                .union(WasmFeatures::CM_IMPLEMENTS);
         }
-        #[cfg(not(feature = "validate"))]
-        {
-            assert!(!self.options.validation(), "validation requires the `validate` feature");
-            None
-        }
+        self.options.validation().then(|| Validator::new_with_features(features))
+    }
+
+    #[cfg(not(feature = "validate"))]
+    fn validator(&self, _encoding: wasmparser::Encoding) -> Option<Validator> {
+        assert!(!self.options.validation(), "validation requires the `validate` feature");
+        None
     }
 
     #[cfg(feature = "std")]
@@ -247,7 +266,7 @@ impl Parser {
     pub fn parse_module_bytes(&self, wasm: impl AsRef<[u8]>) -> Result<Module> {
         let wasm = wasm.as_ref();
         self.options.limits.check(ParseLimitKind::ModuleBytes, wasm.len())?;
-        let mut validator = self.validator();
+        let mut validator = self.validator(wasmparser::Encoding::Module);
         let mut reader = ModuleReader::default();
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
@@ -281,7 +300,7 @@ impl Parser {
     #[cfg(feature = "std")]
     /// Parse a [`Module`] from a stream. Requires `std` feature.
     pub fn parse_module_stream(&self, mut stream: impl std::io::Read) -> Result<Module> {
-        let mut validator = self.validator();
+        let mut validator = self.validator(wasmparser::Encoding::Module);
         let mut reader = ModuleReader::default();
         let mut buffer = alloc::vec::Vec::new();
         let mut parser = wasmparser::Parser::new(0);

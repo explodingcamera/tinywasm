@@ -39,11 +39,15 @@ const fn max_page_count(arch: MemoryArch, page_size: u64) -> u64 {
     }
 }
 
+#[cfg(feature = "unstable-component-model")]
+mod component;
 mod instructions;
 mod operands;
 mod reference;
 mod types;
 mod value;
+#[cfg(feature = "unstable-component-model")]
+pub use component::*;
 pub use instructions::*;
 pub use operands::*;
 pub use reference::*;

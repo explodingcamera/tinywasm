@@ -71,6 +71,47 @@ mod tests {
     };
     use alloc::boxed::Box;
 
+    #[cfg(feature = "unstable-component-model")]
+    #[test]
+    fn component_round_trip() {
+        let component = crate::Component {
+            modules: alloc::vec![
+                Module::from(ModuleInner { start_func: Some(1), ..ModuleInner::default() }),
+                Module::from(ModuleInner { start_func: Some(2), ..ModuleInner::default() }),
+            ],
+            declarations: alloc::vec![
+                crate::ComponentDeclaration::CoreModule(crate::ComponentCoreModule::Defined(0)),
+                crate::ComponentDeclaration::CoreModule(crate::ComponentCoreModule::Defined(1)),
+                crate::ComponentDeclaration::Type(crate::ComponentType::Func {
+                    async_: false,
+                    params: alloc::vec![(
+                        "name".into(),
+                        crate::ComponentValueType::Primitive(crate::ComponentPrimitiveType::String)
+                    )],
+                    result: None,
+                }),
+                crate::ComponentDeclaration::Canonical(crate::CanonicalFunction {
+                    name: "lift".into(),
+                    args: alloc::vec![crate::CanonicalArgument::Index(0), crate::CanonicalArgument::Index(0)],
+                    options: alloc::vec![crate::CanonicalOption::UTF8, crate::CanonicalOption::Memory(0)],
+                }),
+                crate::ComponentDeclaration::CoreType(crate::ComponentCoreType::Module(alloc::vec![
+                    crate::CoreModuleTypeDeclaration::Export { name: "f".into(), ty: crate::ImportKind::Function(0) },
+                ])),
+                crate::ComponentDeclaration::Component(crate::ComponentIndex::Defined(Box::new(crate::Component {
+                    modules: alloc::vec![Module::default()],
+                    declarations: alloc::vec![crate::ComponentDeclaration::CoreModule(
+                        crate::ComponentCoreModule::Defined(0),
+                    )],
+                }))),
+            ],
+        };
+        let bytes = postcard::to_allocvec(&component).expect("serialize component");
+        let decoded: crate::Component = postcard::from_bytes(&bytes).expect("deserialize component");
+        assert!(component == decoded);
+        assert_eq!(decoded.modules.len(), 2);
+    }
+
     #[test]
     fn test_invalid_magic() {
         let wasm = Module::default();
