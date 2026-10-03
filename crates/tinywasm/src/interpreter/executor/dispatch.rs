@@ -4,7 +4,11 @@ macro_rules! define_stable_dispatch {
     ($executor:ident, $instr_ptr:ident, $dispatch_next:ident, $dispatch_flow:ident;
      $($variant:ident $(($($arg:pat),*))? $({ $($field:ident),* })? => $body:expr),* $(,)?) => {
         #[inline(always)]
-        fn exec_step($executor: &mut Self, $instr_ptr: usize) -> ExecResult<ExecFlow> {
+        fn exec_step(
+            $executor: &mut Self,
+            instructions: &[tinywasm_types::Instruction],
+            $instr_ptr: usize,
+        ) -> ExecResult<ExecFlow> {
             macro_rules! $dispatch_next {
                 ($next_instr_ptr:expr) => {{
                     return Ok(ExecFlow::Next($next_instr_ptr));
@@ -16,7 +20,7 @@ macro_rules! define_stable_dispatch {
                 }};
             }
             use tinywasm_types::Instruction::*;
-            match &$executor.func.instructions[$instr_ptr] {
+            match &instructions[$instr_ptr] {
                 $($variant $(($($arg),*))? $({ $($field),* })? => $body,)*
             }
             Ok(ExecFlow::Next($instr_ptr + 1))
@@ -24,15 +28,41 @@ macro_rules! define_stable_dispatch {
     };
 }
 
-impl Executor<'_, '_> {
+impl<'module> Executor<'_, 'module> {
     instruction_handlers!(define_stable_dispatch);
+
+    /// The executing function's instructions. They are borrowed from the module instance, not from
+    /// the executor, so the dispatch loop keeps them in a local across steps.
+    #[inline(always)]
+    fn instructions(&self) -> &'module [tinywasm_types::Instruction] {
+        let func: &'module WasmFunction = self.func;
+        &func.instructions
+    }
+
+    /// One step from `instr_ptr`. A step that switches functions reloads `instructions`.
+    #[inline(always)]
+    fn step(
+        &mut self,
+        instructions: &mut &'module [tinywasm_types::Instruction],
+        instr_ptr: usize,
+    ) -> ExecResult<Option<usize>> {
+        Ok(match Self::exec_step(self, instructions, instr_ptr)? {
+            ExecFlow::Next(next_instr_ptr) => Some(next_instr_ptr),
+            ExecFlow::Switch(next_instr_ptr) => {
+                *instructions = self.instructions();
+                Some(next_instr_ptr)
+            }
+            ExecFlow::Complete => None,
+        })
+    }
 
     /// Runs until the call completes (`None`) or continues in another module instance's frame.
     #[inline(always)]
     pub(crate) fn run_to_completion(mut self) -> Result<Option<CallFrame>> {
         let mut instr_ptr = self.cf.instr_ptr;
+        let mut instructions = self.instructions();
         loop {
-            match Self::exec_step(&mut self, instr_ptr)?.next_instr_ptr() {
+            match self.step(&mut instructions, instr_ptr)? {
                 Some(next_instr_ptr) => instr_ptr = next_instr_ptr,
                 None => return cold!(Ok(self.left())),
             }
@@ -50,10 +80,11 @@ impl Executor<'_, '_> {
         mut chunk_left: u32,
     ) -> Result<RunEnd> {
         let mut instr_ptr = self.cf.instr_ptr;
+        let mut instructions = self.instructions();
         loop {
             while chunk_left != 0 {
                 chunk_left -= 1;
-                match Self::exec_step(&mut self, instr_ptr)?.next_instr_ptr() {
+                match self.step(&mut instructions, instr_ptr)? {
                     Some(next_instr_ptr) => instr_ptr = next_instr_ptr,
                     None => return Ok(self.run_end(chunk_left)),
                 }
@@ -72,10 +103,11 @@ impl Executor<'_, '_> {
     pub(crate) fn run_with_fuel(mut self, mut chunk_left: u32) -> Result<RunEnd> {
         self.fuel_metered = true;
         let mut instr_ptr = self.cf.instr_ptr;
+        let mut instructions = self.instructions();
         loop {
             while chunk_left != 0 {
                 chunk_left -= 1;
-                match Self::exec_step(&mut self, instr_ptr)?.next_instr_ptr() {
+                match self.step(&mut instructions, instr_ptr)? {
                     Some(next_instr_ptr) => instr_ptr = next_instr_ptr,
                     None => return Ok(self.run_end(chunk_left)),
                 }

@@ -62,6 +62,7 @@ enum ExecFlow {
 }
 
 impl ExecFlow {
+    #[cfg(feature = "nightly-tail-calls")]
     #[inline(always)]
     fn next_instr_ptr(self) -> Option<usize> {
         match self {
