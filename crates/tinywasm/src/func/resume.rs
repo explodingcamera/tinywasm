@@ -35,10 +35,9 @@ struct ExecutionInner<'store> {
 
 impl Drop for ExecutionInner<'_> {
     fn drop(&mut self) {
-        if matches!(self.state, ExecState::Running { .. }) {
-            self.store.call_stack.clear();
-            self.store.value_stack.clear();
-        }
+        // Release frames and GC roots left by a suspended or unwound execution.
+        self.store.call_stack.clear();
+        self.store.value_stack.clear();
     }
 }
 
@@ -68,35 +67,37 @@ impl Function {
     ) -> Result<FuncExecution<'store>> {
         let type_addr = self.validate_call(store, params, results.len())?;
 
-        store.enter_execution()?;
-        let result: Result<ExecState> = (|| {
-            if store.state.funcs.is_host(self.addr()) {
-                let func = {
-                    let func = store.state.funcs.host(self.addr());
-                    func.func.clone()
+        let result: Result<ExecState> = {
+            let mut store = store.enter_execution()?;
+            let result = (|| {
+                if store.state.funcs.is_host(self.addr()) {
+                    let func = {
+                        let func = store.state.funcs.host(self.addr());
+                        func.func.clone()
+                    };
+                    func.call_values(&mut store, self.module_id, type_addr, params, results)?;
+                    return Ok(ExecState::Completed(Some(CallResult::Written)));
+                }
+
+                let (wasm_params, wasm_locals, wasm_max_stack) = {
+                    let wasm = store.state.funcs.wasm(self.addr());
+                    (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
                 };
-                func.call_values(store, self.module_id, type_addr, params, results)?;
-                return Ok(ExecState::Completed(Some(CallResult::Written)));
+
+                store.call_stack.clear();
+                store.value_stack.clear();
+                store.push_wasm_values(params)?;
+                let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)?;
+                let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
+
+                Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
+            })();
+            if result.is_err() {
+                store.call_stack.clear();
+                store.value_stack.clear();
             }
-
-            let (wasm_params, wasm_locals, wasm_max_stack) = {
-                let wasm = store.state.funcs.wasm(self.addr());
-                (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
-            };
-
-            store.call_stack.clear();
-            store.value_stack.clear();
-            store.push_wasm_values(params)?;
-            let locals_base = store.value_stack.enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)?;
-            let callframe = CallFrame::new(self.addr(), locals_base, wasm_locals);
-
-            Ok(ExecState::Running { callframe, root_func_addr: self.addr() })
-        })();
-        if result.is_err() {
-            store.call_stack.clear();
-            store.value_stack.clear();
-        }
-        store.exit_execution();
+            result
+        };
 
         let state = result?;
         Ok(FuncExecution { execution: ExecutionInner { store, state }, results })
@@ -118,9 +119,14 @@ impl ExecutionInner<'_> {
             }
         };
 
-        self.store.enter_execution()?;
-        let result = run(self.store, callframe);
-        self.store.exit_execution();
+        let result = {
+            let mut store = self.store.enter_execution()?;
+            // Until `run` suspends, the handle cannot be resumed: a panic that unwinds out of `run`
+            // leaves the stacks as the partly run slice left them, which `callframe` no longer
+            // describes.
+            self.state = ExecState::Completed(None);
+            run(&mut store, callframe)
+        };
 
         let result = match result {
             Ok(result) => result,
@@ -139,10 +145,7 @@ impl ExecutionInner<'_> {
                 Ok(ExecProgress::Completed(CallResult::Stack { type_addr: result_ty }))
             }
             crate::interpreter::ExecState::Suspended(callframe) => {
-                let ExecState::Running { callframe: current, .. } = &mut self.state else {
-                    unreachable!("invalid function execution state")
-                };
-                *current = callframe;
+                self.state = ExecState::Running { callframe, root_func_addr };
                 Ok(ExecProgress::Suspended)
             }
         }
@@ -229,19 +232,20 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
             (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
         };
 
-        store.enter_execution()?;
-        let result: Result<ExecState> = (|| {
-            store.call_stack.clear();
-            store.value_stack.clear();
-            store.push_typed_values::<false>(type_addr, params.into_wasm_values(), StackBase::default())?;
-            let locals_base = store
-                .value_stack
-                .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
-                .inspect_err(|_| store.value_stack.clear())?;
-            let callframe = CallFrame::new(self.func.addr(), locals_base, wasm_locals);
-            Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() })
-        })();
-        store.exit_execution();
+        let result: Result<ExecState> = {
+            let mut store = store.enter_execution()?;
+            (|| {
+                store.call_stack.clear();
+                store.value_stack.clear();
+                store.push_typed_values::<false>(type_addr, params.into_wasm_values(), StackBase::default())?;
+                let locals_base = store
+                    .value_stack
+                    .enter_locals(&wasm_params, &wasm_locals, &wasm_max_stack)
+                    .inspect_err(|_| store.value_stack.clear())?;
+                let callframe = CallFrame::new(self.func.addr(), locals_base, wasm_locals);
+                Ok(ExecState::Running { callframe, root_func_addr: self.func.addr() })
+            })()
+        };
         let execution = ExecutionInner { store, state: result? };
         Ok(FuncExecutionTyped { execution, result: None })
     }

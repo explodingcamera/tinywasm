@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
 - Added several internal methods to support a future c-api crate
 
+### Fixed
+
+- Restore store state after a panic in a function call, allowing subsequent calls and preventing invalid resumption.
+
 ## [0.11.0] - 2026-09-19
 
 This release adds garbage collection and typed function reference support, single-pass parsing, and an optional tail-call dispatch backend. The internal instruction representation is now 8 bytes, down from 16, and pluggable memory backends were removed for performance reasons (however, `ResourceLimiter` was added to allow, reject, or trap memory allocation and growth requests).

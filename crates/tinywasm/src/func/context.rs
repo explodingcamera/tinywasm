@@ -1,6 +1,7 @@
 use tinywasm_types::ModuleInstanceId;
 
-use crate::{Error, FromWasmValues, FuncRef, Function, FunctionTyped, IntoWasmValues, Result, WasmValue};
+use crate::interpreter::stack::StackBase;
+use crate::{Error, FromWasmValues, FuncRef, Function, FunctionTyped, IntoWasmValues, Result, Store, WasmValue};
 
 /// The context of a host-function call
 #[cfg_attr(feature = "debug", derive(core::fmt::Debug))]
@@ -92,10 +93,7 @@ impl FuncContext<'_> {
         }
 
         let type_addr = func.validate_call(self.store, args, results.len())?;
-
-        let call_stack_base = self.store.call_stack.len();
-        let value_stack_base = self.store.value_stack.base();
-        self.with_reentrant_call(|store| {
+        self.with_reentrant_call(|store, call_stack_base, value_stack_base| {
             func.call_untyped(store, type_addr, args, results, call_stack_base, value_stack_base)
         })
     }
@@ -123,14 +121,12 @@ impl FuncContext<'_> {
             return Err(Error::other("FuncContext::call requires an active host-function invocation"));
         }
         func.func.item.validate_store(self.store)?;
-        let call_stack_base = self.store.call_stack.len();
-        let value_stack_base = self.store.value_stack.base();
-        self.with_reentrant_call(|store| {
+        self.with_reentrant_call(|store, call_stack_base, value_stack_base| {
             func.func.call_typed(store, params.into_wasm_values(), call_stack_base, value_stack_base)
         })
     }
 
-    fn with_reentrant_call<R>(&mut self, call: impl FnOnce(&mut crate::Store) -> Result<R>) -> Result<R> {
+    fn with_reentrant_call<R>(&mut self, call: impl FnOnce(&mut Store, u32, StackBase) -> Result<R>) -> Result<R> {
         // Each nested executor keeps its current frame on the native stack,
         // outside CallStack, even when the Wasm function has no params or locals.
         let config = self.store.engine.config().call_stack;
@@ -139,9 +135,28 @@ impl FuncContext<'_> {
             return Err(crate::Trap::CallStackOverflow.into());
         }
         self.store.reentrant_call_depth += 1;
-        let result = call(self.store);
+        let nested = NestedCall {
+            call_stack_base: self.store.call_stack.len(),
+            value_stack_base: self.store.value_stack.base(),
+            store: self.store,
+        };
+        let (call_stack_base, value_stack_base) = (nested.call_stack_base, nested.value_stack_base);
+        call(nested.store, call_stack_base, value_stack_base)
+    }
+}
+
+/// Restores the host caller's stacks and depth when a nested call returns or unwinds.
+struct NestedCall<'a> {
+    store: &'a mut Store,
+    call_stack_base: u32,
+    value_stack_base: StackBase,
+}
+
+impl Drop for NestedCall<'_> {
+    fn drop(&mut self) {
         self.store.reentrant_call_depth -= 1;
-        result
+        self.store.call_stack.truncate_to(self.call_stack_base);
+        self.store.value_stack.truncate_to_base(self.value_stack_base);
     }
 }
 

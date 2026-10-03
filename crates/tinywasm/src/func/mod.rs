@@ -80,12 +80,10 @@ impl Function {
     pub fn call(&self, store: &mut Store, params: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let type_addr = self.validate_call(store, params, results.len())?;
 
-        store.enter_execution()?;
+        let mut store = store.enter_execution()?;
         store.call_stack.clear();
         store.value_stack.clear();
-        let result = self.call_untyped(store, type_addr, params, results, 0, StackBase::default());
-        store.exit_execution();
-        result
+        self.call_untyped(&mut store, type_addr, params, results, 0, StackBase::default())
     }
 
     fn validate_call(
@@ -244,11 +242,9 @@ impl<P: IntoWasmValues, R: FromWasmValues> FunctionTyped<P, R> {
     /// Call a typed function
     pub fn call(&self, store: &mut Store, params: P) -> Result<R> {
         self.func.item.validate_store(store)?;
-        store.enter_execution()?;
+        let mut store = store.enter_execution()?;
         store.call_stack.clear();
         store.value_stack.clear();
-        let result = self.func.call_typed(store, params.into_wasm_values(), 0, StackBase::default());
-        store.exit_execution();
-        result
+        self.func.call_typed(&mut store, params.into_wasm_values(), 0, StackBase::default())
     }
 }

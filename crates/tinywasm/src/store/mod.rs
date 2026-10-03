@@ -513,8 +513,8 @@ impl Store {
         }
     }
 
-    /// Marks the store as executing and rejects nested root calls.
-    pub(crate) fn enter_execution(&mut self) -> Result<()> {
+    /// Marks the store as executing until the returned guard drops, including during unwinding.
+    pub(crate) fn enter_execution(&mut self) -> Result<Execution<'_>> {
         if self.execution_active {
             return Err(Trap::Other(
                 "cannot call a function while another invocation is active; use FuncContext::call from host functions",
@@ -522,12 +522,7 @@ impl Store {
             .into());
         }
         self.execution_active = true;
-        Ok(())
-    }
-
-    /// Marks the current root execution as complete.
-    pub(crate) fn exit_execution(&mut self) {
-        self.execution_active = false;
+        Ok(Execution { store: self })
     }
 
     /// Validates and pushes typed parameters or results onto the value stack.
@@ -839,5 +834,30 @@ impl Store {
     /// Adds a function and returns its store address.
     pub(crate) fn add_host_func(&mut self, type_addr: TypeAddr, func: HostFunction) -> FuncAddr {
         self.state.funcs.push_host(type_addr, func)
+    }
+}
+
+/// Restores a store's execution state when a root call returns or unwinds.
+pub(crate) struct Execution<'a> {
+    store: &'a mut Store,
+}
+
+impl core::ops::Deref for Execution<'_> {
+    type Target = Store;
+
+    fn deref(&self) -> &Store {
+        self.store
+    }
+}
+
+impl core::ops::DerefMut for Execution<'_> {
+    fn deref_mut(&mut self) -> &mut Store {
+        self.store
+    }
+}
+
+impl Drop for Execution<'_> {
+    fn drop(&mut self) {
+        self.store.execution_active = false;
     }
 }
