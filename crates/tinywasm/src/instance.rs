@@ -60,9 +60,10 @@ struct ModuleInstanceInner {
     id: ModuleInstanceId,
     type_addrs: Box<[TypeAddr]>,
     func_addrs: Box<[FuncAddr]>,
-    /// The module's own (non-imported) functions, in index order. The store allocates them
-    /// contiguously from `local_func_base`, so an executor can borrow any of them for a whole run.
-    local_funcs: Box<[Shared<WasmFunction>]>,
+    /// The module, whose functions are the instance's own (non-imported) ones in index order. The
+    /// store allocates them contiguously from `local_func_base`, so an executor can borrow any of
+    /// them for a whole run. Holding the module costs one reference count per instance.
+    module: Module,
     local_func_base: FuncAddr,
     imported_funcs: u32,
     table_addrs: Box<[TableAddr]>,
@@ -93,14 +94,14 @@ impl ModuleInstance {
     #[inline(always)]
     pub(crate) fn local_func_by_index(&self, idx: FuncAddr) -> Option<(FuncAddr, &WasmFunction)> {
         let local = idx.wrapping_sub(self.0.imported_funcs);
-        let func = self.0.local_funcs.get(local as usize)?;
+        let func = self.0.module.funcs.get(local as usize)?;
         Some((self.0.local_func_base + local, func))
     }
 
     /// The body of the function at store address `addr`, if this instance owns it.
     #[inline(always)]
     pub(crate) fn local_func(&self, addr: FuncAddr) -> Option<&WasmFunction> {
-        self.0.local_funcs.get(addr.wrapping_sub(self.0.local_func_base) as usize).map(|func| &**func)
+        self.0.module.funcs.get(addr.wrapping_sub(self.0.local_func_base) as usize).map(|func| &**func)
     }
 
     /// resolve a table address to the global store address
@@ -259,7 +260,7 @@ impl ModuleInstance {
             id,
             type_addrs,
             func_addrs: addrs.funcs.into_boxed_slice(),
-            local_funcs: module.funcs.clone(),
+            module: module.clone(),
             local_func_base,
             imported_funcs: imported_funcs as u32,
             table_addrs: addrs.tables.into_boxed_slice(),
