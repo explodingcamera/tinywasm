@@ -30,7 +30,7 @@ impl Value128 {
     pub(crate) fn v128_any_true(self) -> bool {
         simd_impl! {
             wasm => { wasm::v128_any_true(self.to_wasm_v128()) }
-            generic => { self.0.iter().any(|&b| b != 0) }
+            generic => { u128::from_ne_bytes(self.0) != 0 }
         }
     }
 
@@ -498,7 +498,11 @@ impl Value128 {
         "f64x2.extract_lane" => extract_lane_f64(self, lane: u8) -> f64 => f64::from_bits(self.extract_lane_i64(lane) as u64);
 
         // Truth checks, popcount, and averaging
-        "i8x16.all_true" => i8x16_all_true(self) -> bool => self.0.iter().all(|&b| b != 0);
+        "i8x16.all_true" => i8x16_all_true(self) -> bool => {
+            // No byte is zero: the classic zero-byte test on the whole vector.
+            let v = u128::from_ne_bytes(self.0);
+            v.wrapping_sub(u128::from_ne_bytes([1; 16])) & !v & u128::from_ne_bytes([0x80; 16]) == 0
+        };
         "i16x8.all_true" => i16x8_all_true(self) -> bool => self.as_i16x8().iter().all(|&x| x != 0);
         "i32x4.all_true" => i32x4_all_true(self) -> bool => self.as_i32x4().iter().all(|&x| x != 0);
         "i64x2.all_true" => i64x2_all_true(self) -> bool => self.as_i64x2().iter().all(|&x| x != 0);
