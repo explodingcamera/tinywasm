@@ -26,7 +26,7 @@ mod dispatch;
 #[cfg(feature = "nightly-tail-calls")]
 mod dispatch_become;
 
-const CHECKPOINT_INTERVAL: u32 = 128;
+pub(crate) const CHECKPOINT_INTERVAL: u32 = 128;
 const FUEL_COST_CALL_TOTAL: u32 = 5;
 
 struct ExecError(Box<Error>);
@@ -62,6 +62,7 @@ enum ExecFlow {
 }
 
 impl ExecFlow {
+    #[cfg(feature = "nightly-tail-calls")]
     #[inline(always)]
     fn next_instr_ptr(self) -> Option<usize> {
         match self {
@@ -71,47 +72,78 @@ impl ExecFlow {
     }
 }
 
-pub(crate) struct Executor<'store> {
+/// Runs frames of one module instance. The executing function is borrowed from the instance, which
+/// the caller keeps alive for the whole run, so calls and returns within the instance switch a
+/// reference instead of cloning a `Shared` handle. Execution that continues in a frame of another
+/// instance ends the run with [`Executor::left`] set; [`InterpreterRuntime`](super::InterpreterRuntime)
+/// resumes that frame with an executor for its instance.
+pub(crate) struct Executor<'store, 'module> {
     cf: CallFrame,
-    func: Shared<WasmFunction>,
-    module: ModuleInstance,
+    func: &'module WasmFunction,
+    module: &'module ModuleInstance,
     store: &'store mut Store,
     call_stack_base: u32,
     mem0: MemAddr,
     fuel_metered: bool,
+    /// Execution continues in `cf`, which belongs to another module instance.
+    left: bool,
+    /// Budgeted runs: instructions left before the next checkpoint when the run left.
+    #[cfg(feature = "nightly-tail-calls")]
+    chunk_left: u32,
     #[cfg(feature = "nightly-tail-calls")]
     completed: bool,
 }
 
-impl<'store> Executor<'store> {
-    pub(crate) fn new(store: &'store mut Store, cf: CallFrame, call_stack_base: u32) -> Self {
-        let wasm_func = store.state.funcs.wasm(cf.func_addr);
-        let module = store.get_module_instance(wasm_func.owner).expect("invalid module instance").clone();
-        let mem0 = module.mem0_addr();
+/// How a budgeted run of one executor ended.
+pub(crate) enum RunEnd {
+    State(ExecState),
+    /// Execution continues in this frame of another module instance, with this many instructions
+    /// left before the next checkpoint.
+    Left(CallFrame, u32),
+}
+
+impl<'store, 'module> Executor<'store, 'module> {
+    /// `module` must own the function of `cf`.
+    pub(crate) fn new(
+        store: &'store mut Store,
+        module: &'module ModuleInstance,
+        cf: CallFrame,
+        call_stack_base: u32,
+    ) -> Self {
+        let func = module.local_func(cf.func_addr).expect("call frame from another module instance");
         Self {
             module,
             cf,
-            func: wasm_func.func.clone(),
+            func,
             store,
             call_stack_base,
-            mem0,
+            mem0: module.mem0_addr(),
             fuel_metered: false,
+            left: false,
+            #[cfg(feature = "nightly-tail-calls")]
+            chunk_left: 0,
             #[cfg(feature = "nightly-tail-calls")]
             completed: false,
         }
+    }
+
+    /// The frame to resume in another module instance, if execution left this one.
+    #[inline(always)]
+    pub(crate) fn left(&self) -> Option<CallFrame> {
+        self.left.then_some(self.cf)
+    }
+
+    /// Ends the run because `self.cf` belongs to another module instance.
+    #[cold]
+    fn leave(&mut self) -> ExecFlow {
+        self.left = true;
+        ExecFlow::Complete
     }
 
     /// Resolves a module-local memory index to its store address, caching the common memory-0 case.
     #[inline(always)]
     fn mem_addr(&self, idx: MemAddr) -> MemAddr {
         if idx == 0 { self.mem0 } else { self.module.resolve_mem_addr(idx) }
-    }
-
-    /// Switches the executor to another module, keeping the cached memory-0 address in sync.
-    #[inline]
-    fn set_module(&mut self, owner: ModuleInstanceId) {
-        self.module = self.store.get_module_instance(owner).expect("invalid module instance").clone();
-        self.mem0 = self.module.mem0_addr();
     }
 
     #[inline(always)]
@@ -577,8 +609,13 @@ impl<'store> Executor<'store> {
         }
     }
 
-    fn matching_catch(&self, protected_ip: usize, tag_addr: TagAddr) -> Option<ExceptionCatch> {
-        let handlers = &self.func.data.exception_handlers;
+    fn matching_catch(
+        func: &WasmFunction,
+        module: &ModuleInstance,
+        protected_ip: usize,
+        tag_addr: TagAddr,
+    ) -> Option<ExceptionCatch> {
+        let handlers = &func.data.exception_handlers;
         let end = handlers.partition_point(|handler| handler.start_ip as usize <= protected_ip);
         handlers[..end]
             .iter()
@@ -586,35 +623,27 @@ impl<'store> Executor<'store> {
             .filter(|handler| protected_ip < handler.end_ip as usize)
             .flat_map(|handler| handler.catches.iter().copied())
             .find(|catch| match catch {
-                ExceptionCatch::Tag { tag, .. } => self.module.resolve_tag_addr(*tag) == tag_addr,
+                ExceptionCatch::Tag { tag, .. } => module.resolve_tag_addr(*tag) == tag_addr,
                 ExceptionCatch::All { .. } => true,
             })
     }
 
-    #[inline(always)]
-    fn switch_to_frame(&mut self, frame: CallFrame) {
-        let previous = core::mem::replace(&mut self.cf, frame);
-        if previous.func_addr == self.cf.func_addr {
-            return;
-        }
-
-        let wasm_func = self.store.state.funcs.wasm(self.cf.func_addr);
-        if !Shared::ptr_eq(&self.func, &wasm_func.func) {
-            self.func = wasm_func.func.clone();
-        }
-        if wasm_func.owner != self.module.id() {
-            self.set_module(wasm_func.owner);
-        }
-    }
-
+    /// Unwinds to the innermost handler that catches `exception`. Returns the flow to its landing
+    /// pad, or `None` if no frame of this run catches it.
     fn dispatch_exception(&mut self, exception: ValueRef, mut protected_ip: usize) -> Result<Option<ExecFlow>, Trap> {
         let object = self.store.state.gc.get(exception).ok_or(Trap::InvalidReference)?;
         let crate::store::GcObjectKind::Exception(tag_addr) = object.kind else {
             return Err(Trap::InvalidReference);
         };
-        let mut switched = false;
+        let entry_func_addr = self.cf.func_addr;
+        // The function and instance of the frame being searched while it belongs to another instance.
+        let mut foreign: Option<(Shared<WasmFunction>, ModuleInstance)> = None;
         loop {
-            if let Some(catch) = self.matching_catch(protected_ip, tag_addr) {
+            let catch = match &foreign {
+                None => Self::matching_catch(self.func, self.module, protected_ip, tag_addr),
+                Some((func, module)) => Self::matching_catch(func, module, protected_ip, tag_addr),
+            };
+            if let Some(catch) = catch {
                 let (landing_pad, base, with_ref, include_payload) = match catch {
                     ExceptionCatch::Tag { landing_pad, base, with_ref, .. } => (landing_pad, base, with_ref, true),
                     ExceptionCatch::All { landing_pad, base, with_ref } => (landing_pad, base, with_ref, false),
@@ -636,10 +665,15 @@ impl<'store> Executor<'store> {
                 if with_ref {
                     ValueRef::stack_push(&mut self.store.value_stack, exception);
                 }
-                return Ok(Some(if switched {
-                    ExecFlow::Switch(landing_pad as usize)
+                if foreign.is_some() {
+                    self.cf.instr_ptr = landing_pad as usize;
+                    return Ok(Some(self.leave()));
+                }
+                let landing_pad = landing_pad as usize;
+                return Ok(Some(if self.cf.func_addr == entry_func_addr {
+                    ExecFlow::Next(landing_pad)
                 } else {
-                    ExecFlow::Next(landing_pad as usize)
+                    ExecFlow::Switch(landing_pad)
                 }));
             }
 
@@ -647,8 +681,21 @@ impl<'store> Executor<'store> {
             let Some(caller) = self.store.call_stack.pop_frame(self.call_stack_base) else {
                 return Ok(None);
             };
-            switched = true;
-            self.switch_to_frame(caller);
+            if caller.func_addr != self.cf.func_addr {
+                let module = self.module;
+                match module.local_func(caller.func_addr) {
+                    Some(func) => {
+                        self.func = func;
+                        foreign = None;
+                    }
+                    None => {
+                        let wasm_func = self.store.state.funcs.wasm(caller.func_addr);
+                        let owner = self.store.get_module_instance(wasm_func.owner).expect("invalid module instance");
+                        foreign = Some((wasm_func.func.clone(), owner.clone()));
+                    }
+                }
+            }
+            self.cf = caller;
             protected_ip = self.cf.instr_ptr.checked_sub(1).expect("invalid caller IP");
         }
     }
@@ -695,27 +742,34 @@ impl<'store> Executor<'store> {
 
     fn exec_call_direct(&mut self, v: u32, return_instr_ptr: usize) -> ExecResult<ExecFlow> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
-        let addr = self.module.resolve_func_addr(v);
-        if self.store.state.funcs.is_host(addr) {
-            let host_func = self.store.state.funcs.host(addr);
-            let type_addr = host_func.type_addr;
-            let host_func = host_func.func.clone();
-            self.exec_call_host::<false>(host_func, type_addr, return_instr_ptr)
-        } else {
-            self.exec_call_wasm::<false>(addr, return_instr_ptr)
+        let module = self.module;
+        match module.local_func_by_index(v) {
+            Some((addr, func)) => self.exec_call_local::<false>(addr, func, return_instr_ptr),
+            None => self.exec_call_import::<false>(v, return_instr_ptr),
         }
     }
 
     fn exec_return_call_direct(&mut self, v: u32) -> ExecResult<ExecFlow> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
+        let module = self.module;
+        match module.local_func_by_index(v) {
+            Some((addr, func)) => self.exec_call_local::<true>(addr, func, 0),
+            None => self.exec_call_import::<true>(v, 0),
+        }
+    }
+
+    /// Calls an imported function: a host function or another instance's Wasm function.
+    #[inline(always)]
+    fn exec_call_import<const TAIL: bool>(&mut self, v: u32, return_instr_ptr: usize) -> ExecResult<ExecFlow> {
         let addr = self.module.resolve_func_addr(v);
         if self.store.state.funcs.is_host(addr) {
             let host_func = self.store.state.funcs.host(addr);
             let type_addr = host_func.type_addr;
             let host_func = host_func.func.clone();
-            self.exec_call_host::<true>(host_func, type_addr, 0)
+            self.exec_call_host::<TAIL>(host_func, type_addr, return_instr_ptr)
         } else {
-            self.exec_call_wasm::<true>(addr, 0)
+            // An instance cannot import its own functions.
+            self.exec_call_foreign::<TAIL>(addr, return_instr_ptr)
         }
     }
 
@@ -787,35 +841,65 @@ impl<'store> Executor<'store> {
         self.exec_call_wasm::<TAIL>(func_addr, return_instr_ptr)
     }
 
+    /// Calls the Wasm function at store address `func_addr`.
     #[inline(always)]
     fn exec_call_wasm<const TAIL: bool>(
         &mut self,
         func_addr: FuncAddr,
         return_instr_ptr: usize,
     ) -> ExecResult<ExecFlow> {
-        let wasm_func = self.store.state.funcs.wasm(func_addr);
-        let (params, locals, max_stack, owner, next_func) = {
-            let next_func = (!Shared::ptr_eq(&self.func, &wasm_func.func)).then(|| wasm_func.func.clone());
-            (wasm_func.func.params, wasm_func.func.locals, wasm_func.func.max_stack, wasm_func.owner, next_func)
-        };
-        if TAIL {
-            self.store.value_stack.truncate_keep_counts(self.cf.locals_base, params);
+        let module = self.module;
+        match module.local_func(func_addr) {
+            Some(func) => self.exec_call_local::<TAIL>(func_addr, func, return_instr_ptr),
+            None => self.exec_call_foreign::<TAIL>(func_addr, return_instr_ptr),
         }
-        let locals_base = self.store.value_stack.enter_locals(&params, &locals, &max_stack)?;
+    }
+
+    /// Enters `func`, which this run's module instance owns.
+    #[inline(always)]
+    fn exec_call_local<const TAIL: bool>(
+        &mut self,
+        func_addr: FuncAddr,
+        func: &'module WasmFunction,
+        return_instr_ptr: usize,
+    ) -> ExecResult<ExecFlow> {
+        self.enter_frame::<TAIL>(func_addr, func, return_instr_ptr)?;
+        if core::ptr::eq(self.func, func) {
+            return Ok(ExecFlow::Next(0));
+        }
+        self.func = func;
+        Ok(ExecFlow::Switch(0))
+    }
+
+    /// Enters a function of another module instance, which ends this run.
+    #[inline(never)]
+    fn exec_call_foreign<const TAIL: bool>(
+        &mut self,
+        func_addr: FuncAddr,
+        return_instr_ptr: usize,
+    ) -> ExecResult<ExecFlow> {
+        let func = self.store.state.funcs.wasm(func_addr).func.clone();
+        self.enter_frame::<TAIL>(func_addr, &func, return_instr_ptr)?;
+        Ok(self.leave())
+    }
+
+    /// Sets up the frame of a call to `func`, replacing the current one for a tail call.
+    #[inline(always)]
+    fn enter_frame<const TAIL: bool>(
+        &mut self,
+        func_addr: FuncAddr,
+        func: &WasmFunction,
+        return_instr_ptr: usize,
+    ) -> ExecResult<()> {
         if TAIL {
-            self.cf = CallFrame::new(func_addr, locals_base, locals);
-        } else {
+            self.store.value_stack.truncate_keep_counts(self.cf.locals_base, func.params);
+        }
+        let locals_base = self.store.value_stack.enter_locals(&func.params, &func.locals, &func.max_stack)?;
+        if !TAIL {
             self.store.call_stack.push(self.cf, return_instr_ptr)?;
-            self.cf = CallFrame::new(func_addr, locals_base, locals);
         }
-        let switched = next_func.is_some();
-        if let Some(next_func) = next_func {
-            self.func = next_func;
-        }
-        if owner != self.module.id() {
-            self.set_module(owner);
-        }
-        Ok(if switched { ExecFlow::Switch(0) } else { ExecFlow::Next(0) })
+        self.cf = CallFrame::new(func_addr, locals_base, func.locals);
+        Ok(())
     }
 
     fn exec_call_ref<const TAIL: bool>(&mut self, type_addr: u32, return_instr_ptr: usize) -> ExecResult<ExecFlow> {
@@ -839,12 +923,18 @@ impl<'store> Executor<'store> {
             return ExecFlow::Complete;
         };
         let instr_ptr = caller.instr_ptr;
-        if caller.func_addr == self.cf.func_addr {
-            self.cf = caller;
-            ExecFlow::Next(instr_ptr)
-        } else {
-            self.switch_to_frame(caller);
-            ExecFlow::Switch(instr_ptr)
+        let switched = caller.func_addr != self.cf.func_addr;
+        self.cf = caller;
+        if !switched {
+            return ExecFlow::Next(instr_ptr);
+        }
+        let module = self.module;
+        match module.local_func(caller.func_addr) {
+            Some(func) => {
+                self.func = func;
+                ExecFlow::Switch(instr_ptr)
+            }
+            None => self.leave(),
         }
     }
 
