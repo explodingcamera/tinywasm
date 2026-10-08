@@ -135,12 +135,15 @@ impl<T: Copy + Default> Stack<T> {
         self.data.truncate(n);
     }
 
+    /// Moves the top value down to index `n` and drops everything above it (a function's result
+    /// replacing its frame).
     #[inline(always)]
     pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
-        debug_assert!(n < self.data.len());
-        let last = self.pop();
-        self.data.truncate(n);
-        self.data.push(last);
+        let len = self.data.len();
+        debug_assert!(n < len);
+        let last = self.data[len.wrapping_sub(1)];
+        self.data[n] = last;
+        self.data.truncate(n + 1);
     }
 
     /// Enters a function: turns its parameters into the first locals, zeroes the rest, and reserves
@@ -276,10 +279,17 @@ impl ValueStack {
     ) -> Result<StackBase, Trap> {
         let locals_base32 =
             self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize, max_stack.c32 as usize)?;
-        let locals_base64 =
-            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize, max_stack.c64 as usize)?;
-        let locals_base128 =
-            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize, max_stack.c128 as usize)?;
+        // Most functions use only the 32-bit lane; an unused lane needs no reservation.
+        let locals_base64 = if locals.c64 | max_stack.c64 == 0 {
+            self.stack_64.len() as u32
+        } else {
+            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize, max_stack.c64 as usize)?
+        };
+        let locals_base128 = if locals.c128 | max_stack.c128 == 0 {
+            self.stack_128.len() as u32
+        } else {
+            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize, max_stack.c128 as usize)?
+        };
         Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
     }
 
