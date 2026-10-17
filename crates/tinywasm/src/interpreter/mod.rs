@@ -26,20 +26,54 @@ pub(crate) enum ExecState {
 pub(crate) struct InterpreterRuntime;
 
 impl InterpreterRuntime {
-    pub(crate) fn exec(store: &mut Store, cf: CallFrame, call_stack_base: u32) -> Result<()> {
-        executor::Executor::new(store, cf, call_stack_base).run_to_completion()
+    pub(crate) fn exec(store: &mut Store, mut cf: CallFrame, call_stack_base: u32) -> Result<()> {
+        loop {
+            let module = Self::frame_module(store, &cf);
+            match executor::Executor::new(store, &module, cf, call_stack_base).run_to_completion()? {
+                None => return Ok(()),
+                Some(frame) => cf = frame,
+            }
+        }
     }
 
-    pub(crate) fn exec_with_fuel(store: &mut Store, cf: CallFrame, fuel: u32) -> Result<ExecState> {
-        executor::Executor::new(store, cf, 0).run_with_fuel(fuel)
+    pub(crate) fn exec_with_fuel(store: &mut Store, mut cf: CallFrame, fuel: u32) -> Result<ExecState> {
+        store.execution_fuel = fuel;
+        if fuel == 0 {
+            return Ok(ExecState::Suspended(cf));
+        }
+        let mut chunk_left = executor::CHECKPOINT_INTERVAL;
+        loop {
+            let module = Self::frame_module(store, &cf);
+            match executor::Executor::new(store, &module, cf, 0).run_with_fuel(chunk_left)? {
+                executor::RunEnd::State(state) => return Ok(state),
+                executor::RunEnd::Left(frame, left) => (cf, chunk_left) = (frame, left),
+            }
+        }
     }
 
     #[cfg(feature = "std")]
     pub(crate) fn exec_with_time_budget(
         store: &mut Store,
-        cf: CallFrame,
+        mut cf: CallFrame,
         time_budget: core::time::Duration,
     ) -> Result<ExecState> {
-        executor::Executor::new(store, cf, 0).run_with_time_budget(time_budget)
+        if time_budget.is_zero() {
+            return Ok(ExecState::Suspended(cf));
+        }
+        let start = crate::std::time::Instant::now();
+        let mut chunk_left = executor::CHECKPOINT_INTERVAL;
+        loop {
+            let module = Self::frame_module(store, &cf);
+            match executor::Executor::new(store, &module, cf, 0).run_with_time_budget(start, time_budget, chunk_left)? {
+                executor::RunEnd::State(state) => return Ok(state),
+                executor::RunEnd::Left(frame, left) => (cf, chunk_left) = (frame, left),
+            }
+        }
+    }
+
+    /// The module instance that owns the function of `cf`.
+    fn frame_module(store: &Store, cf: &CallFrame) -> crate::ModuleInstance {
+        let owner = store.state.funcs.wasm(cf.func_addr).owner;
+        store.get_module_instance(owner).expect("invalid module instance").clone()
     }
 }
