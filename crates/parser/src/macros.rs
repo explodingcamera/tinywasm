@@ -95,11 +95,7 @@ pub(crate) mod visit {
             $visit:ident $(($lane:ident: $ty:ty))? => $instr:ident $([$family:ident($($rule_arg:expr),*)])?
         ) => {
             fn $visit(&mut self, memarg: wasmparser::MemArg $(, $lane: $ty)?) -> Self::Output {
-                let address = self.metadata.memory_size(memarg.memory)?;
-                self.mark_memory(memarg.memory);
-                let memory_arg_idx = self.push128(tinywasm_types::Operand128::<
-                    tinywasm_types::MemoryOperand,
-                >::new(memarg.offset, memarg.memory))?;
+                let (address, memory_arg_idx) = self.memory_operand(memarg)?;
                 lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
                     $instr(lowering_ops!(@memory_arg memory_arg_idx $(, $lane)?)) $([$family($($rule_arg),*)])?)
             }
@@ -115,11 +111,7 @@ pub(crate) mod visit {
                 if memarg.align != ($width as u32).trailing_zeros() as u8 {
                     return Err(crate::ParseError::Other("invalid atomic alignment".into()));
                 }
-                let address = self.metadata.memory_size(memarg.memory)?;
-                self.mark_memory(memarg.memory);
-                let memory = self.push128(tinywasm_types::Operand128::<tinywasm_types::MemoryOperand>::new(
-                    memarg.offset, memarg.memory,
-                ))?;
+                let (address, memory) = self.memory_operand(memarg)?;
                 let is_64 = lowering_ops!(@atomic_is64 [$($input),*] [$($output),*]);
                 let arg = tinywasm_types::AtomicArg::new(
                     memory, tinywasm_types::AtomicWidth::from_bytes($width), is_64, tinywasm_types::AtomicOp::$op,

@@ -11,8 +11,8 @@ use alloc::{
     vec::Vec,
 };
 use tinywasm_types::{
-    AtomicWaitOp, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryType,
-    Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection,
+    AtomicWaitOp, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryOperand,
+    MemoryType, Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection,
     ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
@@ -233,13 +233,21 @@ impl<'a> FunctionBuilder<'a> {
         self.uses_local_memory |= memory >= self.metadata.imported_memories;
     }
 
+    fn memory_operand(&mut self, memarg: wasmparser::MemArg) -> Result<(ValueLane, Operand128Idx<MemoryOperand>)> {
+        let wasmparser::MemArgTarget::Memory(memory) = memarg.target else {
+            return Err(crate::ParseError::UnsupportedOperator("multibyte array access".into()));
+        };
+        let address = self.metadata.memory_size(memory)?;
+        self.mark_memory(memory);
+        let operand = self.push128(Operand128::<MemoryOperand>::new(memarg.offset, memory))?;
+        Ok((address, operand))
+    }
+
     fn atomic_wait(&mut self, memarg: wasmparser::MemArg, width: u8, op: AtomicWaitOp) -> Result<()> {
         if memarg.align != width.trailing_zeros() as u8 {
             return Err(crate::ParseError::Other("invalid atomic alignment".into()));
         }
-        let address = self.metadata.memory_size(memarg.memory)?;
-        self.mark_memory(memarg.memory);
-        let memory = self.push128(Operand128::<tinywasm_types::MemoryOperand>::new(memarg.offset, memarg.memory))?;
+        let (address, memory) = self.memory_operand(memarg)?;
         let inputs: &[ValueLane] = match op {
             AtomicWaitOp::Notify => &[address, ValueLane::S32],
             AtomicWaitOp::Wait32 => &[address, ValueLane::S32, ValueLane::S64],
@@ -572,7 +580,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     wasmparser::for_each_visit_operator!(impl_visit_operator);
 
-    fn visit_atomic_fence(&mut self) -> Self::Output {
+    fn visit_atomic_fence(&mut self, _ordering: wasmparser::Ordering) -> Self::Output {
         self.emit(&[], &[], Instruction::AtomicFence)
     }
 

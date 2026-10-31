@@ -252,7 +252,7 @@ impl Parser {
 
         for payload in wasmparser::Parser::new(0).parse_all(wasm) {
             match payload? {
-                wasmparser::Payload::CodeSectionStart { count, range, size } => {
+                wasmparser::Payload::CodeSectionStart { count, unchecked_range: range, size } => {
                     reader.begin_code_section(count, range, size, validator.as_mut(), &self.options)?;
                 }
                 wasmparser::Payload::CodeSectionEntry(function) => {
@@ -305,7 +305,7 @@ impl Parser {
                     let mut deferred_code_section = None;
 
                     match payload {
-                        wasmparser::Payload::CodeSectionStart { count, range, size } => {
+                        wasmparser::Payload::CodeSectionStart { count, unchecked_range: range, size } => {
                             let defer =
                                 reader.begin_code_section(count, range, size, validator.as_mut(), &self.options)?;
 
