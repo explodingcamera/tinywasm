@@ -13,7 +13,6 @@ pub(crate) struct State {
     // Concrete type indexes in store instances address this canonical type space.
     pub(crate) canonical_types: Vec<SubType>,
     pub(crate) canonical_rec_group_lengths: Vec<u32>,
-    pub(crate) funcs: Functions,
     pub(crate) tables: Vec<TableInstance>,
     pub(crate) memories: Vec<MemoryInstance>,
     #[cfg(feature = "std")]
@@ -186,7 +185,6 @@ impl State {
         Self {
             canonical_types: Vec::new(),
             canonical_rec_group_lengths: Vec::new(),
-            funcs: Functions::default(),
             tables: Vec::new(),
             memories: Vec::new(),
             #[cfg(feature = "std")]
@@ -393,7 +391,7 @@ impl State {
     }
 
     /// Returns whether a runtime reference has the expected type.
-    pub(crate) fn value_ref_matches(&self, value: ValueRef, expected: RefType) -> bool {
+    pub(crate) fn value_ref_matches(&self, funcs: &Functions, value: ValueRef, expected: RefType) -> bool {
         if value.is_null() {
             return expected.is_nullable();
         }
@@ -404,10 +402,10 @@ impl State {
             || expected.abstract_heap_type() == Some(AbstractHeapType::Func);
         if expected_func {
             let Some(func_addr) = value.addr() else { return false };
-            if !self.funcs.contains(func_addr) {
+            if !funcs.contains(func_addr) {
                 return false;
             }
-            let type_addr = self.funcs.type_addr(func_addr);
+            let type_addr = funcs.type_addr(func_addr);
             return self.ref_type_is_subtype(RefType::new_concrete(false, type_addr), expected);
         }
         if expected.abstract_heap_type() == Some(AbstractHeapType::Exn) {
@@ -424,11 +422,6 @@ impl State {
         let gc::GcObjectKind::Composite(type_addr) = object.kind else { return false };
         let actual = RefType::new_concrete(false, type_addr);
         self.ref_type_is_subtype(actual, expected)
-    }
-
-    #[inline]
-    pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
-        self.get_canonical_func_type(self.funcs.type_addr(addr))
     }
 
     #[inline]

@@ -1,4 +1,3 @@
-mod arena;
 mod object;
 mod roots;
 
@@ -10,7 +9,7 @@ use crate::Trap;
 use crate::interpreter::stack::ValueStack;
 use crate::interpreter::{InternalValue, RuntimeValue, Value128, ValueRef};
 
-pub(crate) use arena::{AllocError, Arena, Handle, Trace};
+pub(crate) use crate::collections::{AllocError, Arena, Handle, Trace};
 pub(crate) use object::{GcHeap, GcObjectKind};
 pub(crate) use roots::Roots;
 

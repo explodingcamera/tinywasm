@@ -491,7 +491,7 @@ impl ModuleInstance {
     fn validate_typed_func<P: WasmTypes, R: WasmTypes>(store: &Store, func: &Function, func_name: &str) -> Result<()> {
         let params = P::WASM_TYPES;
         let results = R::WASM_TYPES;
-        let ty = store.state.get_func_type(func.addr());
+        let ty = store.get_func_type(func.addr());
         if ty.params() != params || ty.results() != results {
             cold_path();
 

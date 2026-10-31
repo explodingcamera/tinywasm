@@ -59,6 +59,7 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
 - **`nightly-tail-calls`:** Uses Rust's unstable explicit tail calls for interpreter dispatch. Requires nightly Rust (recommended for maximum performance).
+- **`nightly-rust-preserve-none`:** Uses Rust's experimental preserve-none ABI for x86_64 and 64-bit AArch64 tail-call handlers. Requires nightly Rust (recommended for maximum performance).
 - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
 
 With default features disabled, `tinywasm` supports `no_std + alloc` and depends only on `libm`.
@@ -75,7 +76,9 @@ Applications that only load `.twasm` can remove the parser and validator from th
 
 WebAssembly [validation](https://webassembly.github.io/spec/core/valid/index.html) is enabled by default through the `validate` feature. Keep this feature enabled and leave `ParserOptions::validation` enabled for modules from untrusted sources. Without validation, parsing can produce modules that violate runtime assumptions and may panic during instantiation or execution.
 
-Validation does not limit parsing or execution resources. Hosts that run untrusted code should also configure `parser::ParseLimits`, stack and `ResourceLimiter` limits, and fuel- or time-budgeted execution as needed.
+Validation does not limit parsing or execution resources. Hosts that run untrusted code should also configure `parser::ParseLimits`, stack and `ResourceLimiter` limits, and fuel-budgeted execution as needed. The default fuel policy counts interpreter steps. Applications can check their own deadlines between calls to `resume_with_fuel`.
+
+Use `parser::ParserOptions::new().with_checkpoint_interval(4096)` to tune straight-line budget-check spacing before parsing. The default is 1,024 emitted interpreter instructions, with up to three extra for pending fusion. Larger intervals trade responsiveness for lower checkpoint overhead. Taken loop backedges are checked independently, and synthetic checkpoints consume no fuel.
 
 Loading `.twasm` checks the archive header and encoding but does not run WebAssembly validation or verify TinyWasm's runtime invariants. Load archives only from trusted sources. For untrusted input, parse a WebAssembly binary with validation enabled.
 

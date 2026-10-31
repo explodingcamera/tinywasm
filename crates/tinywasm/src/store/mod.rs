@@ -156,7 +156,7 @@ type StoredState = dyn Any + Send;
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#store>
 pub struct Store {
     id: StoreId,
-    pub(crate) module_instances: Vec<ModuleInstance>,
+    pub(crate) code: Code,
     pub(crate) engine: Engine,
     pub(crate) execution_fuel: u32,
     pub(crate) execution_active: bool,
@@ -164,28 +164,18 @@ pub struct Store {
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
     pub(crate) value_stack: ValueStack,
-    value_scratch: ValueScratch,
+    value_scratch: Vec<WasmValue>,
     #[cfg(feature = "state")]
     host_state: BTreeMap<TypeId, Box<StoredState>>,
 }
 
+/// Function and module-instance registries, borrowed immutably while Wasm runs.
 #[derive(Default)]
-struct ValueScratch(Vec<WasmValue>);
-
-impl ValueScratch {
-    fn take_resized(&mut self, len: usize) -> Result<Vec<WasmValue>> {
-        self.0.clear();
-        self.0.try_reserve(len).map_err(|_| Trap::OutOfMemory)?;
-        self.0.resize(len, WasmValue::I32(0));
-        Ok(core::mem::take(&mut self.0))
-    }
-
-    fn restore(&mut self, mut values: Vec<WasmValue>) {
-        values.clear();
-        if values.capacity() > self.0.capacity() {
-            self.0 = values;
-        }
-    }
+pub(crate) struct Code {
+    /// Store-addressed Wasm and host functions.
+    pub(crate) funcs: Functions,
+    /// Store-addressed module instances and their resolved imports.
+    pub(crate) instances: Vec<ModuleInstance>,
 }
 
 #[derive(Clone, Copy)]
@@ -239,7 +229,7 @@ impl core::fmt::Debug for Store {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Store")
             .field("id", &self.id)
-            .field("module_instances", &self.module_instances)
+            .field("module_instances", &self.code.instances)
             .field("engine", &self.engine)
             .finish()
     }
@@ -264,11 +254,11 @@ impl Store {
         let state = State::new(engine.config());
         Self {
             id,
-            module_instances: Vec::new(),
+            code: Code::default(),
             state,
             call_stack: CallStack::new(engine.config()),
             value_stack: ValueStack::new(engine.config()),
-            value_scratch: ValueScratch::default(),
+            value_scratch: Vec::new(),
             engine,
             execution_fuel: 0,
             execution_active: false,
@@ -323,9 +313,15 @@ impl Store {
         len: usize,
         use_values: impl FnOnce(&mut Self, &mut Vec<WasmValue>) -> Result<T>,
     ) -> Result<T> {
-        let mut values = self.value_scratch.take_resized(len)?;
+        self.value_scratch.clear();
+        self.value_scratch.try_reserve(len).map_err(|_| Trap::OutOfMemory)?;
+        self.value_scratch.resize(len, WasmValue::I32(0));
+        let mut values = core::mem::take(&mut self.value_scratch);
         let result = use_values(self, &mut values);
-        self.value_scratch.restore(values);
+        values.clear();
+        if values.capacity() > self.value_scratch.capacity() {
+            self.value_scratch = values;
+        }
         result
     }
 
@@ -472,22 +468,23 @@ impl Store {
     /// roots. Objects also become eligible for automatic threshold collection
     /// after the last owned handle is dropped.
     pub fn gc(&mut self) -> Result<()> {
-        let stack_roots = self.value_stack.stack_32.into_iter().copied().map(ValueRef::from_raw).collect::<Vec<_>>();
+        let stack_roots =
+            self.value_stack.stack_32.as_slice().iter().copied().map(ValueRef::from_raw).collect::<Vec<_>>();
         self.state.collect_gc(stack_roots).map_err(|_| Trap::OutOfMemory.into())
     }
 
     /// Get a module instance by the internal id
     pub fn get_module_instance(&self, id: ModuleInstanceId) -> Option<&ModuleInstance> {
-        self.module_instances.get(id as usize)
+        self.code.instances.get(id as usize)
     }
 
     pub(crate) fn next_module_instance_id(&self) -> ModuleInstanceId {
-        self.module_instances.len() as ModuleInstanceId
+        self.code.instances.len() as ModuleInstanceId
     }
 
     pub(crate) fn add_instance(&mut self, instance: ModuleInstance) {
-        debug_assert!(instance.id() == self.module_instances.len() as ModuleInstanceId);
-        self.module_instances.push(instance);
+        debug_assert!(instance.id() == self.code.instances.len() as ModuleInstanceId);
+        self.code.instances.push(instance);
     }
 
     pub(crate) fn value_matches_type(&self, value: &WasmValue, ty: WasmType) -> bool {
@@ -508,7 +505,7 @@ impl Store {
             return false;
         }
         match self.encode_ref(value) {
-            Ok(value) => self.state.value_ref_matches(value, expected),
+            Ok(value) => self.state.value_ref_matches(&self.code.funcs, value, expected),
             _ => false,
         }
     }
@@ -579,7 +576,7 @@ impl Store {
         debug_assert_eq!(funcs.len(), module_type_idxs.len());
         let funcs =
             funcs.iter().cloned().zip(module_type_idxs).map(|(func, &type_idx)| (type_addrs[type_idx as usize], func));
-        self.state.funcs.extend_wasm(funcs, owner)
+        self.code.funcs.extend_wasm(funcs, owner)
     }
 
     /// Add tags to the store, returning their addresses in the store.
@@ -833,7 +830,13 @@ impl Store {
 
     /// Adds a function and returns its store address.
     pub(crate) fn add_host_func(&mut self, type_addr: TypeAddr, func: HostFunction) -> FuncAddr {
-        self.state.funcs.push_host(type_addr, func)
+        self.code.funcs.push_host(type_addr, func)
+    }
+
+    /// Resolves a function's signature in the canonical type registry.
+    #[inline]
+    pub(crate) fn get_func_type(&self, addr: FuncAddr) -> &FuncType {
+        self.state.get_canonical_func_type(self.code.funcs.type_addr(addr))
     }
 }
 

@@ -1,8 +1,5 @@
 use tinywasm::engine::{Config, FuelPolicy};
-use tinywasm::{ExecProgress, ModuleInstance, Result, types::WasmValue};
-
-#[cfg(feature = "std")]
-use std::time::Duration;
+use tinywasm::{ExecProgress, FuncContext, HostFunction, Imports, ModuleInstance, Result, types::WasmValue};
 
 const FIBONACCI_WAT: &str = r#"
     (module
@@ -120,21 +117,135 @@ fn weighted_call_fuel_requires_more_rounds() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "std")]
+const INFINITE_LOOPS: [&str; 3] = [
+    r#"(module (func (export "run") (loop br 0)))"#,
+    r#"(module (func $run (export "run") return_call $run))"#,
+    r#"(module
+        (func $a (export "run") return_call $b)
+        (func $b return_call $a))"#,
+];
+
 #[test]
-fn time_budget_zero_suspends_then_completes() -> Result<()> {
-    let module = tinywasm::parse_bytes(ADD_WASM)?;
+fn infinite_loops_suspend_with_fuel() {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        for policy in [FuelPolicy::PerInstruction, FuelPolicy::Weighted] {
+            for wat in INFINITE_LOOPS {
+                let wasm = wat::parse_str(wat).unwrap();
+                let module = tinywasm::parse_bytes(&wasm).unwrap();
+                let mut store = tinywasm::Store::new(tinywasm::Engine::new(Config::new().with_fuel_policy(policy)));
+                let instance = ModuleInstance::instantiate(&mut store, &module, None).unwrap();
+                let function = instance.func::<(), ()>(&store, "run").unwrap();
+                let mut execution = function.call_resumable(&mut store, ()).unwrap();
+                assert!(matches!(execution.resume_with_fuel(0).unwrap(), ExecProgress::Suspended));
+                for _ in 0..3 {
+                    assert!(matches!(execution.resume_with_fuel(1).unwrap(), ExecProgress::Suspended));
+                }
+            }
+        }
+        sender.send(()).unwrap();
+    });
+    receiver.recv_timeout(std::time::Duration::from_secs(5)).expect("fuel-limited execution did not yield");
+    worker.join().unwrap();
+}
+
+#[test]
+fn host_calls_commit_before_suspending() -> Result<()> {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let callback_calls = calls.clone();
+    let mut imports = Imports::new();
+    imports.define(
+        "env",
+        "tick",
+        HostFunction::from(move |mut context: FuncContext<'_>, (): ()| {
+            callback_calls.fetch_add(1, Ordering::Relaxed);
+            context.charge_fuel(1000);
+            Ok(())
+        }),
+    );
+    let wasm = wat::parse_str(
+        r#"(module
+        (import "env" "tick" (func $tick))
+        (func (export "run") call $tick call $tick))"#,
+    )
+    .unwrap();
+    let module = tinywasm::parse_bytes(&wasm)?;
     let mut store = tinywasm::Store::default();
-    let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
-    let func = instance.func::<(i32, i32), i32>(&store, "add")?;
-
-    let mut exec = func.call_resumable(&mut store, (20, 22))?;
-    assert!(matches!(exec.resume_with_time_budget(Duration::ZERO)?, ExecProgress::Suspended));
-
-    match exec.resume_with_time_budget(Duration::from_millis(1))? {
-        ExecProgress::Completed(value) => assert_eq!(value, 42),
-        ExecProgress::Suspended => panic!("expected completion"),
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    let function = instance.func::<(), ()>(&store, "run")?;
+    let mut execution = function.call_resumable(&mut store, ())?;
+    for expected in [1, 2] {
+        assert!(matches!(execution.resume_with_fuel(1)?, ExecProgress::Suspended));
+        assert_eq!(calls.load(Ordering::Relaxed), expected);
     }
+    assert!(matches!(execution.resume_with_fuel(1)?, ExecProgress::Completed(())));
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    Ok(())
+}
 
+#[test]
+fn tail_host_returns_commit_before_suspending() -> Result<()> {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
+    use tinywasm::types::{FuncType, WasmType};
+
+    let wasm = wat::parse_str(
+        r#"(module
+        (import "env" "next" (func $next (param i32) (result i32)))
+        (func $tail (export "tail") (param i32) (result i32) (local i64)
+          local.get 0 return_call $next)
+        (func (export "wrapper") (param i32) (result i32) local.get 0 call $tail))"#,
+    )
+    .unwrap();
+    let module = tinywasm::parse_bytes(&wasm)?;
+    for untyped in [false, true] {
+        let calls = Arc::new(AtomicU32::new(0));
+        let callback_calls = calls.clone();
+        let host = if untyped {
+            HostFunction::from_untyped(
+                &FuncType::new(&[WasmType::I32], &[WasmType::I32]),
+                move |mut context, args, results| {
+                    callback_calls.fetch_add(1, Ordering::Relaxed);
+                    context.charge_fuel(1000);
+                    let WasmValue::I32(value) = args[0] else { unreachable!() };
+                    results[0] = WasmValue::I32(value + 1);
+                    Ok(())
+                },
+            )
+        } else {
+            HostFunction::from(move |mut context, value: i32| {
+                callback_calls.fetch_add(1, Ordering::Relaxed);
+                context.charge_fuel(1000);
+                Ok(value + 1)
+            })
+        };
+        let mut imports = Imports::new();
+        imports.define("env", "next", host);
+        let mut store = tinywasm::Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+        let tail = instance.func::<i32, i32>(&store, "tail")?;
+        assert!(matches!(tail.call_resumable(&mut store, 41)?.resume_with_fuel(2)?, ExecProgress::Completed(42)));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        let wrapper = instance.func::<i32, i32>(&store, "wrapper")?;
+        let mut execution = wrapper.call_resumable(&mut store, 41)?;
+        loop {
+            match execution.resume_with_fuel(2)? {
+                ExecProgress::Completed(value) => {
+                    assert_eq!(value, 42);
+                    break;
+                }
+                ExecProgress::Suspended => {}
+            }
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
     Ok(())
 }

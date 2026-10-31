@@ -1,219 +1,29 @@
-use alloc::vec::Vec;
 use tinywasm_types::{MemoryArch, ValueCounts};
 
 use super::StackBase;
-use crate::engine::{Config, StackConfig};
+use crate::collections::StackLane;
+use crate::engine::Config;
 use crate::interpreter::*;
 use crate::{Result, Trap};
 
+#[derive(Default)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 /// Physical value lanes used by the interpreter.
 ///
 /// Guest values should normally be accessed through
 /// [`InternalValue`] so their stack and global representation stays consistent.
 pub(crate) struct ValueStack {
-    pub(crate) stack_32: Stack<Value32>,
-    pub(crate) stack_64: Stack<Value64>,
-    pub(crate) stack_128: Stack<Value128>,
+    pub(crate) stack_32: StackLane<Value32>,
+    pub(crate) stack_64: StackLane<Value64>,
+    pub(crate) stack_128: StackLane<Value128>,
 }
 
-#[cfg_attr(feature = "debug", derive(Debug))]
-pub(crate) struct Stack<T: Copy + Default> {
-    data: Vec<T>,
-    max_size: usize,
-    dynamic: bool,
-}
-
-impl<T: Copy + Default> Stack<T> {
-    pub(crate) fn new(config: StackConfig) -> Self {
-        Self { data: Vec::with_capacity(config.initial_size), max_size: config.max_size, dynamic: config.dynamic }
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.data.clear();
-    }
-
-    #[inline(always)]
-    pub(crate) fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    /// Pushes a value inside a function body. `enter_locals` reserved the function's whole operand
-    /// stack, so the stack is never full here. After this check `Vec::push` cannot reach its own
-    /// growth path, so the instruction handlers make no calls.
-    #[inline(always)]
-    pub(crate) fn push(&mut self, value: T) {
-        if self.data.len() == self.data.capacity() {
-            crate::invariant_violated("value stack push beyond the function's reservation");
-        }
-        self.data.push(value);
-    }
-
-    /// Pushes a value outside a function body (host arguments and results), which no reservation
-    /// covers, so a dynamic stack grows here if needed.
-    #[inline(always)]
-    pub(crate) fn push_or_grow(&mut self, value: T) -> Result<(), Trap> {
-        if self.data.len() == self.data.capacity() {
-            return self.push_grow(value);
-        }
-        self.data.push(value);
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn push_copy(&mut self, index: usize) {
-        let value = *self.get(index);
-        self.push(value);
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn push_grow(&mut self, value: T) -> Result<(), Trap> {
-        // Check the limit only at capacity to avoid an extra hot-path check. Vec growth may
-        // intentionally overshoot max_size.
-        if !self.dynamic || self.data.len() >= self.max_size {
-            return Err(Trap::ValueStackOverflow);
-        }
-        self.data.push(value);
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn pop(&mut self) -> T {
-        match self.data.pop() {
-            Some(value) => value,
-            None => crate::invariant_violated("value stack underflow"),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn last(&self) -> &T {
-        match self.data.last() {
-            Some(value) => value,
-            None => crate::invariant_violated("value stack underflow"),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn get(&self, index: usize) -> &T {
-        match self.data.get(index) {
-            Some(value) => value,
-            None => crate::invariant_violated("value stack index out of range"),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn set(&mut self, index: usize, value: T) {
-        match self.data.get_mut(index) {
-            Some(slot) => *slot = value,
-            None => crate::invariant_violated("value stack index out of range"),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn copy(&mut self, from: usize, to: usize) {
-        let value = *self.get(from);
-        self.set(to, value);
-    }
-
-    #[inline(always)]
-    pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
-        let len = self.data.len();
-        debug_assert!(n <= len);
-        if n >= len {
-            return;
-        }
-
-        let keep = len.wrapping_sub(n).min(end_keep);
-        self.data.copy_within(len.wrapping_sub(keep)..len, n);
-        self.data.truncate(n.wrapping_add(keep));
-    }
-
-    #[inline(always)]
-    pub(crate) fn truncate_to(&mut self, n: usize) {
-        debug_assert!(n <= self.data.len());
-        self.data.truncate(n);
-    }
-
-    #[inline(always)]
-    pub(crate) fn truncate_to_one_tail(&mut self, n: usize) {
-        debug_assert!(n < self.data.len());
-        let last = self.pop();
-        self.data.truncate(n);
-        self.data.push(last);
-    }
-
-    /// Enters a function: turns its parameters into the first locals, zeroes the rest, and reserves
-    /// room for its operand stack (`max_stack` values above the locals), so [`Self::push`] never
-    /// has to grow the stack while the function runs.
-    #[inline]
-    pub(crate) fn enter_locals(
-        &mut self,
-        param_count: usize,
-        local_count: usize,
-        max_stack: usize,
-    ) -> Result<u32, Trap> {
-        debug_assert!(param_count <= local_count);
-        debug_assert!(param_count <= self.data.len());
-
-        let len = self.data.len();
-        let start = len - param_count;
-        let end = start + local_count;
-        let reserve = end + max_stack;
-
-        if reserve > self.data.capacity() {
-            core::hint::cold_path();
-            if reserve > self.max_size || !self.dynamic {
-                return Err(Trap::ValueStackOverflow);
-            }
-            let cap = self.data.capacity();
-            let target = reserve.max(cap.max(1).saturating_mul(2)).min(self.max_size);
-            if self.data.try_reserve(target - len).is_err() {
-                return Err(Trap::ValueStackOverflow);
-            }
-        }
-
-        self.data.resize(end, T::default());
-        Ok(start as u32)
-    }
-
-    #[inline(always)]
-    pub(crate) fn select_many(&mut self, count: usize, condition: bool) {
-        if count == 0 {
-            return;
-        }
-
-        let len = self.data.len();
-        let needed = count.wrapping_mul(2);
-
-        if len < needed {
-            crate::invariant_violated("value stack underflow");
-        }
-
-        if !condition {
-            let dst = len.wrapping_sub(needed);
-            let src = len.wrapping_sub(count);
-            self.data.copy_within(src..len, dst);
-        }
-
-        self.data.truncate(len.wrapping_sub(count));
-    }
-}
-
-impl<'a, T: Copy + Default> IntoIterator for &'a Stack<T> {
-    type Item = &'a T;
-    type IntoIter = core::slice::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.data.iter()
-    }
-}
 impl ValueStack {
     pub(crate) fn new(config: &Config) -> Self {
         Self {
-            stack_32: Stack::new(config.value_stack_32),
-            stack_64: Stack::new(config.value_stack_64),
-            stack_128: Stack::new(config.value_stack_128),
+            stack_32: StackLane::new(config.value_stack_32),
+            stack_64: StackLane::new(config.value_stack_64),
+            stack_128: StackLane::new(config.value_stack_128),
         }
     }
 
@@ -267,6 +77,7 @@ impl ValueStack {
         self.stack_128.select_many(counts.c128 as usize, condition);
     }
 
+    /// Reserves all lanes before zeroing locals or publishing any new live height.
     #[inline(always)]
     pub(crate) fn enter_locals(
         &mut self,
@@ -274,13 +85,46 @@ impl ValueStack {
         locals: &ValueCounts,
         max_stack: &ValueCounts,
     ) -> Result<StackBase, Trap> {
-        let locals_base32 =
-            self.stack_32.enter_locals(params.c32 as usize, locals.c32 as usize, max_stack.c32 as usize)?;
-        let locals_base64 =
-            self.stack_64.enter_locals(params.c64 as usize, locals.c64 as usize, max_stack.c64 as usize)?;
-        let locals_base128 =
-            self.stack_128.enter_locals(params.c128 as usize, locals.c128 as usize, max_stack.c128 as usize)?;
-        Ok(StackBase { s32: locals_base32, s64: locals_base64, s128: locals_base128 })
+        let base = self.base_before(*params);
+        let end = self.prepare_locals(base, locals, max_stack)?;
+        self.initialize_locals(end);
+        Ok(base)
+    }
+
+    /// Prepares a tail call's final layout before moving arguments out of the current frame.
+    #[inline]
+    pub(crate) fn replace_locals(
+        &mut self,
+        base: StackBase,
+        params: &ValueCounts,
+        locals: &ValueCounts,
+        max_stack: &ValueCounts,
+    ) -> Result<StackBase, Trap> {
+        let end = self.prepare_locals(base, locals, max_stack)?;
+        self.truncate_keep_counts(base, *params);
+        self.initialize_locals(end);
+        Ok(base)
+    }
+
+    #[inline(always)]
+    fn prepare_locals(
+        &mut self,
+        base: StackBase,
+        locals: &ValueCounts,
+        max_stack: &ValueCounts,
+    ) -> Result<StackBase, Trap> {
+        let s32 = self.stack_32.prepare_locals(base.s32 as usize, locals.c32 as usize, max_stack.c32 as usize)?;
+        let s64 = self.stack_64.prepare_locals(base.s64 as usize, locals.c64 as usize, max_stack.c64 as usize)?;
+        let s128 = self.stack_128.prepare_locals(base.s128 as usize, locals.c128 as usize, max_stack.c128 as usize)?;
+        // Each lane checked the reservation, including these frame-base conversions, before growth.
+        Ok(StackBase { s32: s32 as u32, s64: s64 as u32, s128: s128 as u32 })
+    }
+
+    #[inline]
+    fn initialize_locals(&mut self, end: StackBase) {
+        self.stack_32.initialize_locals(end.s32 as usize);
+        self.stack_64.initialize_locals(end.s64 as usize);
+        self.stack_128.initialize_locals(end.s128 as usize);
     }
 
     #[inline(always)]
@@ -307,7 +151,7 @@ impl ValueStack {
         }
     }
 
-    /// Pushes a value from outside a function body's reservation; see [`Stack::push_or_grow`].
+    /// Pushes a value from outside a function body's reservation, see [`StackLane::push_or_grow`].
     pub(crate) fn push_dyn(&mut self, value: RuntimeValue) -> Result<(), Trap> {
         match value {
             RuntimeValue::Value32(value) => self.stack_32.push_or_grow(value),
@@ -315,5 +159,78 @@ impl ValueStack {
             RuntimeValue::Value128(value) => self.stack_128.push_or_grow(value),
             RuntimeValue::ValueRef(value) => self.stack_32.push_or_grow(value.raw()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::StackConfig;
+
+    #[test]
+    fn locals_are_zeroed_on_reentry() {
+        let mut stack = ValueStack::new(&Config::new().with_value_stack(StackConfig::dynamic(0, 16)));
+        stack.stack_32.push_or_grow(11).unwrap();
+        let params = ValueCounts { c32: 1, c64: 0, c128: 0 };
+        let locals = ValueCounts { c32: 3, c64: 1, c128: 1 };
+        let operands = ValueCounts { c32: 1, c64: 1, c128: 1 };
+        let base = stack.enter_locals(&params, &locals, &operands).unwrap();
+        stack.stack_32.set(1, 22);
+        stack.stack_64.set(0, 33);
+        stack.stack_128.set(0, Value128([44; 16]));
+        stack.stack_32.push(55);
+        stack.stack_64.push(66);
+        stack.stack_128.push(Value128([77; 16]));
+        stack.truncate_to_base(base);
+        stack.stack_32.push(88);
+        stack.enter_locals(&params, &locals, &operands).unwrap();
+        assert_eq!(stack.stack_32.as_slice(), [88, 0, 0]);
+        assert_eq!(stack.stack_64.as_slice(), [0]);
+        assert_eq!(stack.stack_128.as_slice(), [Value128::default()]);
+    }
+
+    #[test]
+    fn failed_entry_preserves_every_lane() {
+        for tail in [false, true] {
+            let config =
+                Config::new().with_value_stack(StackConfig::dynamic(2, 16)).with_value_stack_128(StackConfig::fixed(2));
+            let mut stack = ValueStack::new(&config);
+            for value in [11, 22] {
+                stack.stack_32.push_or_grow(value).unwrap();
+                stack.stack_64.push_or_grow(value as u64).unwrap();
+                stack.stack_128.push_or_grow(Value128([value as u8; 16])).unwrap();
+            }
+            let params = ValueCounts { c32: 1, c64: 1, c128: 1 };
+            let locals = ValueCounts { c32: 3, c64: 3, c128: 3 };
+            let result = if tail {
+                stack.replace_locals(StackBase::default(), &params, &locals, &params)
+            } else {
+                stack.enter_locals(&params, &locals, &params)
+            };
+            assert!(matches!(result, Err(Trap::ValueStackOverflow)));
+            assert_eq!(stack.stack_32.as_slice(), [11, 22]);
+            assert_eq!(stack.stack_64.as_slice(), [11, 22]);
+            assert_eq!(stack.stack_128.as_slice(), [Value128([11; 16]), Value128([22; 16])]);
+        }
+    }
+
+    #[test]
+    fn tail_entry_moves_arguments_before_zeroing_locals() {
+        let mut stack = ValueStack::new(&Config::new().with_value_stack(StackConfig::dynamic(0, 16)));
+        for value in [11, 22, 33] {
+            stack.stack_32.push_or_grow(value).unwrap();
+            stack.stack_64.push_or_grow(value as u64).unwrap();
+            stack.stack_128.push_or_grow(Value128([value as u8; 16])).unwrap();
+        }
+        let base = StackBase { s32: 1, s64: 1, s128: 1 };
+        let params = ValueCounts { c32: 1, c64: 1, c128: 1 };
+        let locals = ValueCounts { c32: 3, c64: 3, c128: 3 };
+        stack.replace_locals(base, &params, &locals, &params).unwrap();
+        assert_eq!(stack.stack_32.as_slice(), [11, 33, 0, 0]);
+        assert_eq!(stack.stack_64.as_slice(), [11, 33, 0, 0]);
+        assert_eq!(
+            stack.stack_128.as_slice(),
+            [Value128([11; 16]), Value128([33; 16]), Value128::default(), Value128::default()]
+        );
     }
 }

@@ -107,3 +107,67 @@ fn host_reentrancy_obeys_call_stack_policy() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn callback_can_install_new_wasm_functions() -> Result<()> {
+    let target_wasm = wat::parse_str(
+        r#"(module
+        (memory 1)
+        (data (i32.const 0) "\2a\00\00\00")
+        (func (export "target") (result i32) i32.const 0 i32.load))"#,
+    )
+    .unwrap();
+    let wasm = wat::parse_str(
+        r#"(module
+        (import "env" "install" (func $install))
+        (type $target (func (result i32)))
+        (table (export "table") 1 funcref)
+        (memory 1)
+        (data (i32.const 0) "\07\00\00\00")
+        (func (export "run") (result i32)
+          call $install
+          i32.const 0 call_indirect (type $target)
+          i32.const 0 i32.load i32.add))"#,
+    )
+    .unwrap();
+    let module = tinywasm::parse_bytes(&wasm)?;
+    for resumable in [false, true] {
+        let target_wasm = target_wasm.clone();
+        let mut imports = Imports::new();
+        imports.define(
+            "env",
+            "install",
+            HostFunction::from(move |mut context, (): ()| -> Result<()> {
+                let target_module = tinywasm::parse_bytes(&target_wasm)?;
+                let table = context.table("table")?;
+                // Force registry growth while the suspended caller's function and instance remain live.
+                for _ in 0..32 {
+                    let instance = ModuleInstance::instantiate(context.store_mut(), &target_module, None)?;
+                    let target = instance.func::<(), i32>(&context, "target")?;
+                    let fuel = context.remaining_fuel();
+                    assert_eq!(context.call(&target, ())?, 42);
+                    assert_eq!(context.remaining_fuel(), fuel);
+                    let reference = instance.func_untyped(&context, "target")?.as_func_ref(&context)?;
+                    table.set(context.store_mut(), 0, reference.into())?;
+                }
+                Ok(())
+            }),
+        );
+        let mut store = Store::default();
+        let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+        let function = instance.func::<(), i32>(&store, "run")?;
+        let result = if resumable {
+            let mut execution = function.call_resumable(&mut store, ())?;
+            loop {
+                match execution.resume_with_fuel(3)? {
+                    ExecProgress::Completed(result) => break result,
+                    ExecProgress::Suspended => {}
+                }
+            }
+        } else {
+            function.call(&mut store, ())?
+        };
+        assert_eq!(result, 49);
+    }
+    Ok(())
+}

@@ -57,6 +57,8 @@ enum PatchSite {
 pub(crate) struct Emitter {
     instructions: Vec<Instruction>,
     committed: usize,
+    checkpoint_start: usize,
+    checkpoint_interval: usize,
     select: bool,
     self_func_addr: u32,
     return_instruction: Instruction,
@@ -79,6 +81,8 @@ impl Emitter {
         Self {
             instructions: Vec::with_capacity(body_size.min(1024)),
             committed: 0,
+            checkpoint_start: 0,
+            checkpoint_interval: options.checkpoint_interval(),
             select: options.optimize(),
             self_func_addr: context.self_func_addr,
             return_instruction,
@@ -146,8 +150,18 @@ impl Emitter {
 
     fn push(&mut self, instruction: Instruction) -> Result<()> {
         self.seal_jump();
-        if self.instructions.len() >= u32::MAX as usize {
+        let checkpoint = self.committed - self.checkpoint_start >= self.checkpoint_interval;
+        let added = 1 + usize::from(checkpoint);
+        if self.instructions.len().checked_add(added).is_none_or(|len| len > u32::MAX as usize) {
             return Err(ParseError::Other("function body is too large".into()));
+        }
+        if checkpoint {
+            // Seal the pending fusion window instead of inserting into the committed prefix.
+            // This permits at most LOOKBEHIND extra guest instructions per interval. Labels bound
+            // at this boundary target the checkpoint, and exclusive exception ends exclude it.
+            self.instructions.push(Instruction::Checkpoint);
+            self.commit(self.instructions.len());
+            self.checkpoint_start = self.instructions.len();
         }
         self.instructions.push(instruction);
         Ok(())

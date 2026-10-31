@@ -71,6 +71,13 @@ pub struct ParserOptions {
     /// Whether to deduplicate immutable function operands while parsing.
     pub deduplicate_operands: bool,
 
+    /// Target number of emitted guest instructions between synthetic execution checkpoints.
+    ///
+    /// Defaults to 1,024. The pending fusion window can add up to three instructions per interval.
+    /// Larger intervals reduce checkpoint overhead but allow longer straight-line execution before
+    /// a resumable invocation checks its budget. Taken control-flow boundaries are checked separately.
+    pub checkpoint_interval: core::num::NonZeroUsize,
+
     /// Optional limits for parsing untrusted modules. Unlimited by default.
     pub limits: ParseLimits,
 
@@ -91,6 +98,7 @@ impl Default for ParserOptions {
             validation: cfg!(feature = "validate"),
             optimize: true,
             deduplicate_operands: true,
+            checkpoint_interval: core::num::NonZeroUsize::new(1024).unwrap(),
             limits: ParseLimits::default(),
             #[cfg(parallel_parser)]
             threads: None,
@@ -141,6 +149,23 @@ impl ParserOptions {
     /// Returns whether immutable function operands are deduplicated while parsing.
     pub const fn deduplicate_operands(&self) -> bool {
         self.deduplicate_operands
+    }
+
+    /// Sets the target number of emitted guest instructions between execution checkpoints.
+    ///
+    /// This also applies when optimizations are disabled. Synthetic checkpoints consume no guest
+    /// fuel. This bounds interpreter work, not time spent in bulk operations or host callbacks.
+    ///
+    /// # Panics
+    /// Panics if `interval` is zero.
+    pub const fn with_checkpoint_interval(mut self, interval: usize) -> Self {
+        self.checkpoint_interval = core::num::NonZeroUsize::new(interval).expect("checkpoint interval must be nonzero");
+        self
+    }
+
+    /// Returns the target execution checkpoint interval in emitted guest instructions.
+    pub const fn checkpoint_interval(&self) -> usize {
+        self.checkpoint_interval.get()
     }
 
     /// Set parse-time limits.

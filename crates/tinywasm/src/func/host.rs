@@ -4,7 +4,7 @@ use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 use super::{FromWasmValues, FuncContext, IntoWasmValues};
 use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
-use crate::{Function, Result, Store, WasmValue};
+use crate::{Function, Result, Store, Trap, WasmValue};
 
 /// Trait bounds required for a host callback in the current build mode.
 #[doc(hidden)]
@@ -95,6 +95,39 @@ impl HostFunction {
             HostCallback::Untyped(_) => None,
             HostCallback::Typed(func) => Some(&**func),
         }
+    }
+
+    /// Calls from Wasm using arguments on the store's restored value stack.
+    pub(crate) fn call_stack(
+        &self,
+        store: &mut Store,
+        module_id: ModuleInstanceId,
+        type_addr: TypeAddr,
+    ) -> Result<(), Trap> {
+        if let Some(callback) = self.typed_callback() {
+            return cold_err!(callback.call_stack(store, module_id, type_addr))
+                .map_err(|error| Trap::HostFunction(Box::new(error)));
+        }
+
+        let ty = store.state.get_canonical_func_type(type_addr);
+        let (param_count, result_count) = (ty.params().len(), ty.results().len());
+        let base = store.value_stack.base_before(ty.params().iter().collect());
+        store
+            .with_scratch_values(param_count + result_count, |store, values| {
+                let host_values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
+                for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
+                    *slot = value;
+                }
+                store.value_stack.truncate_to_base(base);
+                let (params, results) = values.split_at_mut(param_count);
+                self.call_values(store, module_id, type_addr, params, results)
+                    .map_err(|error| crate::Error::Trap(Trap::HostFunction(Box::new(error))))?;
+                store.push_wasm_values(results)
+            })
+            .map_err(|error| match error {
+                crate::Error::Trap(trap) => trap,
+                other => Trap::HostFunction(Box::new(other)),
+            })
     }
 
     /// Create a directly callable, store-owned function from this definition.
@@ -242,13 +275,8 @@ type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue
 #[cfg(feature = "send")]
 type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()> + Send + Sync;
 
-#[cfg(not(feature = "send"))]
-pub(crate) trait TypedHostCallback {
-    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
-    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
-}
-#[cfg(feature = "send")]
-pub(crate) trait TypedHostCallback: Send + Sync {
+/// Typed callback entry points with the build mode's thread-safety bounds.
+pub(crate) trait TypedHostCallback: HostFunctionCallback {
     fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
     fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
 }
@@ -296,5 +324,39 @@ where
 impl core::fmt::Debug for HostFunction {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostFunction").field("ty", &self.0.ty).finish_non_exhaustive()
+    }
+}
+
+#[cfg(all(test, feature = "parser"))]
+mod tests {
+    use super::*;
+    use crate::{Error, Imports, ModuleInstance};
+
+    #[test]
+    fn wasm_callback_errors_are_wrapped() {
+        for instruction in ["call", "return_call"] {
+            let source = alloc::format!(
+                r#"(module
+                    (import "env" "fail" (func $fail))
+                    (func (export "run") {instruction} $fail))"#
+            );
+            let module = crate::parse_bytes(&wat::parse_str(source).unwrap()).unwrap();
+            for typed in [false, true] {
+                let host = if typed {
+                    HostFunction::from(|_, (): ()| Err::<(), _>(Trap::Unreachable.into()))
+                } else {
+                    HostFunction::from_untyped(&FuncType::new(&[], &[]), |_, _, _| Err(Trap::Unreachable.into()))
+                };
+                let mut store = Store::default();
+                let mut imports = Imports::new();
+                imports.define("env", "fail", host);
+                let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
+                let function = instance.func::<(), ()>(&store, "run").unwrap();
+                let Error::Trap(Trap::HostFunction(cause)) = function.call(&mut store, ()).unwrap_err() else {
+                    panic!("callback errors must remain host-function traps");
+                };
+                assert!(matches!(cause.downcast_ref::<Error>(), Some(Error::Trap(Trap::Unreachable))));
+            }
+        }
     }
 }

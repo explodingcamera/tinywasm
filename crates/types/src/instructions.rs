@@ -903,6 +903,7 @@ define_instructions! {
     I32x4RelaxedDotI8x16I7x16AddS,
 
     SelectStore32(Operand128Idx<MemoryOperand>), SelectStore64(Operand128Idx<MemoryOperand>),
+    Checkpoint,
 }
 
 const _: () = assert!(core::mem::size_of::<Instruction>() == 8);

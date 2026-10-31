@@ -1,14 +1,15 @@
 #![no_std]
 #![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features))]
 #![cfg_attr(feature = "nightly-tail-calls", feature(explicit_tail_calls))]
+#![cfg_attr(tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
 #![cfg_attr(all(feature = "nightly-tail-calls", not(debug_assertions)), feature(abort_immediate))]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(not(feature = "simd-x86"), forbid(unsafe_code))]
-#![cfg_attr(feature = "simd-x86", deny(unsafe_code))]
+#![cfg_attr(not(simd_backend = "x86"), forbid(unsafe_code))]
+#![cfg_attr(simd_backend = "x86", deny(unsafe_code))]
 
 //! A small and portable WebAssembly interpreter.
 //!
@@ -119,6 +120,7 @@ pub(crate) mod log {
     pub(crate) use info;
 }
 
+mod collections;
 mod error;
 pub use error::*;
 pub use func::{

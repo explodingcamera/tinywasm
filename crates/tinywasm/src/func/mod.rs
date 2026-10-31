@@ -45,10 +45,10 @@ impl Function {
     /// identify a valid function.
     pub fn from_func_ref(store: &Store, reference: FuncRef) -> Result<Self> {
         let addr = reference.addr(store.id()).ok_or(crate::Trap::InvalidStore)?;
-        if !store.state.funcs.contains(addr) {
+        if !store.code.funcs.contains(addr) {
             return Err(crate::Trap::InvalidReference.into());
         }
-        let module_id = if store.state.funcs.is_host(addr) { 0 } else { store.state.funcs.wasm(addr).owner };
+        let module_id = if store.code.funcs.is_host(addr) { 0 } else { store.code.funcs.wasm(addr).owner };
         Ok(Self { item: StoreItem::new(store.id(), addr), module_id })
     }
 
@@ -69,7 +69,7 @@ impl Function {
     /// Concrete reference types are only meaningful in this store.
     pub fn ty<'a>(&self, store: &'a Store) -> Result<&'a FuncType> {
         self.item.validate_store(store)?;
-        Ok(store.state.get_func_type(self.addr()))
+        Ok(store.get_func_type(self.addr()))
     }
 
     /// Calls the function and writes its results to `results`.
@@ -93,7 +93,7 @@ impl Function {
         result_count: usize,
     ) -> Result<tinywasm_types::TypeAddr> {
         self.item.validate_store(store)?;
-        let type_addr = store.state.funcs.type_addr(self.addr());
+        let type_addr = store.code.funcs.type_addr(self.addr());
         self.validate_call_type(store, type_addr, params, result_count)?;
         Ok(type_addr)
     }
@@ -151,12 +151,12 @@ impl Function {
         call_stack_base: u32,
         value_stack_base: StackBase,
     ) -> Result<()> {
-        if store.state.funcs.is_host(self.addr()) {
-            let host = store.state.funcs.host(self.addr()).func.clone();
+        if store.code.funcs.is_host(self.addr()) {
+            let host = store.code.funcs.host(self.addr()).func.clone();
             host.call_values(store, self.module_id, type_addr, params, results)
         } else {
             let (wasm_params, wasm_locals, wasm_max_stack) = {
-                let wasm = store.state.funcs.wasm(self.addr());
+                let wasm = store.code.funcs.wasm(self.addr());
                 (wasm.func.params, wasm.func.locals, wasm.func.max_stack)
             };
             store.push_wasm_values(params).inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
@@ -181,9 +181,9 @@ impl Function {
         call_stack_base: u32,
         value_stack_base: StackBase,
     ) -> Result<R> {
-        if store.state.funcs.is_host(self.addr()) {
+        if store.code.funcs.is_host(self.addr()) {
             let (type_addr, host) = {
-                let host = store.state.funcs.host(self.addr());
+                let host = store.code.funcs.host(self.addr());
                 (host.type_addr, host.func.clone())
             };
             return match host.typed_callback() {
@@ -210,7 +210,7 @@ impl Function {
         }
 
         let (type_addr, wasm_params, wasm_locals, wasm_max_stack) = {
-            let wasm = store.state.funcs.wasm(self.addr());
+            let wasm = store.code.funcs.wasm(self.addr());
             (wasm.type_addr, wasm.func.params, wasm.func.locals, wasm.func.max_stack)
         };
         store.push_typed_values::<false>(type_addr, params, value_stack_base)?;

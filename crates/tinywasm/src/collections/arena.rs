@@ -1,4 +1,4 @@
-//! Mark-and-sweep storage with stable handles for WebAssembly GC objects.
+//! Mark-and-sweep storage with stable generational handles.
 
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -63,7 +63,8 @@ pub(crate) struct Arena<T> {
     free_head: Option<u32>,
     worklist: Vec<u32>,
     len: usize,
-    pub(super) allocated_bytes: usize,
+    /// Bytes retained by live objects, including their slot storage.
+    pub(crate) allocated_bytes: usize,
     collection_threshold: usize,
     next_collection: usize,
 }
@@ -161,7 +162,8 @@ impl<T> Arena<T> {
             .is_none_or(|bytes| bytes >= self.next_collection)
     }
 
-    pub(super) fn allocation_size(out_of_line_bytes: usize) -> Option<usize> {
+    /// Returns the retained bytes for one slot and its separately allocated storage.
+    pub(crate) fn allocation_size(out_of_line_bytes: usize) -> Option<usize> {
         size_of::<Slot<T>>().checked_add(out_of_line_bytes)
     }
 }

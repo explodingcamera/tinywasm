@@ -43,7 +43,7 @@ impl Engine {
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "debug", derive(Debug))]
 pub enum FuelPolicy {
-    /// Charge one fuel unit per retired instruction.
+    /// Charge one fuel unit per attempted guest interpreter instruction, excluding synthetic checkpoints.
     #[default]
     PerInstruction,
     /// Charge one fuel unit per instruction plus predefined extra cost for specific operations.
@@ -68,8 +68,8 @@ const DEFAULT_MAX_CALL_STACK_SIZE: usize = 1024; // 1024 frames
 pub struct StackConfig {
     /// Initial reserved capacity for the stack.
     pub initial_size: usize,
-    /// Growth threshold, checked only when the stack reaches its allocated capacity.
-    /// Dynamic stacks may exceed this threshold up to their allocated capacity.
+    /// Maximum number of live stack elements, checked at reservation boundaries independently of
+    /// the allocation's capacity.
     pub max_size: usize,
     /// Whether the stack may grow past its initial capacity.
     pub dynamic: bool,
@@ -81,9 +81,7 @@ impl StackConfig {
         Self { initial_size: size, max_size: size, dynamic: false }
     }
 
-    /// Creates a dynamically growing stack with the given initial size and growth threshold.
-    ///
-    /// The threshold is not a strict element limit, see [`Self::max_size`].
+    /// Creates a dynamically growing stack with the given initial size and element limit.
     pub const fn dynamic(initial_size: usize, max_size: usize) -> Self {
         assert!(initial_size <= max_size, "initial_size must be less than or equal to max_size");
         Self { initial_size, max_size, dynamic: true }

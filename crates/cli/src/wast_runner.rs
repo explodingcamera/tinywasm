@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 use std::fs::canonicalize;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use log::{debug, error};
@@ -14,7 +13,7 @@ use tinywasm::{
 use wast::QuoteWat;
 use wast::core::{AbstractHeapType, NanPattern};
 
-const TEST_TIME_SLICE: Duration = Duration::from_millis(20);
+const TEST_FUEL_SLICE: u32 = 64 * 1024;
 const TEST_MAX_SUSPENSIONS: u32 = 1000;
 // Older suites classify encodings that wasmparser accepts with the latest feature set as malformed.
 const ACCEPTED_MALFORMED_MESSAGES: &[&str] =
@@ -733,13 +732,13 @@ fn exec_with_budget(
 ) -> Result<(), tinywasm::Error> {
     let mut exec = func.call_resumable(store, args, results)?;
     for _ in 0..TEST_MAX_SUSPENSIONS {
-        if let ExecProgress::Completed(()) = exec.resume_with_time_budget(TEST_TIME_SLICE)? {
+        if let ExecProgress::Completed(()) = exec.resume_with_fuel(TEST_FUEL_SLICE)? {
             return Ok(());
         }
     }
     Err(tinywasm::Error::Other(format!(
-        "testsuite execution timed out after {} time slices of {:?}",
-        TEST_MAX_SUSPENSIONS, TEST_TIME_SLICE
+        "testsuite execution exhausted {} fuel slices of {} units",
+        TEST_MAX_SUSPENSIONS, TEST_FUEL_SLICE
     )))
 }
 

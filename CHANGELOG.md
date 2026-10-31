@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
 - Added several internal methods to support a future c-api crate
 
+### Removed
+
+- Removed `resume_with_time_budget`. Use `resume_with_fuel` and check application deadlines between resumes.
+
 ### Fixed
 
 - Restore store state after a panic in a function call, allowing subsequent calls and preventing invalid resumption.

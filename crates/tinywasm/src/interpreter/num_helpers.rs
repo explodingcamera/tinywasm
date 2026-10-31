@@ -25,7 +25,7 @@ macro_rules! checked_conv_float {
     ($from:tt, $to:tt, $self:expr) => {{ checked_conv_float!($from, $to, $to, $self) }};
     // Conversion with an intermediate unsigned type and error checking (three types)
     ($from:tt, $intermediate:tt, $to:tt, $self:expr) => {{
-        let v = <$from>::stack_pop(&mut $self.store.value_stack);
+        let v = <$from>::stack_pop(&mut $self.value_stack);
         let (min, max) = float_min_max!($from, $intermediate);
         if v.is_nan() {
             core::hint::cold_path();
@@ -35,7 +35,7 @@ macro_rules! checked_conv_float {
             core::hint::cold_path();
             return Err(crate::Trap::IntegerOverflow.into());
         }
-        <$to>::stack_push(&mut $self.store.value_stack, (v as $intermediate as $to).into());
+        <$to>::stack_push(&mut $self.value_stack, (v as $intermediate as $to).into());
     }};
 }
 

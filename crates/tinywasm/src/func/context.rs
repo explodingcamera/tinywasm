@@ -85,7 +85,7 @@ impl FuncContext<'_> {
     /// completes.
     ///
     /// Nested calls are currently blocking only. If the surrounding invocation
-    /// is resumed with fuel or a time budget, this method does not suspend and
+    /// is resumed with fuel, this method does not suspend and
     /// later continue the host function in the middle of the nested call.
     pub fn call_untyped(&mut self, func: &Function, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         if !self.store.execution_active {
@@ -101,7 +101,7 @@ impl FuncContext<'_> {
     /// Calls a Store-aware function reference in the current module context.
     pub fn call_ref(&mut self, func: FuncRef, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let addr = func.addr(self.store.id()).ok_or(crate::Trap::InvalidStore)?;
-        if !self.store.state.funcs.contains(addr) {
+        if !self.store.code.funcs.contains(addr) {
             return Err(crate::Trap::InvalidReference.into());
         }
         let function = Function { item: crate::StoreItem::new(self.store.id(), addr), module_id: self.module_id };

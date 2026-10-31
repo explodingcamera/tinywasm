@@ -10,19 +10,7 @@ use super::super::no_std_floats::NoStdFloatExt;
 use core::arch::wasm32 as wasm;
 #[cfg(target_arch = "wasm64")]
 use core::arch::wasm64 as wasm;
-#[cfg(all(
-    feature = "simd-x86",
-    target_arch = "x86_64",
-    target_feature = "sse4.2",
-    target_feature = "avx",
-    target_feature = "avx2",
-    target_feature = "bmi1",
-    target_feature = "bmi2",
-    target_feature = "fma",
-    target_feature = "lzcnt",
-    target_feature = "movbe",
-    target_feature = "popcnt"
-))]
+#[cfg(simd_backend = "x86")]
 use core::arch::x86_64 as x86;
 
 impl Value128 {

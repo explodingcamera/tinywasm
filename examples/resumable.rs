@@ -34,7 +34,7 @@ fn main() -> Result<()> {
     let fuel_per_round = 128;
     let mut fuel_rounds = 0;
 
-    // Each resume call limits one round. std builds also support wall-clock budgets.
+    // Each resume call gives execution another fuel slice.
     let result = loop {
         fuel_rounds += 1;
         match execution.resume_with_fuel(fuel_per_round)? {
