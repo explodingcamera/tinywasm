@@ -5,12 +5,12 @@
 ## Why `tinywasm`?
 
 - **Tiny**: Small by design, while still passing the full WebAssembly 3.0 core test suite.
-- **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies[^dependencies], and can itself compile to WebAssembly.
-- **Safe by default**: Written entirely in safe Rust[^unsafe].
+- **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies[^dependencies]
+- **Safe**: Written entirely in safe Rust[^unsafe].
 
 [^dependencies]: The two main external components are [`wasmparser`](https://crates.io/crates/wasmparser) for WebAssembly parsing and validation, and [`postcard`](https://crates.io/crates/postcard) for `.twasm` archives.
 
-[^unsafe]: The optional `simd-x86` feature is the only exception. It uses `unsafe` internally for selected x86 SIMD intrinsics.
+[^unsafe]: The `simd-intrinsics` feature uses `unsafe` internally for selected architecture-specific SIMD implementations.
 
 ## Installation
 
@@ -58,11 +58,10 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
 - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
-- **`nightly-tail-calls`:** Uses Rust's unstable explicit tail calls for interpreter dispatch. Requires nightly Rust (recommended for maximum performance).
-- **`nightly-rust-preserve-none`:** Uses Rust's experimental preserve-none ABI for x86_64 and 64-bit AArch64 tail-call handlers. Requires nightly Rust (recommended for maximum performance).
-- **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
+- **`nightly`:** Enables all supported nightly-only optimizations. Enabled by default, with compiler capability detection and a stable fallback.
+- **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default. Safe Wasm SIMD remains automatic.
 
-With default features disabled, `tinywasm` supports `no_std + alloc` and depends only on `libm`.
+With default features disabled, `tinywasm` supports `no_std + alloc` and its runtime depends only on `libm`.
 
 Use [`Engine`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Engine.html) and [`engine::Config`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Config.html) for non-default fuel accounting, stack sizing, or GC collection thresholds. A configured `ResourceLimiter` can allow, reject, or trap memory and table allocation or growth requests, and GC object allocations.
 

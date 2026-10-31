@@ -3,8 +3,8 @@
 macro_rules! simd_impl {
     ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {
         cfg_select! {
-            simd_backend = "wasm" => { simd_impl!(@pick_wasm $( $wasm )? ; $generic) },
-            simd_backend = "x86" => { simd_impl!(@pick_x86 $( $x86 )? ; $generic) },
+            tw_simd_backend = "wasm" => { simd_impl!(@pick_wasm $( $wasm )? ; $generic) },
+            tw_simd_backend = "x86" => { simd_impl!(@pick_x86 $( $x86 )? ; $generic) },
             _ => { $generic }
         }
     };

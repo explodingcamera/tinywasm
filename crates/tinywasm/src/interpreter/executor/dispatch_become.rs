@@ -84,13 +84,13 @@ macro_rules! define_tail_dispatch {
     };
 }
 
-#[cfg(tail_abi = "Rust")]
+#[cfg(tw_tail_abi = "Rust")]
 instruction_handlers!(define_tail_dispatch, "Rust");
-#[cfg(tail_abi = "C-unwind")]
+#[cfg(tw_tail_abi = "C-unwind")]
 instruction_handlers!(define_tail_dispatch, "C-unwind");
-#[cfg(tail_abi = "sysv64-unwind")]
+#[cfg(tw_tail_abi = "sysv64-unwind")]
 instruction_handlers!(define_tail_dispatch, "sysv64-unwind");
-#[cfg(tail_abi = "rust-preserve-none")]
+#[cfg(tw_tail_abi = "rust-preserve-none")]
 instruction_handlers!(define_tail_dispatch, "rust-preserve-none");
 
 impl Executor<'_> {

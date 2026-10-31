@@ -23,9 +23,9 @@ mod budget;
 
 pub(crate) use budget::Budget;
 
-#[cfg(not(feature = "nightly-tail-calls"))]
+#[cfg(not(tw_tail_calls))]
 mod dispatch;
-#[cfg(feature = "nightly-tail-calls")]
+#[cfg(tw_tail_calls)]
 mod dispatch_become;
 
 const FUEL_COST_CALL_TOTAL: u32 = 5;

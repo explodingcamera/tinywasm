@@ -1,4 +1,4 @@
-#![cfg_attr(simd_backend = "x86", allow(unsafe_code))]
+#![cfg_attr(tw_simd_backend = "x86", allow(unsafe_code))]
 
 #[macro_use]
 mod macros;
@@ -27,7 +27,7 @@ impl From<i128> for Value128 {
     }
 }
 
-#[cfg_attr(simd_backend = "wasm", allow(unreachable_code))]
+#[cfg_attr(tw_simd_backend = "wasm", allow(unreachable_code))]
 impl Value128 {
     impl_lane_accessors! {
         as_i8x16 => from_i8x16: i8, 16, 1;
@@ -42,7 +42,7 @@ impl Value128 {
         as_f64x2 => from_f64x2: f64, 2, 8;
     }
 
-    #[cfg(simd_backend = "wasm")]
+    #[cfg(tw_simd_backend = "wasm")]
     #[inline(always)]
     fn to_wasm_v128(self) -> wasm::v128 {
         let b = self.0;
@@ -51,7 +51,7 @@ impl Value128 {
         )
     }
 
-    #[cfg(simd_backend = "wasm")]
+    #[cfg(tw_simd_backend = "wasm")]
     #[inline(always)]
     #[rustfmt::skip]
     fn from_wasm_v128(value: wasm::v128) -> Self {

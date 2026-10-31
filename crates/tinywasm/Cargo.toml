@@ -92,8 +92,11 @@ tinywasm-cli = { path = "../cli", features = ["tests", "wat"] }
 wasm-testsuite.workspace = true
 wat.workspace = true
 
+[build-dependencies]
+autocfg = "1.5"
+
 [features]
-default = ["full", "std"]
+default = ["full", "nightly", "simd-intrinsics", "std"]
 full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
 
 log = ["dep:log", "tinywasm-parser?/log"]
@@ -129,16 +132,22 @@ debug = ["tinywasm-types/debug"]
 # expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
 guest-debug = []
 
-# use explicit tail calls for interpreter dispatch (requires nightly Rust)
+# enable all supported nightly-only optimizations
+nightly = ["nightly-abort-immediate", "nightly-rust-preserve-none", "nightly-tail-calls"]
+
+# abort in place on internal invariant violations in release builds when supported by the compiler
+nightly-abort-immediate = []
+
+# use explicit tail calls for interpreter dispatch when supported by the compiler
 nightly-tail-calls = []
 
 # use the experimental preserve-none ABI for x86_64 and 64-bit AArch64 tail-call handlers
 nightly-rust-preserve-none = ["nightly-tail-calls"]
 
-# enable x86-specific SIMD intrinsics in Value128 (uses unsafe code)
+# enable architecture-specific SIMD intrinsics in Value128 (uses unsafe code internally)
 # note: for x86 backend selection, compile with x86-64-v3 target features
 # (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)
-simd-x86 = []
+simd-intrinsics = []
 
 [lints]
 workspace = true

@@ -1,10 +1,9 @@
 /// Stops on an interpreter invariant that validated code cannot break, such as a value-stack or
 /// global access out of range.
 ///
-/// With the nightly tail-call dispatch, release builds trap in place: a call here, even a cold one,
-/// makes every instruction handler that touches the value stack save a stack frame. Debug builds
-/// and the loop dispatch panic.
-#[cfg(all(feature = "nightly-tail-calls", not(debug_assertions)))]
+/// With immediate abort support, release builds trap in place. This avoids forcing tail-call
+/// handlers to save a stack frame for a panic call. Other builds panic instead.
+#[cfg(all(tw_abort_immediate, not(debug_assertions)))]
 #[inline(always)]
 pub(crate) fn invariant_violated(_what: &'static str) -> ! {
     core::process::abort_immediate()
@@ -12,7 +11,7 @@ pub(crate) fn invariant_violated(_what: &'static str) -> ! {
 
 /// Stops on an interpreter invariant that validated code cannot break, such as a value-stack or
 /// global access out of range.
-#[cfg(not(all(feature = "nightly-tail-calls", not(debug_assertions))))]
+#[cfg(not(all(tw_abort_immediate, not(debug_assertions))))]
 #[cold]
 #[inline(never)]
 #[track_caller]

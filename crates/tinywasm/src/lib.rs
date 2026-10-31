@@ -1,15 +1,15 @@
 #![no_std]
-#![cfg_attr(feature = "nightly-tail-calls", allow(incomplete_features))]
-#![cfg_attr(feature = "nightly-tail-calls", feature(explicit_tail_calls))]
-#![cfg_attr(tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
-#![cfg_attr(all(feature = "nightly-tail-calls", not(debug_assertions)), feature(abort_immediate))]
 #![doc(test(
     no_crate_inject,
     attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
 ))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(not(simd_backend = "x86"), forbid(unsafe_code))]
-#![cfg_attr(simd_backend = "x86", deny(unsafe_code))]
+#![cfg_attr(tw_tail_calls, allow(incomplete_features))]
+#![cfg_attr(tw_tail_calls, feature(explicit_tail_calls))]
+#![cfg_attr(tw_tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
+#![cfg_attr(all(tw_abort_immediate, not(debug_assertions)), feature(abort_immediate))]
+#![cfg_attr(not(tw_simd_backend = "x86"), forbid(unsafe_code))]
+#![cfg_attr(tw_simd_backend = "x86", deny(unsafe_code))]
 
 //! A small and portable WebAssembly interpreter.
 //!
@@ -80,10 +80,10 @@
 //! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
 //! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 //! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
-//! - **`nightly-tail-calls`:** Uses Rust's unstable explicit tail calls for interpreter dispatch. Requires nightly Rust (recommended for maximum performance).
-//! - **`simd-x86`:** Enables x86-specific SIMD intrinsics and uses `unsafe` internally.
+//! - **`nightly`:** Enables all supported nightly-only optimizations. Enabled by default, with compiler capability detection and a stable fallback.
+//! - **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default. Safe Wasm SIMD remains automatic.
 //!
-//! With default features disabled, `tinywasm` depends only on `core`, `alloc`, and `libm`,
+//! With default features disabled, the `tinywasm` runtime depends only on `core`, `alloc`, and `libm`,
 //! making it usable in `no_std + alloc` environments with a custom allocator.
 //!
 //! ## Imports

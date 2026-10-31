@@ -989,6 +989,7 @@ dependencies = [
 name = "tinywasm"
 version = "0.11.0"
 dependencies = [
+ "autocfg",
  "libm",
  "log",
  "portable-atomic",

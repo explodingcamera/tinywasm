@@ -1,4 +1,4 @@
-#![cfg(feature = "nightly-tail-calls")]
+#![cfg(tw_tail_calls)]
 
 use tinywasm::{HostFunction, Imports, ModuleInstance, Result, Store};
 

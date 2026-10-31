@@ -42,7 +42,7 @@ impl<T: Copy + Default> StackLane<T> {
     }
 
     /// Synchronizes the unchanged live height forwarded into a tail-dispatch handler.
-    #[cfg(feature = "nightly-tail-calls")]
+    #[cfg(tw_tail_calls)]
     #[inline(always)]
     pub(crate) fn set_height(&mut self, height: usize) {
         debug_assert_eq!(height, self.top);
@@ -357,7 +357,7 @@ mod tests {
         }
     }
 
-    #[cfg(any(debug_assertions, not(feature = "nightly-tail-calls")))]
+    #[cfg(any(debug_assertions, not(tw_tail_calls)))]
     #[test]
     #[should_panic(expected = "value stack index out of range")]
     fn get_rejects_popped_slots() {
@@ -367,7 +367,7 @@ mod tests {
         stack.get(0);
     }
 
-    #[cfg(any(debug_assertions, not(feature = "nightly-tail-calls")))]
+    #[cfg(any(debug_assertions, not(tw_tail_calls)))]
     #[test]
     #[should_panic(expected = "value stack index out of range")]
     fn set_rejects_popped_slots() {

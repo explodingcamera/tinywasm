@@ -11,11 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added WebAssembly threads support, including atomic wait/notify and cross-store shared memory with `MemoryShared`.
 - Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
-- Added several internal methods to support a future c-api crate
+- Added an experimental C API in `tinywasm-c-api`.
+- Added parse-time resource limits and configurable fuel checkpoints.
+- Added `nightly` to enable all supported nightly optimizations, with automatic compiler capability detection.
 
-### Removed
+### Breaking Changes
 
-- Removed `resume_with_time_budget`. Use `resume_with_fuel` and check application deadlines between resumes.
+- Renamed the `simd-x86` Cargo feature to `simd-intrinsics`.
+- Enabled `nightly` and `simd-intrinsics` by default. `full` is unchanged.
+- Removed `resume_with_time_budget`. Use `resume_with_fuel` and application-managed deadlines.
+- Stack limits now enforce `StackConfig::max_size` even when the allocation has spare capacity.
+- Changed public bytecode/module types and the `.twasm` format. Regenerate archives created with 0.11.0.
 
 ### Fixed
 
