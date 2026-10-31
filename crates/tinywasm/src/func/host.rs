@@ -306,10 +306,8 @@ where
     }
 
     fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
-        let base = {
-            let params = store.state.get_canonical_func_type(type_addr).params();
-            store.value_stack.base_before(params.iter().collect())
-        };
+        // Canonicalizing reference types does not change their physical parameter lanes.
+        let base = store.value_stack.base_before(P::WASM_TYPES.iter().collect());
         let params = {
             let mut values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
             cold_err!(P::from_wasm_values(&mut values))

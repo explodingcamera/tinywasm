@@ -208,10 +208,9 @@ impl Iterator for StackValueIter<'_> {
             }
         };
         self.position += 1;
-        let value = self.store.stack_value(ty, &mut self.index);
         Some(
-            value
-                .into_wasm(self.store, ty)
+            self.store
+                .stack_value(ty, &mut self.index)
                 .unwrap_or_else(|_| unreachable!("invalid internal value at a typed host boundary")),
         )
     }
@@ -391,28 +390,40 @@ impl Store {
         }
     }
 
-    fn stack_value(&self, ty: WasmType, index: &mut StackBase) -> RuntimeValue {
-        match ty {
-            WasmType::I32 | WasmType::F32 | WasmType::Ref(_) => {
+    #[inline(always)]
+    fn stack_value(&mut self, ty: WasmType, index: &mut StackBase) -> Result<WasmValue> {
+        Ok(match ty {
+            WasmType::I32 => {
                 let value = *self.value_stack.stack_32.get(index.s32 as usize);
                 index.s32 += 1;
-                if matches!(ty, WasmType::Ref(_)) {
-                    RuntimeValue::ValueRef(ValueRef::from_raw(value))
-                } else {
-                    RuntimeValue::Value32(value)
-                }
+                WasmValue::I32(value as i32)
             }
-            WasmType::I64 | WasmType::F64 => {
+            WasmType::F32 => {
+                let value = *self.value_stack.stack_32.get(index.s32 as usize);
+                index.s32 += 1;
+                WasmValue::F32(f32::from_bits(value))
+            }
+            WasmType::I64 => {
                 let value = *self.value_stack.stack_64.get(index.s64 as usize);
                 index.s64 += 1;
-                RuntimeValue::Value64(value)
+                WasmValue::I64(value as i64)
+            }
+            WasmType::F64 => {
+                let value = *self.value_stack.stack_64.get(index.s64 as usize);
+                index.s64 += 1;
+                WasmValue::F64(f64::from_bits(value))
             }
             WasmType::V128 => {
                 let value = *self.value_stack.stack_128.get(index.s128 as usize);
                 index.s128 += 1;
-                RuntimeValue::Value128(value)
+                WasmValue::V128(value.0)
             }
-        }
+            WasmType::Ref(ty) => {
+                let value = ValueRef::from_raw(*self.value_stack.stack_32.get(index.s32 as usize));
+                index.s32 += 1;
+                WasmValue::Ref(self.decode_ref(value, ty)?)
+            }
+        })
     }
 
     pub(crate) fn stack_value_iter(
@@ -428,7 +439,9 @@ impl Store {
         };
         let len = canonical.len();
         let reference_count = canonical.iter().filter(|ty| matches!(ty, WasmType::Ref(_))).count();
-        self.state.roots.reserve(reference_count)?;
+        if reference_count != 0 {
+            self.state.roots.reserve(reference_count)?;
+        }
         Ok(StackValueIter { store: self, type_addr, types, index, position: 0, len })
     }
 
@@ -453,8 +466,7 @@ impl Store {
             let mut index = base;
             for (position, result) in results.iter_mut().enumerate() {
                 let ty = self.state.get_canonical_func_type(type_addr).results()[position];
-                let value = self.stack_value(ty, &mut index);
-                *result = value.into_wasm(self, ty)?;
+                *result = self.stack_value(ty, &mut index)?;
             }
             Ok(())
         })();
