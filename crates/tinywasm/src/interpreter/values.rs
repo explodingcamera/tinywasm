@@ -1,4 +1,4 @@
-use super::num_helpers::TinywasmFloatExt;
+use super::num;
 use super::stack::{CallFrame, ValueStack};
 use crate::store::Globals;
 use crate::{Error, Result, Store, WasmValue, interpreter::simd::Value128};
@@ -257,7 +257,7 @@ pub(crate) trait CmpOpExt<T>: Copy {
 }
 
 macro_rules! impl_value_ops {
-    ($unsigned:ty, $signed:ty, $float:ty, $binop:ident, $cmp:ident) => {
+    ($unsigned:ty, $signed:ty, $float:ident, $binop:ident, $cmp:ident) => {
         impl BinOpExt<$unsigned> for BinOp {
             #[inline(always)]
             fn exec(self, lhs: $unsigned, rhs: $unsigned) -> $unsigned {
@@ -290,8 +290,8 @@ macro_rules! impl_value_ops {
                 BinOp::FSub => (<$float>::from_bits(lhs) - <$float>::from_bits(rhs)).to_bits(),
                 BinOp::FMul => (<$float>::from_bits(lhs) * <$float>::from_bits(rhs)).to_bits(),
                 BinOp::FDiv => (<$float>::from_bits(lhs) / <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FMin => <$float>::from_bits(lhs).tw_minimum(<$float>::from_bits(rhs)).to_bits(),
-                BinOp::FMax => <$float>::from_bits(lhs).tw_maximum(<$float>::from_bits(rhs)).to_bits(),
+                BinOp::FMin => num::$float::minimum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
+                BinOp::FMax => num::$float::maximum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
                 BinOp::FCopysign => <$float>::from_bits(lhs).copysign(<$float>::from_bits(rhs)).to_bits(),
             }
         }

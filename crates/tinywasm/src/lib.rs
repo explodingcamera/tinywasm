@@ -8,6 +8,7 @@
 #![cfg_attr(tw_tail_calls, feature(explicit_tail_calls))]
 #![cfg_attr(tw_tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
 #![cfg_attr(all(tw_abort_immediate, not(debug_assertions)), feature(abort_immediate))]
+#![cfg_attr(all(tw_core_float_math, not(feature = "std")), feature(core_float_math))]
 #![cfg_attr(not(tw_simd_backend = "x86"), forbid(unsafe_code))]
 #![cfg_attr(tw_simd_backend = "x86", deny(unsafe_code))]
 
@@ -68,23 +69,20 @@
 //! ## Cargo features
 //!
 //! - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.
-//! - **`std`:** Enables `std` and parsing from files and streams. Enabled by default.
+//! - **`std`:** Enables parsing from files and streams, shared memory handles, and blocking atomic wait/notify across stores. Enabled by default.
+//! - **`nightly`:** Enables nightly-only optimizations (if the compiler supports them). Enabled by default.
+//! - **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default.
 //! - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
-//! - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through `ParserOptions`.
+//! - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through [`ParserOptions`](parser::ParserOptions).
 //! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-//! - **`log`:** Enables integration with the `log` crate.
-//! - **`send`:** Makes stores and store-local handles movable across threads.
 //! - **`state`:** Adds store-owned host state for access from host callbacks. Enabled by default.
+//! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
+//! - **`send`:** Makes stores and store-local handles movable across threads.
 //! - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
 //! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
-//! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 //! - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
-//! - **`nightly`:** Enables all supported nightly-only optimizations. Enabled by default, with compiler capability detection and a stable fallback.
-//! - **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default. Safe Wasm SIMD remains automatic.
-//!
-//! With default features disabled, the `tinywasm` runtime depends only on `core`, `alloc`, and `libm`,
-//! making it usable in `no_std + alloc` environments with a custom allocator.
+//! - **`log`:** Enables integration with the `log` crate.
 //!
 //! ## Imports
 //!

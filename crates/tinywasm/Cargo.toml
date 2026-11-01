@@ -81,7 +81,6 @@ harness = false
 name = "test-wasm-wide-arithmetic"
 
 [dependencies]
-libm = { version = "0.2", default-features = false }
 log = { workspace = true, optional = true }
 portable-atomic = { version = "1.15.0", default-features = false, optional = true }
 tinywasm-parser = { workspace = true, optional = true }
@@ -133,10 +132,13 @@ debug = ["tinywasm-types/debug"]
 guest-debug = []
 
 # enable all supported nightly-only optimizations
-nightly = ["nightly-abort-immediate", "nightly-rust-preserve-none", "nightly-tail-calls"]
+nightly = ["nightly-abort-immediate", "nightly-core-float-math", "nightly-rust-preserve-none", "nightly-tail-calls"]
 
 # abort in place on internal invariant violations in release builds when supported by the compiler
 nightly-abort-immediate = []
+
+# use compiler floating-point operations in no_std builds when supported
+nightly-core-float-math = []
 
 # use explicit tail calls for interpreter dispatch when supported by the compiler
 nightly-tail-calls = []

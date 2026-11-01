@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an experimental C API in `tinywasm-c-api`.
 - Added parse-time resource limits and configurable fuel checkpoints.
 - Added `nightly` to enable all supported nightly optimizations, with automatic compiler capability detection.
+- Added nightly float intrinsics and portable Wasm math for `no_std`, removing the `libm` dependency.
 
 ### Breaking Changes
 

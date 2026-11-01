@@ -3,7 +3,6 @@
 #[macro_use]
 mod macros;
 mod instructions;
-mod utils;
 
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32 as wasm;
@@ -29,6 +28,20 @@ impl From<i128> for Value128 {
 
 #[cfg_attr(tw_simd_backend = "wasm", allow(unreachable_code))]
 impl Value128 {
+    fn extract_lane_bytes<const BYTES: usize, const LANE: usize>(self, lane: u8) -> [u8; BYTES] {
+        const { assert!(BYTES * LANE == 16) };
+        let start = lane as usize * BYTES;
+        core::array::from_fn(|i| self.0[start + i])
+    }
+
+    fn replace_lane_bytes<const BYTES: usize, const LANE: usize>(self, lane: u8, value: [u8; BYTES]) -> Self {
+        const { assert!(BYTES * LANE == 16) };
+        let mut bytes = self.0;
+        let start = lane as usize * BYTES;
+        bytes[start..start + BYTES].copy_from_slice(&value);
+        Self(bytes)
+    }
+
     impl_lane_accessors! {
         as_i8x16 => from_i8x16: i8, 16, 1;
         as_u8x16 => from_u8x16: u8, 16, 1;

@@ -1,11 +1,7 @@
-use super::super::num_helpers::TinywasmFloatExt;
 use super::Value128;
-use super::utils::*;
+use crate::interpreter::num;
 use core::array;
 
-#[cfg(not(feature = "std"))]
-#[allow(unused_imports)]
-use super::super::no_std_floats::NoStdFloatExt;
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32 as wasm;
 #[cfg(target_arch = "wasm64")]
@@ -272,8 +268,8 @@ impl Value128 {
         let mut out = [0i8; 16];
         let (lo, hi) = out.split_at_mut(8);
         for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
-            *dst_lo = saturate_i16_to_i8(a_lane);
-            *dst_hi = saturate_i16_to_i8(b_lane);
+            *dst_lo = num::i16::saturate_to_i8(a_lane);
+            *dst_hi = num::i16::saturate_to_i8(b_lane);
         }
         Self::from_i8x16(out)
     }
@@ -285,8 +281,8 @@ impl Value128 {
         let mut out = [0u8; 16];
         let (lo, hi) = out.split_at_mut(8);
         for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
-            *dst_lo = saturate_i16_to_u8(a_lane);
-            *dst_hi = saturate_i16_to_u8(b_lane);
+            *dst_lo = num::i16::saturate_to_u8(a_lane);
+            *dst_hi = num::i16::saturate_to_u8(b_lane);
         }
         Self::from_u8x16(out)
     }
@@ -298,8 +294,8 @@ impl Value128 {
         let mut out = [0i16; 8];
         let (lo, hi) = out.split_at_mut(4);
         for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
-            *dst_lo = saturate_i32_to_i16(a_lane);
-            *dst_hi = saturate_i32_to_i16(b_lane);
+            *dst_lo = num::i32::saturate_to_i16(a_lane);
+            *dst_hi = num::i32::saturate_to_i16(b_lane);
         }
         Self::from_i16x8(out)
     }
@@ -311,8 +307,8 @@ impl Value128 {
         let mut out = [0u16; 8];
         let (lo, hi) = out.split_at_mut(4);
         for ((dst_lo, dst_hi), (a_lane, b_lane)) in lo.iter_mut().zip(hi.iter_mut()).zip(av.into_iter().zip(bv)) {
-            *dst_lo = saturate_i32_to_u16(a_lane);
-            *dst_hi = saturate_i32_to_u16(b_lane);
+            *dst_lo = num::i32::saturate_to_u16(a_lane);
+            *dst_hi = num::i32::saturate_to_u16(b_lane);
         }
         Self::from_u16x8(out)
     }
@@ -394,38 +390,38 @@ impl Value128 {
 
     #[doc(alias = "f32x4.relaxed_madd")]
     pub(crate) fn f32x4_relaxed_madd(self, b: Self, c: Self) -> Self {
-        self.zip_f32x4(b, |x, y| canonicalize_simd_f32_nan(x * y))
-            .zip_f32x4(c, |xy, z| canonicalize_simd_f32_nan(xy + z))
+        self.zip_f32x4(b, |x, y| num::f32::canonicalize_nan(x * y))
+            .zip_f32x4(c, |xy, z| num::f32::canonicalize_nan(xy + z))
     }
 
     #[doc(alias = "f32x4.relaxed_nmadd")]
     pub(crate) fn f32x4_relaxed_nmadd(self, b: Self, c: Self) -> Self {
-        self.zip_f32x4(b, |x, y| canonicalize_simd_f32_nan(-(x * y)))
-            .zip_f32x4(c, |neg_xy, z| canonicalize_simd_f32_nan(neg_xy + z))
+        self.zip_f32x4(b, |x, y| num::f32::canonicalize_nan(-(x * y)))
+            .zip_f32x4(c, |neg_xy, z| num::f32::canonicalize_nan(neg_xy + z))
     }
 
     #[doc(alias = "f64x2.relaxed_madd")]
     pub(crate) fn f64x2_relaxed_madd(self, b: Self, c: Self) -> Self {
-        self.zip_f64x2(b, |x, y| canonicalize_simd_f64_nan(x * y))
-            .zip_f64x2(c, |xy, z| canonicalize_simd_f64_nan(xy + z))
+        self.zip_f64x2(b, |x, y| num::f64::canonicalize_nan(x * y))
+            .zip_f64x2(c, |xy, z| num::f64::canonicalize_nan(xy + z))
     }
 
     #[doc(alias = "f64x2.relaxed_nmadd")]
     pub(crate) fn f64x2_relaxed_nmadd(self, b: Self, c: Self) -> Self {
-        self.zip_f64x2(b, |x, y| canonicalize_simd_f64_nan(-(x * y)))
-            .zip_f64x2(c, |neg_xy, z| canonicalize_simd_f64_nan(neg_xy + z))
+        self.zip_f64x2(b, |x, y| num::f64::canonicalize_nan(-(x * y)))
+            .zip_f64x2(c, |neg_xy, z| num::f64::canonicalize_nan(neg_xy + z))
     }
 
     #[doc(alias = "i32x4.trunc_sat_f64x2_s_zero")]
     pub(crate) fn i32x4_trunc_sat_f64x2_s_zero(self) -> Self {
         let v = self.as_f64x2();
-        Self::from_i32x4([trunc_sat_f64_to_i32(v[0]), trunc_sat_f64_to_i32(v[1]), 0, 0])
+        Self::from_i32x4([v[0] as i32, v[1] as i32, 0, 0])
     }
 
     #[doc(alias = "i32x4.trunc_sat_f64x2_u_zero")]
     pub(crate) fn i32x4_trunc_sat_f64x2_u_zero(self) -> Self {
         let v = self.as_f64x2();
-        Self::from_u32x4([trunc_sat_f64_to_u32(v[0]), trunc_sat_f64_to_u32(v[1]), 0, 0])
+        Self::from_u32x4([v[0] as u32, v[1] as u32, 0, 0])
     }
 
     #[doc(alias = "f64x2.convert_low_i32x4_s")]
@@ -506,8 +502,8 @@ impl Value128 {
         "i32x4.relaxed_trunc_f64x2_u_zero" => i32x4_relaxed_trunc_f64x2_u_zero(self) => self.i32x4_trunc_sat_f64x2_u_zero();
 
         // Numeric conversions
-        "i32x4.trunc_sat_f32x4_s" => i32x4_trunc_sat_f32x4_s(self) => Self::from_i32x4(self.as_f32x4().map(trunc_sat_f32_to_i32));
-        "i32x4.trunc_sat_f32x4_u" => i32x4_trunc_sat_f32x4_u(self) => Self::from_u32x4(self.as_f32x4().map(trunc_sat_f32_to_u32));
+        "i32x4.trunc_sat_f32x4_s" => i32x4_trunc_sat_f32x4_s(self) => Self::from_i32x4(self.as_f32x4().map(|x| x as i32));
+        "i32x4.trunc_sat_f32x4_u" => i32x4_trunc_sat_f32x4_u(self) => Self::from_u32x4(self.as_f32x4().map(|x| x as u32));
         "f32x4.convert_i32x4_s" => f32x4_convert_i32x4_s(self) => Self::from_f32x4(self.as_i32x4().map(|x| x as f32));
         "f32x4.convert_i32x4_u" => f32x4_convert_i32x4_u(self) => Self::from_f32x4(self.as_u32x4().map(|x| x as f32));
 
@@ -659,32 +655,32 @@ impl Value128 {
         "f64x2.ge" => f64x2_ge(self, rhs: Self) => simd_cmp_mask!(generic self, rhs, as_f64x2, from_i64x2, >=);
 
         // Float arithmetic
-        "f32x4.ceil" => f32x4_ceil(self) => self.map_f32x4(|x| canonicalize_simd_f32_nan(x.ceil()));
-        "f64x2.ceil" => f64x2_ceil(self) => self.map_f64x2(|x| canonicalize_simd_f64_nan(x.ceil()));
-        "f32x4.floor" => f32x4_floor(self) => self.map_f32x4(|x| canonicalize_simd_f32_nan(x.floor()));
-        "f64x2.floor" => f64x2_floor(self) => self.map_f64x2(|x| canonicalize_simd_f64_nan(x.floor()));
-        "f32x4.trunc" => f32x4_trunc(self) => self.map_f32x4(|x| canonicalize_simd_f32_nan(x.trunc()));
-        "f64x2.trunc" => f64x2_trunc(self) => self.map_f64x2(|x| canonicalize_simd_f64_nan(x.trunc()));
-        "f32x4.nearest" => f32x4_nearest(self) => self.map_f32x4(|x| canonicalize_simd_f32_nan(TinywasmFloatExt::tw_nearest(x)));
-        "f64x2.nearest" => f64x2_nearest(self) => self.map_f64x2(|x| canonicalize_simd_f64_nan(TinywasmFloatExt::tw_nearest(x)));
+        "f32x4.ceil" => f32x4_ceil(self) => self.map_f32x4(|x| num::f32::canonicalize_nan(num::f32::ceil(x)));
+        "f64x2.ceil" => f64x2_ceil(self) => self.map_f64x2(|x| num::f64::canonicalize_nan(num::f64::ceil(x)));
+        "f32x4.floor" => f32x4_floor(self) => self.map_f32x4(|x| num::f32::canonicalize_nan(num::f32::floor(x)));
+        "f64x2.floor" => f64x2_floor(self) => self.map_f64x2(|x| num::f64::canonicalize_nan(num::f64::floor(x)));
+        "f32x4.trunc" => f32x4_trunc(self) => self.map_f32x4(|x| num::f32::canonicalize_nan(num::f32::trunc(x)));
+        "f64x2.trunc" => f64x2_trunc(self) => self.map_f64x2(|x| num::f64::canonicalize_nan(num::f64::trunc(x)));
+        "f32x4.nearest" => f32x4_nearest(self) => self.map_f32x4(num::f32::nearest);
+        "f64x2.nearest" => f64x2_nearest(self) => self.map_f64x2(num::f64::nearest);
         "f32x4.abs" => f32x4_abs(self) => self.map_f32x4(f32::abs);
         "f64x2.abs" => f64x2_abs(self) => self.map_f64x2(f64::abs);
         "f32x4.neg" => f32x4_neg(self) => self.map_f32x4(|x| -x);
         "f64x2.neg" => f64x2_neg(self) => self.map_f64x2(|x| -x);
-        "f32x4.sqrt" => f32x4_sqrt(self) => self.map_f32x4(|x| canonicalize_simd_f32_nan(x.sqrt()));
-        "f64x2.sqrt" => f64x2_sqrt(self) => self.map_f64x2(|x| canonicalize_simd_f64_nan(x.sqrt()));
-        "f32x4.add" => f32x4_add(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a + b));
-        "f64x2.add" => f64x2_add(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a + b));
-        "f32x4.sub" => f32x4_sub(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a - b));
-        "f64x2.sub" => f64x2_sub(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a - b));
-        "f32x4.mul" => f32x4_mul(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a * b));
-        "f64x2.mul" => f64x2_mul(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a * b));
-        "f32x4.div" => f32x4_div(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| canonicalize_simd_f32_nan(a / b));
-        "f64x2.div" => f64x2_div(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| canonicalize_simd_f64_nan(a / b));
-        "f32x4.min" => f32x4_min(self, rhs: Self) => self.zip_f32x4(rhs, TinywasmFloatExt::tw_minimum);
-        "f64x2.min" => f64x2_min(self, rhs: Self) => self.zip_f64x2(rhs, TinywasmFloatExt::tw_minimum);
-        "f32x4.max" => f32x4_max(self, rhs: Self) => self.zip_f32x4(rhs, TinywasmFloatExt::tw_maximum);
-        "f64x2.max" => f64x2_max(self, rhs: Self) => self.zip_f64x2(rhs, TinywasmFloatExt::tw_maximum);
+        "f32x4.sqrt" => f32x4_sqrt(self) => self.map_f32x4(|x| num::f32::canonicalize_nan(num::f32::sqrt(x)));
+        "f64x2.sqrt" => f64x2_sqrt(self) => self.map_f64x2(|x| num::f64::canonicalize_nan(num::f64::sqrt(x)));
+        "f32x4.add" => f32x4_add(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| num::f32::canonicalize_nan(a + b));
+        "f64x2.add" => f64x2_add(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| num::f64::canonicalize_nan(a + b));
+        "f32x4.sub" => f32x4_sub(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| num::f32::canonicalize_nan(a - b));
+        "f64x2.sub" => f64x2_sub(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| num::f64::canonicalize_nan(a - b));
+        "f32x4.mul" => f32x4_mul(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| num::f32::canonicalize_nan(a * b));
+        "f64x2.mul" => f64x2_mul(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| num::f64::canonicalize_nan(a * b));
+        "f32x4.div" => f32x4_div(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| num::f32::canonicalize_nan(a / b));
+        "f64x2.div" => f64x2_div(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| num::f64::canonicalize_nan(a / b));
+        "f32x4.min" => f32x4_min(self, rhs: Self) => self.zip_f32x4(rhs, num::f32::minimum);
+        "f64x2.min" => f64x2_min(self, rhs: Self) => self.zip_f64x2(rhs, num::f64::minimum);
+        "f32x4.max" => f32x4_max(self, rhs: Self) => self.zip_f32x4(rhs, num::f32::maximum);
+        "f64x2.max" => f64x2_max(self, rhs: Self) => self.zip_f64x2(rhs, num::f64::maximum);
         "f32x4.pmin" => f32x4_pmin(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| if b < a { b } else { a });
         "f64x2.pmin" => f64x2_pmin(self, rhs: Self) => self.zip_f64x2(rhs, |a, b| if b < a { b } else { a });
         "f32x4.pmax" => f32x4_pmax(self, rhs: Self) => self.zip_f32x4(rhs, |a, b| if b > a { b } else { a });

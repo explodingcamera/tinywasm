@@ -38,7 +38,6 @@ tinywasm = { workspace = true, features = [
   "log",
   "std",
 ] }
-tinywasm-wasi.workspace = true
 wasm-testsuite = { workspace = true, optional = true }
 wast = { workspace = true, optional = true }
 wat = { workspace = true, optional = true }

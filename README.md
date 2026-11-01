@@ -47,21 +47,19 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.
 - **`std`:** Enables parsing from files and streams, shared memory handles, and blocking atomic wait/notify across stores. Enabled by default.
+- **`nightly`:** Enables nightly-only optimizations (if the compiler supports them). Enabled by default.
+- **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default.
 - **`parser`:** Enables `tinywasm-parser` and top-level parse helpers. Enabled by default.
 - **`validate`:** Enables WebAssembly validation while parsing. Enabled by default and configurable through [`ParserOptions`](https://docs.rs/tinywasm/latest/tinywasm/parser/struct.ParserOptions.html).
 - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
-- **`log`:** Enables integration with the `log` crate.
-- **`send`:** Makes stores and store-local handles movable across threads.
 - **`state`:** Adds store-owned host state for access from host callbacks. Enabled by default.
+- **`debug`:** Derives `Debug` for runtime types. Enabled by default.
+- **`send`:** Makes stores and store-local handles movable across threads.
 - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
 - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
-- **`debug`:** Derives `Debug` for runtime types. Enabled by default.
 - **`guest-debug`:** Exposes module-internal by-index inspection APIs (`*_by_index`).
-- **`nightly`:** Enables all supported nightly-only optimizations. Enabled by default, with compiler capability detection and a stable fallback.
-- **`simd-intrinsics`:** Enables architecture-specific SIMD implementations where available, using `unsafe` internally. Enabled by default. Safe Wasm SIMD remains automatic.
-
-With default features disabled, `tinywasm` supports `no_std + alloc` and its runtime depends only on `libm`.
+- **`log`:** Enables integration with the `log` crate.
 
 Use [`Engine`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Engine.html) and [`engine::Config`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Config.html) for non-default fuel accounting, stack sizing, or GC collection thresholds. A configured `ResourceLimiter` can allow, reject, or trap memory and table allocation or growth requests, and GC object allocations.
 
@@ -106,8 +104,9 @@ TinyWasm generally implements non-JavaScript core proposals at [phase 4](https:/
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | 0.11.0             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | 0.11.0             |
 | [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | 0.11.0             |
-| [**Threads**](https://github.com/WebAssembly/threads)                                                            | 🚧     | next               |
-| [**Stack Switching**](https://github.com/WebAssembly/stack-switching)                                            | 🌑     | -                  |
+| [**Threads**](https://github.com/WebAssembly/threads)[^threads]                                                  | 🟢     | next               |
+
+[^threads]: Shared memory and blocking atomic wait/notify require `std`.
 
 **Legend**\
 🌑 -- not available\

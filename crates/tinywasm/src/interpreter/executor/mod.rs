@@ -1,16 +1,12 @@
 use core::convert::identity;
 
-#[cfg(not(feature = "std"))]
-#[allow(unused_imports)]
-use super::no_std_floats::NoStdFloatExt;
-
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use interpreter::stack::{CallFrame, CallStack, ValueStack};
 use tinywasm_types::*;
 
-use super::num_helpers::*;
+use super::num;
 use super::values::*;
 use crate::engine::{Config, FuelPolicy};
 use crate::interpreter::Value128;

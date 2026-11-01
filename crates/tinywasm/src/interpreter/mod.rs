@@ -1,11 +1,8 @@
 pub(crate) mod executor;
-pub(crate) mod num_helpers;
+pub(crate) mod num;
 pub(crate) mod simd;
 pub(crate) mod stack;
 pub(crate) mod values;
-
-#[cfg(not(feature = "std"))]
-mod no_std_floats;
 
 use crate::{Error, Result, Store, interpreter::stack::CallFrame};
 use executor::{Budget, ExecOutcome, Executor};

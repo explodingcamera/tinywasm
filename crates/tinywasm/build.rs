@@ -27,6 +27,21 @@ const ABORT_IMMEDIATE_PROBE: &str = r#"
 pub fn trap() -> ! { core::process::abort_immediate() }
 "#;
 
+const CORE_FLOAT_MATH_PROBE: &str = r#"
+#![no_std]
+#![feature(core_float_math)]
+
+pub fn f32_ops(x: f32) -> [f32; 5] {
+    use core::f32::math;
+    [math::ceil(x), math::floor(x), math::trunc(x), math::round_ties_even(x), math::sqrt(x)]
+}
+
+pub fn f64_ops(x: f64) -> [f64; 5] {
+    use core::f64::math;
+    [math::ceil(x), math::floor(x), math::trunc(x), math::round_ties_even(x), math::sqrt(x)]
+}
+"#;
+
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-env-changed=RUSTC_BOOTSTRAP");
@@ -52,12 +67,18 @@ fn configure_simd() {
 
 fn configure_nightly() {
     println!("cargo::rustc-check-cfg=cfg(tw_abort_immediate)");
+    println!("cargo::rustc-check-cfg=cfg(tw_core_float_math)");
     println!("cargo::rustc-check-cfg=cfg(tw_tail_calls)");
     println!(
         "cargo::rustc-check-cfg=cfg(tw_tail_abi, values(\"Rust\", \"C-unwind\", \"sysv64-unwind\", \"rust-preserve-none\"))"
     );
     let mut compiler = autocfg::new();
     compiler.set_edition(Some("2024".into()));
+    if env::var_os("CARGO_FEATURE_NIGHTLY_CORE_FLOAT_MATH").is_some()
+        && compiler.probe_raw(CORE_FLOAT_MATH_PROBE).is_ok()
+    {
+        println!("cargo::rustc-cfg=tw_core_float_math");
+    }
     if env::var_os("CARGO_FEATURE_NIGHTLY_ABORT_IMMEDIATE").is_some()
         && compiler.probe_raw(ABORT_IMMEDIATE_PROBE).is_ok()
     {
