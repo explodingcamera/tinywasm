@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "autocfg",
  "log",
@@ -995,14 +995,14 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-c-api"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "tinywasm",
 ]
 
 [[package]]
 name = "tinywasm-cli"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-parser"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "log",
  "tinywasm-types",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-root"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "anyhow",
  "tinywasm",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-types"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "portable-atomic-util",
  "postcard",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "tinywasm-wasi"
-version = "0.11.0"
+version = "0.12.0-beta.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",

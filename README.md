@@ -8,7 +8,7 @@
 - **Portable**: Runs anywhere Rust can target, supports `no_std`, has minimal dependencies[^dependencies]
 - **Safe**: Written entirely in safe Rust[^unsafe].
 
-[^dependencies]: The two main external components are [`wasmparser`](https://crates.io/crates/wasmparser) for WebAssembly parsing and validation, and [`postcard`](https://crates.io/crates/postcard) for `.twasm` archives.
+[^dependencies]: WebAssembly parsing and validation use [`wasmparser`](https://crates.io/crates/wasmparser), and `.twasm` archives use [`postcard`](https://crates.io/crates/postcard).
 
 [^unsafe]: The `simd-intrinsics` feature uses `unsafe` internally for selected architecture-specific SIMD implementations.
 
@@ -16,7 +16,7 @@
 
 ```toml
 [dependencies]
-tinywasm = "0.11.0"
+tinywasm = "0.12.0-beta.0"
 ```
 
 ## Usage
@@ -104,7 +104,7 @@ TinyWasm generally implements non-JavaScript core proposals at [phase 4](https:/
 | [**Garbage Collection**](https://github.com/WebAssembly/gc)                                                      | 🟢     | 0.11.0             |
 | [**Exception Handling**](https://github.com/WebAssembly/exception-handling)                                      | 🟢     | 0.11.0             |
 | [**Compact Import Section**](https://github.com/WebAssembly/compact-import-section)                              | 🟢     | 0.11.0             |
-| [**Threads**](https://github.com/WebAssembly/threads)[^threads]                                                  | 🟢     | next               |
+| [**Threads**](https://github.com/WebAssembly/threads)[^threads]                                                  | 🟢     | 0.12.0-beta.0      |
 
 [^threads]: Shared memory and blocking atomic wait/notify require `std`.
 

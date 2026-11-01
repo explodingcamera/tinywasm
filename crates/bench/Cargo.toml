@@ -9,7 +9,7 @@ harness = false
 name = "suite"
 
 [dependencies]
-tinywasm = { workspace = true, features = ["full", "std"] }
+tinywasm = { workspace = true, features = ["full", "nightly", "std"] }
 
 [dev-dependencies]
 criterion.workspace = true

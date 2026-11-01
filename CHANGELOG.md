@@ -7,14 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.12.0-beta.0] - 2026-11-01
 
-- Added WebAssembly threads support, including atomic wait/notify and cross-store shared memory with `MemoryShared`.
-- Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
-- Added an experimental C API in `tinywasm-c-api`.
-- Added parse-time resource limits and configurable fuel checkpoints.
-- Added `nightly` to enable all supported nightly optimizations, with automatic compiler capability detection.
-- Added nightly float intrinsics and portable Wasm math for `no_std`, removing the `libm` dependency.
+Preliminary x86-64 benchmarks show around a 20% performance improvement over 0.11.0 on nightly, depending on the workload.
 
 ### Breaking Changes
 
@@ -24,9 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stack limits now enforce `StackConfig::max_size` even when the allocation has spare capacity.
 - Changed public bytecode/module types and the `.twasm` format. Regenerate archives created with 0.11.0.
 
+### Added
+
+- Added initial WebAssembly threads support, including atomic wait/notify and cross-store shared memory with `MemoryShared`.
+- Added an experimental C API in `tinywasm-c-api`.
+- Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.
+- Added `Function::from_func_ref` to resolve a function reference into a callable handle.
+- Added `ParseLimits` to configure parse-time resource limits.
+- Added `ParserOptions::with_checkpoint_interval` to configure how often execution checks its fuel budget.
+- Added `nightly` to enable all supported nightly optimizations, with automatic compiler capability detection.
+- Added nightly float intrinsics and portable Wasm math for `no_std`, removing the `libm` dependency.
+
 ### Fixed
 
 - Restore store state after a panic in a function call, allowing subsequent calls and preventing invalid resumption.
+- Reject imported memories without a declared maximum when the importing module requires one.
+- Fix `tinywasm-wasi` compilation on Windows.
 
 ## [0.11.0] - 2026-09-19
 
