@@ -1,0 +1,14 @@
+name: Shared C continuations
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["crates/tinywasm/**", "crates/c-api/**", ".github/workflows/shared_continuations.yml"]
+jobs:
+  c-fixture:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: stable
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on

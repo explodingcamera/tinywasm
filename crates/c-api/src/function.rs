@@ -130,6 +130,8 @@ export! { pub unsafe extern "C" fn wasm_func_call(value: *const wasm_func_t, arg
         Ok(state) => state,
         Err(error) => return failure(error),
     };
+    #[cfg(feature = "external-host-calls")]
+    if state.ext_reserved.get() { return trap(&state, "store has a live continuation"); }
     let result = state.access(|access| {
         let ObjectKind::Func(function, _) = &object.kind else { return Err(tinywasm::Error::Other("expected function".into())); };
         let ty = function.ty(access.store())?.clone();

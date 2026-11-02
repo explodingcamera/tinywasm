@@ -395,3 +395,28 @@ fn future_adapter_waits_for_a_wakeup_without_repolling_wasm() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn unselected_imports_use_the_synchronous_stack_path() -> Result<()> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut store = Store::default();
+    let instance = instance(&mut store, SOURCE, calls.clone())?;
+    for (name, expected) in
+        [("run", 42), ("tail", 21), ("indirect", 21), ("tail-indirect", 21), ("ref", 21), ("tail-ref", 21)]
+    {
+        let function = instance.func_untyped(&store, name)?;
+        let mut results = [WasmValue::I32(0)];
+        let mut execution = function.call_resumable_with_host_calls(&mut store, &[], &mut results)?;
+        loop {
+            match execution.resume_with_fuel_selected(1, |_| false)? {
+                HostExecProgress::Completed => break,
+                HostExecProgress::Suspended => {}
+                HostExecProgress::HostCall => panic!("unselected callback was exposed"),
+            }
+        }
+        drop(execution);
+        assert_eq!(results, [WasmValue::I32(expected)]);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
+    Ok(())
+}

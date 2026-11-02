@@ -15,7 +15,11 @@ pub struct wasm_store_t(pub(crate) Rc<StoreState>);
 
 /// Thread-confined store ownership and the dynamic callback borrow stack.
 pub(crate) struct StoreState {
-    store: UnsafeCell<Store>,
+    pub(crate) store: UnsafeCell<Store>,
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) ext_reserved: Cell<bool>,
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) ext_hosts: RefCell<std::collections::HashMap<tinywasm::FuncRef, Rc<crate::continuation::Host>>>,
     busy: Cell<bool>,
     active: Cell<*mut FuncContext<'static>>,
     pub(crate) objects: RefCell<Vec<Rc<Object>>>,
@@ -54,9 +58,17 @@ impl Access<'_> {
 }
 
 impl StoreState {
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) fn ext_available(&self) -> bool {
+        !self.busy.get() && self.active.get().is_null() && !self.ext_reserved.get()
+    }
     fn new(engine: Engine) -> Self {
         Self {
             store: UnsafeCell::new(Store::new(engine)),
+            #[cfg(feature = "external-host-calls")]
+            ext_reserved: Cell::new(false),
+            #[cfg(feature = "external-host-calls")]
+            ext_hosts: RefCell::new(std::collections::HashMap::new()),
             busy: Cell::new(false),
             active: Cell::new(ptr::null_mut()),
             objects: RefCell::new(Vec::new()),
@@ -66,6 +78,10 @@ impl StoreState {
 
     /// Acquires one exclusive borrow without aliasing an executing interpreter.
     pub(crate) fn access<T>(&self, action: impl FnOnce(&mut Access<'_>) -> tinywasm::Result<T>) -> tinywasm::Result<T> {
+        #[cfg(feature = "external-host-calls")]
+        if self.ext_reserved.get() && self.active.get().is_null() {
+            return Err(tinywasm::Error::Other("store has a live continuation".into()));
+        }
         if self.busy.replace(true) {
             return Err(tinywasm::Error::Other("store is already borrowed".into()));
         }

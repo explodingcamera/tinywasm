@@ -38,8 +38,9 @@ When building with Cargo directly, enable `custom-prefix` and set the
 ## Runtime-neutral extension direction
 
 The integration target is the standard `wasm.h` plus a small, separately versioned common
-extension header implemented by TinyWasm and WAMR. This is a proposed contract, not an
-implemented C extension. The Rust `external-host-calls` API is backend machinery for it.
+extension header implemented by TinyWasm and WAMR. `wasm_ext.h` is an experimental numeric continuation implementation, not an approved standard.
+Enable the C wrapper's `external-host-calls` feature (`CONTINUATIONS=1` with Make).
+The Rust API is its backend machinery; see [the shared fixture](tests/continuations/README.md).
 See the [WAMR roadmap discussion](https://github.com/wasm-micro-runtime/wasm-micro-runtime/discussions/5164#discussioncomment-19111943).
 
 Keep ordinary module linking, calls, memories, tables, and ownership on the standard API.
@@ -48,10 +49,10 @@ alone does not establish shared semantics, object compatibility, or binary plugi
 Objects must remain with their originating runtime and store. Symbol prefixes permit static
 coexistence; any runtime dispatch table belongs in an optional adapter outside the core.
 
-The proposed extension needs an opaque invocation handle, explicit completed/pending/trap
-outcomes, host-call suspension, checked result completion, and cancellation. Specify argument
-and result ownership, reference rooting, caller memory/context access, reentrancy, error and
-trap ownership, and cancellation/finalizer ordering before freezing declarations. Callback-style
+The prototype provides opaque invocation handles, completed/pending/error outcomes, host-call
+suspension, checked completion, and cancellation. Qualify reference rooting, caller memory/context
+access, nested canonical ABI operations, error/trap ownership, and finalizer ordering before
+freezing declarations. Callback-style
 async can use ordinary calls; stackful suspension support must be qualified per execution mode.
 Do not expose interpreter frames, instruction pointers, or Rust futures across the C ABI.
 Wakers, event loops, resource tables, canonical ABI, and WASI implementations stay external.
@@ -69,8 +70,8 @@ enabled-but-unused; and enabled-and-used. Check text/rodata/data/bss, retained s
 maps, store/frame layouts, heap/stack high-water marks, and execution cost. Use the same portable
 C conformance fixtures for both runtimes, including shared memory/table imports and cancel/error
 paths. On a Pico, measure static RAM and heap/stack peaks; RSS applies to hosted deployments.
-The current TinyWasm C wrapper requires `std`; Pico C-wrapper support and zero-overhead linked
-builds have not been demonstrated by the Rust seam tests.
+The current TinyWasm C wrapper requires `std`; Pico C-wrapper support is not qualified by hosted C fixture tests. Final linked-artifact
+comparisons and process-memory measurements are recorded separately from Rust seam tests.
 
 ## Current API limitations
 

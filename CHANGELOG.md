@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Function::call_resumable_with_host_calls` and `HostExecution` for externally serviced host calls,
   with checked results, rooted arguments, and access to the calling module's context, behind the
   opt-in `external-host-calls` feature.
+- Experimental numeric C continuations in `wasm_ext.h`, with a shared WAMR fixture and
+  disabled-feature linked-artifact measurements.
 
 ## [0.12.0-beta.0] - 2026-11-01
 

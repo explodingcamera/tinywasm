@@ -88,6 +88,18 @@ impl<'store> HostExecution<'store> {
     /// Completing the host call commits its results; a later resume continues after that call.
     /// A trap or panic makes the invocation terminal, as with ordinary resumable execution.
     pub fn resume_with_fuel(&mut self, fuel: u32) -> Result<HostExecProgress> {
+        self.resume_with_fuel_selected(fuel, |_| true)
+    }
+
+    /// Stops only at selected host imports; forwards other imports through their normal stack API.
+    ///
+    /// Selection runs at host-call boundaries, before allocating owned argument vectors. It must
+    /// not call into the store. Root host calls and already pending calls remain explicitly pending.
+    pub fn resume_with_fuel_selected(
+        &mut self,
+        fuel: u32,
+        mut select: impl FnMut(crate::FuncRef) -> bool,
+    ) -> Result<HostExecProgress> {
         match self.state {
             State::Pending { .. } => return Ok(HostExecProgress::HostCall),
             State::Completed => {
@@ -98,7 +110,7 @@ impl<'store> HostExecution<'store> {
             _ => {}
         }
         let state = core::mem::replace(&mut self.state, State::Finished);
-        let outcome = {
+        let mut outcome = {
             let mut store = self.store.enter_execution()?;
             store.execution_fuel = fuel;
             match state {
@@ -109,6 +121,21 @@ impl<'store> HostExecution<'store> {
                 _ => unreachable!(),
             }
         };
+        while let Ok(ExecOutcome::Host(call)) = outcome {
+            let reference = crate::FuncRef::new(self.store.id(), call.func);
+            if select(reference) {
+                break;
+            }
+            outcome = (|| {
+                let mut store = self.store.enter_execution()?;
+                let host = store.code.funcs.host(call.func);
+                let type_addr = host.type_addr;
+                let callback = host.func.clone();
+                callback.call_stack(&mut store, call.module, type_addr)?;
+                let mut executor = Executor::new(&mut store, call.caller, 0, Budget::Fuel);
+                if call.tail { executor.return_from_host() } else { executor.run() }
+            })();
+        }
         self.accept_outcome(outcome).inspect_err(|_| self.finish())
     }
 

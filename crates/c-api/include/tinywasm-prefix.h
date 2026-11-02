@@ -305,4 +305,9 @@
 #define wasm_valtype_vec_new TINYWASM_SYMBOL(wasm_valtype_vec_new)
 #define wasm_valtype_vec_new_empty TINYWASM_SYMBOL(wasm_valtype_vec_new_empty)
 #define wasm_valtype_vec_new_uninitialized TINYWASM_SYMBOL(wasm_valtype_vec_new_uninitialized)
+#define wasm_ext_func_new TINYWASM_SYMBOL(wasm_ext_func_new)
+#define wasm_ext_call_new TINYWASM_SYMBOL(wasm_ext_call_new)
+#define wasm_ext_call_resume TINYWASM_SYMBOL(wasm_ext_call_resume)
+#define wasm_ext_call_cancel TINYWASM_SYMBOL(wasm_ext_call_cancel)
+#define wasm_ext_call_delete TINYWASM_SYMBOL(wasm_ext_call_delete)
 #endif

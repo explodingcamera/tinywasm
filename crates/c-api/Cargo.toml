@@ -16,6 +16,7 @@ name = "tinywasm"
 tinywasm = { workspace = true, features = ["archive", "parser", "std", "validate"] }
 
 [features]
+external-host-calls = ["tinywasm/external-host-calls"]
 custom-prefix = []
 
 [lints]
