@@ -43,6 +43,24 @@ assert_eq!(result, 3);
 
 See the [examples](./examples) directory and [documentation](https://docs.rs/tinywasm) for more information.
 
+## External host-call scheduling
+
+`Function::call_resumable_with_host_calls` returns a `HostExecution` that stops before each
+host callback. On `HostExecProgress::HostCall`, obtain `host_call()` and either `invoke()` the
+registered synchronous callback or `complete(&results)` with externally produced values.
+Dropping the pending-call view leaves the call waiting; resuming does not replay it.
+
+An external adapter can own futures, register wakeups, and resume Wasm only when work is ready.
+It must cancel that work when its invocation is dropped. `PendingHostCall::with_context` gives
+the adapter access to host state and the calling module's exported memory and functions,
+including blocking calls to canonical ABI realloc and post-return functions. Arguments remain
+rooted across collection, and completion checks result types and store ownership.
+
+Component parsing, canonical ABI lowering, resource tables, and task scheduling remain outside
+the runtime. Each execution handle exclusively borrows its store; nested calls are synchronous.
+This seam does not implement the WASI 0.3 component concurrency model. The existing synchronous
+and fuel-only execution APIs use their existing drivers and dispatch paths.
+
 ## Cargo Features
 
 - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.

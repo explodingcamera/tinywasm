@@ -123,7 +123,8 @@ mod error;
 pub use error::*;
 pub use func::{
     ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
-    HostFunction, HostFunctionCallback, IntoWasmValues, WasmTypes, WasmValueType,
+    HostExecProgress, HostExecution, HostFunction, HostFunctionCallback, IntoWasmValues, PendingHostCall, WasmTypes,
+    WasmValueType,
 };
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};

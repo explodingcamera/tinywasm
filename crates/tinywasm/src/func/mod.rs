@@ -9,12 +9,14 @@ use crate::{FuncRef, WasmValue};
 
 mod context;
 mod host;
+mod host_execution;
 mod resume;
 mod values;
 pub use context::FuncContext;
 pub use host::HostFunction;
 #[doc(hidden)]
 pub use host::HostFunctionCallback;
+pub use host_execution::{HostExecProgress, HostExecution, PendingHostCall};
 pub use resume::{ExecProgress, FuncExecution, FuncExecutionTyped};
 pub use values::{FromWasmValues, IntoWasmValues, WasmTypes, WasmValueType};
 
