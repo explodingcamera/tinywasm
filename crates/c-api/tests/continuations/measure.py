@@ -27,7 +27,7 @@ if os.name == 'nt' and a.cpu is not None:
     k32.OpenProcess.restype = ctypes.c_void_p
     k32.SetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
     k32.CloseHandle.argtypes = [ctypes.c_void_p]
-writer = csv.writer(sys.stdout)
+writer = csv.writer(sys.stdout, lineterminator="\n")
 writer.writerow(['variant', 'round', 'compute_ns', 'native_ns', 'peak_rss_bytes', 'peak_commit_bytes', 'compute_cycles', 'native_cycles', 'cpu'])
 for i in range(a.rounds):
     for name, path in (variants if i % 2 == 0 else reversed(variants)):

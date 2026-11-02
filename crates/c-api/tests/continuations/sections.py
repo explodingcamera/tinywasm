@@ -10,7 +10,7 @@ import sys
 p = argparse.ArgumentParser()
 p.add_argument('executables', nargs='+', help='variant=path')
 a = p.parse_args()
-w = csv.writer(sys.stdout)
+w = csv.writer(sys.stdout, lineterminator="\n")
 w.writerow(['variant', 'section', 'virtual_bytes', 'file_bytes', 'sha256'])
 for item in a.executables:
     name, path = item.split('=', 1)
