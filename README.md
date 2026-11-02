@@ -45,6 +45,9 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 ## External host-call scheduling
 
+Enable the `external-host-calls` Cargo feature to include this API. It is excluded from both
+`default` and `full`; disabled builds do not compile the continuation driver or its public types.
+
 `Function::call_resumable_with_host_calls` returns a `HostExecution` that stops before each
 host callback. On `HostExecProgress::HostCall`, obtain `host_call()` and either `invoke()` the
 registered synchronous callback or `complete(&results)` with externally produced values.

@@ -12,12 +12,16 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
-features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "state", "debug", "guest-debug"]
+features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "state", "debug", "guest-debug", "external-host-calls"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "tinywasm"
 path = "src/lib.rs"
+
+[[test]]
+name = "host_execution"
+required-features = ["external-host-calls"]
 
 [[test]]
 harness = false
@@ -95,6 +99,8 @@ wat.workspace = true
 autocfg = "1.5"
 
 [features]
+# expose host-call continuations for external schedulers; excluded from default and full
+external-host-calls = []
 default = ["full", "nightly", "simd-intrinsics", "std"]
 full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
 

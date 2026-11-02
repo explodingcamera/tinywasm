@@ -123,9 +123,10 @@ mod error;
 pub use error::*;
 pub use func::{
     ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
-    HostExecProgress, HostExecution, HostFunction, HostFunctionCallback, IntoWasmValues, PendingHostCall, WasmTypes,
-    WasmValueType,
+    HostFunction, HostFunctionCallback, IntoWasmValues, WasmTypes, WasmValueType,
 };
+#[cfg(feature = "external-host-calls")]
+pub use func::{HostExecProgress, HostExecution, PendingHostCall};
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};
 pub use reference::*;
