@@ -3,12 +3,68 @@ on:
   workflow_dispatch:
   pull_request:
     paths: ["crates/tinywasm/**", "crates/c-api/**", ".github/workflows/shared_continuations.yml"]
+permissions:
+  contents: read
 jobs:
   c-fixture:
-    runs-on: ubuntu-26.04
+    name: C fixture (${{ matrix.os }}, ${{ matrix.rust }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rust: stable
+            extra: ""
+            core_args: "--features external-host-calls"
+            capi_args: "--features external-host-calls"
+          - os: windows-2025
+            rust: stable
+            extra: ""
+            core_args: "--features external-host-calls"
+            capi_args: "--features external-host-calls"
+          - os: windows-2025
+            rust: nightly-2026-08-28
+            extra: "--tail-calls"
+            core_args: "--no-default-features --features full,std,nightly-tail-calls,external-host-calls"
+            capi_args: "--features external-host-calls,tinywasm/nightly-tail-calls"
+    runs-on: ${{ matrix.os }}
+    env:
+      WASM_EXT_TEST_ONLY: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
         with:
-          toolchain: stable
-      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on
+          toolchain: ${{ matrix.rust }}
+      - if: runner.os != 'Windows'
+        run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on ${{ matrix.extra }}
+      - name: Windows x64 release and C-client ASan (Rust uninstrumented)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on ${{ matrix.extra }}
+          if errorlevel 1 exit /b 1
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-client-asan --client-asan ${{ matrix.extra }}
+      - run: cargo test --locked -p tinywasm ${{ matrix.core_args }} --test host_execution
+      - run: cargo test --locked -p tinywasm-c-api ${{ matrix.capi_args }} --lib
+  rust-and-c-asan:
+    name: Linux x64 Rust, std and C ASan
+    runs-on: ubuntu-24.04
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+      CC: clang
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: nightly
+          components: rust-src
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-full-asan --sanitize
+  miri:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: nightly
+          components: miri
+      - run: cargo miri test --locked -p tinywasm-c-api --features external-host-calls --lib

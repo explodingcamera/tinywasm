@@ -282,4 +282,73 @@ mod tests {
             wasm_engine_delete(engine);
         }
     }
+    #[test]
+    fn callback_memory_access_survives_pending_and_growth() {
+        struct Env {
+            memory: Cell<*mut wasm_memory_t>,
+            calls: Cell<usize>,
+        }
+        unsafe extern "C" fn pause(
+            env: *mut c_void,
+            args: *const wasm_val_vec_t,
+            _: *mut wasm_val_vec_t,
+            _: *mut *mut wasm_trap_t,
+        ) -> i32 {
+            unsafe {
+                let env = &*env.cast::<Env>();
+                let data = crate::externals::wasm_memory_data(env.memory.get());
+                let size = crate::externals::wasm_memory_data_size(env.memory.get());
+                assert!(!data.is_null());
+                assert!(size >= 65536);
+                assert_eq!(data.cast::<i32>().read_unaligned(), 17);
+                if (*(*args).data).of.i32 == 1 {
+                    assert!(size >= 131072);
+                    assert_eq!(data.add(65536).cast::<i32>().read_unaligned(), 18);
+                }
+                env.calls.set(env.calls.get() + 1);
+                1
+            }
+        }
+        unsafe {
+            let env = Env { memory: Cell::new(ptr::null_mut()), calls: Cell::new(0) };
+            let engine = wasm_engine_new();
+            let store = wasm_store_new(engine);
+            let mut p = Vector::from_vec(vec![wasm_valtype_new(0)]);
+            let mut r = Vector::default();
+            let ty = wasm_functype_new(&mut p, &mut r);
+            let host = wasm_ext_func_new(store, ty, Some(pause), (&env as *const Env).cast_mut().cast(), None);
+            assert!(!host.is_null());
+            wasm_functype_delete(ty);
+            let bytes = Vector::from_vec(include_bytes!("../tests/continuations/edges.wasm").to_vec());
+            let module = crate::module::wasm_module_new(store, &bytes);
+            assert!(!module.is_null());
+            let imports = Vector::from_vec(vec![crate::objects::wasm_func_copy(host)]);
+            let mut trap = ptr::null_mut();
+            let instance = crate::module::wasm_instance_new(store, module, &imports, &mut trap);
+            assert!(!instance.is_null() && trap.is_null());
+            let mut exports = Vector::default();
+            crate::module::wasm_instance_exports(instance, &mut exports);
+            env.memory.set(crate::objects::wasm_extern_as_memory(exports.as_slice()[0]));
+            let function = crate::objects::wasm_extern_as_func(exports.as_slice()[1]);
+            let args = Vector::from_vec(vec![wasm_val_t { kind: 0, of: wasm_val_union { i32: 17 } }]);
+            let completion = Vector::default();
+            let mut out = Vector::from_vec(vec![wasm_val_t::default()]);
+            let call = wasm_ext_call_new(function, &args);
+            assert!(!call.is_null());
+            assert_eq!(wasm_ext_call_resume(call, ptr::null(), &mut out, &mut trap), 1);
+            assert_eq!(wasm_ext_call_resume(call, &completion, &mut out, &mut trap), 1);
+            assert_eq!(wasm_ext_call_resume(call, &completion, &mut out, &mut trap), 0);
+            assert!(trap.is_null());
+            assert_eq!(env.calls.get(), 2);
+            assert_eq!(out.as_slice()[0].of.i32, 35);
+            wasm_ext_call_delete(call);
+            drop(exports);
+            drop(imports);
+            wasm_func_delete(host);
+            crate::objects::wasm_instance_delete(instance);
+            crate::objects::wasm_module_delete(module);
+            wasm_store_delete(store);
+            wasm_engine_delete(engine);
+        }
+    }
 }
