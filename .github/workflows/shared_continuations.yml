@@ -68,3 +68,14 @@ jobs:
           toolchain: nightly
           components: miri
       - run: cargo miri test --locked -p tinywasm-c-api --features external-host-calls --lib
+
+  native-unwind:
+    name: Native unwind (GDB, C/C++/Rust)
+    runs-on: ubuntu-24.04
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sudo apt-get update && sudo apt-get install -y gdb
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build build/native-unwind
+      - run: python3 crates/c-api/tests/continuations/debug/run.py --runtime tinywasm --include crates/c-api/include --library build/native-unwind/runtime/release/libtinywasm.a --build build/native-unwind/client --debugger gdb
