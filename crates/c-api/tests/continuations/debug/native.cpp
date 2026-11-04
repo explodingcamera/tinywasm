@@ -11,9 +11,13 @@ native_cpp(int value)
 
 #ifdef DIAGNOSTIC_ERRORS
 #include <stdexcept>
-extern "C" __attribute__((noinline)) int native_cpp_error(void)
+extern "C" __attribute__((noinline)) int
+native_cpp_error(void)
 {
-    try { throw std::runtime_error("native C++ operation failed"); }
-    catch (const std::exception &) { return -11; }
+    try {
+        throw std::runtime_error("native C++ operation failed");
+    } catch (const std::exception &) {
+        return -11;
+    }
 }
 #endif
