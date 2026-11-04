@@ -27,6 +27,8 @@
 
 #[macro_use]
 mod macros;
+#[cfg(feature = "external-host-calls")]
+mod continuation;
 mod externals;
 mod function;
 mod module;

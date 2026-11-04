@@ -1,0 +1,47 @@
+name: Stackless HTTP component
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["crates/tinywasm/**", "crates/c-api/**", "crates/c-api/examples/stackless-http/**", ".github/workflows/stackless_http.yml"]
+permissions:
+  contents: read
+jobs:
+  hosted:
+    name: Component assertions and TCP (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: WebAssembly/component-model
+          ref: fed10b0b823b82553dd8363f16a640816f5eac65
+          path: .stackless-component-tests
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: stable
+          rustflags: ""
+      - name: Linux release and canonical assertions
+        if: runner.os != 'Windows'
+        run: python3 crates/c-api/examples/stackless-http/run.py --runtime tinywasm --root . --build build/stackless --component-tests .stackless-component-tests
+      - name: Windows x64 release and C-client ASan (Rust uninstrumented)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          if errorlevel 1 exit /b 1
+          python crates/c-api/examples/stackless-http/run.py --runtime tinywasm --root . --build build/stackless --component-tests .stackless-component-tests
+          if errorlevel 1 exit /b 1
+          python crates/c-api/examples/stackless-http/run.py --runtime tinywasm --root . --build build/stackless-asan --component-tests .stackless-component-tests --client-asan
+      - name: Install Rust std sources for full instrumentation
+        if: runner.os != 'Windows' && true
+        run: rustup toolchain install nightly --profile minimal --component rust-src
+      - name: Linux runtime/client ASan
+        if: runner.os != 'Windows'
+        env:
+          CC: clang
+          RUSTUP_TOOLCHAIN: nightly
+        run: python3 crates/c-api/examples/stackless-http/run.py --runtime tinywasm --root . --build build/stackless-asan --component-tests .stackless-component-tests --sanitize

@@ -125,11 +125,15 @@ pub use func::{
     ExecProgress, FromWasmValues, FuncContext, FuncExecution, FuncExecutionTyped, Function, FunctionTyped,
     HostFunction, HostFunctionCallback, IntoWasmValues, WasmTypes, WasmValueType,
 };
+#[cfg(feature = "external-host-calls")]
+pub use func::{HostExecProgress, HostExecution, PendingHostCall};
 pub use imports::*;
 pub use instance::{ExternItem, ModuleInstance};
 pub use reference::*;
 pub use store::*;
 
+#[cfg(feature = "diagnostics")]
+pub mod diagnostics;
 mod func;
 mod imports;
 mod instance;

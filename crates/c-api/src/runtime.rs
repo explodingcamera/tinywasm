@@ -13,9 +13,18 @@ pub struct wasm_config_t(pub(crate) tinywasm::engine::Config);
 pub struct wasm_engine_t(Engine);
 pub struct wasm_store_t(pub(crate) Rc<StoreState>);
 
+#[cfg(feature = "diagnostics")]
+pub(crate) type DebugObserver =
+    unsafe extern "C" fn(*mut std::ffi::c_void, u32, *const tinywasm::diagnostics::DebugSnapshot);
 /// Thread-confined store ownership and the dynamic callback borrow stack.
 pub(crate) struct StoreState {
-    store: UnsafeCell<Store>,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) debug_observer: Cell<Option<(DebugObserver, *mut std::ffi::c_void)>>,
+    pub(crate) store: UnsafeCell<Store>,
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) ext_reserved: Cell<bool>,
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) ext_hosts: RefCell<std::collections::HashMap<tinywasm::FuncRef, Rc<crate::continuation::Host>>>,
     busy: Cell<bool>,
     active: Cell<*mut FuncContext<'static>>,
     pub(crate) objects: RefCell<Vec<Rc<Object>>>,
@@ -54,9 +63,19 @@ impl Access<'_> {
 }
 
 impl StoreState {
+    #[cfg(feature = "external-host-calls")]
+    pub(crate) fn ext_available(&self) -> bool {
+        !self.busy.get() && self.active.get().is_null() && !self.ext_reserved.get()
+    }
     fn new(engine: Engine) -> Self {
         Self {
+            #[cfg(feature = "diagnostics")]
+            debug_observer: Cell::new(None),
             store: UnsafeCell::new(Store::new(engine)),
+            #[cfg(feature = "external-host-calls")]
+            ext_reserved: Cell::new(false),
+            #[cfg(feature = "external-host-calls")]
+            ext_hosts: RefCell::new(std::collections::HashMap::new()),
             busy: Cell::new(false),
             active: Cell::new(ptr::null_mut()),
             objects: RefCell::new(Vec::new()),
@@ -66,6 +85,10 @@ impl StoreState {
 
     /// Acquires one exclusive borrow without aliasing an executing interpreter.
     pub(crate) fn access<T>(&self, action: impl FnOnce(&mut Access<'_>) -> tinywasm::Result<T>) -> tinywasm::Result<T> {
+        #[cfg(feature = "external-host-calls")]
+        if self.ext_reserved.get() && self.active.get().is_null() {
+            return Err(tinywasm::Error::Other("store has a live continuation".into()));
+        }
         if self.busy.replace(true) {
             return Err(tinywasm::Error::Other("store is already borrowed".into()));
         }
@@ -90,6 +113,13 @@ impl StoreState {
 
     /// Suspends the Rust callback context while C runs and may synchronously reenter.
     pub(crate) fn callback<T>(&self, context: &mut FuncContext<'_>, action: impl FnOnce() -> T) -> T {
+        #[cfg(feature = "diagnostics")]
+        if let Some((observer, env)) = self.debug_observer.get() {
+            let snapshot = context.store().debug_snapshot();
+            unsafe {
+                observer(env, 2, &snapshot);
+            }
+        }
         struct Restore<'a> {
             state: &'a StoreState,
             active: *mut FuncContext<'static>,

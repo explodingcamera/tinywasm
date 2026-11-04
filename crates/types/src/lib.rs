@@ -503,6 +503,10 @@ pub struct WasmFunction {
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
 pub struct WasmFunctionData {
+    /// Original Wasm file offsets. Archives deliberately omit build-specific debug metadata.
+    #[cfg(feature = "diagnostics")]
+    #[cfg_attr(feature = "archive", serde(skip))]
+    pub source_offsets: Box<[u32]>,
     pub operands64: Box<[Operand64]>,
     pub operands128: Box<[Operand128]>,
     pub branch_table_targets: Box<[u32]>,

@@ -1,0 +1,102 @@
+name: Shared C continuations
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["crates/parser/**", "crates/types/**", "crates/tinywasm/**", "crates/c-api/**", ".github/workflows/shared_continuations.yml"]
+permissions:
+  contents: read
+jobs:
+  c-fixture:
+    name: C fixture (${{ matrix.os }}, ${{ matrix.rust }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            rust: stable
+            extra: ""
+            core_args: "--features external-host-calls,diagnostics"
+            capi_args: "--features external-host-calls,diagnostics"
+          - os: windows-2025
+            rust: stable
+            extra: ""
+            core_args: "--features external-host-calls,diagnostics"
+            capi_args: "--features external-host-calls,diagnostics"
+          - os: windows-2025
+            rust: nightly-2026-08-28
+            extra: "--tail-calls"
+            core_args: "--no-default-features --features full,std,nightly-tail-calls,external-host-calls,diagnostics"
+            capi_args: "--features external-host-calls,tinywasm/nightly-tail-calls,diagnostics"
+    runs-on: ${{ matrix.os }}
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: ${{ matrix.rust }}
+      - if: runner.os != 'Windows'
+        run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on --gc --simd ${{ matrix.extra }}
+      - name: Windows x64 release and C-client ASan (Rust uninstrumented)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on --gc --simd ${{ matrix.extra }}
+          if errorlevel 1 exit /b 1
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-client-asan --client-asan --gc --simd ${{ matrix.extra }}
+      - run: cargo test --locked -p tinywasm ${{ matrix.core_args }} --test host_execution
+      - run: cargo test --locked -p tinywasm-c-api ${{ matrix.capi_args }} --lib
+  rust-and-c-asan:
+    name: Linux x64 Rust, std and C ASan
+    runs-on: ubuntu-24.04
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+      CC: clang
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: nightly
+          components: rust-src
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-full-asan --gc --simd --sanitize --diagnostics
+  miri:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: nightly
+          components: miri
+      - run: cargo miri test --locked -p tinywasm-c-api --features diagnostics --lib
+
+  native-unwind:
+    name: Guest/native/async diagnostics (${{ matrix.os }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            debugger: gdb
+            extra: ""
+          - os: macos-15
+            debugger: lldb
+            extra: "--swift"
+    runs-on: ${{ matrix.os }}
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+      CARGO_PROFILE_RELEASE_DEBUG: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gdb
+      - run: cargo install wasm-tools --locked --version 1.247.0
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build build/native-unwind --diagnostics
+      - run: python3 crates/c-api/tests/continuations/debug/diagnostic_run.py --runtime tinywasm --include crates/c-api/include --library build/native-unwind/runtime/release/libtinywasm.a --build build/native-unwind/client --debugger ${{ matrix.debugger }} ${{ matrix.extra }}
+      - run: python3 crates/c-api/tests/continuations/debug/test_symbolize.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: diagnostic-traces-${{ matrix.os }}
+          path: |
+            build/native-unwind/client/debugger.txt
+            build/native-unwind/client/receipt.json
+            build/native-unwind/client/tests.txt

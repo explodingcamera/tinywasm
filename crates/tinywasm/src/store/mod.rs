@@ -163,6 +163,8 @@ pub struct Store {
     pub(crate) reentrant_call_depth: usize,
     pub(crate) state: State,
     pub(crate) call_stack: CallStack,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) debug_snapshot: crate::diagnostics::DebugSnapshot,
     pub(crate) value_stack: ValueStack,
     value_scratch: Vec<WasmValue>,
     #[cfg(feature = "state")]
@@ -256,6 +258,8 @@ impl Store {
             code: Code::default(),
             state,
             call_stack: CallStack::new(engine.config()),
+            #[cfg(feature = "diagnostics")]
+            debug_snapshot: crate::diagnostics::DebugSnapshot::default(),
             value_stack: ValueStack::new(engine.config()),
             value_scratch: Vec::new(),
             engine,
@@ -582,13 +586,19 @@ impl Store {
         &mut self,
         funcs: &[Shared<WasmFunction>],
         owner: ModuleInstanceId,
+        #[cfg(feature = "diagnostics")] first_index: u32,
         module_type_idxs: &[TypeAddr],
         type_addrs: &[TypeAddr],
     ) -> impl ExactSizeIterator<Item = FuncAddr> {
         debug_assert_eq!(funcs.len(), module_type_idxs.len());
         let funcs =
             funcs.iter().cloned().zip(module_type_idxs).map(|(func, &type_idx)| (type_addrs[type_idx as usize], func));
-        self.code.funcs.extend_wasm(funcs, owner)
+        self.code.funcs.extend_wasm(
+            funcs,
+            owner,
+            #[cfg(feature = "diagnostics")]
+            first_index,
+        )
     }
 
     /// Add tags to the store, returning their addresses in the store.

@@ -85,6 +85,8 @@ pub(crate) struct ModuleMetadata {
 }
 
 pub(crate) struct FunctionDataBuilder {
+    #[cfg(feature = "diagnostics")]
+    pub(crate) source_offsets: Vec<u32>,
     pub(crate) operands64: Vec<Operand64>,
     pub(crate) operands128: Vec<Operand128>,
     pub(crate) branch_table_targets: Vec<u32>,
@@ -96,6 +98,8 @@ pub(crate) struct FunctionDataBuilder {
 impl FunctionDataBuilder {
     pub(crate) fn new(deduplicate_operands: bool) -> Self {
         Self {
+            #[cfg(feature = "diagnostics")]
+            source_offsets: Vec::new(),
             operands64: Vec::new(),
             operands128: Vec::new(),
             branch_table_targets: Vec::new(),
@@ -165,6 +169,8 @@ impl FunctionDataBuilder {
 
     pub(crate) fn finish(self) -> WasmFunctionData {
         WasmFunctionData {
+            #[cfg(feature = "diagnostics")]
+            source_offsets: self.source_offsets.into_boxed_slice(),
             operands64: self.operands64.into_boxed_slice(),
             operands128: self.operands128.into_boxed_slice(),
             branch_table_targets: self.branch_table_targets.into_boxed_slice(),
@@ -472,6 +478,11 @@ pub(crate) fn process_operators(
 
     while !reader.eof() {
         let position = reader.original_position();
+        #[cfg(feature = "diagnostics")]
+        {
+            builder.emitter.source_offset =
+                u32::try_from(position).map_err(|_| crate::ParseError::Other("source offset exceeds u32".into()))?;
+        }
         let res =
             if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {
                 let op = reader
@@ -531,6 +542,11 @@ pub(crate) fn process_operators_and_validate(
 
     while !reader.eof() {
         let position = reader.original_position();
+        #[cfg(feature = "diagnostics")]
+        {
+            builder.emitter.source_offset =
+                u32::try_from(position).map_err(|_| crate::ParseError::Other("source offset exceeds u32".into()))?;
+        }
         let mut visitor = ValidateThenVisit { validator: &mut validator, builder: &mut builder, position };
         let res =
             if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {

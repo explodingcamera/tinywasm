@@ -10,6 +10,9 @@ TARGET_DIR ?= $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),../../target)
 BUILD_LIBDIR := $(abspath $(TARGET_DIR)/$(if $(filter dev,$(PROFILE)),debug,$(PROFILE)))
 BUILDDIR := $(abspath $(TARGET_DIR)/c-api)
 CARGO_FLAGS := --profile $(PROFILE)
+ifeq ($(CONTINUATIONS),1)
+CARGO_FLAGS += --features external-host-calls
+endif
 ifneq ($(TINYWASM_C_API_PREFIX),)
 export TINYWASM_C_API_PREFIX
 CARGO_FLAGS += --features custom-prefix
@@ -44,7 +47,7 @@ test: example
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/include" "$(DESTDIR)$(LIBDIR)/pkgconfig" "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm"
-	install -m644 include/wasm.h include/tinywasm.h include/tinywasm-prefix.h "$(DESTDIR)$(PREFIX)/include/"
+	install -m644 include/wasm.h include/wasm_ext.h include/tinywasm.h include/tinywasm-prefix.h "$(DESTDIR)$(PREFIX)/include/"
 	install -m644 "$(BUILD_LIBDIR)/libtinywasm.a" "$(BUILD_LIBDIR)/libtinywasm.$(SHARED_EXT)" "$(DESTDIR)$(LIBDIR)/"
 	install -m644 ../../LICENSE-APACHE ../../LICENSE-MIT "$(DESTDIR)$(PREFIX)/share/licenses/tinywasm/"
 	sed -e 's|@PREFIX@|$(PREFIX)|g' -e 's|@LIBDIR@|$(LIBDIR)|g' -e 's|@VERSION@|$(VERSION)|g' -e 's|@NATIVE_LIBS@|$(NATIVE_LIBS)|g' -e 's|@PREFIX_FLAG@|$(if $(TINYWASM_C_API_PREFIX),-DTINYWASM_C_API_PREFIX=$(TINYWASM_C_API_PREFIX))|g' tinywasm.pc.in > "$(DESTDIR)$(LIBDIR)/pkgconfig/tinywasm.pc"

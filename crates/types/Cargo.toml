@@ -16,6 +16,8 @@ postcard = { version = "1.1", default-features = false, features = ["alloc"], op
 serde = { version = "1.0", default-features = false, features = ["alloc"], optional = true }
 
 [features]
+# Optional bounded diagnostic snapshots and original Wasm source offsets.
+diagnostics = []
 default = ["archive", "debug", "std"]
 
 # support serializing and deserializing twasm archives

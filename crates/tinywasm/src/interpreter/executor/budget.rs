@@ -31,6 +31,8 @@ impl Executor<'_> {
     /// Settles attempted instructions on an ordinary trap, using the dispatcher's existing IP.
     #[cold]
     pub(super) fn settle_error(&mut self, instr_ptr: usize, error: ExecError) -> ExecError {
+        #[cfg(feature = "diagnostics")]
+        self.debug_snapshot.capture(self.code, self.call_stack, self.cf, instr_ptr);
         self.charge_instructions(instr_ptr + 1);
         error
     }
