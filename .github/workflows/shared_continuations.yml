@@ -35,15 +35,15 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
       - if: runner.os != 'Windows'
-        run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on ${{ matrix.extra }}
+        run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on --gc --simd ${{ matrix.extra }}
       - name: Windows x64 release and C-client ASan (Rust uninstrumented)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
-          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on ${{ matrix.extra }}
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-fixture --feature on --gc --simd ${{ matrix.extra }}
           if errorlevel 1 exit /b 1
-          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-client-asan --client-asan ${{ matrix.extra }}
+          python crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-client-asan --client-asan --gc --simd ${{ matrix.extra }}
       - run: cargo test --locked -p tinywasm ${{ matrix.core_args }} --test host_execution
       - run: cargo test --locked -p tinywasm-c-api ${{ matrix.capi_args }} --lib
   rust-and-c-asan:
@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-full-asan --sanitize
+      - run: python3 crates/c-api/tests/continuations/run.py --runtime tinywasm --root . --build target/shared-c-full-asan --gc --simd --sanitize
   miri:
     runs-on: ubuntu-24.04
     steps:

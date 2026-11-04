@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with checked results, rooted arguments, and access to the calling module's context, behind the
   opt-in `external-host-calls` feature.
 - Experimental numeric C continuations in `wasm_ext.h`, with a shared WAMR fixture and
-  disabled-feature linked-artifact measurements.
+  disabled-feature linked-artifact measurements. The shared fixtures also exercise guest GC
+  and SIMD across suspension, cancellation and indirect host calls.
 
 ## [0.12.0-beta.0] - 2026-11-01
 
