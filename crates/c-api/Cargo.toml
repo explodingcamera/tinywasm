@@ -16,6 +16,8 @@ name = "tinywasm"
 tinywasm = { workspace = true, features = ["archive", "parser", "std", "validate"] }
 
 [features]
+# Optional bounded diagnostic snapshots and original Wasm source offsets.
+diagnostics = ["external-host-calls", "tinywasm/diagnostics"]
 external-host-calls = ["tinywasm/external-host-calls"]
 custom-prefix = []
 

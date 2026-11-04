@@ -27,6 +27,8 @@ pub struct HostExecution<'store> {
     store: &'store mut Store,
     results: &'store mut [WasmValue],
     root_type: TypeAddr,
+    #[cfg(feature = "diagnostics")]
+    debug_snapshot: crate::diagnostics::DebugSnapshot,
     state: State,
 }
 
@@ -64,6 +66,10 @@ impl Function {
         let state = {
             let mut store = store.enter_execution()?;
             store.call_stack.clear();
+            #[cfg(feature = "diagnostics")]
+            {
+                store.debug_snapshot = crate::diagnostics::DebugSnapshot::default();
+            }
             store.value_stack.clear();
             (|| -> Result<State> {
                 if store.code.funcs.is_host(self.addr()) {
@@ -77,11 +83,24 @@ impl Function {
             })()
             .inspect_err(|_| store.value_stack.clear())?
         };
-        Ok(HostExecution { store, results, root_type, state })
+        Ok(HostExecution {
+            store,
+            results,
+            root_type,
+            state,
+            #[cfg(feature = "diagnostics")]
+            debug_snapshot: crate::diagnostics::DebugSnapshot::default(),
+        })
     }
 }
 
 impl<'store> HostExecution<'store> {
+    /// Last fault or host-boundary snapshot, copied before stack teardown.
+    #[cfg(feature = "diagnostics")]
+    pub fn debug_snapshot(&self) -> crate::diagnostics::DebugSnapshot {
+        self.debug_snapshot
+    }
+
     /// Runs until completion, fuel exhaustion, or the next host call.
     ///
     /// A pending host call is returned again without executing guest code or invoking a callback.
@@ -135,6 +154,10 @@ impl<'store> HostExecution<'store> {
                 let mut executor = Executor::new(&mut store, call.caller, 0, Budget::Fuel);
                 if call.tail { executor.return_from_host() } else { executor.run() }
             })();
+        }
+        #[cfg(feature = "diagnostics")]
+        {
+            self.debug_snapshot = self.store.debug_snapshot();
         }
         self.accept_outcome(outcome).inspect_err(|_| self.finish())
     }

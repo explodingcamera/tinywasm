@@ -211,7 +211,16 @@ impl ModuleInstance {
         let id = store.next_module_instance_id();
         let mut addrs = crate::imports::ResolvedImports::new(store, module, &type_addrs, imports)?;
         let imported_funcs = addrs.funcs.len();
-        addrs.funcs.extend(store.init_funcs(&module.funcs, id, &module.func_type_idxs[imported_funcs..], &type_addrs));
+        #[cfg(feature = "diagnostics")]
+        let debug_first_index = imported_funcs as u32;
+        addrs.funcs.extend(store.init_funcs(
+            &module.funcs,
+            id,
+            #[cfg(feature = "diagnostics")]
+            debug_first_index,
+            &module.func_type_idxs[imported_funcs..],
+            &type_addrs,
+        ));
         addrs.tags.extend(store.init_tags(&module.tags, &type_addrs));
         let limiter = store.engine.config().resource_limiter.clone();
         if !module.skip_local_memory_allocation {

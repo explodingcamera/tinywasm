@@ -420,3 +420,46 @@ fn unselected_imports_use_the_synchronous_stack_path() -> Result<()> {
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     Ok(())
 }
+
+#[cfg(feature = "diagnostics")]
+#[test]
+fn diagnostics_survive_nested_callbacks_and_guest_exception_unwinding() -> Result<()> {
+    let mut store = Store::default();
+    let bytes = wat::parse_str(
+        r#"(module
+      (import "env" "wait" (func $wait (param i32) (result i32)))
+      (tag $failure)
+      (func $leaf i32.const 20 call $wait drop throw $failure)
+      (func $middle call $leaf)
+      (func (export "run") call $middle)
+      (func (export "nested") unreachable))"#,
+    )
+    .unwrap();
+    let mut imports = Imports::new();
+    imports.define("env", "wait", HostFunction::from(|_: FuncContext<'_>, v: i32| Ok(v)));
+    let module = tinywasm::parse_bytes(&bytes)?;
+    let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports))?;
+    let function = instance.func_untyped(&store, "run")?;
+    let mut results = [];
+    let mut execution = function.call_resumable_with_host_calls(&mut store, &[], &mut results)?;
+    assert_eq!(execution.resume_with_fuel(100)?, HostExecProgress::HostCall);
+    let before = execution.debug_snapshot();
+    assert_eq!(before.count, 3);
+    for frame in &before.frames[..3] {
+        assert_eq!(frame.flags, 1);
+        assert_eq!(bytes[frame.offset as usize], 0x10); // actual call opcode, not an IR offset
+    }
+    execution.host_call().unwrap().with_context(|mut context| {
+        let nested = context.module().func::<(), ()>(context.store(), "nested")?;
+        assert!(context.call(&nested, ()).is_err());
+        Ok(())
+    })?;
+    assert_eq!(execution.debug_snapshot().frames[0].offset, before.frames[0].offset);
+    execution.host_call().unwrap().complete(&[WasmValue::I32(1)])?;
+    assert!(matches!(execution.resume_with_fuel(100), Err(Error::Exception(_))));
+    let fault = execution.debug_snapshot();
+    assert_eq!(fault.count, 3);
+    assert_eq!(bytes[fault.frames[0].offset as usize], 0x08); // throw, captured before unwinding
+    assert_eq!(fault.frames[0].function, 1);
+    Ok(())
+}

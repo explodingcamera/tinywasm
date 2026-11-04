@@ -78,6 +78,8 @@ pub(crate) struct HostCall {
 /// Active Wasm execution, borrowing code and mutable state while owning its value stack.
 pub(crate) struct Executor<'store> {
     cf: CallFrame,
+    #[cfg(feature = "diagnostics")]
+    debug_snapshot: &'store mut crate::diagnostics::DebugSnapshot,
     func: &'store WasmFunction,
     module: &'store ModuleInstance,
     code: &'store Code,
@@ -103,6 +105,8 @@ impl<'store> Executor<'store> {
         Self {
             module,
             cf,
+            #[cfg(feature = "diagnostics")]
+            debug_snapshot: &mut store.debug_snapshot,
             func: &wasm_func.func,
             code: &store.code,
             state: &mut store.state,
@@ -548,6 +552,8 @@ impl<'store> Executor<'store> {
     }
 
     fn throw_exception(&mut self, exception: ValueRef, protected_ip: usize) -> ExecResult<ExecFlow> {
+        #[cfg(feature = "diagnostics")]
+        self.debug_snapshot.capture(self.code, self.call_stack, self.cf, protected_ip);
         match self.dispatch_exception(exception, protected_ip)? {
             Some(flow) => Ok(flow),
             None => {
@@ -632,6 +638,8 @@ impl<'store> Executor<'store> {
         if !self.code.funcs.is_host(func_addr) {
             return self.exec_call_wasm::<TAIL>(func_addr, return_instr_ptr);
         }
+        #[cfg(feature = "diagnostics")]
+        self.debug_snapshot.capture(self.code, self.call_stack, self.cf, return_instr_ptr.saturating_sub(1));
         let mut caller = self.cf;
         caller.instr_ptr = return_instr_ptr;
         self.outcome = ExecOutcome::Host(HostCall { func: func_addr, module: self.module.id(), caller, tail: TAIL });

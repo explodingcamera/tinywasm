@@ -23,6 +23,12 @@ pub struct wasm_ext_call_t {
     state: Rc<StoreState>,
     pending: Option<Rc<Host>>,
     status: i32,
+    #[cfg(feature = "diagnostics")]
+    observer: Option<unsafe extern "C" fn(*mut c_void, u32, *const tinywasm::diagnostics::DebugSnapshot)>,
+    #[cfg(feature = "diagnostics")]
+    debug_env: *mut c_void,
+    #[cfg(feature = "diagnostics")]
+    started: bool,
 }
 fn numeric(ty: &tinywasm::types::FuncType) -> bool {
     ty.results().len() <= 1
@@ -75,7 +81,10 @@ export! { pub unsafe extern "C" fn wasm_ext_call_new(func: *const wasm_func_t, a
         Ok((args, count))
     });
     let Ok((args, count)) = prepared else { return ptr::null_mut(); };
-    let mut call = Box::new(wasm_ext_call_t { execution: None, values: vec![WasmValue::I32(0);count].into_boxed_slice(), result_count: count, state, pending: None, status: 1 });
+    let mut call = Box::new(wasm_ext_call_t { execution: None, values: vec![WasmValue::I32(0);count].into_boxed_slice(), result_count: count, state, pending: None, status: 1,
+        #[cfg(feature = "diagnostics")] observer: None,
+        #[cfg(feature = "diagnostics")] debug_env: ptr::null_mut(),
+        #[cfg(feature = "diagnostics")] started: false });
     call.state.ext_reserved.set(true);
     // SAFETY: reservation excludes all idle C access; Rc pins the Store. Box pins results.
     // The execution is dropped before either backing object and before releasing reservation.
@@ -88,7 +97,23 @@ export! { pub unsafe extern "C" fn wasm_ext_call_new(func: *const wasm_func_t, a
     }
 }}
 impl wasm_ext_call_t {
+    #[cfg(feature = "diagnostics")]
+    fn debug_event(&self, event: u32) {
+        if let Some(observer) = self.observer {
+            let snapshot = if event == 1 || event == 7 {
+                tinywasm::diagnostics::DebugSnapshot::default()
+            } else {
+                self.execution.as_ref().unwrap().debug_snapshot()
+            };
+            unsafe {
+                observer(self.debug_env, event, &snapshot);
+            }
+        }
+    }
+
     fn finish(&mut self, status: i32) {
+        #[cfg(feature = "diagnostics")]
+        self.state.debug_observer.set(None);
         self.execution.take();
         self.state.ext_reserved.set(false);
         self.status = status;
@@ -97,6 +122,8 @@ impl wasm_ext_call_t {
         if self.execution.is_none() {
             return;
         }
+        #[cfg(feature = "diagnostics")]
+        self.debug_event(6);
         self.status = 2;
         if let Some(host) = self.pending.take()
             && let Some(cancel) = host.cancel
@@ -133,6 +160,8 @@ export! { pub unsafe extern "C" fn wasm_ext_call_resume(call: *mut wasm_ext_call
         if host_call.complete(&input).is_err() { return -1; }
         call.pending = None;
     } else if !completion.is_null() { return -1; }
+    #[cfg(feature = "diagnostics")]
+    { call.debug_event(if call.started { 4 } else { 1 }); call.started = true; }
     let state = call.state.clone();
     let mut last = None;
     loop {
@@ -145,6 +174,7 @@ export! { pub unsafe extern "C" fn wasm_ext_call_resume(call: *mut wasm_ext_call
         match progress {
             Ok(HostExecProgress::Suspended) => continue,
             Ok(HostExecProgress::Completed) => {
+                #[cfg(feature = "diagnostics")] call.debug_event(7);
                 call.execution.take(); // End the exclusive result-buffer borrow before reading it.
                 // Numeric v1 results need no store lookup or reference allocation.
                 for (i,v) in call.values.iter().enumerate() {
@@ -153,7 +183,7 @@ export! { pub unsafe extern "C" fn wasm_ext_call_resume(call: *mut wasm_ext_call
                 }
                 call.finish(0); return 0;
             }
-            Err(error) => { unsafe { *out_trap = call.state.trap.borrow_mut().take().map_or_else(|| trap(&call.state,error.to_string()), |object| crate::boxed(wasm_ref_t(object))); } call.finish(-1); return -1; }
+            Err(error) => { #[cfg(feature = "diagnostics")] call.debug_event(5); unsafe { *out_trap = call.state.trap.borrow_mut().take().map_or_else(|| trap(&call.state,error.to_string()), |object| crate::boxed(wasm_ref_t(object))); } call.finish(-1); return -1; }
             Ok(HostExecProgress::HostCall) => {
                 let mut request = call.execution.as_mut().unwrap().host_call().unwrap();
                 let reference = request.function().as_func_ref(request.store()).unwrap();
@@ -171,14 +201,19 @@ export! { pub unsafe extern "C" fn wasm_ext_call_resume(call: *mut wasm_ext_call
                 if out.data!=data || out.size!=count { std::process::abort(); }
                 // Callback owns neither vector; modifications to ownership are C contract violations.
 
-                if status==1 && trapped.is_null() { call.pending=Some(host); return 1; }
-                if status!=0 || !trapped.is_null() { unsafe{*out_trap=trapped;} call.finish(-1); return -1; }
+                if status==1 && trapped.is_null() { call.pending=Some(host);
+                    #[cfg(feature = "diagnostics")] call.debug_event(3);
+                    return 1; }
+                if status!=0 || !trapped.is_null() {
+                    #[cfg(feature = "diagnostics")] call.debug_event(5);
+                    unsafe{*out_trap=trapped;} call.finish(-1); return -1; }
                 if !unsafe { out.as_slice() }.iter().zip(ty.results()).all(|(v,t)|Some(v.kind)==crate::types::value_kind(*t)) {
+                    #[cfg(feature = "diagnostics")] call.debug_event(5);
                     unsafe { *out_trap = trap(&call.state,"host result type mismatch"); }
                     call.finish(-1); return -1;
                 }
                 let values=request.with_context(|mut ctx|unsafe{out.as_slice()}.iter().map(|v|unsafe{v.to_runtime(&state,ctx.store_mut())}).collect::<tinywasm::Result<Vec<_>>>());
-                if values.and_then(|v|request.complete(&v)).is_err() { call.finish(-1); return -1; }
+                if values.and_then(|v|request.complete(&v)).is_err() { #[cfg(feature = "diagnostics")] call.debug_event(5); call.finish(-1); return -1; }
             }
         }
     }
@@ -206,6 +241,55 @@ mod tests {
     unsafe extern "C" fn cancel(env: *mut c_void) {
         let counts = unsafe { &*env.cast::<Counts>() };
         counts.cancels.set(counts.cancels.get() + 1);
+    }
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn observer_copies_and_async_failure_release_the_store() {
+        use std::cell::RefCell;
+        unsafe extern "C" fn observe(
+            env: *mut c_void,
+            event: u32,
+            snapshot: *const tinywasm::diagnostics::DebugSnapshot,
+        ) {
+            let events = unsafe { &*env.cast::<RefCell<Vec<(u32, tinywasm::diagnostics::DebugSnapshot)>>>() };
+            events.borrow_mut().push((event, unsafe { *snapshot }));
+        }
+        let events = RefCell::new(Vec::<(u32, tinywasm::diagnostics::DebugSnapshot)>::new());
+        let counts = Counts { calls: Cell::new(0), cancels: Cell::new(0) };
+        unsafe {
+            let engine = wasm_engine_new();
+            let store = wasm_store_new(engine);
+            let mut params = Vector::from_vec(vec![wasm_valtype_new(0)]);
+            let mut results = params.clone();
+            let ty = wasm_functype_new(&mut params, &mut results);
+            let host =
+                wasm_ext_func_new(store, ty, Some(pending), (&counts as *const Counts).cast_mut().cast(), Some(cancel));
+            wasm_functype_delete(ty);
+            let args = Vector::from_vec(vec![wasm_val_t { kind: 0, of: wasm_val_union { i32: 20 } }]);
+            let mut out = Vector::from_vec(vec![wasm_val_t::default()]);
+            let call = wasm_ext_call_new(host, &args);
+            assert!(wasm_ext_call_observe(call, Some(observe), (&events as *const RefCell<_>).cast_mut().cast()));
+            let mut error = ptr::null_mut();
+            assert_eq!(wasm_ext_call_resume(call, ptr::null(), &mut out, &mut error), 1);
+            assert!(!wasm_ext_call_observe(call, None, ptr::null_mut()));
+            let message = Vector::from_vec(b"async operation failed".to_vec());
+            assert_eq!(wasm_ext_call_fail(call, &message, &mut error), -1);
+            assert!(!error.is_null());
+            wasm_trap_delete(error);
+            assert_eq!(wasm_ext_call_fail(call, &message, &mut error), -1);
+            assert!(error.is_null());
+            assert!((&(*store).0).debug_observer.get().is_none());
+            wasm_ext_call_delete(call);
+            assert_eq!(counts.cancels.get(), 0);
+            let events = events.borrow();
+            assert_eq!(events.iter().map(|x| x.0).collect::<Vec<_>>(), [1, 2, 3, 8]);
+            assert!(
+                events.iter().all(|(_, snapshot)| snapshot.version == 1 && snapshot.size == 528 && snapshot.count == 0)
+            );
+            wasm_func_delete(host);
+            wasm_store_delete(store);
+            wasm_engine_delete(engine);
+        }
     }
     #[test]
     fn owned_execution_releases_borrows_before_results_and_cancel() {
@@ -352,3 +436,25 @@ mod tests {
         }
     }
 }
+
+#[cfg(feature = "diagnostics")]
+export! { pub unsafe extern "C" fn wasm_ext_call_observe(call: *mut wasm_ext_call_t,
+    observer: Option<unsafe extern "C" fn(*mut c_void, u32, *const tinywasm::diagnostics::DebugSnapshot)>, env: *mut c_void) -> bool {
+    let Some(call) = (unsafe { call.as_mut() }) else { return false; };
+    if call.started || call.execution.is_none() { return false; }
+    call.observer = observer; call.debug_env = env;
+    call.state.debug_observer.set(observer.map(|callback| (callback, env))); true
+}}
+export! { pub unsafe extern "C" fn wasm_ext_call_fail(call: *mut wasm_ext_call_t,
+    message: *const wasm_byte_vec_t, out_trap: *mut *mut wasm_trap_t) -> i32 {
+    if out_trap.is_null() { return -1; }
+    unsafe { *out_trap = ptr::null_mut(); }
+    let Some(call) = (unsafe { call.as_mut() }) else { return -1; };
+    if call.execution.is_none() || call.pending.is_none() || message.is_null()
+        || unsafe { (*message).size != 0 && (*message).data.is_null() } { return -1; }
+    // The operation has failed, not been cancelled. Preserve its await-site snapshot.
+    unsafe { *out_trap = crate::objects::wasm_trap_new(
+        &mut wasm_store_t(call.state.clone()), message); }
+    #[cfg(feature = "diagnostics")] call.debug_event(8);
+    call.pending = None; call.finish(-1); -1
+}}

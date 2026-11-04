@@ -310,9 +310,8 @@ export! { pub unsafe extern "C" fn wasm_trap_message(value: *const wasm_trap_t, 
     unsafe { out.write(Vector::from_vec(message.clone())) };
 }}
 
-// TinyWasm currently has no public source-frame capture. The standard permits
-// an unavailable origin and an empty trace. Frame accessors are provided for ABI
-// completeness, but this implementation does not create frame objects yet.
+// Standard trap objects remain message-only. Optional bounded source snapshots
+// are delivered separately by wasm_ext_call_observe, before stack teardown.
 #[derive(Clone)]
 pub struct wasm_frame_t {
     instance: wasm_instance_t,

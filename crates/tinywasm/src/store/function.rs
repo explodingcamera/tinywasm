@@ -15,6 +15,8 @@ pub(crate) struct WasmFunctionInstance {
     pub(crate) type_addr: TypeAddr,
     pub(crate) func: Shared<WasmFunction>,
     pub(crate) owner: ModuleInstanceId,
+    #[cfg(feature = "diagnostics")]
+    pub(crate) debug_index: u32,
 }
 
 #[derive(Default)]
@@ -42,12 +44,21 @@ impl Functions {
         &mut self,
         funcs: impl ExactSizeIterator<Item = (TypeAddr, Shared<WasmFunction>)>,
         owner: ModuleInstanceId,
+        #[cfg(feature = "diagnostics")] first_index: u32,
     ) -> Range<FuncAddr> {
         let start = self.wasm.len();
         let end = start.checked_add(funcs.len()).expect("too many Wasm functions");
         assert!(end <= Self::HOST_TAG as usize, "too many Wasm functions");
         self.wasm.reserve_exact(funcs.len());
+        #[cfg(not(feature = "diagnostics"))]
         self.wasm.extend(funcs.map(|(type_addr, func)| WasmFunctionInstance { type_addr, func, owner }));
+        #[cfg(feature = "diagnostics")]
+        self.wasm.extend(funcs.enumerate().map(|(index, (type_addr, func))| WasmFunctionInstance {
+            type_addr,
+            func,
+            owner,
+            debug_index: first_index + index as u32,
+        }));
         start as FuncAddr..end as FuncAddr
     }
 

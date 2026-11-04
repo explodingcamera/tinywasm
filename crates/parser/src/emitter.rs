@@ -11,13 +11,24 @@ const LOOKBEHIND: usize = 3;
 /// Restricted vector view, with no readable or mutable access to the committed prefix.
 pub(crate) struct PendingTail<'a> {
     instructions: &'a mut Vec<Instruction>,
+    #[cfg(feature = "diagnostics")]
+    source_offsets: &'a mut Vec<u32>,
     start: usize,
 }
 
 impl<'a> PendingTail<'a> {
-    fn new(instructions: &'a mut Vec<Instruction>, start: usize) -> Self {
+    fn new(
+        instructions: &'a mut Vec<Instruction>,
+        start: usize,
+        #[cfg(feature = "diagnostics")] source_offsets: &'a mut Vec<u32>,
+    ) -> Self {
         assert!(start < instructions.len() && instructions.len() - start <= LOOKBEHIND + 1);
-        Self { instructions, start }
+        Self {
+            instructions,
+            start,
+            #[cfg(feature = "diagnostics")]
+            source_offsets,
+        }
     }
 
     /// Copies at most four pending instructions, including the incoming instruction.
@@ -38,6 +49,14 @@ impl<'a> PendingTail<'a> {
         let start = pending.len().checked_sub(N).expect("replacement exceeds pending tail");
         pending[start..start + M].copy_from_slice(&replacements);
         self.instructions.truncate(self.start + start + M);
+        #[cfg(feature = "diagnostics")]
+        {
+            // A fused instruction is attributed to the final operation (e.g. load),
+            // not an earlier operand producer. Call boundaries are never fused.
+            let offset = *self.source_offsets.last().unwrap();
+            self.source_offsets.truncate(self.start + start + M);
+            self.source_offsets[self.start + start..].fill(offset);
+        }
     }
 }
 
@@ -55,6 +74,10 @@ enum PatchSite {
 
 /// Owns one instruction vector with an immutable prefix and at most three pending instructions.
 pub(crate) struct Emitter {
+    #[cfg(feature = "diagnostics")]
+    pub(crate) source_offset: u32,
+    #[cfg(feature = "diagnostics")]
+    source_offsets: Vec<u32>,
     instructions: Vec<Instruction>,
     committed: usize,
     checkpoint_start: usize,
@@ -80,6 +103,10 @@ impl Emitter {
         };
         Self {
             instructions: Vec::with_capacity(body_size.min(1024)),
+            #[cfg(feature = "diagnostics")]
+            source_offset: 0,
+            #[cfg(feature = "diagnostics")]
+            source_offsets: Vec::new(),
             committed: 0,
             checkpoint_start: 0,
             checkpoint_interval: options.checkpoint_interval(),
@@ -113,6 +140,8 @@ impl Emitter {
             debug_assert!(matches!(self.instructions.last(), Some(Instruction::Jump(_))));
             self.pending_jump = None;
             self.instructions.pop();
+            #[cfg(feature = "diagnostics")]
+            self.source_offsets.pop();
         }
         self.seal_jump();
         self.commit(self.instructions.len());
@@ -160,10 +189,14 @@ impl Emitter {
             // This permits at most LOOKBEHIND extra guest instructions per interval. Labels bound
             // at this boundary target the checkpoint, and exclusive exception ends exclude it.
             self.instructions.push(Instruction::Checkpoint);
+            #[cfg(feature = "diagnostics")]
+            self.source_offsets.push(self.source_offset);
             self.commit(self.instructions.len());
             self.checkpoint_start = self.instructions.len();
         }
         self.instructions.push(instruction);
+        #[cfg(feature = "diagnostics")]
+        self.source_offsets.push(self.source_offset);
         Ok(())
     }
 
@@ -184,7 +217,15 @@ impl Emitter {
     ) -> Result<()> {
         self.push(instruction)?;
         if self.select {
-            rules(&mut PendingTail::new(&mut self.instructions, self.committed), data)?;
+            rules(
+                &mut PendingTail::new(
+                    &mut self.instructions,
+                    self.committed,
+                    #[cfg(feature = "diagnostics")]
+                    &mut self.source_offsets,
+                ),
+                data,
+            )?;
         }
         self.commit(self.instructions.len().saturating_sub(LOOKBEHIND).max(self.committed));
         Ok(())
@@ -321,6 +362,10 @@ impl Emitter {
             if handler.start_ip > handler.end_ip || handler.end_ip as usize > self.instructions.len() {
                 return Err(ParseError::Other("exception handler range out of bounds".into()));
             }
+        }
+        #[cfg(feature = "diagnostics")]
+        {
+            data.source_offsets = self.source_offsets;
         }
         Ok(self.instructions)
     }

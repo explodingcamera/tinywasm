@@ -19,6 +19,8 @@ wasmparser = { workspace = true, features = ["simd"] }
 wat.workspace = true
 
 [features]
+# Optional bounded diagnostic snapshots and original Wasm source offsets.
+diagnostics = ["tinywasm-types/diagnostics"]
 default = ["log", "parallel", "std", "validate"]
 
 # enable integration with the log crate

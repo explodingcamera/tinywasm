@@ -11,6 +11,11 @@ pub(crate) struct CallStack {
 }
 
 impl CallStack {
+    #[cfg(feature = "diagnostics")]
+    pub(crate) fn debug_frames(&self) -> impl Iterator<Item = &CallFrame> {
+        self.stack.iter().rev()
+    }
+
     pub(crate) fn new(config: &crate::engine::Config) -> Self {
         let stack = config.call_stack;
         Self { stack: Vec::with_capacity(stack.initial_size), max_size: stack.max_size, dynamic: stack.dynamic }
