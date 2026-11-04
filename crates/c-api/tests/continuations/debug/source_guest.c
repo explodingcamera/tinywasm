@@ -1,5 +1,5 @@
-/* Copyright (C) 2026 Matt Hargett. SPDX-License-Identifier: Apache-2.0 WITH
- * LLVM-exception */
+/* Copyright (C) 2026 Matt Hargett. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception */
 __attribute__((import_module("example:native"), import_name("call"))) int
 native_call(int);
 __attribute__((noinline)) int
