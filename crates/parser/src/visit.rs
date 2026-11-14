@@ -437,6 +437,9 @@ impl<'a> VisitOperator<'a> for ValidateThenVisit<'_, '_> {
     type Output = Result<()>;
 
     #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
+    wasmparser::for_each_operator!(visit_all_operators);
+
+    #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
     wasmparser::for_each_visit_operator!(validate_then_visit);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Result<()>>> {
@@ -560,6 +563,9 @@ pub(crate) fn process_operators_and_validate(
 
 impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     type Output = Result<()>;
+
+    #[cfg(not(rust_analyzer))] // rust analyzer gets confused and throws a bunch of errors when this macro is expanded
+    wasmparser::for_each_operator!(visit_all_operators);
 
     fn simd_visitor(&mut self) -> Option<&mut dyn VisitSimdOperator<'a, Output = Result<()>>> {
         Some(self)

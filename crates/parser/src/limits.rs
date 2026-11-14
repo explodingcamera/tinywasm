@@ -293,7 +293,7 @@ mod tests {
     fn limits_match_for_serial_and_parallel_lowering() {
         let mut source = String::from("(module");
         for _ in 0..9 {
-            source.push_str("(func ");
+            source.push_str("(func v128.const i32x4 1 2 3 4 v128.not drop ");
             source.push_str(&"nop ".repeat(2048));
             source.push(')');
         }
@@ -306,10 +306,17 @@ mod tests {
             .with_max_function_locals(0)
             .with_max_br_table_targets(0)
             .with_max_array_new_fixed_elements(0);
-        for threads in [1, 4] {
-            let parser = Parser::new(ParserOptions::new().with_limits(limits).with_threads(threads));
-            assert!(parser.parse_module_bytes(&wasm).is_ok());
-            assert!(parser.parse_module_stream(Cursor::new(&wasm)).is_ok());
+        for validation in [false, true] {
+            if validation && !cfg!(feature = "validate") {
+                continue;
+            }
+            for threads in [1, 4] {
+                let parser = Parser::new(
+                    ParserOptions::new().with_limits(limits).with_threads(threads).with_validation(validation),
+                );
+                assert!(parser.parse_module_bytes(&wasm).is_ok());
+                assert!(parser.parse_module_stream(Cursor::new(&wasm)).is_ok());
+            }
         }
 
         let mut oversized = String::from("(module");

@@ -13,6 +13,18 @@ macro_rules! error_message {
 pub(crate) use error_message;
 
 pub(crate) mod visit {
+    // Both visitors implement SIMD, so avoid the default visitor's dynamic SIMD fallback.
+    macro_rules! visit_all_operators {
+        ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
+            fn visit_operator(&mut self, operator: &wasmparser::Operator<'a>) -> Self::Output {
+                match operator {
+                    $(wasmparser::Operator::$op $({ $($arg),* })? => self.$visit($($($arg.clone()),*)?),)*
+                    _ => Err(crate::ParseError::UnsupportedOperator("unknown operator")),
+                }
+            }
+        };
+    }
+
     // Rule families are chosen at the call site, not by matching the emitted opcode.
     // Unary instruction operands are evaluated once and passed after family arguments.
     macro_rules! emit_selected {
@@ -248,7 +260,7 @@ pub(crate) mod visit {
         };
     }
 
-    pub(crate) use {emit_selected, impl_visit_operator, lowering_ops};
+    pub(crate) use {emit_selected, impl_visit_operator, lowering_ops, visit_all_operators};
     #[cfg(feature = "validate")]
     pub(crate) use {validate_then_visit, validate_then_visit_simd};
 }
