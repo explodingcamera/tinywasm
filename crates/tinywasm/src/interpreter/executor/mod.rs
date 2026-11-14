@@ -112,6 +112,16 @@ impl<'store> Executor<'store> {
         if idx == 0 { self.mem0 } else { self.module.resolve_mem_addr(idx) }
     }
 
+    #[inline(always)]
+    fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
+        self.func.data.operands64.get(index.index()).copied().unwrap_invariant().cast()
+    }
+
+    #[inline(always)]
+    fn operand128<T>(&self, index: Operand128Idx<T>) -> Operand128<T> {
+        self.func.data.operands128.get(index.index()).copied().unwrap_invariant().cast()
+    }
+
     /// Returns the borrowed instruction stream independently of the executor's mutable fields.
     #[inline(always)]
     fn instructions(&self) -> &'store [Instruction] {
@@ -156,19 +166,19 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_jump_cmp_stack_const32(&mut self, packed: PackedOp64<CmpOp, (u32, i32)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand64(packed.index);
         packed.op.cmp(i32::stack_pop(&mut self.value_stack), operand.b()).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_jump_cmp_stack_const64(&mut self, packed: PackedOp128<CmpOp, (u32, i64)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         packed.op.cmp(i64::stack_pop(&mut self.value_stack), operand.b()).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_jump_cmp_stack_local32(&mut self, packed: PackedOp64<CmpOp, (u32, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand64(packed.index);
         let lhs = i32::stack_pop(&mut self.value_stack);
         let rhs = i32::local_get(&self.value_stack, &self.cf, operand.b());
         packed.op.cmp(lhs, rhs).then_some(operand.target() as usize)
@@ -176,7 +186,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_jump_cmp_stack_local64(&mut self, packed: PackedOp64<CmpOp, (u32, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand64(packed.index);
         let lhs = i64::stack_pop(&mut self.value_stack);
         let rhs = i64::local_get(&self.value_stack, &self.cf, operand.b());
         packed.op.cmp(lhs, rhs).then_some(operand.target() as usize)
@@ -184,7 +194,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_binop_local_const_jump(&mut self, packed: PackedOp128<BinOp, LocalUpdateOperand>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let value = i32::local_update(&mut self.value_stack, &self.cf, operand.local(), |value| {
             packed.op.exec(value as u32, operand.value() as u32) as i32
         });
@@ -196,7 +206,7 @@ impl<'store> Executor<'store> {
         &mut self,
         packed: PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>,
     ) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let lhs = i32::local_update(&mut self.value_stack, &self.cf, operand.local(), |value| {
             packed.op.0.exec(value as u32, operand.value() as u32) as i32
         });
@@ -209,7 +219,7 @@ impl<'store> Executor<'store> {
         &mut self,
         packed: PackedOp128<BinOp, LocalUpdateOperand>,
     ) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let value =
             i32::stack_update(&mut self.value_stack, |lhs| packed.op.exec(lhs as u32, operand.value() as u32) as i32);
         i32::local_set(&mut self.value_stack, &self.cf, operand.local(), value);
@@ -218,7 +228,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_binop_global_const_jump(&mut self, packed: PackedOp128<BinOp, GlobalUpdateOperand>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let global = self.module.resolve_global_addr(operand.global());
         let value = i32::global_update(&mut self.state.globals, global, |value| {
             packed.op.exec(value as u32, operand.value() as u32) as i32
@@ -228,7 +238,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_inc_local_jump(&mut self, index: Operand128Idx<LocalUpdateOperand>) -> Option<usize> {
-        let operand = index.resolve(&self.func.data);
+        let operand = self.operand128(index);
         let value = i32::local_update(&mut self.value_stack, &self.cf, operand.local(), |value| {
             value.wrapping_add(operand.value())
         });
@@ -237,7 +247,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_inc_stack_tee_local_jump(&mut self, index: Operand128Idx<LocalUpdateOperand>) -> Option<usize> {
-        let operand = index.resolve(&self.func.data);
+        let operand = self.operand128(index);
         let value = i32::stack_update(&mut self.value_stack, |value| value.wrapping_add(operand.value()));
         i32::local_set(&mut self.value_stack, &self.cf, operand.local(), value);
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
@@ -245,7 +255,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_inc_global_jump(&mut self, index: Operand128Idx<GlobalUpdateOperand>) -> Option<usize> {
-        let operand = index.resolve(&self.func.data);
+        let operand = self.operand128(index);
         let global = self.module.resolve_global_addr(operand.global());
         let value = i32::global_update(&mut self.state.globals, global, |value| value.wrapping_add(operand.value()));
         ((value == 0) == operand.on_zero()).then_some(operand.target() as usize)
@@ -253,7 +263,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_inc_local_jump_cmp_local(&mut self, packed: PackedOp128<CmpOp, LocalUpdateCmpOperand>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let lhs = i32::local_update(&mut self.value_stack, &self.cf, operand.local(), |value| {
             value.wrapping_add(operand.value())
         });
@@ -263,21 +273,21 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_jump_cmp_local_const32(&self, packed: PackedOp128<CmpOp, (u32, i32, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let lhs = i32::local_get(&self.value_stack, &self.cf, operand.c());
         packed.op.cmp(lhs, operand.b()).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_jump_cmp_local_const64(&self, packed: PackedOp128<CmpOp, (u32, i32, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand128(packed.index);
         let lhs = i64::local_get(&self.value_stack, &self.cf, operand.c());
         packed.op.cmp(lhs, i64::from(operand.b())).then_some(operand.target() as usize)
     }
 
     #[inline(always)]
     fn exec_jump_cmp_local_local32(&self, packed: PackedOp64<CmpOp, (u32, u16, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand64(packed.index);
         let lhs = i32::local_get(&self.value_stack, &self.cf, operand.b());
         let rhs = i32::local_get(&self.value_stack, &self.cf, operand.c());
         packed.op.cmp(lhs, rhs).then_some(operand.target() as usize)
@@ -285,7 +295,7 @@ impl<'store> Executor<'store> {
 
     #[inline(always)]
     fn exec_jump_cmp_local_local64(&self, packed: PackedOp64<CmpOp, (u32, u16, u16)>) -> Option<usize> {
-        let operand = packed.index.resolve(&self.func.data);
+        let operand = self.operand64(packed.index);
         let lhs = i64::local_get(&self.value_stack, &self.cf, operand.b());
         let rhs = i64::local_get(&self.value_stack, &self.cf, operand.c());
         packed.op.cmp(lhs, rhs).then_some(operand.target() as usize)
@@ -488,7 +498,7 @@ impl<'store> Executor<'store> {
     }
 
     fn exec_branch_table(&mut self, index: Operand128Idx<BranchTableOperand>) -> usize {
-        let v = index.resolve(&self.func.data);
+        let v = self.operand128(index);
         let idx = <i32>::stack_pop(&mut self.value_stack);
         let target_ip = if idx >= 0 && (idx as u32) < v.size() {
             self.func.data.branch_table_targets.get((v.start() + idx as u32) as usize).copied().unwrap_or(v.target())
@@ -785,7 +795,7 @@ impl<'store> Executor<'store> {
         addr_local: u8,
         value_local: u8,
     ) -> Result<(), Trap> {
-        let memarg = index.resolve(&self.func.data);
+        let memarg = self.operand64(index);
         let value = T::local_get(&self.value_stack, &self.cf, u16::from(value_local));
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
@@ -807,7 +817,7 @@ impl<'store> Executor<'store> {
         addr_local: u8,
         increment: impl FnOnce(T) -> T,
     ) -> Result<(), Trap> {
-        let memarg = index.resolve(&self.func.data);
+        let memarg = self.operand64(index);
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
             let base = if kind.arch() == MemoryArch::I64 {
@@ -857,7 +867,7 @@ impl<'store> Executor<'store> {
         dst_local: u8,
         cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
-        let memarg = index.resolve(&self.func.data);
+        let memarg = self.operand64(index);
 
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
