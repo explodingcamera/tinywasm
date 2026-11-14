@@ -177,11 +177,21 @@ impl Function {
             };
             return match host.typed_callback() {
                 Some(callback) => {
-                    store.push_typed_values::<false>(type_addr, params, value_stack_base)?;
-                    callback
-                        .call_stack(store, self.module_id, type_addr)
+                    let arguments = store.push_call_values::<false>(type_addr, params, value_stack_base)?;
+                    let results = callback
+                        .call(store, self.module_id, type_addr, arguments)
                         .inspect_err(|_| store.value_stack.truncate_to_base(value_stack_base))?;
-                    store.take_typed_results(type_addr, value_stack_base)
+                    let result = (|| {
+                        let mut values = store.call_value_iter(
+                            type_addr,
+                            crate::store::FuncValueTypes::Results,
+                            value_stack_base,
+                            results,
+                        )?;
+                        R::from_wasm_values(&mut values)
+                    })();
+                    store.value_stack.truncate_to_base(value_stack_base);
+                    result
                 }
                 None => {
                     let ty = store.state.get_canonical_func_type(type_addr);

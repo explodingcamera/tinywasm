@@ -105,7 +105,7 @@ impl MemoryShared {
             let guard = self.lock();
             let bytes = guard.inner.read_fixed::<N>(addr)?;
             let mut value = [0u8; 8];
-            value[..N].copy_from_slice(&bytes);
+            value[..N].copy_from_slice(bytes);
             if u64::from_le_bytes(value) != expected {
                 return Ok(1);
             }

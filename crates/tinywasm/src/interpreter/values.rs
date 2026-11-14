@@ -2,10 +2,22 @@ use super::num;
 use super::stack::{CallFrame, ValueStack};
 use crate::store::Globals;
 use crate::{Error, Result, Store, WasmValue, interpreter::simd::Value128};
-use tinywasm_types::{BinOp, BinOp128, CmpOp, GlobalAddr, LocalAddr, WasmType};
+use tinywasm_types::{BinOp, CmpOp, FloatCmpOp, GlobalAddr, LocalAddr, WasmType};
 
 pub(crate) type Value32 = u32;
 pub(crate) type Value64 = u64;
+
+/// Raw scalar argument and result tops at call boundaries.
+///
+/// Vector tops remain on the value stack to keep this common call payload small.
+/// Reference bits must be decoded into rooted host values before invoking a callback.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ScalarValues {
+    /// Raw bits of the signature's last 32-bit value, or unused when absent.
+    pub(crate) acc32: u32,
+    /// Raw bits of the signature's last 64-bit value, or unused when absent.
+    pub(crate) acc64: u64,
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 /// Packed internal representation of a WebAssembly reference.
@@ -105,21 +117,24 @@ impl RuntimeValue {
     }
 }
 
-/// Typed access to values in their physical [`ValueStack`] and [`Globals`] lanes.
+/// Access to locals, globals, and materialized stack values.
 pub(crate) trait InternalValue: Copy + Default {
     fn stack_push(stack: &mut ValueStack, value: Self);
     fn stack_pop(stack: &mut ValueStack) -> Self;
     fn stack_peek(stack: &ValueStack) -> Self;
     fn stack_update(stack: &mut ValueStack, f: impl FnOnce(Self) -> Self) -> Self;
-    fn stack_select(stack: &mut ValueStack);
     fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self;
-    fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr);
     fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self);
-    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) -> Self;
     fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr);
     fn global_get(globals: &Globals, addr: GlobalAddr) -> Self;
     fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self);
-    fn global_update(globals: &mut Globals, addr: GlobalAddr, f: impl FnOnce(Self) -> Self) -> Self;
+
+    #[inline(always)]
+    fn local_update(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, f: impl FnOnce(Self) -> Self) -> Self {
+        let value = f(Self::local_get(stack, frame, index));
+        Self::local_set(stack, frame, index, value);
+        value
+    }
 }
 
 macro_rules! impl_internalvalue {
@@ -135,42 +150,23 @@ macro_rules! impl_internalvalue {
                 #[inline(always)]
                 fn local_get(stack: &ValueStack, frame: &CallFrame, index: LocalAddr) -> Self {
                     let $from_stack_v =
-                        *stack.$stack.get(frame.locals_base.$stack_base as usize + index as usize);
+                        *stack.$stack.get_local(frame.locals_base.$stack_base as usize + index as usize);
                     $from_stack
-                }
-
-                #[inline(always)]
-                fn local_push(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr) {
-                    stack.$stack.push_copy(frame.locals_base.$stack_base as usize + index as usize);
                 }
 
                 #[inline(always)]
                 fn local_set(stack: &mut ValueStack, frame: &CallFrame, index: LocalAddr, value: Self) {
                     let $to_stack_v = value;
                     let abs_index = frame.locals_base.$stack_base as usize + index as usize;
-                    stack.$stack.set(abs_index, $to_stack);
-                }
-
-                #[inline(always)]
-                fn local_update(
-                    stack: &mut ValueStack,
-                    frame: &CallFrame,
-                    index: LocalAddr,
-                    f: impl FnOnce(Self) -> Self,
-                ) -> Self {
-                    let abs_index = frame.locals_base.$stack_base as usize + index as usize;
-                    let $from_stack_v = *stack.$stack.get(abs_index);
-                    let value = f($from_stack);
-                    let $to_stack_v = value;
-                    stack.$stack.set(abs_index, $to_stack);
-                    value
+                    stack.$stack.set_local(abs_index, $to_stack);
                 }
 
                 #[inline(always)]
                 fn local_copy(stack: &mut ValueStack, frame: &CallFrame, from: LocalAddr, to: LocalAddr) {
                     let from = frame.locals_base.$stack_base as usize + from as usize;
                     let to = frame.locals_base.$stack_base as usize + to as usize;
-                    stack.$stack.copy(from, to);
+                    let value = *stack.$stack.get_local(from);
+                    stack.$stack.set_local(to, value);
                 }
 
                 #[inline(always)]
@@ -183,15 +179,6 @@ macro_rules! impl_internalvalue {
                 fn global_set(globals: &mut Globals, addr: GlobalAddr, value: Self) {
                     let $to_stack_v = value;
                     globals.$global_set(addr, $to_stack);
-                }
-
-                #[inline(always)]
-                fn global_update(globals: &mut Globals, addr: GlobalAddr, f: impl FnOnce(Self) -> Self) -> Self {
-                    let $from_stack_v = globals.$global_get(addr);
-                    let value = f($from_stack);
-                    let $to_stack_v = value;
-                    globals.$global_set(addr, $to_stack);
-                    value
                 }
 
                 #[inline(always)]
@@ -222,16 +209,6 @@ macro_rules! impl_internalvalue {
                     value
                 }
 
-                #[inline(always)]
-                fn stack_select(stack: &mut ValueStack) {
-                    let cond = stack.stack_32.pop() as i32;
-                    let val2 = stack.$stack.pop();
-
-                    if cond == 0 {
-                        let val1 = stack.$stack.len() - 1;
-                        stack.$stack.set(val1, val2);
-                    }
-                }
             }
         )*
     };
@@ -257,79 +234,69 @@ pub(crate) trait CmpOpExt<T>: Copy {
 }
 
 macro_rules! impl_value_ops {
-    ($unsigned:ty, $signed:ty, $float:ident, $binop:ident, $cmp:ident) => {
+    ($unsigned:ty, $signed:ty, $float:ident) => {
         impl BinOpExt<$unsigned> for BinOp {
             #[inline(always)]
             fn exec(self, lhs: $unsigned, rhs: $unsigned) -> $unsigned {
-                $binop(self, lhs, rhs)
+                match self {
+                    BinOp::IAdd => lhs.wrapping_add(rhs),
+                    BinOp::ISub => lhs.wrapping_sub(rhs),
+                    BinOp::IMul => lhs.wrapping_mul(rhs),
+                    BinOp::IAnd => lhs & rhs,
+                    BinOp::IOr => lhs | rhs,
+                    BinOp::IXor => lhs ^ rhs,
+                    BinOp::IShl => (lhs as $signed).wrapping_shl(rhs as u32) as $unsigned,
+                    BinOp::IShrS => (lhs as $signed).wrapping_shr(rhs as u32) as $unsigned,
+                    BinOp::IShrU => lhs.wrapping_shr(rhs as u32),
+                    BinOp::IRotl => (lhs as $signed).rotate_left(rhs as u32) as $unsigned,
+                    BinOp::IRotr => (lhs as $signed).rotate_right(rhs as u32) as $unsigned,
+                    BinOp::FAdd => (<$float>::from_bits(lhs) + <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FSub => (<$float>::from_bits(lhs) - <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FMul => (<$float>::from_bits(lhs) * <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FDiv => (<$float>::from_bits(lhs) / <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FMin => num::$float::minimum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FMax => num::$float::maximum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
+                    BinOp::FCopysign => <$float>::from_bits(lhs).copysign(<$float>::from_bits(rhs)).to_bits(),
+                }
             }
         }
 
         impl CmpOpExt<$signed> for CmpOp {
             #[inline(always)]
             fn cmp(self, lhs: $signed, rhs: $signed) -> bool {
-                $cmp(self, lhs, rhs)
+                match self {
+                    CmpOp::Eq => lhs == rhs,
+                    CmpOp::Ne => lhs != rhs,
+                    CmpOp::LtS => lhs < rhs,
+                    CmpOp::LtU => (lhs as $unsigned) < (rhs as $unsigned),
+                    CmpOp::GtS => lhs > rhs,
+                    CmpOp::GtU => (lhs as $unsigned) > (rhs as $unsigned),
+                    CmpOp::LeS => lhs <= rhs,
+                    CmpOp::LeU => (lhs as $unsigned) <= (rhs as $unsigned),
+                    CmpOp::GeS => lhs >= rhs,
+                    CmpOp::GeU => (lhs as $unsigned) >= (rhs as $unsigned),
+                }
             }
         }
 
-        #[inline(always)]
-        fn $binop(op: BinOp, lhs: $unsigned, rhs: $unsigned) -> $unsigned {
-            match op {
-                BinOp::IAdd => lhs.wrapping_add(rhs),
-                BinOp::ISub => lhs.wrapping_sub(rhs),
-                BinOp::IMul => lhs.wrapping_mul(rhs),
-                BinOp::IAnd => lhs & rhs,
-                BinOp::IOr => lhs | rhs,
-                BinOp::IXor => lhs ^ rhs,
-                BinOp::IShl => (lhs as $signed).wrapping_shl(rhs as u32) as $unsigned,
-                BinOp::IShrS => (lhs as $signed).wrapping_shr(rhs as u32) as $unsigned,
-                BinOp::IShrU => lhs.wrapping_shr(rhs as u32),
-                BinOp::IRotl => (lhs as $signed).rotate_left(rhs as u32) as $unsigned,
-                BinOp::IRotr => (lhs as $signed).rotate_right(rhs as u32) as $unsigned,
-                BinOp::FAdd => (<$float>::from_bits(lhs) + <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FSub => (<$float>::from_bits(lhs) - <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FMul => (<$float>::from_bits(lhs) * <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FDiv => (<$float>::from_bits(lhs) / <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FMin => num::$float::minimum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FMax => num::$float::maximum(<$float>::from_bits(lhs), <$float>::from_bits(rhs)).to_bits(),
-                BinOp::FCopysign => <$float>::from_bits(lhs).copysign(<$float>::from_bits(rhs)).to_bits(),
-            }
-        }
-
-        #[inline(always)]
-        fn $cmp(op: CmpOp, lhs: $signed, rhs: $signed) -> bool {
-            match op {
-                CmpOp::Eq => lhs == rhs,
-                CmpOp::Ne => lhs != rhs,
-                CmpOp::LtS => lhs < rhs,
-                CmpOp::LtU => (lhs as $unsigned) < (rhs as $unsigned),
-                CmpOp::GtS => lhs > rhs,
-                CmpOp::GtU => (lhs as $unsigned) > (rhs as $unsigned),
-                CmpOp::LeS => lhs <= rhs,
-                CmpOp::LeU => (lhs as $unsigned) <= (rhs as $unsigned),
-                CmpOp::GeS => lhs >= rhs,
-                CmpOp::GeU => (lhs as $unsigned) >= (rhs as $unsigned),
+        impl CmpOpExt<$float> for FloatCmpOp {
+            #[inline(always)]
+            fn cmp(self, lhs: $float, rhs: $float) -> bool {
+                match self {
+                    Self::Eq => lhs == rhs,
+                    Self::Ne => lhs != rhs,
+                    Self::Lt => lhs < rhs,
+                    Self::Gt => lhs > rhs,
+                    Self::Le => lhs <= rhs,
+                    Self::Ge => lhs >= rhs,
+                }
             }
         }
     };
 }
 
-impl_value_ops!(Value32, i32, f32, exec_binop_32, exec_cmp_32);
-impl_value_ops!(Value64, i64, f64, exec_binop_64, exec_cmp_64);
-
-impl BinOpExt<Value128> for BinOp128 {
-    #[inline(always)]
-    fn exec(self, lhs: Value128, rhs: Value128) -> Value128 {
-        match self {
-            BinOp128::And => lhs.v128_and(rhs),
-            BinOp128::AndNot => lhs.v128_andnot(rhs),
-            BinOp128::Or => lhs.v128_or(rhs),
-            BinOp128::Xor => lhs.v128_xor(rhs),
-            BinOp128::I64x2Add => lhs.i64x2_add(rhs),
-            BinOp128::I64x2Mul => lhs.i64x2_mul(rhs),
-        }
-    }
-}
+impl_value_ops!(Value32, i32, f32);
+impl_value_ops!(Value64, i64, f64);
 
 #[cfg(test)]
 mod tests {

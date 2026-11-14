@@ -9,10 +9,11 @@ harness = false
 name = "suite"
 
 [dependencies]
-tinywasm = { workspace = true, features = ["full", "nightly", "std"] }
+tinywasm = { workspace = true, features = ["full", "nightly", "simd-intrinsics", "std"] }
 
 [dev-dependencies]
 criterion.workspace = true
+wat.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,15 @@
+(module
+  (type $mixed (func (param i32 i64 f32 f64) (result i32 i64 f32 f64)))
+  (import "host" "mixed" (func $host (type $mixed)))
+  (import "host" "empty" (func $empty))
+  (table 1 funcref)
+  (elem (i32.const 0) $identity)
+  (export "typed_host" (func $host))
+  (func $identity (export "typed_wasm") (type $mixed)
+    local.get 0 local.get 1 local.get 2 local.get 3)
+  (func (export "host_roundtrip") (type $mixed)
+    local.get 0 local.get 1 local.get 2 local.get 3 call $host)
+  (func (export "indirect") (type $mixed)
+    local.get 0 local.get 1 local.get 2 local.get 3
+    i32.const 0 call_indirect (type $mixed))
+  (func (export "empty") call $empty))

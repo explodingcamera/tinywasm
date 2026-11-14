@@ -1,5 +1,3 @@
-#![allow(unused_macros)]
-
 macro_rules! simd_impl {
     ($(wasm => $wasm:block)? $(x86 => $x86:block)? generic => $generic:block) => {
         cfg_select! {
@@ -192,3 +190,8 @@ macro_rules! impl_lane_accessors {
         )*
     };
 }
+
+pub(super) use {
+    impl_lane_accessors, impl_simd_methods, lane_read, lane_write, simd_abs_const, simd_avgr_u, simd_binop,
+    simd_cmp_mask, simd_extend_cast, simd_extmul, simd_impl, simd_minmax, simd_neg, simd_shift,
+};

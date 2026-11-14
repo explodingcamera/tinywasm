@@ -52,10 +52,11 @@ impl InterpreterRuntime {
             let host = store.code.funcs.host(call.func);
             let type_addr = host.type_addr;
             let host_func = host.func.clone();
-            host_func.call_stack(store, call.module, type_addr)?;
+            // Decode scalar references into rooted arguments before entering user code.
+            let results = host_func.call(store, call.module, type_addr, call.arguments)?;
             outcome = {
                 let mut executor = Executor::new(store, call.caller, call_stack_base, budget);
-                if call.tail { executor.return_from_host() } else { executor.run() }
+                executor.resume_host(results, call.tail)
             }?;
         }
     }

@@ -2,7 +2,7 @@ use crate::{
     IndexKind, ParseLimitKind, ParserOptions, Result, TypeKind,
     conversion::{FunctionLoweringContext, convert_heap_type, value_lane},
     emitter::{Emitter, LabelId},
-    macros::{error_message, visit::*},
+    macros::visit::*,
 };
 use alloc::{
     boxed::Box,
@@ -10,9 +10,9 @@ use alloc::{
     vec::Vec,
 };
 use tinywasm_types::{
-    AtomicWaitOp, BinOp, BinOp128, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, MemoryOperand,
-    MemoryType, Operand64, Operand64Idx, Operand128, Operand128Idx, StorageType, TableDefinition, TagType, TypeSection,
-    ValueCounts, ValueLane, WasmFunctionData,
+    AtomicWaitOp, BinOp, CmpOp, ExceptionHandler, Global, Import, ImportKind, Instruction, InstructionEffects,
+    InstructionValueEffect, LocalDestination, MemoryOperand, MemoryType, Operand64, Operand64Idx, Operand128,
+    Operand128Idx, StorageType, TableDefinition, TagType, TypeSection, ValueCounts, ValueLane, WasmFunctionData,
 };
 use wasmparser::{FunctionBody, OperatorsReader, OperatorsReaderAllocations, VisitSimdOperator};
 
@@ -98,6 +98,7 @@ pub(crate) struct FunctionDataBuilder {
 }
 
 impl FunctionDataBuilder {
+    /// Creates empty operand pools with optional deduplication.
     pub(crate) fn new(deduplicate_operands: bool) -> Self {
         Self {
             operands64: Vec::new(),
@@ -129,14 +130,47 @@ impl FunctionDataBuilder {
         push_operand(&mut self.operands128, None, operand.cast()).map(Operand128Idx::new)
     }
 
+    /// Reads a packed operand from the 64-bit pool.
     pub(crate) fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
         self.operands64[index.index()].cast()
     }
 
+    /// Reads a packed operand from the 128-bit pool.
     pub(crate) fn operand128<T>(&self, index: Operand128Idx<T>) -> Operand128<T> {
         self.operands128[index.index()].cast()
     }
 
+    /// Resolves an instruction's declared inline or pooled destination local.
+    pub(crate) fn local_destination(&self, destination: LocalDestination) -> u16 {
+        match destination {
+            LocalDestination::Inline(local) => local,
+            LocalDestination::Third64(index) => self.operand64(index).c(),
+            LocalDestination::Second64(index) => self.operand64(index).b(),
+            LocalDestination::Second128(index) => self.operand128(index).b(),
+            LocalDestination::Third128(index) => self.operand128(index).c(),
+            LocalDestination::Third128Wide(index) => self.operand128(index).c(),
+        }
+    }
+
+    /// Checks whether an instruction might overwrite a local.
+    pub(crate) fn may_write_local(&self, instruction: Instruction, lane: ValueLane, local: u16) -> bool {
+        match instruction.value_effect() {
+            InstructionValueEffect::Unknown => true,
+            InstructionValueEffect::LocalStore(written_lane, written_local) => {
+                lane == written_lane && local == written_local
+            }
+            InstructionValueEffect::LocalWrite(written_lane, destination) => {
+                lane == written_lane && local == self.local_destination(destination)
+            }
+            InstructionValueEffect::LocalResult(destination) => {
+                matches!(instruction.effects(), InstructionEffects::Operands { output: Some(output), .. } if output == lane)
+                    && local == self.local_destination(destination)
+            }
+            _ => false,
+        }
+    }
+
+    /// Finalizes the operand pools, branch tables, and exception handlers.
     pub(crate) fn finish(self) -> WasmFunctionData {
         WasmFunctionData {
             operands64: self.operands64.into_boxed_slice(),
@@ -181,8 +215,7 @@ pub(crate) struct FunctionBuilder<'a> {
     lane_counts: ValueCounts,
     max_lane_counts: ValueCounts,
     metadata: &'a ModuleMetadata,
-    local_types: Vec<ValueLane>,
-    local_addr_map: Vec<u16>,
+    locals: Vec<(ValueLane, u16)>,
     uses_local_memory: bool,
 }
 
@@ -191,15 +224,13 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn new(
         metadata: &'a ModuleMetadata,
         signature: &'a Signature,
-        local_types: Vec<ValueLane>,
-        local_addr_map: Vec<u16>,
+        locals: Vec<(ValueLane, u16)>,
         body_size: usize,
         context: FunctionLoweringContext,
         options: &ParserOptions,
     ) -> Self {
         Self {
-            local_types,
-            local_addr_map,
+            locals,
             metadata,
             emitter: Emitter::new(body_size, context, options),
             control_stack: alloc::vec![ControlFrame {
@@ -226,12 +257,17 @@ impl<'a> FunctionBuilder<'a> {
         self.uses_local_memory |= memory >= self.metadata.imported_memories;
     }
 
+    fn memory_address_lane(&mut self, memory: u32) -> Result<ValueLane> {
+        let lane = self.metadata.memory_address_lane(memory)?;
+        self.mark_memory(memory);
+        Ok(lane)
+    }
+
     fn memory_operand(&mut self, memarg: wasmparser::MemArg) -> Result<(ValueLane, Operand128Idx<MemoryOperand>)> {
         let wasmparser::MemArgTarget::Memory(memory) = memarg.target else {
             return Err(crate::ParseError::UnsupportedOperator("multibyte array access"));
         };
-        let address = self.metadata.memory_size(memory)?;
-        self.mark_memory(memory);
+        let address = self.memory_address_lane(memory)?;
         let operand = self.push128(Operand128::<MemoryOperand>::new(memarg.offset, memory))?;
         Ok((address, operand))
     }
@@ -284,6 +320,7 @@ impl ModuleMetadata {
         }
     }
 
+    /// Collects the types and operand lanes needed for function lowering.
     pub(crate) fn new(
         types: &TypeSection,
         code_type_addrs: &[u32],
@@ -352,6 +389,7 @@ impl ModuleMetadata {
         }
     }
 
+    /// Looks up a function signature by type index.
     pub(crate) fn signature(&self, idx: u32) -> Result<&Signature> {
         self.signatures
             .get(idx as usize)
@@ -375,19 +413,19 @@ impl ModuleMetadata {
         self.signature(ty)
     }
 
-    fn global_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.globals, IndexKind::Global, idx)
+    fn global_value_lane(&self, idx: u32) -> Result<ValueLane> {
+        Self::indexed_lane(&self.globals, IndexKind::Global, idx)
     }
 
-    fn memory_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.memories, IndexKind::Memory, idx)
+    fn memory_address_lane(&self, idx: u32) -> Result<ValueLane> {
+        Self::indexed_lane(&self.memories, IndexKind::Memory, idx)
     }
 
-    fn table_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.tables, IndexKind::Table, idx)
+    fn table_index_lane(&self, idx: u32) -> Result<ValueLane> {
+        Self::indexed_lane(&self.tables, IndexKind::Table, idx)
     }
 
-    fn indexed_size(sizes: &[ValueLane], entity: IndexKind, idx: u32) -> Result<ValueLane> {
+    fn indexed_lane(sizes: &[ValueLane], entity: IndexKind, idx: u32) -> Result<ValueLane> {
         sizes.get(idx as usize).copied().ok_or(crate::ParseError::IndexOutOfBounds { kind: entity, index: idx })
     }
 
@@ -415,7 +453,7 @@ impl ModuleMetadata {
             .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::StructField, index: field_index })
     }
 
-    fn array_field(&self, idx: u32) -> Result<ValueLane> {
+    fn array_element_lane(&self, idx: u32) -> Result<ValueLane> {
         self.aggregate_fields
             .get(idx as usize)
             .and_then(|fields| match fields {
@@ -447,21 +485,20 @@ impl VisitSimdOperator<'_> for ValidateThenVisit<'_, '_> {
     wasmparser::for_each_visit_simd_operator!(validate_then_visit_simd);
 }
 
+/// Lowers a function body without running the Wasm validator.
 pub(crate) fn process_operators(
     body: FunctionBody<'_>,
-    locals: (Vec<ValueLane>, Vec<u16>),
+    locals: Vec<(ValueLane, u16)>,
     metadata: &ModuleMetadata,
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
     options: &ParserOptions,
 ) -> Result<(Vec<Instruction>, FunctionDataBuilder, bool, ValueCounts, OperatorsReaderAllocations)> {
-    let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
     let signature = metadata.signature(context.ty_idx)?;
-    let mut builder =
-        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, context, options);
+    let mut builder = FunctionBuilder::new(metadata, signature, locals, body_size, context, options);
 
     while !reader.eof() {
         let res =
@@ -492,11 +529,12 @@ pub(crate) fn process_operators(
     Ok((instructions, data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
 }
 
+/// Validates and lowers a function body in one pass.
 #[cfg(feature = "validate")]
 pub(crate) fn process_operators_and_validate(
     mut validator: FuncValidator<ValidatorResources>,
     body: FunctionBody<'_>,
-    locals: (Vec<ValueLane>, Vec<u16>),
+    locals: Vec<(ValueLane, u16)>,
     metadata: &ModuleMetadata,
     context: FunctionLoweringContext,
     allocs: OperatorsReaderAllocations,
@@ -509,13 +547,11 @@ pub(crate) fn process_operators_and_validate(
     FuncValidatorAllocations,
     OperatorsReaderAllocations,
 )> {
-    let (local_types, local_addr_map) = locals;
     let body_size = body.as_bytes().len();
     let reader = body.get_binary_reader_for_operators()?;
     let mut reader = OperatorsReader::new_with_allocs(reader, allocs);
     let signature = metadata.signature(context.ty_idx)?;
-    let mut builder =
-        FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, context, options);
+    let mut builder = FunctionBuilder::new(metadata, signature, locals, body_size, context, options);
 
     while !reader.eof() {
         let position = reader.original_position();
@@ -646,28 +682,29 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i64_atomic_rmw_cmpxchg => 8, visit_i64_atomic_rmw8_cmpxchg_u => 1,
             visit_i64_atomic_rmw16_cmpxchg_u => 2, visit_i64_atomic_rmw32_cmpxchg_u => 4,
         }
-        scalar_memory [Addr] => [S32] {
-            visit_i32_load => I32Load [load(Instruction::LoadLocal32)],
-            visit_f32_load => F32Load [load(Instruction::LoadLocal32)],
-            visit_i32_load8_s => I32Load8S [load(Instruction::LoadLocal8S32)],
-            visit_i32_load8_u => I32Load8U [load(Instruction::LoadLocal8U32)],
-            visit_i32_load16_s => I32Load16S [load(Instruction::LoadLocal16S32)],
-            visit_i32_load16_u => I32Load16U [load(Instruction::LoadLocal16U32)],
+        memory [Addr] => [S32] {
+            visit_i32_load => I32Load [load(Instruction::I32LoadLocal, Instruction::I32LoadLocalAdd)],
+            visit_f32_load => F32Load [load(Instruction::I32LoadLocal, Instruction::I32LoadLocalAdd)],
+            visit_i32_load8_s => I32Load8S [load(Instruction::I32Load8SLocal, Instruction::I32Load8SLocalAdd)],
+            visit_i32_load8_u => I32Load8U [load(Instruction::I32Load8ULocal, Instruction::I32Load8ULocalAdd)],
+            visit_i32_load16_s => I32Load16S [load(Instruction::I32Load16SLocal, Instruction::I32Load16SLocalAdd)],
+            visit_i32_load16_u => I32Load16U [load(Instruction::I32Load16ULocal, Instruction::I32Load16ULocalAdd)],
         }
-        scalar_memory [Addr] => [S64] {
-            visit_i64_load => I64Load [load(Instruction::LoadLocal64)],
-            visit_f64_load => F64Load [load(Instruction::LoadLocal64)], visit_i64_load8_s => I64Load8S,
+        memory [Addr] => [S64] {
+            visit_i64_load => I64Load [load(Instruction::I64LoadLocal, Instruction::I64LoadLocalAdd)],
+            visit_f64_load => F64Load [load(Instruction::I64LoadLocal, Instruction::I64LoadLocalAdd)], visit_i64_load8_s => I64Load8S,
             visit_i64_load8_u => I64Load8U, visit_i64_load16_s => I64Load16S,
             visit_i64_load16_u => I64Load16U, visit_i64_load32_s => I64Load32S,
             visit_i64_load32_u => I64Load32U,
         }
-        scalar_memory [Addr, S32] => [] {
-            visit_f32_store => F32Store [store32()], visit_i32_store8 => I32Store8,
-            visit_i32_store16 => I32Store16, visit_i32_store => I32Store [store32()],
+        memory [Addr, S32] => [] {
+            visit_f32_store => F32Store [store32()], visit_i32_store8 => I32Store8 [store_local(Instruction::I32Store8LocalLocal, false)],
+            visit_i32_store16 => I32Store16 [store_local(Instruction::I32Store16LocalLocal, false)], visit_i32_store => I32Store [store32()],
         }
-        scalar_memory [Addr, S64] => [] {
-            visit_f64_store => F64Store [store64()], visit_i64_store8 => I64Store8,
-            visit_i64_store16 => I64Store16, visit_i64_store32 => I64Store32, visit_i64_store => I64Store [store64()],
+        memory [Addr, S64] => [] {
+            visit_f64_store => F64Store [store64()], visit_i64_store8 => I64Store8 [store_local(Instruction::I64Store8LocalLocal, true)],
+            visit_i64_store16 => I64Store16 [store_local(Instruction::I64Store16LocalLocal, true)],
+            visit_i64_store32 => I64Store32 [store_local(Instruction::I64Store32LocalLocal, true)], visit_i64_store => I64Store [store64()],
         }
         fixed [] => [] { visit_data_drop(segment: u32) => DataDrop, visit_elem_drop(segment: u32) => ElemDrop }
         fixed [] => [S32] { visit_i32_const(value: i32) => Const32, visit_ref_func(function: u32) => RefFunc }
@@ -681,7 +718,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         fixed [S32] => [S32] {
             visit_ref_is_null => RefIsNull, visit_ref_as_non_null => RefAsNonNull, visit_ref_i31 => RefI31,
             visit_i31_get_s => I31GetS, visit_i31_get_u => I31GetU,
-            visit_i32_eqz => I32Eqz, visit_i32_clz => I32Clz,
+            visit_i32_eqz => I32Eqz [eqz32()], visit_i32_clz => I32Clz,
             visit_i32_ctz => I32Ctz, visit_i32_popcnt => I32Popcnt, visit_i32_extend8_s => I32Extend8S,
             visit_i32_extend16_s => I32Extend16S, visit_i32_trunc_f32_s => I32TruncF32S,
             visit_i32_trunc_f32_u => I32TruncF32U, visit_f32_convert_i32_s => F32ConvertI32S,
@@ -702,7 +739,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_f64_nearest => F64Nearest, visit_f64_sqrt => F64Sqrt,
         }
         fixed [S64] => [S32] {
-            visit_i64_eqz => I64Eqz, visit_i32_wrap_i64 => I32WrapI64, visit_i32_trunc_f64_s => I32TruncF64S,
+            visit_i64_eqz => I64Eqz [eqz64()], visit_i32_wrap_i64 => I32WrapI64, visit_i32_trunc_f64_s => I32TruncF64S,
             visit_i32_trunc_f64_u => I32TruncF64U, visit_f32_convert_i64_s => F32ConvertI64S,
             visit_f32_convert_i64_u => F32ConvertI64U, visit_f32_demote_f64 => F32DemoteF64,
             visit_i32_trunc_sat_f64_s => I32TruncSatF64S, visit_i32_trunc_sat_f64_u => I32TruncSatF64U,
@@ -729,26 +766,26 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i32_ge_u => I32GeU [compare(CmpOp::GeU)],
             visit_f32_eq => F32Eq, visit_f32_ne => F32Ne, visit_f32_lt => F32Lt, visit_f32_gt => F32Gt,
             visit_f32_le => F32Le, visit_f32_ge => F32Ge,
-            visit_i32_add => I32Add [integer32(BinOp::IAdd, true)],
-            visit_i32_sub => I32Sub [integer32(BinOp::ISub, false)],
-            visit_i32_mul => I32Mul [integer32(BinOp::IMul, true)],
+            visit_i32_add => I32Add [binary32(BinOp::IAdd)],
+            visit_i32_sub => I32Sub [binary32(BinOp::ISub)],
+            visit_i32_mul => I32Mul [binary32(BinOp::IMul)],
             visit_i32_div_s => I32DivS, visit_i32_div_u => I32DivU,
             visit_i32_rem_s => I32RemS, visit_i32_rem_u => I32RemU,
-            visit_i32_and => I32And [integer32(BinOp::IAnd, true)],
-            visit_i32_or => I32Or [integer32(BinOp::IOr, true)],
-            visit_i32_xor => I32Xor [integer32(BinOp::IXor, true)],
-            visit_i32_shl => I32Shl [integer32(BinOp::IShl, false)],
-            visit_i32_shr_s => I32ShrS [integer32(BinOp::IShrS, false)],
-            visit_i32_shr_u => I32ShrU [integer32(BinOp::IShrU, false)],
-            visit_i32_rotl => I32Rotl [integer32(BinOp::IRotl, false)],
-            visit_i32_rotr => I32Rotr [integer32(BinOp::IRotr, false)],
-            visit_f32_add => F32Add [float32(BinOp::FAdd, true)],
-            visit_f32_sub => F32Sub [float32(BinOp::FSub, false)],
-            visit_f32_mul => F32Mul [float32(BinOp::FMul, true)],
-            visit_f32_div => F32Div [float32(BinOp::FDiv, false)],
-            visit_f32_min => F32Min [float32(BinOp::FMin, true)],
-            visit_f32_max => F32Max [float32(BinOp::FMax, true)],
-            visit_f32_copysign => F32Copysign [float32(BinOp::FCopysign, false)],
+            visit_i32_and => I32And [binary32(BinOp::IAnd)],
+            visit_i32_or => I32Or [binary32(BinOp::IOr)],
+            visit_i32_xor => I32Xor [binary32(BinOp::IXor)],
+            visit_i32_shl => I32Shl [binary32(BinOp::IShl)],
+            visit_i32_shr_s => I32ShrS [binary32(BinOp::IShrS)],
+            visit_i32_shr_u => I32ShrU [binary32(BinOp::IShrU)],
+            visit_i32_rotl => I32Rotl [binary32(BinOp::IRotl)],
+            visit_i32_rotr => I32Rotr [binary32(BinOp::IRotr)],
+            visit_f32_add => F32Add [binary32(BinOp::FAdd)],
+            visit_f32_sub => F32Sub [binary32(BinOp::FSub)],
+            visit_f32_mul => F32Mul [binary32(BinOp::FMul)],
+            visit_f32_div => F32Div [binary32(BinOp::FDiv)],
+            visit_f32_min => F32Min [binary32(BinOp::FMin)],
+            visit_f32_max => F32Max [binary32(BinOp::FMax)],
+            visit_f32_copysign => F32Copysign [binary32(BinOp::FCopysign)],
         }
         fixed [S64, S64] => [S32] {
             visit_i64_eq => I64Eq [compare(CmpOp::Eq)],
@@ -765,26 +802,26 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_f64_le => F64Le, visit_f64_ge => F64Ge,
         }
         fixed [S64, S64] => [S64] {
-            visit_i64_add => I64Add [integer64(BinOp::IAdd, true)],
-            visit_i64_sub => I64Sub [integer64(BinOp::ISub, false)],
-            visit_i64_mul => I64Mul [integer64(BinOp::IMul, true)],
+            visit_i64_add => I64Add [binary64(BinOp::IAdd)],
+            visit_i64_sub => I64Sub [binary64(BinOp::ISub)],
+            visit_i64_mul => I64Mul [binary64(BinOp::IMul)],
             visit_i64_div_s => I64DivS, visit_i64_div_u => I64DivU, visit_i64_rem_s => I64RemS,
             visit_i64_rem_u => I64RemU,
-            visit_i64_and => I64And [integer64(BinOp::IAnd, true)],
-            visit_i64_or => I64Or [integer64(BinOp::IOr, true)],
-            visit_i64_xor => I64Xor [integer64(BinOp::IXor, true)],
-            visit_i64_shl => I64Shl [integer64(BinOp::IShl, false)],
-            visit_i64_shr_s => I64ShrS [integer64(BinOp::IShrS, false)],
-            visit_i64_shr_u => I64ShrU [integer64(BinOp::IShrU, false)],
-            visit_i64_rotl => I64Rotl [integer64(BinOp::IRotl, false)],
-            visit_i64_rotr => I64Rotr [integer64(BinOp::IRotr, false)],
-            visit_f64_add => F64Add [float64(BinOp::FAdd, true)],
-            visit_f64_sub => F64Sub [float64(BinOp::FSub, false)],
-            visit_f64_mul => F64Mul [float64(BinOp::FMul, true)],
-            visit_f64_div => F64Div [float64(BinOp::FDiv, false)],
-            visit_f64_min => F64Min [float64(BinOp::FMin, true)],
-            visit_f64_max => F64Max [float64(BinOp::FMax, true)],
-            visit_f64_copysign => F64Copysign [float64(BinOp::FCopysign, false)],
+            visit_i64_and => I64And [binary64(BinOp::IAnd)],
+            visit_i64_or => I64Or [binary64(BinOp::IOr)],
+            visit_i64_xor => I64Xor [binary64(BinOp::IXor)],
+            visit_i64_shl => I64Shl [binary64(BinOp::IShl)],
+            visit_i64_shr_s => I64ShrS [binary64(BinOp::IShrS)],
+            visit_i64_shr_u => I64ShrU [binary64(BinOp::IShrU)],
+            visit_i64_rotl => I64Rotl [binary64(BinOp::IRotl)],
+            visit_i64_rotr => I64Rotr [binary64(BinOp::IRotr)],
+            visit_f64_add => F64Add [binary64(BinOp::FAdd)],
+            visit_f64_sub => F64Sub [binary64(BinOp::FSub)],
+            visit_f64_mul => F64Mul [binary64(BinOp::FMul)],
+            visit_f64_div => F64Div [binary64(BinOp::FDiv)],
+            visit_f64_min => F64Min [binary64(BinOp::FMin)],
+            visit_f64_max => F64Max [binary64(BinOp::FMax)],
+            visit_f64_copysign => F64Copysign [binary64(BinOp::FCopysign)],
         }
         fixed [S64, S64, S64, S64] => [S64, S64] { visit_i64_add128 => I64Add128, visit_i64_sub128 => I64Sub128 }
         fixed [S64, S64] => [S64, S64] { visit_i64_mul_wide_s => I64MulWideS, visit_i64_mul_wide_u => I64MulWideU }
@@ -792,25 +829,25 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         effect [S32] => [S32] { visit_f32_reinterpret_i32, visit_i32_reinterpret_f32 }
         effect [S64] => [S64] { visit_f64_reinterpret_i64, visit_i64_reinterpret_f64 }
         terminating [] => [] { visit_unreachable => Unreachable, visit_return => Return }
-        memory_index [] => [Addr] { visit_memory_size(memory: u32) => MemorySize }
-        memory_index [Addr] => [Addr] { visit_memory_grow(memory: u32) => MemoryGrow }
-        memory_index [Addr, S32, Addr] => [] { visit_memory_fill(memory: u32) => MemoryFill [memory_fill()] }
-        table [Addr] => [S32] { visit_table_get(table: u32) => TableGet }
-        table [Addr, S32] => [] { visit_table_set(table: u32) => TableSet }
-        table [] => [Addr] { visit_table_size(table: u32) => TableSize }
-        table [S32, Addr] => [Addr] { visit_table_grow(table: u32) => TableGrow }
-        table [Addr, S32, Addr] => [] { visit_table_fill(table: u32) => TableFill }
+        indexed (memory_address_lane) [] => [Addr] { visit_memory_size(memory: u32) => MemorySize }
+        indexed (memory_address_lane) [Addr] => [Addr] { visit_memory_grow(memory: u32) => MemoryGrow }
+        indexed (memory_address_lane) [Addr, S32, Addr] => [] { visit_memory_fill(memory: u32) => MemoryFill [memory_fill()] }
+        indexed (metadata.table_index_lane) [Addr] => [S32] { visit_table_get(table: u32) => TableGet }
+        indexed (metadata.table_index_lane) [Addr, S32] => [] { visit_table_set(table: u32) => TableSet }
+        indexed (metadata.table_index_lane) [] => [Addr] { visit_table_size(table: u32) => TableSize }
+        indexed (metadata.table_index_lane) [S32, Addr] => [Addr] { visit_table_grow(table: u32) => TableGrow }
+        indexed (metadata.table_index_lane) [Addr, S32, Addr] => [] { visit_table_fill(table: u32) => TableFill }
         fixed [] => [S32] { visit_struct_new_default(type_index: u32) => StructNewDefault }
         fixed [S32] => [S32] {
             visit_array_new_default(type_index: u32) => ArrayNewDefault, visit_array_len => ArrayLen,
         }
-        array_field [Field, S32] => [S32] { visit_array_new(type_index: u32) => ArrayNew }
-        array_field [S32, S32] => [Field] {
+        indexed (metadata.array_element_lane) [Field, S32] => [S32] { visit_array_new(type_index: u32) => ArrayNew }
+        indexed (metadata.array_element_lane) [S32, S32] => [Field] {
             visit_array_get(type_index: u32) => ArrayGet, visit_array_get_s(type_index: u32) => ArrayGetS,
             visit_array_get_u(type_index: u32) => ArrayGetU,
         }
-        array_field [S32, S32, Field] => [] { visit_array_set(type_index: u32) => ArraySet }
-        array_field [S32, S32, Field, S32] => [] { visit_array_fill(type_index: u32) => ArrayFill }
+        indexed (metadata.array_element_lane) [S32, S32, Field] => [] { visit_array_set(type_index: u32) => ArraySet }
+        indexed (metadata.array_element_lane) [S32, S32, Field, S32] => [] { visit_array_fill(type_index: u32) => ArrayFill }
     }
 
     fn visit_struct_new(&mut self, type_index: u32) -> Result<()> {
@@ -843,7 +880,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_array_new_fixed(&mut self, type_index: u32, array_size: u32) -> Result<()> {
-        let size = self.metadata.array_field(type_index)?;
+        let size = self.metadata.array_element_lane(type_index)?;
         for _ in 0..array_size {
             self.pop_expect(size)?;
         }
@@ -855,53 +892,46 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
 
     fn visit_call(&mut self, function_index: u32) -> Result<()> {
         let signature = self.metadata.function_signature(function_index)?;
-        self.emit_boundary(&signature.params, &signature.results, Instruction::Call(function_index))
+        self.emit_call(&signature.params, &signature.results, Instruction::Call(function_index), None)
     }
 
     fn visit_call_indirect(&mut self, type_index: u32, table_index: u32) -> Result<()> {
-        let table_size = self.metadata.table_size(table_index)?;
+        let index_lane = self.metadata.table_index_lane(table_index)?;
         let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
         let signature = self.metadata.signature(type_index)?;
-        self.pop_expect(table_size)?;
-        self.emit_boundary(&signature.params, &signature.results, Instruction::CallIndirect(operand))
+        self.emit_call(&signature.params, &signature.results, Instruction::CallIndirect(operand), Some(index_lane))
     }
 
     fn visit_call_ref(&mut self, type_index: u32) -> Result<()> {
         let signature = self.metadata.signature(type_index)?;
-        self.pop_expect(ValueLane::S32)?;
-        self.emit_boundary(&signature.params, &signature.results, Instruction::CallRef(type_index))
+        self.emit_call(&signature.params, &signature.results, Instruction::CallRef(type_index), Some(ValueLane::S32))
     }
 
     fn visit_return_call(&mut self, function_index: u32) -> Result<()> {
         let signature = self.metadata.function_signature(function_index)?;
-        self.apply_effect(&signature.params, &[])?;
+        self.emit_call(&signature.params, &[], Instruction::ReturnCall(function_index), None)?;
         self.mark_unreachable();
-        self.emitter.emit_boundary(Instruction::ReturnCall(function_index))?;
         Ok(())
     }
 
     fn visit_return_call_indirect(&mut self, type_index: u32, table_index: u32) -> Result<()> {
-        let table_size = self.metadata.table_size(table_index)?;
+        let index_lane = self.metadata.table_index_lane(table_index)?;
         let signature = self.metadata.signature(type_index)?;
-        self.pop_expect(table_size)?;
-        self.apply_effect(&signature.params, &[])?;
-        self.mark_unreachable();
         let operand = self.push64(Operand64::<(u32, u32)>::new(type_index, table_index))?;
-        self.emitter.emit_boundary(Instruction::ReturnCallIndirect(operand))?;
+        self.emit_call(&signature.params, &[], Instruction::ReturnCallIndirect(operand), Some(index_lane))?;
+        self.mark_unreachable();
         Ok(())
     }
 
     fn visit_return_call_ref(&mut self, type_index: u32) -> Result<()> {
         let signature = self.metadata.signature(type_index)?;
-        self.pop_expect(ValueLane::S32)?;
-        self.apply_effect(&signature.params, &[])?;
+        self.emit_call(&signature.params, &[], Instruction::ReturnCallRef(type_index), Some(ValueLane::S32))?;
         self.mark_unreachable();
-        self.emitter.emit_boundary(Instruction::ReturnCallRef(type_index))?;
         Ok(())
     }
 
     fn visit_global_set(&mut self, global_index: u32) -> Result<()> {
-        let size = self.metadata.global_size(global_index)?;
+        let size = self.metadata.global_value_lane(global_index)?;
         let instruction = size.select(
             Instruction::GlobalSet32(global_index),
             Instruction::GlobalSet64(global_index),
@@ -911,7 +941,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_global_get(&mut self, global_index: u32) -> Result<()> {
-        let size = self.metadata.global_size(global_index)?;
+        let size = self.metadata.global_value_lane(global_index)?;
         match size {
             ValueLane::S32 => emit_selected!(self, &[], &[size], GlobalGet32(global_index)[global_get32()]),
             ValueLane::S64 => emit_selected!(self, &[], &[size], GlobalGet64(global_index)[global_get64()]),
@@ -1194,16 +1224,16 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_table_copy(&mut self, dst_table: u32, src_table: u32) -> Result<()> {
-        let dst = self.metadata.table_size(dst_table)?;
-        let src = self.metadata.table_size(src_table)?;
+        let dst = self.metadata.table_index_lane(dst_table)?;
+        let src = self.metadata.table_index_lane(src_table)?;
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
         let operand = self.push64(Operand64::<(u32, u32)>::new(dst_table, src_table))?;
         self.emit(&[dst, src, len], &[], Instruction::TableCopy(operand))
     }
 
     fn visit_memory_copy(&mut self, dst_mem: u32, src_mem: u32) -> Result<()> {
-        let dst = self.metadata.memory_size(dst_mem)?;
-        let src = self.metadata.memory_size(src_mem)?;
+        let dst = self.metadata.memory_address_lane(dst_mem)?;
+        let src = self.metadata.memory_address_lane(src_mem)?;
         self.mark_memory(dst_mem);
         self.mark_memory(src_mem);
         let len = if dst == ValueLane::S32 || src == ValueLane::S32 { ValueLane::S32 } else { ValueLane::S64 };
@@ -1212,14 +1242,14 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_memory_init(&mut self, data_index: u32, memory: u32) -> Result<()> {
-        let dst = self.metadata.memory_size(memory)?;
+        let dst = self.metadata.memory_address_lane(memory)?;
         self.mark_memory(memory);
         let operand = self.push64(Operand64::<(u32, u32)>::new(data_index, memory))?;
         self.emit(&[dst, ValueLane::S32, ValueLane::S32], &[], Instruction::MemoryInit(operand))
     }
 
     fn visit_table_init(&mut self, elem_index: u32, table: u32) -> Result<()> {
-        let address = self.metadata.table_size(table)?;
+        let address = self.metadata.table_index_lane(table)?;
         let operand = self.push64(Operand64::<(u32, u32)>::new(elem_index, table))?;
         self.emit(&[address, ValueLane::S32, ValueLane::S32], &[], Instruction::TableInit(operand))
     }
@@ -1306,25 +1336,11 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 }
 
-macro_rules! impl_visit_simd_operator {
-    ($(@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*))*) => {
-        $(impl_visit_operator!(@@$proposal $op $({ $($arg: $argty),* })? => $visit ($($ann:tt)*));)*
-    };
-
-    (@@simd $($rest:tt)* ) => {};
-    (@@relaxed_simd $($rest:tt)* ) => {};
-    (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
-        fn $visit(&mut self $($(,$arg: $argty)*)?) -> Result<()> {
-            Err(crate::ParseError::UnsupportedOperator(stringify!($visit)))
-        }
-    };
-}
-
 impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
-    wasmparser::for_each_visit_simd_operator!(impl_visit_simd_operator);
+    wasmparser::for_each_visit_simd_operator!(impl_visit_operator);
 
     lowering_ops! {
-        scalar_memory [Addr] => [S128] {
+        memory [Addr] => [S128] {
             visit_v128_load => V128Load, visit_v128_load8x8_s => V128Load8x8S,
             visit_v128_load8x8_u => V128Load8x8U, visit_v128_load16x4_s => V128Load16x4S,
             visit_v128_load16x4_u => V128Load16x4U, visit_v128_load32x2_s => V128Load32x2S,
@@ -1333,7 +1349,7 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_v128_load64_splat => V128Load64Splat, visit_v128_load32_zero => V128Load32Zero,
             visit_v128_load64_zero => V128Load64Zero,
         }
-        scalar_memory [Addr, S128] => [] { visit_v128_store => V128Store [store128()] }
+        memory [Addr, S128] => [] { visit_v128_store => V128Store [store128()] }
         memory [Addr, S128] => [S128] {
             visit_v128_load8_lane(lane: u8) => V128Load8Lane,
             visit_v128_load16_lane(lane: u8) => V128Load16Lane,
@@ -1422,10 +1438,10 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_i32x4_relaxed_trunc_f64x2_u_zero => I32x4RelaxedTruncF64x2UZero,
         }
         fixed [S128, S128] => [S128] {
-            visit_v128_and => V128And [vector(BinOp128::And, true)],
-            visit_v128_andnot => V128AndNot [vector(BinOp128::AndNot, false)],
-            visit_v128_or => V128Or [vector(BinOp128::Or, true)],
-            visit_v128_xor => V128Xor [vector(BinOp128::Xor, true)],
+            visit_v128_and => V128And,
+            visit_v128_andnot => V128AndNot,
+            visit_v128_or => V128Or [vector_or()],
+            visit_v128_xor => V128Xor,
             visit_i8x16_swizzle => I8x16Swizzle, visit_i8x16_eq => I8x16Eq,
             visit_i8x16_ne => I8x16Ne, visit_i8x16_lt_s => I8x16LtS, visit_i8x16_lt_u => I8x16LtU,
             visit_i8x16_gt_s => I8x16GtS, visit_i8x16_gt_u => I8x16GtU, visit_i8x16_le_s => I8x16LeS,
@@ -1458,9 +1474,9 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_i16x8_mul => I16x8Mul, visit_i32x4_add => I32x4Add, visit_i32x4_sub => I32x4Sub,
             visit_i32x4_min_s => I32x4MinS, visit_i32x4_min_u => I32x4MinU, visit_i32x4_max_s => I32x4MaxS,
             visit_i32x4_max_u => I32x4MaxU, visit_i32x4_mul => I32x4Mul,
-            visit_i64x2_add => I64x2Add [vector(BinOp128::I64x2Add, true)],
+            visit_i64x2_add => I64x2Add,
             visit_i64x2_sub => I64x2Sub,
-            visit_i64x2_mul => I64x2Mul [vector(BinOp128::I64x2Mul, true)],
+            visit_i64x2_mul => I64x2Mul,
             visit_i16x8_extmul_low_i8x16_s => I16x8ExtMulLowI8x16S,
             visit_i16x8_extmul_low_i8x16_u => I16x8ExtMulLowI8x16U,
             visit_i16x8_extmul_high_i8x16_s => I16x8ExtMulHighI8x16S,
@@ -1548,18 +1564,14 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn local(&self, idx: u32) -> Result<(ValueLane, u16)> {
-        let size = *self
-            .local_types
+        self.locals
             .get(idx as usize)
-            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Local, index: idx })?;
-        let addr = *self.local_addr_map.get(idx as usize).ok_or_else(|| {
-            crate::ParseError::Other(error_message!("local address missing" | "local address missing: {idx}"))
-        })?;
-        Ok((size, addr))
+            .copied()
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Local, index: idx })
     }
 
-    /// Increments a physical lane count, rejecting functions too large for the encoded count.
-    fn increment_lane(counts: &mut ValueCounts, lane: ValueLane) -> Result<()> {
+    /// Increments and returns a physical lane count, rejecting counts too large to encode.
+    fn increment_lane(counts: &mut ValueCounts, lane: ValueLane) -> Result<u16> {
         let count = match lane {
             ValueLane::S32 => &mut counts.c32,
             ValueLane::S64 => &mut counts.c64,
@@ -1568,18 +1580,18 @@ impl<'a> FunctionBuilder<'a> {
         *count = count
             .checked_add(1)
             .ok_or_else(|| crate::ParseError::Other("logical operand lane count is too large".into()))?;
-        Ok(())
+        Ok(*count)
     }
 
     /// Pushes logical operands while maintaining the lane counts used by `DropKeep` and their
     /// maximum, which the runtime reserves when it enters the function.
     fn push_sizes(&mut self, sizes: &[ValueLane]) -> Result<()> {
         for &size in sizes {
-            Self::increment_lane(&mut self.lane_counts, size)?;
+            let count = Self::increment_lane(&mut self.lane_counts, size)?;
             match size {
-                ValueLane::S32 => self.max_lane_counts.c32 = self.max_lane_counts.c32.max(self.lane_counts.c32),
-                ValueLane::S64 => self.max_lane_counts.c64 = self.max_lane_counts.c64.max(self.lane_counts.c64),
-                ValueLane::S128 => self.max_lane_counts.c128 = self.max_lane_counts.c128.max(self.lane_counts.c128),
+                ValueLane::S32 => self.max_lane_counts.c32 = self.max_lane_counts.c32.max(count),
+                ValueLane::S64 => self.max_lane_counts.c64 = self.max_lane_counts.c64.max(count),
+                ValueLane::S128 => self.max_lane_counts.c128 = self.max_lane_counts.c128.max(count),
             }
             self.operand_stack.push(size);
         }
@@ -1620,7 +1632,26 @@ impl<'a> FunctionBuilder<'a> {
         self.emitter.emit(instruction)
     }
 
-    /// Applies stack effects and seals a call or terminator's instruction boundary.
+    /// Applies a call's stack effects and records its accumulator results.
+    fn emit_call(
+        &mut self,
+        inputs: &[ValueLane],
+        outputs: &[ValueLane],
+        instruction: Instruction,
+        selector: Option<ValueLane>,
+    ) -> Result<()> {
+        if let Some(lane) = selector {
+            self.pop_expect(lane)?;
+        }
+        self.apply_effect(inputs, outputs)?;
+        let mut lanes = tinywasm_types::ValueLanes::EMPTY;
+        for lane in inputs.iter().copied().chain(selector) {
+            lanes = lanes.with(lane);
+        }
+        self.emitter.emit_call(instruction, lanes, outputs)
+    }
+
+    /// Applies stack effects and seals a helper's materialized-stack boundary.
     fn emit_boundary(&mut self, inputs: &[ValueLane], outputs: &[ValueLane], instruction: Instruction) -> Result<()> {
         self.apply_effect(inputs, outputs)?;
         self.emitter.emit_boundary(instruction)

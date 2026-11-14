@@ -115,6 +115,7 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "tinywasm",
+ "wat",
 ]
 
 [[package]]

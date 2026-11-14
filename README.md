@@ -45,6 +45,8 @@ See the [examples](./examples) directory and [documentation](https://docs.rs/tin
 
 ## Cargo Features
 
+For maximum performance, use a nightly Rust toolchain and keep the default `nightly` feature enabled.
+
 - **`full`:** Enables `archive`, `debug`, `parallel-parser`, `parser`, `state`, and `validate`. Enabled by default.
 - **`std`:** Enables parsing from files and streams, shared memory handles, and blocking atomic wait/notify across stores. Enabled by default.
 - **`nightly`:** Enables nightly-only optimizations (if the compiler supports them). Enabled by default.
@@ -66,8 +68,7 @@ Use [`Engine`](https://docs.rs/tinywasm/latest/tinywasm/engine/struct.Engine.htm
 ## Precompiled Modules
 
 TinyWasm can serialize a parsed module to its version-specific `.twasm` format. Loading an archive skips WebAssembly parsing, validation, and optimization.
-
-Applications that only load `.twasm` can remove the parser and validator from their binary by only enabling the `archive` feature. Depending on the target and release profile, this can produce binaries smaller than 300 KB.
+Applications that only load `.twasm` can remove the parser and validator from their binary by only enabling the `archive` feature.
 
 ## Untrusted Input
 
@@ -75,7 +76,7 @@ WebAssembly [validation](https://webassembly.github.io/spec/core/valid/index.htm
 
 Validation does not limit parsing or execution resources. Hosts that run untrusted code should also configure `parser::ParseLimits`, stack and `ResourceLimiter` limits, and fuel-budgeted execution as needed. The default fuel policy counts interpreter steps. Applications can check their own deadlines between calls to `resume_with_fuel`.
 
-Use `parser::ParserOptions::new().with_checkpoint_interval(4096)` to tune straight-line budget-check spacing before parsing. The default is 1,024 emitted interpreter instructions, with up to three extra for pending fusion. Larger intervals trade responsiveness for lower checkpoint overhead. Taken loop backedges are checked independently, and synthetic checkpoints consume no fuel.
+Use `parser::ParserOptions::new().with_checkpoint_interval(4096)` to tune straight-line budget-check spacing before parsing. The default is 1,024 emitted interpreter instructions, with up to four extra for accumulator materialization. Larger intervals trade responsiveness for lower checkpoint overhead. Taken loop backedges are checked independently, and synthetic checkpoints consume no fuel.
 
 Loading `.twasm` checks the archive header and encoding but does not run WebAssembly validation or verify TinyWasm's runtime invariants. Load archives only from trusted sources. For untrusted input, parse a WebAssembly binary with validation enabled.
 

@@ -1,8 +1,4 @@
 #![no_std]
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
-))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![forbid(unsafe_code)]
 //! See [`tinywasm`](https://docs.rs/tinywasm) for documentation.
@@ -37,6 +33,7 @@ mod macros;
 mod module;
 mod selection;
 mod validation;
+mod value_tracker;
 mod visit;
 
 #[cfg(parallel_parser)]
@@ -73,7 +70,7 @@ pub struct ParserOptions {
 
     /// Target number of emitted guest instructions between synthetic execution checkpoints.
     ///
-    /// Defaults to 1,024. The pending fusion window can add up to three instructions per interval.
+    /// Defaults to 1,024. Accumulator materialization can add up to four instructions per interval.
     /// Larger intervals reduce checkpoint overhead but allow longer straight-line execution before
     /// a resumable invocation checks its budget. Taken control-flow boundaries are checked separately.
     pub checkpoint_interval: core::num::NonZeroUsize,

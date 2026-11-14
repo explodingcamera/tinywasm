@@ -2,6 +2,7 @@ use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 
 use super::{FromWasmValues, FuncContext, IntoWasmValues};
+use crate::interpreter::ScalarValues;
 use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
 use crate::{Function, Result, Store, WasmValue};
@@ -80,7 +81,7 @@ impl HostFunction {
         }
         match &self.0.callback {
             HostCallback::Untyped(func) => func(FuncContext { store, module_id }, args, results)?,
-            HostCallback::Typed(func) => func.call(FuncContext { store, module_id }, args, results)?,
+            HostCallback::Typed(func) => func.call_values(FuncContext { store, module_id }, args, results)?,
         }
         let expected = store.state.get_canonical_func_type(type_addr);
         if !results.iter().zip(expected.results()).all(|(value, &ty)| store.value_matches_type(value, ty)) {
@@ -92,7 +93,7 @@ impl HostFunction {
         Ok(())
     }
 
-    /// Returns the allocation-free typed callback when one is available.
+    /// Returns the typed callback, which does not require a scratch value buffer.
     pub(crate) fn typed_callback(&self) -> Option<&dyn TypedHostCallback> {
         match &self.0.callback {
             HostCallback::Untyped(_) => None,
@@ -100,18 +101,23 @@ impl HostFunction {
         }
     }
 
-    /// Calls from Wasm using arguments on the store's restored value stack.
-    pub(crate) fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
+    /// Calls using the store's argument/result codec.
+    pub(crate) fn call(
+        &self,
+        store: &mut Store,
+        module_id: ModuleInstanceId,
+        type_addr: TypeAddr,
+        arguments: ScalarValues,
+    ) -> Result<ScalarValues> {
         if let Some(callback) = self.typed_callback() {
-            return cold_err!(callback.call_stack(store, module_id, type_addr))
+            return cold_err!(callback.call(store, module_id, type_addr, arguments))
                 .map_err(|error| crate::Error::HostFunction(Box::new(error)));
         }
-
         let ty = store.state.get_canonical_func_type(type_addr);
         let (param_count, result_count) = (ty.params().len(), ty.results().len());
-        let base = store.value_stack.base_before(ty.params().iter().collect());
+        let base = store.call_parameter_base(type_addr);
         store.with_scratch_values(param_count + result_count, |store, values| {
-            let host_values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
+            let host_values = store.call_value_iter(type_addr, FuncValueTypes::Params, base, arguments)?;
             for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
                 *slot = value;
             }
@@ -119,7 +125,7 @@ impl HostFunction {
             let (params, results) = values.split_at_mut(param_count);
             self.call_values(store, module_id, type_addr, params, results)
                 .map_err(|error| crate::Error::HostFunction(Box::new(error)))?;
-            store.push_wasm_values(results)
+            store.push_call_values::<true>(type_addr, results.iter().cloned(), base)
         })
     }
 
@@ -268,10 +274,18 @@ type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue
 #[cfg(feature = "send")]
 type UntypedHostCallback = dyn Fn(FuncContext<'_>, &[WasmValue], &mut [WasmValue]) -> Result<()> + Send + Sync;
 
-/// Typed callback entry points with the build mode's thread-safety bounds.
+/// Typed callback with store-codec and native-buffer entry points.
 pub(crate) trait TypedHostCallback: HostFunctionCallback {
-    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
-    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()>;
+    /// Adapts native argument/result buffers without using the interpreter stack.
+    fn call_values(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()>;
+    /// Decodes arguments, invokes the callback, and encodes results with the store codec.
+    fn call(
+        &self,
+        store: &mut Store,
+        module_id: ModuleInstanceId,
+        type_addr: TypeAddr,
+        arguments: ScalarValues,
+    ) -> Result<ScalarValues>;
 }
 
 struct TypedHostCallbackImpl<F, P, R> {
@@ -285,7 +299,7 @@ where
     P: FromWasmValues,
     R: IntoWasmValues,
 {
-    fn call(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
+    fn call_values(&self, ctx: FuncContext<'_>, args: &[WasmValue], results: &mut [WasmValue]) -> Result<()> {
         let mut values = args.iter().cloned();
         let params = cold_err!(P::from_wasm_values(&mut values))?;
         let mut values = (self.func)(ctx, params)?.into_wasm_values();
@@ -298,16 +312,21 @@ where
         Ok(())
     }
 
-    fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
-        // Canonicalizing reference types does not change their physical parameter lanes.
-        let base = store.value_stack.base_before(P::WASM_TYPES.iter().collect());
+    fn call(
+        &self,
+        store: &mut Store,
+        module_id: ModuleInstanceId,
+        type_addr: TypeAddr,
+        arguments: ScalarValues,
+    ) -> Result<ScalarValues> {
+        let base = store.call_parameter_base(type_addr);
         let params = {
-            let mut values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
+            let mut values = store.call_value_iter(type_addr, FuncValueTypes::Params, base, arguments)?;
             cold_err!(P::from_wasm_values(&mut values))
         };
         store.value_stack.truncate_to_base(base);
         let result = cold_err!((self.func)(FuncContext { store, module_id }, params?))?;
-        store.push_typed_values::<true>(type_addr, result.into_wasm_values(), base)
+        store.push_call_values::<true>(type_addr, result.into_wasm_values(), base)
     }
 }
 

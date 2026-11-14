@@ -146,7 +146,7 @@ impl FuncExecution<'_> {
     ///
     /// Fuel is checked at taken branches, calls, returns, throws, and synthetic checkpoints, so
     /// execution may overshoot the requested fuel. By default, checkpoints target 1,024 emitted
-    /// interpreter instructions, with up to three extra instructions for pending fusion.
+    /// interpreter instructions, with up to four extra instructions for accumulator materialization.
     /// Synthetic checkpoints cost no fuel. Taken loop backedges are checked even without them.
     /// Completion and traps take precedence over suspension after their instruction executes.
     /// A synchronous host callback finishes before suspension at its call boundary.
@@ -235,7 +235,9 @@ impl<'store, R: FromWasmValues> FuncExecutionTyped<'store, R> {
             ExecProgress::Completed(CallResult::Stack { type_addr }) => {
                 Ok(ExecProgress::Completed(self.execution.store.take_typed_results(type_addr, StackBase::default())?))
             }
-            ExecProgress::Completed(CallResult::Written) => unreachable!("untyped result in typed execution"),
+            ExecProgress::Completed(CallResult::Written) => {
+                unreachable!("untyped result in typed execution")
+            }
             ExecProgress::Suspended => Ok(ExecProgress::Suspended),
         }
     }

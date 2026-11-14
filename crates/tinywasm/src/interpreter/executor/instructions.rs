@@ -1,246 +1,503 @@
-macro_rules! exec_op {
-    ($executor:ident; unary_fallible $from:ty => $to:ty, |$v:ident| $expr:expr) => {{
-        #[inline(always)]
-        fn exec_unary_fallible(value_stack: &mut ValueStack) -> Result<(), Trap> {
-            let $v = <$from>::stack_pop(value_stack);
-            <$to>::stack_push(value_stack, $expr?);
-            Ok(())
-        }
-        exec_unary_fallible(&mut $executor.value_stack)?;
-    }};
-    ($executor:ident; binary_fallible $ty:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-        fn exec_binary_fallible(value_stack: &mut ValueStack) -> Result<(), Trap> {
-            let $rhs = <$ty>::stack_pop(value_stack);
-            let $lhs = <$ty>::stack_pop(value_stack);
-            <$ty>::stack_push(value_stack, $expr?);
-            Ok(())
-        }
-        exec_binary_fallible(&mut $executor.value_stack)?;
-    }};
-    ($executor:ident; unary $from:ty => $to:ty, |$v:ident| $expr:expr) => {{
-        fn exec_unary(value_stack: &mut ValueStack) {
-            let $v = <$from>::stack_pop(value_stack);
-            <$to>::stack_push(value_stack, $expr);
-        }
-        exec_unary(&mut $executor.value_stack);
-    }};
-    ($executor:ident; binary $from:ty => $to:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-        exec_op!($executor; binary $from, $from => $to, |$lhs, $rhs| $expr)
-    }};
-    ($executor:ident; binary $lhs_ty:ty, $rhs_ty:ty => $res:ty, |$lhs:ident, $rhs:ident| $expr:expr) => {{
-        fn exec_binary(value_stack: &mut ValueStack) {
-            let $rhs = <$rhs_ty>::stack_pop(value_stack);
-            let $lhs = <$lhs_ty>::stack_pop(value_stack);
-            <$res>::stack_push(value_stack, $expr);
-        }
-        exec_binary(&mut $executor.value_stack);
-    }};
-    ($executor:ident; ternary $from:ty => $to:ty, |$a:ident, $b:ident, $c:ident| $expr:expr) => {{
-        fn exec_ternary(value_stack: &mut ValueStack) {
-            let $c = <$from>::stack_pop(value_stack);
-            let $b = <$from>::stack_pop(value_stack);
-            let $a = <$from>::stack_pop(value_stack);
-            <$to>::stack_push(value_stack, $expr);
-        }
-        exec_ternary(&mut $executor.value_stack);
-    }};
-}
-
+#[rustfmt::skip]
 macro_rules! execute_instruction {
-    ($executor:ident, $instr_ptr:ident, $dispatch_jump:ident, $dispatch_flow:ident, $body:expr) => {{
+    ($executor:ident, $instr_ptr:ident, $acc32:ident, $acc64:ident, $acc128:ident, $body:expr) => {{
         #[allow(unreachable_code, unused_macros, clippy::redundant_closure_call)]
         let result = (|| -> ExecResult<ExecFlow> {
-            macro_rules! $dispatch_jump {
-                ($target:expr) => {{
-                    let target = $target;
-                    $executor.charge_instructions($instr_ptr + 1);
-                    return Ok(ExecFlow::Jump(target));
+            macro_rules! read_operand {
+                (u32) => { *$acc32 };
+                (i32) => { *$acc32 as i32 };
+                (f32) => { f32::from_bits(*$acc32) };
+                (u64) => { *$acc64 };
+                (i64) => { *$acc64 as i64 };
+                (f64) => { f64::from_bits(*$acc64) };
+                (ValueRef) => { ValueRef::from_raw(*$acc32) };
+                (Value128) => { *$acc128 };
+            }
+            macro_rules! write_result {
+                (local $ty:ident, $local:expr, $expr:expr) => {{
+                    let value: $ty = $expr;
+                    <$ty>::local_set(&mut $executor.value_stack, &$executor.cf, $local, value);
+                }};
+                (tee $ty:ident, $local:expr, $value:expr) => {{
+                    let value: $ty = $value;
+                    write_result!(local $ty, $local, value);
+                    write_result!($ty, value);
+                }};
+                ($ty:ident, $expr:expr) => {{
+                    let value: $ty = $expr;
+                    write_result!(@acc $ty, value);
+                }};
+                (@acc u32, $value:ident) => { *$acc32 = $value };
+                (@acc i32, $value:ident) => { *$acc32 = $value as u32 };
+                (@acc f32, $value:ident) => { *$acc32 = $value.to_bits() };
+                (@acc u64, $value:ident) => { *$acc64 = $value };
+                (@acc i64, $value:ident) => { *$acc64 = $value as u64 };
+                (@acc f64, $value:ident) => { *$acc64 = $value.to_bits() };
+                (@acc ValueRef, $value:ident) => { *$acc32 = $value.raw() };
+                (@acc Value128, $value:ident) => { *$acc128 = $value };
+            }
+            macro_rules! exec_op {
+                ($ex:ident; unary $from:ident => $to:ident, |$v:ident| $expr:expr) => {{
+                    let $v = read_operand!($from);
+                    write_result!($to, $expr);
+                }};
+                ($ex:ident; binary $from:ident => $to:ident, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                    let $rhs = read_operand!($from);
+                    let $lhs = <$from>::stack_pop(&mut $ex.value_stack);
+                    write_result!($to, $expr);
+                }};
+                ($ex:ident; mixed $lhs_ty:ident, $rhs_ty:ident => $to:ident, |$lhs:ident, $rhs:ident| $expr:expr) => {{
+                    let $rhs = read_operand!($rhs_ty);
+                    let $lhs = read_operand!($lhs_ty);
+                    write_result!($to, $expr);
+                }};
+                ($ex:ident; ternary $from:ident => $to:ident, |$a:ident, $b:ident, $c:ident| $expr:expr) => {{
+                    let $c = read_operand!($from);
+                    let $b = <$from>::stack_pop(&mut $ex.value_stack);
+                    let $a = <$from>::stack_pop(&mut $ex.value_stack);
+                    write_result!($to, $expr);
                 }};
             }
-            macro_rules! $dispatch_flow {
+            macro_rules! exec_load {
+                ($memory:ident, $ty:ty, $bytes:literal => 32, $extended:ty) => {{
+                    *$acc32 = $executor.exec_mem_load::<$ty, $bytes>(*$memory, *$acc32, *$acc64)? as $extended as u32;
+                    if $memory.address64 {
+                        *$acc64 = 0;
+                    }
+                }};
+                ($memory:ident, $ty:ty, $bytes:literal => 64, $extended:ty) => {{
+                    *$acc64 = $executor.exec_mem_load::<$ty, $bytes>(*$memory, *$acc32, *$acc64)? as $extended as u64;
+                    if !$memory.address64 {
+                        *$acc32 = 0;
+                    }
+                }};
+            }
+            macro_rules! exec_store {
+                ($memory:ident, $value:expr, $wide:literal, $bytes:literal) => {{
+                    $executor.exec_mem_store::<_, $bytes>(
+                        *$memory,
+                        $value,
+                        if $wide { ValueLane::S64 } else { ValueLane::S32 },
+                        *$acc32,
+                        *$acc64,
+                    )?;
+                    // Stores consume their value lane and, when different, their address lane.
+                    if $wide || $memory.address64 {
+                        *$acc64 = 0;
+                    }
+                    if !$wide || !$memory.address64 {
+                        *$acc32 = 0;
+                    }
+                }};
+            }
+            macro_rules! dispatch_flow {
                 ($flow:expr) => {{
                     // Advance accounting before a call or throw can fail or switch functions.
                     $executor.charge_instructions($instr_ptr + 1);
                     return Ok($flow);
                 }};
             }
+            macro_rules! exec_branch {
+                ($target:expr) => {{
+                    // Dead cached bits may still be reusable copies of frame locals.
+                    if let Some(target) = $target {
+                        return Ok(ExecFlow::Branch(target));
+                    }
+                }};
+            }
             $body;
-            Ok(ExecFlow::Next($instr_ptr + 1))
+            Ok(ExecFlow::Continue($instr_ptr + 1))
         })();
         result
     }};
 }
 
 // This list is the single source for stable instruction stepping and nightly tail handlers.
+// Explicit loop forms run their own fuel-checked loop, ordinary branches need no self-edge check.
 #[rustfmt::skip]
 macro_rules! instruction_handlers {
     ($emit:ident $(, $abi:literal)?) => {
-        $emit! { $($abi;)? executor, instr_ptr, dispatch_jump, dispatch_flow;
-            Checkpoint => { return Ok(ExecFlow::Checkpoint(instr_ptr + 1)); },
-            Unreachable => { return cold!(Err(Trap::Unreachable)); },
-            Drop32 => { _ = Value32::stack_pop(&mut executor.value_stack)},
-            Drop64 => { _ = Value64::stack_pop(&mut executor.value_stack)},
-            Drop128 => { _ = Value128::stack_pop(&mut executor.value_stack)},
-            Select32 => Value32::stack_select(&mut executor.value_stack),
-            Select64 => Value64::stack_select(&mut executor.value_stack),
-            Select128 => Value128::stack_select(&mut executor.value_stack),
-            SelectStore32(arg) => executor.exec_select_store::<Value32, 4>(*arg)?,
-            SelectStore64(arg) => executor.exec_select_store::<Value64, 8>(*arg)?,
+        $emit! { $($abi;)? executor, instr_ptr, acc32, acc64, acc128;
+            Spill32 => Value32::stack_push(&mut executor.value_stack, *acc32),
+            LocalGet32Preserve(local) => { Value32::stack_push(&mut executor.value_stack, *acc32); *acc32 = Value32::local_get(&executor.value_stack, &executor.cf, *local); },
+            LocalGet64Preserve(local) => { Value64::stack_push(&mut executor.value_stack, *acc64); *acc64 = Value64::local_get(&executor.value_stack, &executor.cf, *local); },
+            Const32Preserve(value) => { Value32::stack_push(&mut executor.value_stack, *acc32); *acc32 = *value as u32; },
+            Const64ImmPreserve(value) => { Value64::stack_push(&mut executor.value_stack, *acc64); *acc64 = *value as i64 as u64; },
+            Const64Preserve(index) => { Value64::stack_push(&mut executor.value_stack, *acc64); *acc64 = index.resolve(&executor.func.data).value() as u64; },
+            Spill64 => Value64::stack_push(&mut executor.value_stack, *acc64),
+            Reload32 => *acc32 = Value32::stack_pop(&mut executor.value_stack),
+            Reload64 => *acc64 = Value64::stack_pop(&mut executor.value_stack),
+            Spill128 => Value128::stack_push(&mut executor.value_stack, *acc128),
+            Reload128 => *acc128 = Value128::stack_pop(&mut executor.value_stack),
+            LocalGet128Preserve(local) => { Value128::stack_push(&mut executor.value_stack, *acc128); *acc128 = Value128::local_get(&executor.value_stack, &executor.cf, *local); },
+            Const128ImmPreserve(value) => { Value128::stack_push(&mut executor.value_stack, *acc128); *acc128 = Value128(u128::from(*value).to_le_bytes()); },
+            Const128Preserve(index) => { Value128::stack_push(&mut executor.value_stack, *acc128); *acc128 = Value128(index.resolve(&executor.func.data).value()); },
+            I32Add3 => {
+                let middle = u32::stack_pop(&mut executor.value_stack);
+                let left = u32::stack_pop(&mut executor.value_stack);
+                *acc32 = left.wrapping_add(middle).wrapping_add(*acc32);
+            },
+            I64Add3 => {
+                let middle = u64::stack_pop(&mut executor.value_stack);
+                let left = u64::stack_pop(&mut executor.value_stack);
+                *acc64 = left.wrapping_add(middle).wrapping_add(*acc64);
+            },
+            I32MulAddLocal(local) => executor.exec_mul_add_local(*local, *acc32, u32::wrapping_mul, u32::wrapping_add),
+            I64MulAddLocal(local) => executor.exec_mul_add_local(*local, *acc64, u64::wrapping_mul, u64::wrapping_add),
+            F32MulAddLocal(local) => executor.exec_mul_add_local(*local, f32::from_bits(*acc32), |a, b| a * b, |a, b| a + b),
+            F64MulAddLocal(local) => executor.exec_mul_add_local(*local, f64::from_bits(*acc64), |a, b| a * b, |a, b| a + b),
+            F32MulAddStore(memory) => executor.exec_mul_add_store::<f32, 4>(*memory, f32::from_bits(*acc32), *acc32, *acc64)?,
+            F64MulAddStore(memory) => executor.exec_mul_add_store::<f64, 8>(*memory, f64::from_bits(*acc64), *acc32, *acc64)?,
+            Checkpoint => return Ok(ExecFlow::Checkpoint(instr_ptr + 1)),
+            Unreachable => return cold!(Err(Trap::Unreachable)),
+            Drop32 => {},
+            Drop64 => {},
+            Drop128 => {},
+            Select32 => {
+                let condition = *acc32 != 0;
+                let rhs = Value32::stack_pop(&mut executor.value_stack);
+                let lhs = Value32::stack_pop(&mut executor.value_stack);
+                *acc32 = if condition { lhs } else { rhs };
+            },
+            Select64 => {
+                let lhs = Value64::stack_pop(&mut executor.value_stack);
+                if *acc32 != 0 { *acc64 = lhs; }
+            },
+            Select128 => {
+                let lhs = Value128::stack_pop(&mut executor.value_stack);
+                if *acc32 != 0 { *acc128 = lhs; }
+            },
+            SelectStore32(arg) => {
+                let false_value = Value32::stack_pop(&mut executor.value_stack);
+                let true_value = Value32::stack_pop(&mut executor.value_stack);
+                let value = if *acc32 == 0 { false_value } else { true_value };
+                executor.exec_mem_store::<_, 4>(*arg, value, ValueLane::S32, *acc32, *acc64)?;
+            },
+            SelectStore64(index) => {
+                let true_value = Value64::stack_pop(&mut executor.value_stack);
+                let value = if *acc32 == 0 { *acc64 } else { true_value };
+                let memory = executor.operand128(*index);
+                executor.exec_mem_store_value::<_, 8>(executor.mem_addr(memory.memory()), memory.offset(), value)?;
+            },
             SelectMulti(counts) => executor.value_stack.select_multi(*counts),
-            Call(v) => dispatch_flow!(executor.exec_call_direct(*v, instr_ptr + 1)?),
-            CallSelf => dispatch_flow!({ executor.exec_call_self(instr_ptr + 1)?; ExecFlow::Jump(0) }),
-            CallIndirect(idx) => dispatch_flow!(executor.exec_call_indirect::<false>(*idx, instr_ptr + 1)?),
-            CallRef(ty) => dispatch_flow!(executor.exec_call_ref::<false>(*ty, instr_ptr + 1)?),
-            ReturnCall(v) => dispatch_flow!(executor.exec_return_call_direct(*v)?),
-            ReturnCallSelf => dispatch_flow!({ executor.exec_return_call_self()?; ExecFlow::Jump(0) }),
-            ReturnCallIndirect(idx) => dispatch_flow!(executor.exec_call_indirect::<true>(*idx, instr_ptr + 1)?),
-            ReturnCallRef(ty) => dispatch_flow!(executor.exec_call_ref::<true>(*ty, instr_ptr + 1)?),
+            Call(v) => dispatch_flow!(executor.exec_call_direct(*v, instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
+            CallSelf => dispatch_flow!({ executor.exec_call_self(instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?; ExecFlow::Jump(0) }),
+            CallIndirect(idx) => dispatch_flow!(executor.exec_call_indirect::<false>(*idx, instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
+            CallRef(ty) => dispatch_flow!(executor.exec_call_ref::<false>(*ty, instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
+            ReturnCall(v) => dispatch_flow!(executor.exec_return_call_direct(*v, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
+            ReturnCallSelf => dispatch_flow!({ executor.exec_return_call_self(ScalarValues { acc32: *acc32, acc64: *acc64 })?; ExecFlow::Jump(0) }),
+            ReturnCallIndirect(idx) => dispatch_flow!(executor.exec_call_indirect::<true>(*idx, instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
+            ReturnCallRef(ty) => dispatch_flow!(executor.exec_call_ref::<true>(*ty, instr_ptr + 1, ScalarValues { acc32: *acc32, acc64: *acc64 })?),
             Throw(tag) => dispatch_flow!(executor.exec_throw(*tag, instr_ptr)?),
             ThrowRef => dispatch_flow!(executor.exec_throw_ref(instr_ptr)?),
-            Jump(ip) => dispatch_jump!(*ip as usize),
-            JumpIfZero32(ip) => if i32::stack_pop(&mut executor.value_stack) == 0 { dispatch_jump!(*ip as usize) },
-            JumpIfNonZero32(ip) => if i32::stack_pop(&mut executor.value_stack) != 0 { dispatch_jump!(*ip as usize) },
-            JumpIfZero64(ip) => if i64::stack_pop(&mut executor.value_stack) == 0 { dispatch_jump!(*ip as usize) },
-            JumpIfNonZero64(ip) => if i64::stack_pop(&mut executor.value_stack) != 0 { dispatch_jump!(*ip as usize) },
-            JumpIfRefNull(ip) => { let ip = *ip; if executor.exec_jump_if_ref::<true>() { dispatch_jump!(ip as usize) } },
-            JumpIfRefNonNull(ip) => { let ip = *ip; if executor.exec_jump_if_ref::<false>() { dispatch_jump!(ip as usize) } },
-            BrOnCast(idx) => if let Some(ip) = executor.exec_br_on_cast::<false>(*idx) { dispatch_jump!(ip) },
-            BrOnCastFail(idx) => if let Some(ip) = executor.exec_br_on_cast::<true>(*idx) { dispatch_jump!(ip) },
-            JumpIfLocalZero32(arg) => if executor.exec_jump_if_local::<Value32, true>(arg.local) { dispatch_jump!(arg.target_ip as usize) },
-            JumpIfLocalNonZero32(arg) => if executor.exec_jump_if_local::<Value32, false>(arg.local) { dispatch_jump!(arg.target_ip as usize) },
-            JumpIfLocalZero64(arg) => if executor.exec_jump_if_local::<Value64, true>(arg.local) { dispatch_jump!(arg.target_ip as usize) },
-            JumpIfLocalNonZero64(arg) => if executor.exec_jump_if_local::<Value64, false>(arg.local) { dispatch_jump!(arg.target_ip as usize) },
-            JumpCmpStackConst32(packed) => if let Some(ip) = executor.exec_jump_cmp_stack_const32(*packed) { dispatch_jump!(ip) },
-            JumpCmpStackConst64(packed) => if let Some(ip) = executor.exec_jump_cmp_stack_const64(*packed) { dispatch_jump!(ip) },
-            JumpCmpStackLocal32(packed) => if let Some(ip) = executor.exec_jump_cmp_stack_local32(*packed) { dispatch_jump!(ip) },
-            JumpCmpStackLocal64(packed) => if let Some(ip) = executor.exec_jump_cmp_stack_local64(*packed) { dispatch_jump!(ip) },
-            BinOpLocalConstJump32(packed) => if let Some(ip) = executor.exec_binop_local_const_jump(*packed) { dispatch_jump!(ip) },
-            BinOpLocalConstJumpCmpLocal32(packed) => if let Some(ip) = executor.exec_binop_local_const_jump_cmp_local(*packed) { dispatch_jump!(ip) },
-            BinOpStackConstTeeLocalJump32(packed) => if let Some(ip) = executor.exec_binop_stack_const_tee_local_jump(*packed) { dispatch_jump!(ip) },
-            BinOpGlobalConstJump32(packed) => if let Some(ip) = executor.exec_binop_global_const_jump(*packed) { dispatch_jump!(ip) },
-            IncLocalJump32(idx) => if let Some(ip) = executor.exec_inc_local_jump(*idx) { dispatch_jump!(ip) },
-            IncStackTeeLocalJump32(idx) => if let Some(ip) = executor.exec_inc_stack_tee_local_jump(*idx) { dispatch_jump!(ip) },
-            IncGlobalJump32(idx) => if let Some(ip) = executor.exec_inc_global_jump(*idx) { dispatch_jump!(ip) },
-            IncLocalJumpCmpLocal32(packed) => if let Some(ip) = executor.exec_inc_local_jump_cmp_local(*packed) { dispatch_jump!(ip) },
-            JumpCmpLocalConst32(packed) => if let Some(ip) = executor.exec_jump_cmp_local_const32(*packed) { dispatch_jump!(ip) },
-            JumpCmpLocalConst64(packed) => if let Some(ip) = executor.exec_jump_cmp_local_const64(*packed) { dispatch_jump!(ip) },
-            JumpCmpLocalLocal32(packed) => if let Some(ip) = executor.exec_jump_cmp_local_local32(*packed) { dispatch_jump!(ip) },
-            JumpCmpLocalLocal64(packed) => if let Some(ip) = executor.exec_jump_cmp_local_local64(*packed) { dispatch_jump!(ip) },
+            Jump(ip) => exec_branch!(Some(*ip as usize)),
+            JumpSpill32(ip) => {
+                Value32::stack_push(&mut executor.value_stack, *acc32);
+                exec_branch!(Some(*ip as usize));
+            },
+            JumpKeep32(ip) => return Ok(ExecFlow::Continue(*ip as usize + 1)),
+            JumpSpill64(ip) => {
+                Value64::stack_push(&mut executor.value_stack, *acc64);
+                exec_branch!(Some(*ip as usize));
+            },
+            JumpKeep64(ip) => return Ok(ExecFlow::Continue(*ip as usize + 1)),
+            JumpSpill128(ip) => {
+                Value128::stack_push(&mut executor.value_stack, *acc128);
+                exec_branch!(Some(*ip as usize));
+            },
+            JumpKeep128(ip) => return Ok(ExecFlow::Continue(*ip as usize + 1)),
+            JumpIfZero32(ip) => exec_branch!((*acc32 == 0).then_some(*ip as usize)),
+            JumpIfNonZero32(ip) => exec_branch!((*acc32 != 0).then_some(*ip as usize)),
+            JumpIfZero64(ip) => exec_branch!((*acc64 == 0).then_some(*ip as usize)),
+            JumpIfNonZero64(ip) => exec_branch!((*acc64 != 0).then_some(*ip as usize)),
+            BinOpLocalConstTestJump32(packed) => {
+                let arg = executor.operand128(packed.index);
+                let value = executor.exec_binop_local_const::<Value32>(packed.op, arg.local(), arg.value() as u32);
+                exec_branch!(((value == 0) == arg.on_zero()).then_some(arg.target() as usize));
+            },
+            BinOpLocalLocalTestJump32(packed) => {
+                let arg = executor.operand64(packed.index);
+                let value = executor.exec_binop_local_local::<Value32>(packed.op.0, arg.b(), arg.c());
+                exec_branch!(((value == 0) == packed.op.1).then_some(arg.target() as usize));
+            },
+            BinOpLocalConstJumpCmpConst32(packed) => {
+                let arg = executor.operand128(packed.index);
+                let value = executor.exec_binop_local_const::<Value32>(packed.op.0, arg.local(), arg.value());
+                exec_branch!(packed.op.1.cmp(value as i32, arg.right()).then_some(arg.target() as usize));
+            },
+            JumpIfRefNull(ip) => exec_branch!(executor.exec_jump_if_ref::<true>().then_some(*ip as usize)),
+            JumpIfRefNonNull(ip) => exec_branch!(executor.exec_jump_if_ref::<false>().then_some(*ip as usize)),
+            BrOnCast(idx) => exec_branch!(executor.exec_br_on_cast::<false>(*idx)),
+            BrOnCastFail(idx) => exec_branch!(executor.exec_br_on_cast::<true>(*idx)),
+            JumpIfLocalZero32(arg) => exec_branch!(executor.exec_jump_if_local::<Value32, true>(arg.local).then_some(arg.target_ip as usize)),
+            JumpIfLocalNonZero32(arg) => exec_branch!(executor.exec_jump_if_local::<Value32, false>(arg.local).then_some(arg.target_ip as usize)),
+            JumpIfLocalZero64(arg) => exec_branch!(executor.exec_jump_if_local::<Value64, true>(arg.local).then_some(arg.target_ip as usize)),
+            JumpIfLocalNonZero64(arg) => exec_branch!(executor.exec_jump_if_local::<Value64, false>(arg.local).then_some(arg.target_ip as usize)),
+            JumpCmpAccConst32(packed) => exec_branch!(executor.exec_jump_cmp_acc_const32(*packed, *acc32 as i32)),
+            JumpCmpAccConst64(packed) => exec_branch!(executor.exec_jump_cmp_acc_const64(*packed, *acc64 as i64)),
+            JumpFCmpAccConst32(packed) => exec_branch!(executor.exec_jump_fcmp_acc_const32(*packed, f32::from_bits(*acc32))),
+            JumpFCmpAccConst64(packed) => exec_branch!(executor.exec_jump_fcmp_acc_const64(*packed, f64::from_bits(*acc64))),
+            JumpCmpAccLocal32(packed) => exec_branch!(executor.exec_jump_cmp_acc_local32(*packed, *acc32 as i32)),
+            JumpCmpAccLocal64(packed) => exec_branch!(executor.exec_jump_cmp_acc_local64(*packed, *acc64 as i64)),
+            BinOpLocalConstSetJump32(packed) => exec_branch!(executor.exec_binop_local_const_set_jump(*packed)),
+            BinOpLocalConstSetJumpCmpLocal32(packed) => exec_branch!(executor.exec_binop_local_const_set_jump_cmp_local(*packed)),
+            BinOpLocalConstSetJumpCmpLocal64(packed) => exec_branch!(executor.exec_binop_local_const_set_jump_cmp_local64(*packed)),
+            BinOpLocalLocalSetJumpCmpLocal32(packed) => exec_branch!(executor.exec_binop_local_local_set_jump_cmp_local32(*packed)),
+            BinOpLocalLocalSetJumpCmpLocal64(packed) => exec_branch!(executor.exec_binop_local_local_set_jump_cmp_local64(*packed)),
+            BinOpStackConstTeeLocalJump32(packed) => exec_branch!(executor.exec_binop_stack_const_tee_local_jump(*packed)),
+            BinOpGlobalConstSetJump32(packed) => exec_branch!(executor.exec_binop_global_const_set_jump(*packed)),
+            I32AddLocalSetConstJump(idx) => exec_branch!(executor.exec_i32_add_local_set_const_jump(*idx)),
+            I32AddStackConstTeeLocalJump(idx) => exec_branch!(executor.exec_i32_add_stack_const_tee_local_jump(*idx)),
+            I32AddGlobalSetConstJump(idx) => exec_branch!(executor.exec_i32_add_global_set_const_jump(*idx)),
+            I32AddLocalSetConstJumpCmpLocal(packed) => exec_branch!(executor.exec_i32_add_local_set_const_jump_cmp_local(*packed)),
+            I32AddLocalSetConstLoop(idx) => return Ok(executor.exec_i32_add_local_set_const_loop(*idx, instr_ptr)),
+            I32AddStackConstTeeLocalLoop(idx) => return Ok(executor.exec_i32_add_stack_const_tee_local_loop(*idx, instr_ptr)),
+            I32AddGlobalSetConstLoop(idx) => return Ok(executor.exec_i32_add_global_set_const_loop(*idx, instr_ptr)),
+            JumpCmpLocalConst32(packed) => exec_branch!(executor.exec_jump_cmp_local_const32(*packed)),
+            JumpCmpLocalConst64(packed) => exec_branch!(executor.exec_jump_cmp_local_const64(*packed)),
+            JumpCmpLocalLocal32(packed) => exec_branch!(executor.exec_jump_cmp_local_local32(*packed)),
+            JumpCmpLocalLocal64(packed) => exec_branch!(executor.exec_jump_cmp_local_local64(*packed)),
             DropKeep32 { base, keep } => executor.value_stack.stack_32.truncate_keep((executor.cf.stack_base().s32 + u32::from(*base)) as usize, *keep as usize),
             DropKeep64 { base, keep } => executor.value_stack.stack_64.truncate_keep((executor.cf.stack_base().s64 + u32::from(*base)) as usize, *keep as usize),
             DropKeep128 { base, keep } => executor.value_stack.stack_128.truncate_keep((executor.cf.stack_base().s128 + u32::from(*base)) as usize, *keep as usize),
-            BranchTable(idx) => dispatch_jump!(executor.exec_branch_table(*idx)),
-            Return => dispatch_flow!(executor.exec_return()),
+            BranchTable(idx) => exec_branch!(Some(executor.exec_branch_table(*idx, *acc32))),
+            Return => dispatch_flow!(executor.exec_return(*acc32, *acc64)),
             ReturnVoid => dispatch_flow!(executor.exec_return_void()),
-            Return32 => dispatch_flow!(executor.exec_return_32()),
-            Return64 => dispatch_flow!(executor.exec_return_64()),
+            Return32 => dispatch_flow!(executor.exec_return_32(*acc32)),
+            Return64 => dispatch_flow!(executor.exec_return_64(*acc64)),
             Return128 => dispatch_flow!(executor.exec_return_128()),
-            LocalGet32(local_index) => Value32::local_push(&mut executor.value_stack, &executor.cf, *local_index),
-            LocalGet64(local_index) => Value64::local_push(&mut executor.value_stack, &executor.cf, *local_index),
-            LocalGet128(local_index) => Value128::local_push(&mut executor.value_stack, &executor.cf, *local_index),
-            LocalSet32(local_index) => executor.exec_local_set_pop::<Value32>(*local_index),
-            LocalSet64(local_index) => executor.exec_local_set_pop::<Value64>(*local_index),
-            LocalSet128(local_index) => executor.exec_local_set_pop::<Value128>(*local_index),
+            LocalGet32(local_index) => *acc32 = Value32::local_get(&executor.value_stack, &executor.cf, *local_index),
+            LocalCopyPair32(first, target, second, destination) => {
+                Value32::local_copy(&mut executor.value_stack, &executor.cf, u16::from(*first), u16::from(*target));
+                Value32::local_copy(&mut executor.value_stack, &executor.cf, u16::from(*second), u16::from(*destination));
+            },
+            LocalCopyPair64(first, target, second, destination) => {
+                Value64::local_copy(&mut executor.value_stack, &executor.cf, u16::from(*first), u16::from(*target));
+                Value64::local_copy(&mut executor.value_stack, &executor.cf, u16::from(*second), u16::from(*destination));
+            },
+            LocalGet64(local_index) => *acc64 = Value64::local_get(&executor.value_stack, &executor.cf, *local_index),
+            LocalGet128(local_index) => *acc128 = Value128::local_get(&executor.value_stack, &executor.cf, *local_index),
+            LocalSet32(local_index) => Value32::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc32),
+            LocalSet64(local_index) => Value64::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc64),
+            LocalSet128(local_index) => Value128::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc128),
             LocalCopy32(from, to) => Value32::local_copy(&mut executor.value_stack, &executor.cf, *from, *to),
             LocalCopy64(from, to) => Value64::local_copy(&mut executor.value_stack, &executor.cf, *from, *to),
             LocalCopy128(from, to) => Value128::local_copy(&mut executor.value_stack, &executor.cf, *from, *to),
-            AddConst32(c) => { i32::stack_update(&mut executor.value_stack, |value| value.wrapping_add(*c)); },
-            AndConst32(c) => { i32::stack_update(&mut executor.value_stack, |value| value & *c); },
-            XorConst32(c) => { i32::stack_update(&mut executor.value_stack, |value| value ^ *c); },
-            ShrUConst32(c) => { u32::stack_update(&mut executor.value_stack, |value| value.wrapping_shr(*c as u32)); },
-            AddConst64(idx) => { let rhs = idx.resolve(&executor.func.data).value(); i64::stack_update(&mut executor.value_stack, |value| value.wrapping_add(rhs)); },
-            BinOpStackConst32(op, rhs) => { u32::stack_update(&mut executor.value_stack, |lhs| op.exec(lhs, *rhs as u32)); },
-            BinOpStackConst64(packed) => { let rhs = packed.index.resolve(&executor.func.data).value() as u64; u64::stack_update(&mut executor.value_stack, |lhs| packed.op.exec(lhs, rhs)); },
-            IncLocal32(arg) => { i32::local_update(&mut executor.value_stack, &executor.cf, arg.local, |value| value.wrapping_add(arg.value)); },
-            IncLocal64(packed) => { let rhs = packed.index.resolve(&executor.func.data).value(); i64::local_update(&mut executor.value_stack, &executor.cf, packed.op, |value| value.wrapping_add(rhs)); },
-            I32Add3 => exec_op!(executor; ternary i32 => i32, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
-            I64Add3 => exec_op!(executor; ternary i64 => i64, |a, b, c| a.wrapping_add(b).wrapping_add(c)),
-            MulAccLocal32(acc) => executor.exec_mul_acc_local::<i32>(*acc, i32::wrapping_mul, i32::wrapping_add),
-            MulAccLocal64(acc) => executor.exec_mul_acc_local::<i64>(*acc, i64::wrapping_mul, i64::wrapping_add),
-            FMulAccLocal32(acc) => executor.exec_mul_acc_local::<f32>(*acc, #[inline(always)] |a, b| a * b, #[inline(always)] |a, b| a + b),
-            FMulAccLocal64(acc) => executor.exec_mul_acc_local::<f64>(*acc, #[inline(always)] |a, b| a * b, #[inline(always)] |a, b| a + b),
-            BinOpLocalLocal32(op, a, b) => executor.exec_binop_local_local::<Value32, true>(*a, *b, None, *op),
-            BinOpLocalLocal64(op, a, b) => executor.exec_binop_local_local::<Value64, true>(*a, *b, None, *op),
-            BinOpLocalLocal128(op, a, b) => executor.exec_binop_local_local::<Value128, true>(*a, *b, None, *op),
-            CmpLocalLocal32(op, a, b) => executor.exec_cmp_local_local::<i32>(*a, *b, *op),
-            CmpLocalLocal64(op, a, b) => executor.exec_cmp_local_local::<i64>(*a, *b, *op),
-            AddLocalLocalSet32(arg) => executor.exec_binop_local_local::<Value32, false>(arg.left, arg.right, Some(arg.dst), BinOp::IAdd),
-            AddLocalLocalTee32(arg) => executor.exec_binop_local_local::<Value32, true>(arg.left, arg.right, Some(arg.dst), BinOp::IAdd),
-            BinOpLocalLocalSet32(packed) => executor.exec_binop_local_local_indexed::<Value32, false>(packed.index, packed.op),
-            BinOpLocalLocalSet64(packed) => executor.exec_binop_local_local_indexed::<Value64, false>(packed.index, packed.op),
-            BinOpLocalLocalSet128(packed) => executor.exec_binop_local_local_indexed::<Value128, false>(packed.index, packed.op),
-            BinOpLocalLocalTee32(packed) => executor.exec_binop_local_local_indexed::<Value32, true>(packed.index, packed.op),
-            BinOpLocalLocalTee64(packed) => executor.exec_binop_local_local_indexed::<Value64, true>(packed.index, packed.op),
-            BinOpLocalLocalTee128(packed) => executor.exec_binop_local_local_indexed::<Value128, true>(packed.index, packed.op),
-            AddLocalConst32(arg) => executor.exec_binop_local_const::<Value32, true>(arg.local, arg.value as u32, None, BinOp::IAdd),
-            SubLocalConst32(arg) => executor.exec_binop_local_const::<Value32, true>(arg.local, arg.value as u32, None, BinOp::ISub),
-            MulLocalConst32(arg) => executor.exec_binop_local_const::<Value32, true>(arg.local, arg.value as u32, None, BinOp::IMul),
-            AndLocalConst32(arg) => executor.exec_binop_local_const::<Value32, true>(arg.local, arg.value as u32, None, BinOp::IAnd),
-            ShrULocalConst32(arg) => executor.exec_binop_local_const::<Value32, true>(arg.local, arg.value as u32, None, BinOp::IShrU),
-            BinOpLocalConst32(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value32, true>(v.a(), v.b(), None, packed.op); },
-            BinOpLocalConst64(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value64, true>(v.a(), v.b(), None, packed.op); },
-            BinOpLocalConst128(packed) => { let v = packed.index.resolve(&executor.func.data); let rhs = Value128(v.b().resolve(&executor.func.data).value()); executor.exec_binop_local_const::<Value128, true>(v.a(), rhs, None, packed.op); },
-            BinOpLocalConstSet32(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value32, false>(v.a(), v.c(), Some(v.b()), packed.op); },
-            BinOpLocalConstTee32(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value32, true>(v.a(), v.c(), Some(v.b()), packed.op); },
-            BinOpLocalConstSet64(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value64, false>(v.a(), v.c(), Some(v.b()), packed.op); },
-            BinOpLocalConstTee64(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_local_const::<Value64, true>(v.a(), v.c(), Some(v.b()), packed.op); },
-            BinOpLocalConstSet128(packed) => { let v = packed.index.resolve(&executor.func.data); let rhs = Value128(v.c().resolve(&executor.func.data).value()); executor.exec_binop_local_const::<Value128, false>(v.a(), rhs, Some(v.b()), packed.op); },
-            BinOpLocalConstTee128(packed) => { let v = packed.index.resolve(&executor.func.data); let rhs = Value128(v.c().resolve(&executor.func.data).value()); executor.exec_binop_local_const::<Value128, true>(v.a(), rhs, Some(v.b()), packed.op); },
-            BinOpStackLocal32(op, local) => executor.exec_binop_stack_local::<Value32, true>(*local, None, *op),
-            BinOpStackLocalSet32(op, local, dst) => executor.exec_binop_stack_local::<Value32, false>(*local, Some(*dst), *op),
-            BinOpStackLocalTee32(op, local, dst) => executor.exec_binop_stack_local::<Value32, true>(*local, Some(*dst), *op),
-            BinOpStackLocal128(op, local) => executor.exec_binop_stack_local::<Value128, true>(*local, None, *op),
-            BinOpStackGlobal32(op, global_index) => executor.exec_binop_stack_global::<Value32>(*global_index, *op),
-            BinOpStackGlobal64(op, global_index) => executor.exec_binop_stack_global::<Value64>(*global_index, *op),
-            BinOpGlobalConst32(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_global_const::<Value32>(v.a(), v.b(), packed.op); },
-            BinOpGlobalConst64(packed) => { let v = packed.index.resolve(&executor.func.data); executor.exec_binop_global_const::<Value64>(v.a(), v.b(), packed.op); },
-            BinOpGlobalConst128(packed) => { let v = packed.index.resolve(&executor.func.data); let rhs = Value128(v.b().resolve(&executor.func.data).value()); executor.exec_binop_global_const::<Value128>(v.a(), rhs, packed.op); },
+            I32AddConst(c) => *acc32 = acc32.wrapping_add(*c as u32),
+            I32AddLocal(local) => *acc32 = acc32.wrapping_add(Value32::local_get(&executor.value_stack, &executor.cf, *local)),
+            I32AddLocalShl(local, shift) => *acc32 = acc32.wrapping_add(
+                Value32::local_get(&executor.value_stack, &executor.cf, *local).wrapping_shl(u32::from(*shift))
+            ),
+            I32AddLocalAndShl(packed) => {
+                let arg = executor.operand64(packed.index);
+                let value = Value32::local_get(&executor.value_stack, &executor.cf, arg.a()) & arg.b();
+                *acc32 = acc32.wrapping_add(value.wrapping_shl(u32::from(packed.op)));
+            },
+            I64AddLocalAndShl(packed) => {
+                let arg = executor.operand128(packed.index);
+                let value = Value64::local_get(&executor.value_stack, &executor.cf, arg.a()) & arg.b();
+                *acc64 = acc64.wrapping_add(value.wrapping_shl(u32::from(packed.op)));
+            },
+            I32AddLocalConst(arg) => {
+                let value = Value32::local_get(&executor.value_stack, &executor.cf, arg.local);
+                *acc32 = value.wrapping_add(arg.value as u32);
+            },
+            BinOpLocal32(op, local) => *acc32 = op.exec(*acc32, Value32::local_get(&executor.value_stack, &executor.cf, *local)),
+            BinOpLocal64(op, local) => *acc64 = op.exec(*acc64, Value64::local_get(&executor.value_stack, &executor.cf, *local)),
+            BinOpConst32(op, value) => *acc32 = op.exec(*acc32, *value as u32),
+            BinOpConst64(packed) => *acc64 = packed.op.exec(*acc64, packed.index.resolve(&executor.func.data).value() as u64),
+            BinOpLocalLocal32(op, left, right) => *acc32 = executor.exec_binop_local_local::<Value32>(*op, *left, *right),
+            I32XorRotlConst(shift) => exec_op!(executor; binary u32 => u32, |a, b| (a ^ b).rotate_left(u32::from(*shift))),
+            I32XorLocalRotlConst(local, shift) => {
+                let rhs = Value32::local_get(&executor.value_stack, &executor.cf, *local);
+                *acc32 = (*acc32 ^ rhs).rotate_left(u32::from(*shift));
+            },
+            I32XorLocalLocalRotlConst(left, right, shift) => {
+                let lhs = Value32::local_get(&executor.value_stack, &executor.cf, *left);
+                let rhs = Value32::local_get(&executor.value_stack, &executor.cf, *right);
+                *acc32 = (lhs ^ rhs).rotate_left(u32::from(*shift));
+            },
+            BinOpLocalLocal64(op, left, right) => *acc64 = executor.exec_binop_local_local::<Value64>(*op, *left, *right),
+            I64XorRotlConst(shift) => exec_op!(executor; binary u64 => u64, |a, b| (a ^ b).rotate_left(u32::from(*shift))),
+            I64XorLocalRotlConst(local, shift) => {
+                let rhs = Value64::local_get(&executor.value_stack, &executor.cf, *local);
+                *acc64 = (*acc64 ^ rhs).rotate_left(u32::from(*shift));
+            },
+            I64XorLocalLocalRotlConst(left, right, shift) => {
+                let lhs = Value64::local_get(&executor.value_stack, &executor.cf, *left);
+                let rhs = Value64::local_get(&executor.value_stack, &executor.cf, *right);
+                *acc64 = (lhs ^ rhs).rotate_left(u32::from(*shift));
+            },
+            BinOpLocalConstCompact32(arg) => {
+                let value = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local));
+                *acc32 = arg.op.exec(value, arg.value);
+            },
+            BinOpLocalConstRhs32(packed) => {
+                let arg = executor.operand64(packed.index);
+                let rhs = executor.exec_binop_local_const::<Value32>(packed.op.1, arg.a(), arg.b());
+                *acc32 = packed.op.0.exec(*acc32, rhs);
+            },
+            BinOpLocalConstRhs64(packed) => {
+                let arg = executor.operand128(packed.index);
+                let rhs = executor.exec_binop_local_const::<Value64>(packed.op.1, arg.a(), arg.b());
+                *acc64 = packed.op.0.exec(*acc64, rhs);
+            },
+            BinOpLocalLocalRhs32(outer, inner, left, right) => {
+                let rhs = executor.exec_binop_local_local::<Value32>(*inner, *left, *right);
+                *acc32 = outer.exec(*acc32, rhs);
+            },
+            BinOpLocalLocalRhs64(outer, inner, left, right) => {
+                let lhs = Value64::local_get(&executor.value_stack, &executor.cf, *left);
+                let rhs = Value64::local_get(&executor.value_stack, &executor.cf, *right);
+                *acc64 = match (*outer, *inner) {
+                    (BinOp::IAdd, BinOp::IAdd) => acc64.wrapping_add(lhs.wrapping_add(rhs)),
+                    (BinOp::IXor, BinOp::IXor) => *acc64 ^ (lhs ^ rhs),
+                    _ => outer.exec(*acc64, inner.exec(lhs, rhs)),
+                };
+            },
+            BinOpLocalConst32(packed) => { let arg = executor.operand64(packed.index); *acc32 = executor.exec_binop_local_const::<Value32>(packed.op, arg.a(), arg.b()); },
+            BinOpLocalConst64(packed) => { let arg = executor.operand128(packed.index); *acc64 = executor.exec_binop_local_const::<Value64>(packed.op, arg.a(), arg.b()); },
+            BinOpLocalSet32(op, local, dst) => write_result!(local u32, *dst, op.exec(*acc32, Value32::local_get(&executor.value_stack, &executor.cf, *local))),
+            BinOpLocalSet64(op, local, dst) => write_result!(local u64, *dst, op.exec(*acc64, Value64::local_get(&executor.value_stack, &executor.cf, *local))),
+            BinOpLocalTee32(op, local, dst) => write_result!(tee u32, *dst, op.exec(*acc32, Value32::local_get(&executor.value_stack, &executor.cf, *local))),
+            BinOpLocalTee64(op, local, dst) => write_result!(tee u64, *dst, op.exec(*acc64, Value64::local_get(&executor.value_stack, &executor.cf, *local))),
+            BinOpLocalLocalSet32(packed) => { let arg = executor.operand64(packed.index); write_result!(local u32, arg.c(), executor.exec_binop_local_local::<Value32>(packed.op, arg.a(), arg.b())); },
+            BinOpLocalLocalSet64(packed) => { let arg = executor.operand64(packed.index); write_result!(local u64, arg.c(), executor.exec_binop_local_local::<Value64>(packed.op, arg.a(), arg.b())); },
+            BinOpLocalLocalTee32(packed) => { let arg = executor.operand64(packed.index); write_result!(tee u32, arg.c(), executor.exec_binop_local_local::<Value32>(packed.op, arg.a(), arg.b())); },
+            BinOpLocalLocalTee64(packed) => { let arg = executor.operand64(packed.index); write_result!(tee u64, arg.c(), executor.exec_binop_local_local::<Value64>(packed.op, arg.a(), arg.b())); },
+            BinOpLocalConstSet32(packed) => { let arg = executor.operand64(packed.index); write_result!(local u32, arg.b(), executor.exec_binop_local_const::<Value32>(packed.op, arg.a(), arg.c())); },
+            BinOpLocalConstSet64(packed) => { let arg = executor.operand128(packed.index); write_result!(local u64, arg.b(), executor.exec_binop_local_const::<Value64>(packed.op, arg.a(), arg.c())); },
+            BinOpLocalConstTee32(packed) => { let arg = executor.operand64(packed.index); write_result!(tee u32, arg.b(), executor.exec_binop_local_const::<Value32>(packed.op, arg.a(), arg.c())); },
+            BinOpLocalConstTee64(packed) => { let arg = executor.operand128(packed.index); write_result!(tee u64, arg.b(), executor.exec_binop_local_const::<Value64>(packed.op, arg.a(), arg.c())); },
+            I64x2RotlConst(shift) => *acc128 = acc128.i64x2_rotl(u32::from(*shift)),
+            I32AndConst(c) => *acc32 &= *c as u32,
+            I32XorConst(c) => *acc32 ^= *c as u32,
+            I32ShlConst(c) => *acc32 = acc32.wrapping_shl(*c as u32),
+            I32ShrUConst(c) => *acc32 = acc32.wrapping_shr(*c as u32),
+            I64AddConst(idx) => *acc64 = acc64.wrapping_add(idx.resolve(&executor.func.data).value() as u64),
+            I32AddLocalSetConst(arg) => { i32::local_update(&mut executor.value_stack, &executor.cf, arg.local, |value| value.wrapping_add(arg.value)); },
+            I64AddLocalSetConst(packed) => { let rhs = packed.index.resolve(&executor.func.data).value(); i64::local_update(&mut executor.value_stack, &executor.cf, packed.op, |value| value.wrapping_add(rhs)); },
+            CmpLocalLocal32(op, a, b) => *acc32 = executor.exec_cmp_local_local::<i32>(*a, *b, *op) as u32,
+            CmpLocalLocal64(op, a, b) => *acc32 = executor.exec_cmp_local_local::<i64>(*a, *b, *op) as u32,
             SetLocalConst32(arg) => i32::local_set(&mut executor.value_stack, &executor.cf, arg.local, arg.value),
             SetLocalConst64(packed) => { let v = packed.index.resolve(&executor.func.data).value(); i64::local_set(&mut executor.value_stack, &executor.cf, packed.op, v); },
             SetLocalConst128(packed) => Value128::local_set(&mut executor.value_stack, &executor.cf, packed.op, Value128(packed.index.resolve(&executor.func.data).value())),
             IncMemoryLocal32(arg) => executor.exec_inc_memory_local::<i32, 4>(arg.memory_arg_idx, arg.local1, #[inline(always)] |v| v.wrapping_add(1))?,
+            UpdateMemoryLocal32(packed) => {
+                let arg = executor.operand128(packed.index);
+                executor.exec_update_memory_local32(arg, packed.op)?;
+            },
             IncMemoryLocal64(arg) => executor.exec_inc_memory_local::<i64, 8>(arg.memory_arg_idx, arg.local1, #[inline(always)] |v| v.wrapping_add(1))?,
-            StoreLocalLocal32(arg) => executor.exec_store_local_local::<u32, 4>(arg.memory_arg_idx, arg.local1, arg.local2)?,
-            StoreLocalLocal64(arg) => executor.exec_store_local_local::<i64, 8>(arg.memory_arg_idx, arg.local1, arg.local2)?,
-            StoreLocalLocal128(arg) => executor.exec_store_local_local::<Value128, 16>(arg.memory_arg_idx, arg.local1, arg.local2)?,
-            LoadLocal32(arg) => executor.exec_load_local::<i32, 4, _, false, false>(arg.memory_arg_idx, arg.local1, 0, identity)?,
-            LoadLocal64(arg) => executor.exec_load_local::<i64, 8, _, false, false>(arg.memory_arg_idx, arg.local1, 0, identity)?,
-            LoadLocal8S32(arg) => executor.exec_load_local::<i8, 1, _, false, false>(arg.memory_arg_idx, arg.local1, 0, i32::from)?,
-            LoadLocal8U32(arg) => executor.exec_load_local::<u8, 1, _, false, false>(arg.memory_arg_idx, arg.local1, 0, i32::from)?,
-            LoadLocal16S32(arg) => executor.exec_load_local::<i16, 2, _, false, false>(arg.memory_arg_idx, arg.local1, 0, i32::from)?,
-            LoadLocal16U32(arg) => executor.exec_load_local::<u16, 2, _, false, false>(arg.memory_arg_idx, arg.local1, 0, i32::from)?,
-            LoadLocalTee32(arg) => executor.exec_load_local::<i32, 4, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, identity)?,
-            LoadLocalSet32(arg) => executor.exec_load_local::<i32, 4, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, identity)?,
-            LoadLocalTee8S32(arg) => executor.exec_load_local::<i8, 1, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalTee8U32(arg) => executor.exec_load_local::<u8, 1, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalTee16S32(arg) => executor.exec_load_local::<i16, 2, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalTee16U32(arg) => executor.exec_load_local::<u16, 2, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalSet8S32(arg) => executor.exec_load_local::<i8, 1, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalSet8U32(arg) => executor.exec_load_local::<u8, 1, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalSet16S32(arg) => executor.exec_load_local::<i16, 2, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalSet16U32(arg) => executor.exec_load_local::<u16, 2, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, i32::from)?,
-            LoadLocalTee128(arg) => executor.exec_load_local::<Value128, 16, _, true, true>(arg.memory_arg_idx, arg.local1, arg.local2, identity)?,
-            LoadLocalSet128(arg) => executor.exec_load_local::<Value128, 16, _, true, false>(arg.memory_arg_idx, arg.local1, arg.local2, identity)?,
-            AndConstTee32(arg) => executor.exec_binop_const_tee::<Value32>(arg.value as u32, arg.local, BinOp::IAnd),
-            SubConstTee32(arg) => executor.exec_binop_const_tee::<Value32>(arg.value as u32, arg.local, BinOp::ISub),
-            AndConstTee64(packed) => executor.exec_binop_const_tee::<Value64>(packed.index.resolve(&executor.func.data).value() as u64, packed.op, BinOp::IAnd),
-            SubConstTee64(packed) => executor.exec_binop_const_tee::<Value64>(packed.index.resolve(&executor.func.data).value() as u64, packed.op, BinOp::ISub),
-            LocalTee32(local_index) => executor.exec_local_tee::<Value32>(*local_index),
-            LocalTee64(local_index) => executor.exec_local_tee::<Value64>(*local_index),
-            LocalTee128(local_index) => executor.exec_local_tee::<Value128>(*local_index),
-            GlobalGet32(global_index) => executor.exec_global_get::<Value32>(*global_index),
-            GlobalGet64(global_index) => executor.exec_global_get::<Value64>(*global_index),
+            I32StoreLocalLocal(arg) => executor.exec_store_local_value::<_, 4>(arg.memory_arg_idx, arg.local1, Value32::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)))?,
+            I64StoreLocalLocal(arg) => executor.exec_store_local_value::<_, 8>(arg.memory_arg_idx, arg.local1, Value64::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)))?,
+            I32StoreLocalCompact(offset, address, value) => executor.exec_store_local_compact::<u32, 4>(*offset, *address, *value)?,
+            I64StoreLocalCompact(offset, address, value) => executor.exec_store_local_compact::<u64, 8>(*offset, *address, *value)?,
+            V128StoreLocalLocal(arg) => executor.exec_store_local_value::<_, 16>(arg.memory_arg_idx, arg.local1, Value128::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)))?,
+            I32Store8LocalLocal(arg) => executor.exec_store_local_value::<_, 1>(arg.memory_arg_idx, arg.local1, Value32::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)) as u8)?,
+            I32Store16LocalLocal(arg) => executor.exec_store_local_value::<_, 2>(arg.memory_arg_idx, arg.local1, Value32::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)) as u16)?,
+            I64Store8LocalLocal(arg) => executor.exec_store_local_value::<_, 1>(arg.memory_arg_idx, arg.local1, Value64::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)) as u8)?,
+            I64Store16LocalLocal(arg) => executor.exec_store_local_value::<_, 2>(arg.memory_arg_idx, arg.local1, Value64::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)) as u16)?,
+            I64Store32LocalLocal(arg) => executor.exec_store_local_value::<_, 4>(arg.memory_arg_idx, arg.local1, Value64::local_get(&executor.value_stack, &executor.cf, u16::from(arg.local2)) as u32)?,
+            I32LoadLocal(arg) => *acc32 = executor.exec_load_local_value::<u32, 4>(arg.memory_arg_idx, arg.local1)?,
+            I32LoadLocalCompact(arg) => *acc32 = executor.exec_i32_load_local_compact(arg.local, arg.offset)?,
+            LoadLocalBinOp32(packed) => {
+                let arg = executor.operand64(packed.index);
+                let index = Operand64Idx::new(arg.c());
+                let value = executor.exec_load_local_kind32(packed.op.0, index, arg.a())?;
+                let rhs = Value32::local_get(&executor.value_stack, &executor.cf, arg.b());
+                *acc32 = packed.op.1.exec(value, rhs);
+            },
+            BinOpLoadLocalRhs32(packed) => {
+                let arg = executor.operand64(packed.index);
+                let index = Operand64Idx::new(arg.c());
+                let rhs = executor.exec_load_local_kind32(packed.op.0, index, arg.a())?;
+                *acc32 = packed.op.1.exec(*acc32, rhs);
+            },
+            I64LoadLocal(arg) => *acc64 = executor.exec_load_local_value::<u64, 8>(arg.memory_arg_idx, arg.local1)?,
+            I64LoadLocalTee(arg) => write_result!(tee u64, u16::from(arg.local2), executor.exec_load_local_value::<u64, 8>(arg.memory_arg_idx, arg.local1)?),
+            I64LoadLocalSet(arg) => write_result!(local u64, u16::from(arg.local2), executor.exec_load_local_value::<u64, 8>(arg.memory_arg_idx, arg.local1)?),
+            I32LoadLocalAdd(arg) => *acc32 = executor.exec_load_local_add::<u32, 4>(*arg)?,
+            I64LoadLocalAdd(arg) => *acc64 = executor.exec_load_local_add::<u64, 8>(*arg)?,
+            I32Load8SLocalAdd(arg) => *acc32 = executor.exec_load_local_add::<i8, 1>(*arg)? as i32 as u32,
+            I32Load8ULocalAdd(arg) => *acc32 = u32::from(executor.exec_load_local_add::<u8, 1>(*arg)?),
+            I32Load8ULocalAddCompact(offset, left, right) => {
+                let left = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(*left));
+                let right = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(*right));
+                let base = left.wrapping_add(right) as usize;
+                let address = executor.mem_addr(0);
+                *acc32 = crate::store::with_memory!(executor.state, address, |mem, _kind| {
+                    let addr = cold_err!(mem.effective_addr::<1>(base, u64::from(*offset)))?;
+                    Ok(u32::from(cold_err!(u8::load_at(mem, addr))?))
+                })?;
+            },
+            I32Load16SLocalAdd(arg) => *acc32 = executor.exec_load_local_add::<i16, 2>(*arg)? as i32 as u32,
+            CopyByteLocalAdd(dst, src, index) => {
+                let index = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(*index));
+                let dst = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(*dst)).wrapping_add(index);
+                let src = Value32::local_get(&executor.value_stack, &executor.cf, u16::from(*src)).wrapping_add(index);
+                let address = executor.mem_addr(0);
+                let byte = crate::store::with_memory!(executor.state, address, |mem, _kind| {
+                    cold_err!(u8::load_at(mem, src as usize))
+                })?;
+                crate::store::with_memory!(executor.state, address, |mem, _kind| {
+                    cold_err!(byte.store_at(mem, dst as usize))
+                })?;
+            },
+            I32Load16ULocalAdd(arg) => *acc32 = u32::from(executor.exec_load_local_add::<u16, 2>(*arg)?),
+            F64AddLoadLocal(arg) => {
+                let rhs = executor.exec_load_local_value::<u64, 8>(arg.memory_arg_idx, arg.local1)?;
+                *acc64 = (f64::from_bits(*acc64) + f64::from_bits(rhs)).to_bits();
+            },
+            F64SubLoadLocal(arg) => {
+                let rhs = executor.exec_load_local_value::<u64, 8>(arg.memory_arg_idx, arg.local1)?;
+                *acc64 = (f64::from_bits(*acc64) - f64::from_bits(rhs)).to_bits();
+            },
+            I32Load8SLocal(arg) => *acc32 = executor.exec_load_local_value::<i8, 1>(arg.memory_arg_idx, arg.local1)? as i32 as u32,
+            I32Load8ULocal(arg) => *acc32 = u32::from(executor.exec_load_local_value::<u8, 1>(arg.memory_arg_idx, arg.local1)?),
+            I32Load16SLocal(arg) => *acc32 = executor.exec_load_local_value::<i16, 2>(arg.memory_arg_idx, arg.local1)? as i32 as u32,
+            I32Load16ULocal(arg) => *acc32 = u32::from(executor.exec_load_local_value::<u16, 2>(arg.memory_arg_idx, arg.local1)?),
+            I32LoadLocalTee(arg) => write_result!(tee u32, u16::from(arg.local2), executor.exec_load_local_value::<u32, 4>(arg.memory_arg_idx, arg.local1)?),
+            I32LoadLocalTeeJump(packed) => {
+                // Lowering materializes live values before this branch.
+                *acc32 = 0;
+                *acc64 = 0;
+                let operand = executor.operand128(packed.index);
+                let arg = operand.memory();
+                let value = executor.exec_load_local_value::<u32, 4>(arg.memory_arg_idx, arg.local1)?;
+                u32::local_set(&mut executor.value_stack, &executor.cf, u16::from(arg.local2), value);
+                if (value == 0) == packed.op { return Ok(ExecFlow::Branch(operand.target() as usize)); }
+            },
+            I32LoadLocalSet(arg) => write_result!(local u32, u16::from(arg.local2), executor.exec_load_local_value::<u32, 4>(arg.memory_arg_idx, arg.local1)?),
+            I32Load8SLocalTee(arg) => write_result!(tee i32, u16::from(arg.local2), i32::from(executor.exec_load_local_value::<i8, 1>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load8ULocalTee(arg) => write_result!(tee u32, u16::from(arg.local2), u32::from(executor.exec_load_local_value::<u8, 1>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load16SLocalTee(arg) => write_result!(tee i32, u16::from(arg.local2), i32::from(executor.exec_load_local_value::<i16, 2>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load16ULocalTee(arg) => write_result!(tee u32, u16::from(arg.local2), u32::from(executor.exec_load_local_value::<u16, 2>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load8SLocalSet(arg) => write_result!(local i32, u16::from(arg.local2), i32::from(executor.exec_load_local_value::<i8, 1>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load8ULocalSet(arg) => write_result!(local u32, u16::from(arg.local2), u32::from(executor.exec_load_local_value::<u8, 1>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load16SLocalSet(arg) => write_result!(local i32, u16::from(arg.local2), i32::from(executor.exec_load_local_value::<i16, 2>(arg.memory_arg_idx, arg.local1)?)),
+            I32Load16ULocalSet(arg) => write_result!(local u32, u16::from(arg.local2), u32::from(executor.exec_load_local_value::<u16, 2>(arg.memory_arg_idx, arg.local1)?)),
+            V128LoadLocalTee(arg) => write_result!(tee Value128, u16::from(arg.local2), executor.exec_load_local_value::<Value128, 16>(arg.memory_arg_idx, arg.local1)?),
+            V128LoadLocalSet(arg) => write_result!(local Value128, u16::from(arg.local2), executor.exec_load_local_value::<Value128, 16>(arg.memory_arg_idx, arg.local1)?),
+            I32AndConstTee(arg) => write_result!(tee u32, arg.local, *acc32 & arg.value as u32),
+            I32AddConstTee(arg) => write_result!(tee u32, arg.local, acc32.wrapping_add(arg.value as u32)),
+            I64AndConstTee(packed) => write_result!(tee u64, packed.op, *acc64 & packed.index.resolve(&executor.func.data).value() as u64),
+            I64AddConstTee(packed) => write_result!(tee u64, packed.op, acc64.wrapping_add(packed.index.resolve(&executor.func.data).value() as u64)),
+            LocalTee32(local_index) => Value32::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc32),
+            LocalTee64(local_index) => Value64::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc64),
+            LocalTee128(local_index) => Value128::local_set(&mut executor.value_stack, &executor.cf, *local_index, *acc128),
+            GlobalGet32(global_index) => *acc32 = Value32::global_get(&executor.state.globals, executor.module.resolve_global_addr(*global_index)),
+            GlobalGet64(global_index) => *acc64 = Value64::global_get(&executor.state.globals, executor.module.resolve_global_addr(*global_index)),
             GlobalGet128(global_index) => executor.exec_global_get::<Value128>(*global_index),
-            GlobalSet32(global_index) => executor.exec_global_set::<Value32>(*global_index),
-            GlobalSet64(global_index) => executor.exec_global_set::<Value64>(*global_index),
+            GlobalSet32(global_index) => Value32::global_set(&mut executor.state.globals, executor.module.resolve_global_addr(*global_index), *acc32),
+            GlobalSet64(global_index) => Value64::global_set(&mut executor.state.globals, executor.module.resolve_global_addr(*global_index), *acc64),
             GlobalSet128(global_index) => executor.exec_global_set::<Value128>(*global_index),
-            GlobalTee32(global_index) => executor.exec_global_tee::<Value32>(*global_index),
-            GlobalTee64(global_index) => executor.exec_global_tee::<Value64>(*global_index),
+            GlobalTee32(global_index) => Value32::global_set(&mut executor.state.globals, executor.module.resolve_global_addr(*global_index), *acc32),
+            GlobalTee64(global_index) => Value64::global_set(&mut executor.state.globals, executor.module.resolve_global_addr(*global_index), *acc64),
             GlobalTee128(global_index) => executor.exec_global_tee::<Value128>(*global_index),
-            Const32(val) => i32::stack_push(&mut executor.value_stack, *val),
-            Const64Imm(val) => i64::stack_push(&mut executor.value_stack, i64::from(*val)),
-            Const64(idx) => i64::stack_push(&mut executor.value_stack, idx.resolve(&executor.func.data).value()),
-            Const128Imm(val) => Value128::stack_push(&mut executor.value_stack, Value128(u128::from(*val).to_le_bytes())),
+            Const32(val) => *acc32 = *val as u32,
+            Const64Imm(val) => *acc64 = i64::from(*val) as u64,
+            Const64(idx) => *acc64 = idx.resolve(&executor.func.data).value() as u64,
+            Const128Imm(val) => *acc128 = Value128(u128::from(*val).to_le_bytes()),
             I64Eqz => exec_op!(executor; unary i64 => i32, |v| i32::from(v == 0)),
             I32Eqz => exec_op!(executor; unary i32 => i32, |v| i32::from(v == 0)),
             I32Eq => exec_op!(executor; binary i32 => i32, |a, b| i32::from(a == b)),
@@ -289,14 +546,14 @@ macro_rules! instruction_handlers {
             I64Mul => exec_op!(executor; binary i64 => i64, |a, b| a.wrapping_mul(b)),
             F32Mul => exec_op!(executor; binary f32 => f32, |a, b| a * b),
             F64Mul => exec_op!(executor; binary f64 => f64, |a, b| a * b),
-            I32DivS => exec_op!(executor; binary_fallible i32, |a, b| num::i32::div(a, b)),
-            I64DivS => exec_op!(executor; binary_fallible i64, |a, b| num::i64::div(a, b)),
-            I32DivU => exec_op!(executor; binary_fallible u32, |a, b| num::u32::div(a, b)),
-            I64DivU => exec_op!(executor; binary_fallible u64, |a, b| num::u64::div(a, b)),
-            I32RemS => exec_op!(executor; binary_fallible i32, |a, b| num::i32::rem(a, b)),
-            I64RemS => exec_op!(executor; binary_fallible i64, |a, b| num::i64::rem(a, b)),
-            I32RemU => exec_op!(executor; binary_fallible u32, |a, b| num::u32::rem(a, b)),
-            I64RemU => exec_op!(executor; binary_fallible u64, |a, b| num::u64::rem(a, b)),
+            I32DivS => exec_op!(executor; binary i32 => i32, |a, b| num::i32::div(a, b)?),
+            I64DivS => exec_op!(executor; binary i64 => i64, |a, b| num::i64::div(a, b)?),
+            I32DivU => exec_op!(executor; binary u32 => u32, |a, b| num::u32::div(a, b)?),
+            I64DivU => exec_op!(executor; binary u64 => u64, |a, b| num::u64::div(a, b)?),
+            I32RemS => exec_op!(executor; binary i32 => i32, |a, b| num::i32::rem(a, b)?),
+            I64RemS => exec_op!(executor; binary i64 => i64, |a, b| num::i64::rem(a, b)?),
+            I32RemU => exec_op!(executor; binary u32 => u32, |a, b| num::u32::rem(a, b)?),
+            I64RemU => exec_op!(executor; binary u64 => u64, |a, b| num::u64::rem(a, b)?),
             I32And => exec_op!(executor; binary i32 => i32, |a, b| a & b),
             I64And => exec_op!(executor; binary i64 => i64, |a, b| a & b),
             I32Or => exec_op!(executor; binary i32 => i32, |a, b| a | b),
@@ -313,10 +570,10 @@ macro_rules! instruction_handlers {
             I64Rotl => exec_op!(executor; binary i64 => i64, |a, b| a.rotate_left(b as u32)),
             I32Rotr => exec_op!(executor; binary i32 => i32, |a, b| a.rotate_right(b as u32)),
             I64Rotr => exec_op!(executor; binary i64 => i64, |a, b| a.rotate_right(b as u32)),
-            I64Add128 => executor.exec_i64_add128(),
-            I64Sub128 => executor.exec_i64_sub128(),
-            I64MulWideS => executor.exec_i64_mul_wide_s(),
-            I64MulWideU => executor.exec_i64_mul_wide_u(),
+            I64Add128 => *acc64 = executor.exec_i64_add128(*acc64 as i64) as u64,
+            I64Sub128 => *acc64 = executor.exec_i64_sub128(*acc64 as i64) as u64,
+            I64MulWideS => *acc64 = executor.exec_i64_mul_wide_s(*acc64 as i64) as u64,
+            I64MulWideU => *acc64 = executor.exec_i64_mul_wide_u(*acc64 as i64) as u64,
             I32Clz => exec_op!(executor; unary i32 => i32, |v| v.leading_zeros() as i32),
             I64Clz => exec_op!(executor; unary i64 => i64, |v| i64::from(v.leading_zeros())),
             I32Ctz => exec_op!(executor; unary i32 => i32, |v| v.trailing_zeros() as i32),
@@ -327,11 +584,19 @@ macro_rules! instruction_handlers {
             // Reference types
             RefFunc(func_idx) => ValueRef::stack_push(&mut executor.value_stack, ValueRef::from_category_addr(executor.module.resolve_func_addr(*func_idx))),
             RefNull(_) => ValueRef::stack_push(&mut executor.value_stack, ValueRef::NULL),
-            RefIsNull => executor.exec_ref_is_null(),
-            RefAsNonNull => executor.exec_ref_as_non_null()?,
+            RefIsNull => exec_op!(executor; unary ValueRef => i32, |v| i32::from(v.is_null())),
+            RefAsNonNull => exec_op!(executor; unary ValueRef => ValueRef, |v| {
+                if v.is_null() { cold!(Err(Trap::NullReference)) } else { Ok(v) }
+            }?),
             RefI31 => exec_op!(executor; unary i32 => ValueRef, |v| ValueRef::from_i31(v)),
-            I31GetS => executor.exec_i31_get(true)?,
-            I31GetU => executor.exec_i31_get(false)?,
+            I31GetS => exec_op!(executor; unary ValueRef => i32, |v| {
+                if v.is_null() { cold!(Err(Trap::NullI31Reference)) }
+                else { Ok(v.i31_s().expect("validated i31.get operand")) }
+            }?),
+            I31GetU => exec_op!(executor; unary ValueRef => u32, |v| {
+                if v.is_null() { cold!(Err(Trap::NullI31Reference)) }
+                else { Ok(v.i31_u().expect("validated i31.get operand")) }
+            }?),
             RefEq => exec_op!(executor; binary ValueRef => i32, |a, b| i32::from(a == b)),
             RefTest(ty) => executor.exec_ref_test(*ty),
             RefCast(ty) => executor.exec_ref_cast(*ty)?,
@@ -381,31 +646,29 @@ macro_rules! instruction_handlers {
             TableCopy(idx) => executor.exec_table_copy(*idx)?,
 
             // Core memory load/store operations
-            I32Store(arg) => executor.exec_mem_store::<i32, i32, 4>(*arg, identity)?,
-            I64Store(arg) => executor.exec_mem_store::<i64, i64, 8>(*arg, identity)?,
-            F32Store(arg) => executor.exec_mem_store::<f32, f32, 4>(*arg, identity)?,
-            F64Store(arg) => executor.exec_mem_store::<f64, f64, 8>(*arg, identity)?,
-            FMaStoreF32(m) => executor.exec_fma_store::<f32, 4>(*m)?,
-            FMaStoreF64(m) => executor.exec_fma_store::<f64, 8>(*m)?,
-            I32Store8(arg) => executor.exec_mem_store::<i32, i8, 1>(*arg, #[inline(always)] |v| v as i8)?,
-            I32Store16(arg) => executor.exec_mem_store::<i32, i16, 2>(*arg, #[inline(always)] |v| v as i16)?,
-            I64Store8(arg) => executor.exec_mem_store::<i64, i8, 1>(*arg, #[inline(always)] |v| v as i8)?,
-            I64Store16(arg) => executor.exec_mem_store::<i64, i16, 2>(*arg, #[inline(always)] |v| v as i16)?,
-            I64Store32(arg) => executor.exec_mem_store::<i64, i32, 4>(*arg, #[inline(always)] |v| v as i32)?,
-            I32Load(arg) => executor.exec_mem_load::<i32, 4, _>(*arg, identity)?,
-            I64Load(arg) => executor.exec_mem_load::<i64, 8, _>(*arg, identity)?,
-            F32Load(arg) => executor.exec_mem_load::<f32, 4, _>(*arg, identity)?,
-            F64Load(arg) => executor.exec_mem_load::<f64, 8, _>(*arg, identity)?,
-            I32Load8S(arg) => executor.exec_mem_load::<i8, 1, _>(*arg, i32::from)?,
-            I32Load8U(arg) => executor.exec_mem_load::<u8, 1, _>(*arg, i32::from)?,
-            I32Load16S(arg) => executor.exec_mem_load::<i16, 2, _>(*arg, i32::from)?,
-            I32Load16U(arg) => executor.exec_mem_load::<u16, 2, _>(*arg, i32::from)?,
-            I64Load8S(arg) => executor.exec_mem_load::<i8, 1, _>(*arg, i64::from)?,
-            I64Load8U(arg) => executor.exec_mem_load::<u8, 1, _>(*arg, i64::from)?,
-            I64Load16S(arg) => executor.exec_mem_load::<i16, 2, _>(*arg, i64::from)?,
-            I64Load16U(arg) => executor.exec_mem_load::<u16, 2, _>(*arg, i64::from)?,
-            I64Load32S(arg) => executor.exec_mem_load::<i32, 4, _>(*arg, i64::from)?,
-            I64Load32U(arg) => executor.exec_mem_load::<u32, 4, _>(*arg, i64::from)?,
+            I32Store(arg) => exec_store!(arg, *acc32, false, 4),
+            I64Store(arg) => exec_store!(arg, *acc64, true, 8),
+            F32Store(arg) => exec_store!(arg, *acc32, false, 4),
+            F64Store(arg) => exec_store!(arg, *acc64, true, 8),
+            I32Store8(arg) => exec_store!(arg, *acc32 as u8, false, 1),
+            I32Store16(arg) => exec_store!(arg, *acc32 as u16, false, 2),
+            I64Store8(arg) => exec_store!(arg, *acc64 as u8, true, 1),
+            I64Store16(arg) => exec_store!(arg, *acc64 as u16, true, 2),
+            I64Store32(arg) => exec_store!(arg, *acc64 as u32, true, 4),
+            I32Load(arg) => exec_load!(arg, u32, 4 => 32, u32),
+            I64Load(arg) => exec_load!(arg, u64, 8 => 64, u64),
+            F32Load(arg) => exec_load!(arg, u32, 4 => 32, u32),
+            F64Load(arg) => exec_load!(arg, u64, 8 => 64, u64),
+            I32Load8S(arg) => exec_load!(arg, i8, 1 => 32, i32),
+            I32Load8U(arg) => exec_load!(arg, u8, 1 => 32, u32),
+            I32Load16S(arg) => exec_load!(arg, i16, 2 => 32, i32),
+            I32Load16U(arg) => exec_load!(arg, u16, 2 => 32, u32),
+            I64Load8S(arg) => exec_load!(arg, i8, 1 => 64, i64),
+            I64Load8U(arg) => exec_load!(arg, u8, 1 => 64, u64),
+            I64Load16S(arg) => exec_load!(arg, i16, 2 => 64, i64),
+            I64Load16U(arg) => exec_load!(arg, u16, 2 => 64, u64),
+            I64Load32S(arg) => exec_load!(arg, i32, 4 => 64, i64),
+            I64Load32U(arg) => exec_load!(arg, u32, 4 => 64, u64),
 
             // Numeric conversion operations
             F32ConvertI32S => exec_op!(executor; unary i32 => f32, |v| v as f32),
@@ -448,14 +711,14 @@ macro_rules! instruction_handlers {
             F64Max => exec_op!(executor; binary f64 => f64, |a, b| num::f64::maximum(a, b)),
             F32Copysign => exec_op!(executor; binary f32 => f32, |a, b| a.copysign(b)),
             F64Copysign => exec_op!(executor; binary f64 => f64, |a, b| a.copysign(b)),
-            I32TruncF32S => exec_op!(executor; unary_fallible f32 => i32, |v| num::f32::trunc_to_i32(v)),
-            I32TruncF64S => exec_op!(executor; unary_fallible f64 => i32, |v| num::f64::trunc_to_i32(v)),
-            I32TruncF32U => exec_op!(executor; unary_fallible f32 => u32, |v| num::f32::trunc_to_u32(v)),
-            I32TruncF64U => exec_op!(executor; unary_fallible f64 => u32, |v| num::f64::trunc_to_u32(v)),
-            I64TruncF32S => exec_op!(executor; unary_fallible f32 => i64, |v| num::f32::trunc_to_i64(v)),
-            I64TruncF64S => exec_op!(executor; unary_fallible f64 => i64, |v| num::f64::trunc_to_i64(v)),
-            I64TruncF32U => exec_op!(executor; unary_fallible f32 => u64, |v| num::f32::trunc_to_u64(v)),
-            I64TruncF64U => exec_op!(executor; unary_fallible f64 => u64, |v| num::f64::trunc_to_u64(v)),
+            I32TruncF32S => exec_op!(executor; unary f32 => i32, |v| num::f32::trunc_to_i32(v)?),
+            I32TruncF64S => exec_op!(executor; unary f64 => i32, |v| num::f64::trunc_to_i32(v)?),
+            I32TruncF32U => exec_op!(executor; unary f32 => u32, |v| num::f32::trunc_to_u32(v)?),
+            I32TruncF64U => exec_op!(executor; unary f64 => u32, |v| num::f64::trunc_to_u32(v)?),
+            I64TruncF32S => exec_op!(executor; unary f32 => i64, |v| num::f32::trunc_to_i64(v)?),
+            I64TruncF64S => exec_op!(executor; unary f64 => i64, |v| num::f64::trunc_to_i64(v)?),
+            I64TruncF32U => exec_op!(executor; unary f32 => u64, |v| num::f32::trunc_to_u64(v)?),
+            I64TruncF64U => exec_op!(executor; unary f64 => u64, |v| num::f64::trunc_to_u64(v)?),
 
             // Non-trapping float-to-int conversions
             I32TruncSatF32S => exec_op!(executor; unary f32 => i32, |v| v as i32),
@@ -477,43 +740,43 @@ macro_rules! instruction_handlers {
             V128AnyTrue => exec_op!(executor; unary Value128 => i32, |v| v.v128_any_true() as i32),
             I8x16Swizzle => exec_op!(executor; binary Value128 => Value128, |a, s| a.i8x16_swizzle(s)),
             I8x16RelaxedSwizzle => exec_op!(executor; binary Value128 => Value128, |a, s| a.i8x16_relaxed_swizzle(s)),
-            V128Load(arg) => executor.exec_mem_load::<Value128, 16, _>(*arg, identity)?,
-            V128Load8x8S(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load8x8_s(v.to_le_bytes()))?,
-            V128Load8x8U(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load8x8_u(v.to_le_bytes()))?,
-            V128Load16x4S(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load16x4_s(v.to_le_bytes()))?,
-            V128Load16x4U(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load16x4_u(v.to_le_bytes()))?,
-            V128Load32x2S(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load32x2_s(v.to_le_bytes()))?,
-            V128Load32x2U(arg) => executor.exec_mem_load::<u64, 8, Value128>(*arg, |v| Value128::v128_load32x2_u(v.to_le_bytes()))?,
-            V128Load8Splat(arg) => executor.exec_mem_load::<i8, 1, Value128>(*arg, Value128::splat_i8)?,
-            V128Load16Splat(arg) => executor.exec_mem_load::<i16, 2, Value128>(*arg, Value128::splat_i16)?,
-            V128Load32Splat(arg) => executor.exec_mem_load::<i32, 4, Value128>(*arg, Value128::splat_i32)?,
-            V128Load64Splat(arg) => executor.exec_mem_load::<i64, 8, Value128>(*arg, Value128::splat_i64)?,
-            V128Store(arg) => executor.exec_mem_store::<Value128, Value128, 16>(*arg, identity)?,
+            V128Load(arg) => *acc128 = executor.exec_mem_load::<Value128, 16>(*arg, *acc32, *acc64)?,
+            V128Load8x8S(arg) => *acc128 = Value128::v128_load8x8_s(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load8x8U(arg) => *acc128 = Value128::v128_load8x8_u(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load16x4S(arg) => *acc128 = Value128::v128_load16x4_s(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load16x4U(arg) => *acc128 = Value128::v128_load16x4_u(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load32x2S(arg) => *acc128 = Value128::v128_load32x2_s(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load32x2U(arg) => *acc128 = Value128::v128_load32x2_u(executor.exec_mem_load::<u64, 8>(*arg, *acc32, *acc64)?.to_le_bytes()),
+            V128Load8Splat(arg) => *acc128 = Value128::splat_i8(executor.exec_mem_load::<i8, 1>(*arg, *acc32, *acc64)?),
+            V128Load16Splat(arg) => *acc128 = Value128::splat_i16(executor.exec_mem_load::<i16, 2>(*arg, *acc32, *acc64)?),
+            V128Load32Splat(arg) => *acc128 = Value128::splat_i32(executor.exec_mem_load::<i32, 4>(*arg, *acc32, *acc64)?),
+            V128Load64Splat(arg) => *acc128 = Value128::splat_i64(executor.exec_mem_load::<i64, 8>(*arg, *acc32, *acc64)?),
+            V128Store(arg) => executor.exec_mem_store::<_, 16>(*arg, *acc128, ValueLane::S128, *acc32, *acc64)?,
             V128Store8Lane(arg) => executor.exec_mem_store_lane::<i8, 1>(*arg)?,
             V128Store16Lane(arg) => executor.exec_mem_store_lane::<i16, 2>(*arg)?,
             V128Store32Lane(arg) => executor.exec_mem_store_lane::<i32, 4>(*arg)?,
             V128Store64Lane(arg) => executor.exec_mem_store_lane::<i64, 8>(*arg)?,
-            V128Load32Zero(arg) => executor.exec_mem_load::<i32, 4, Value128>(*arg, |v| Value128::from_i32x4([v, 0, 0, 0]))?,
-            V128Load64Zero(arg) => executor.exec_mem_load::<i64, 8, Value128>(*arg, |v| Value128::from_i64x2([v, 0]))?,
-            Const128(arg) => Value128::stack_push(&mut executor.value_stack, Value128(arg.resolve(&executor.func.data).value())),
-            I8x16ExtractLaneS(lane) => executor.exec_simd_extract_lane::<i32>(*lane, |v, lane| v.extract_lane_i8(lane) as i32),
-            I8x16ExtractLaneU(lane) => executor.exec_simd_extract_lane::<i32>(*lane, |v, lane| v.extract_lane_u8(lane) as i32),
-            I16x8ExtractLaneS(lane) => executor.exec_simd_extract_lane::<i32>(*lane, |v, lane| v.extract_lane_i16(lane) as i32),
-            I16x8ExtractLaneU(lane) => executor.exec_simd_extract_lane::<i32>(*lane, |v, lane| v.extract_lane_u16(lane) as i32),
-            I32x4ExtractLane(lane) => executor.exec_simd_extract_lane::<i32>(*lane, Value128::extract_lane_i32),
-            I64x2ExtractLane(lane) => executor.exec_simd_extract_lane::<i64>(*lane, Value128::extract_lane_i64),
-            F32x4ExtractLane(lane) => executor.exec_simd_extract_lane::<f32>(*lane, Value128::extract_lane_f32),
-            F64x2ExtractLane(lane) => executor.exec_simd_extract_lane::<f64>(*lane, Value128::extract_lane_f64),
+            V128Load32Zero(arg) => *acc128 = Value128::from_i32x4([executor.exec_mem_load::<i32, 4>(*arg, *acc32, *acc64)?, 0, 0, 0]),
+            V128Load64Zero(arg) => *acc128 = Value128::from_i64x2([executor.exec_mem_load::<i64, 8>(*arg, *acc32, *acc64)?, 0]),
+            Const128(arg) => *acc128 = Value128(arg.resolve(&executor.func.data).value()),
+            I8x16ExtractLaneS(lane) => *acc32 = acc128.extract_lane_i8(*lane) as i32 as u32,
+            I8x16ExtractLaneU(lane) => *acc32 = acc128.extract_lane_u8(*lane) as u32,
+            I16x8ExtractLaneS(lane) => *acc32 = acc128.extract_lane_i16(*lane) as i32 as u32,
+            I16x8ExtractLaneU(lane) => *acc32 = acc128.extract_lane_u16(*lane) as u32,
+            I32x4ExtractLane(lane) => *acc32 = acc128.extract_lane_i32(*lane) as u32,
+            I64x2ExtractLane(lane) => *acc64 = acc128.extract_lane_i64(*lane) as u64,
+            F32x4ExtractLane(lane) => *acc32 = acc128.extract_lane_f32(*lane).to_bits(),
+            F64x2ExtractLane(lane) => *acc64 = acc128.extract_lane_f64(*lane).to_bits(),
             V128Load8Lane(arg) => executor.exec_mem_load_lane::<i8, 1>(*arg)?,
             V128Load16Lane(arg) => executor.exec_mem_load_lane::<i16, 2>(*arg)?,
             V128Load32Lane(arg) => executor.exec_mem_load_lane::<i32, 4>(*arg)?,
             V128Load64Lane(arg) => executor.exec_mem_load_lane::<i64, 8>(*arg)?,
-            I8x16ReplaceLane(lane) => executor.exec_simd_replace_lane::<i32>(*lane, |value, vector, lane| vector.i8x16_replace_lane(lane, value as i8)),
-            I16x8ReplaceLane(lane) => executor.exec_simd_replace_lane::<i32>(*lane, |value, vector, lane| vector.i16x8_replace_lane(lane, value as i16)),
-            I32x4ReplaceLane(lane) => executor.exec_simd_replace_lane::<i32>(*lane, |value, vector, lane| vector.i32x4_replace_lane(lane, value)),
-            I64x2ReplaceLane(lane) => executor.exec_simd_replace_lane::<i64>(*lane, |value, vector, lane| vector.i64x2_replace_lane(lane, value)),
-            F32x4ReplaceLane(lane) => executor.exec_simd_replace_lane::<f32>(*lane, |value, vector, lane| vector.f32x4_replace_lane(lane, value)),
-            F64x2ReplaceLane(lane) => executor.exec_simd_replace_lane::<f64>(*lane, |value, vector, lane| vector.f64x2_replace_lane(lane, value)),
+            I8x16ReplaceLane(lane) => *acc128 = acc128.i8x16_replace_lane(*lane, *acc32 as i8),
+            I16x8ReplaceLane(lane) => *acc128 = acc128.i16x8_replace_lane(*lane, *acc32 as i16),
+            I32x4ReplaceLane(lane) => *acc128 = acc128.i32x4_replace_lane(*lane, *acc32 as i32),
+            I64x2ReplaceLane(lane) => *acc128 = acc128.i64x2_replace_lane(*lane, *acc64 as i64),
+            F32x4ReplaceLane(lane) => *acc128 = acc128.f32x4_replace_lane(*lane, f32::from_bits(*acc32)),
+            F64x2ReplaceLane(lane) => *acc128 = acc128.f64x2_replace_lane(*lane, f64::from_bits(*acc64)),
             I8x16Splat => exec_op!(executor; unary i32 => Value128, |v| Value128::splat_i8(v as i8)),
             I16x8Splat => exec_op!(executor; unary i32 => Value128, |v| Value128::splat_i16(v as i16)),
             I32x4Splat => exec_op!(executor; unary i32 => Value128, |v| Value128::splat_i32(v)),
@@ -584,18 +847,18 @@ macro_rules! instruction_handlers {
             I16x8Bitmask => exec_op!(executor; unary Value128 => i32, |v| v.i16x8_bitmask() as i32),
             I32x4Bitmask => exec_op!(executor; unary Value128 => i32, |v| v.i32x4_bitmask() as i32),
             I64x2Bitmask => exec_op!(executor; unary Value128 => i32, |v| v.i64x2_bitmask() as i32),
-            I8x16Shl => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i8x16_shl(a as u32)),
-            I16x8Shl => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i16x8_shl(a as u32)),
-            I32x4Shl => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i32x4_shl(a as u32)),
-            I64x2Shl => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i64x2_shl(a as u32)),
-            I8x16ShrS => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i8x16_shr_s(a as u32)),
-            I16x8ShrS => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i16x8_shr_s(a as u32)),
-            I32x4ShrS => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i32x4_shr_s(a as u32)),
-            I64x2ShrS => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i64x2_shr_s(a as u32)),
-            I8x16ShrU => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i8x16_shr_u(a as u32)),
-            I16x8ShrU => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i16x8_shr_u(a as u32)),
-            I32x4ShrU => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i32x4_shr_u(a as u32)),
-            I64x2ShrU => exec_op!(executor; binary i32, Value128 => Value128, |a, b| b.i64x2_shr_u(a as u32)),
+            I8x16Shl => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i8x16_shl(a as u32)),
+            I16x8Shl => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i16x8_shl(a as u32)),
+            I32x4Shl => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i32x4_shl(a as u32)),
+            I64x2Shl => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i64x2_shl(a as u32)),
+            I8x16ShrS => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i8x16_shr_s(a as u32)),
+            I16x8ShrS => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i16x8_shr_s(a as u32)),
+            I32x4ShrS => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i32x4_shr_s(a as u32)),
+            I64x2ShrS => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i64x2_shr_s(a as u32)),
+            I8x16ShrU => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i8x16_shr_u(a as u32)),
+            I16x8ShrU => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i16x8_shr_u(a as u32)),
+            I32x4ShrU => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i32x4_shr_u(a as u32)),
+            I64x2ShrU => exec_op!(executor; mixed i32, Value128 => Value128, |a, b| b.i64x2_shr_u(a as u32)),
             I8x16Add => exec_op!(executor; binary Value128 => Value128, |a, b| a.i8x16_add(b)),
             I16x8Add => exec_op!(executor; binary Value128 => Value128, |a, b| a.i16x8_add(b)),
             I32x4Add => exec_op!(executor; binary Value128 => Value128, |a, b| a.i32x4_add(b)),
@@ -662,7 +925,7 @@ macro_rules! instruction_handlers {
             I64x2ExtendHighI32x4S => exec_op!(executor; unary Value128 => Value128, |a| a.i64x2_extend_high_i32x4_s()),
             I64x2ExtendHighI32x4U => exec_op!(executor; unary Value128 => Value128, |a| a.i64x2_extend_high_i32x4_u()),
             I8x16Popcnt => exec_op!(executor; unary Value128 => Value128, |v| v.i8x16_popcnt()),
-            I8x16Shuffle(idx) => executor.exec_simd_shuffle(Value128(idx.resolve(&executor.func.data).value())),
+            I8x16Shuffle(idx) => *acc128 = executor.exec_simd_shuffle(*acc128, Value128(idx.resolve(&executor.func.data).value())),
             I16x8Q15MulrSatS => exec_op!(executor; binary Value128 => Value128, |a, b| a.i16x8_q15mulr_sat_s(b)),
             I32x4DotI16x8S => exec_op!(executor; binary Value128 => Value128, |a, b| a.i32x4_dot_i16x8_s(b)),
             I8x16RelaxedLaneselect => exec_op!(executor; ternary Value128 => Value128, |a, b, c| Value128::i8x16_relaxed_laneselect(a, b, c)),
@@ -727,3 +990,5 @@ macro_rules! instruction_handlers {
         }
     };
 }
+
+pub(super) use {execute_instruction, instruction_handlers};

@@ -1,16 +1,11 @@
 #![no_std]
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
-))]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(tw_tail_calls, allow(incomplete_features))]
 #![cfg_attr(tw_tail_calls, feature(explicit_tail_calls))]
 #![cfg_attr(tw_tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
 #![cfg_attr(tw_abort_immediate, feature(abort_immediate))]
 #![cfg_attr(all(tw_core_float_math, not(feature = "std")), feature(core_float_math))]
-#![cfg_attr(not(tw_simd_backend = "x86"), forbid(unsafe_code))]
-#![cfg_attr(tw_simd_backend = "x86", deny(unsafe_code))]
+#![deny(unsafe_code)]
 
 //! A small and portable WebAssembly interpreter.
 //!
@@ -108,14 +103,9 @@ use log;
 
 // noop fallback if logging is disabled.
 #[cfg(not(feature = "log"))]
-#[allow(unused_imports, unused_macros)]
 pub(crate) mod log {
     macro_rules! debug    ( ($($tt:tt)*) => {{}} );
-    macro_rules! info    ( ($($tt:tt)*) => {{}} );
-    macro_rules! error    ( ($($tt:tt)*) => {{}} );
     pub(crate) use debug;
-    pub(crate) use error;
-    pub(crate) use info;
 }
 
 mod collections;

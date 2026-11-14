@@ -1,7 +1,3 @@
-#![doc(test(
-    no_crate_inject,
-    attr(deny(warnings, rust_2018_idioms), allow(dead_code, unused_assignments, unused_variables))
-))]
 #![warn(rust_2018_idioms, unreachable_pub)]
 #![no_std]
 #![deny(unsafe_code)]
@@ -41,11 +37,13 @@ const fn max_page_count(arch: MemoryArch, page_size: u64) -> u64 {
 
 mod instructions;
 mod operands;
+mod operations;
 mod reference;
 mod types;
 mod value;
 pub use instructions::*;
 pub use operands::*;
+pub use operations::*;
 pub use reference::*;
 pub use types::*;
 pub use value::*;
@@ -441,6 +439,26 @@ impl ValueLane {
             Self::S64 => s64,
             Self::S128 => s128,
         }
+    }
+}
+
+/// A set of physical operand lanes.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub struct ValueLanes(u8);
+
+impl ValueLanes {
+    /// No operand lanes.
+    pub const EMPTY: Self = Self(0);
+
+    /// Includes a lane in the set.
+    pub const fn with(self, lane: ValueLane) -> Self {
+        Self(self.0 | (1 << lane as u8))
+    }
+
+    /// Returns whether the set includes a lane.
+    pub const fn contains(self, lane: ValueLane) -> bool {
+        self.0 & (1 << lane as u8) != 0
     }
 }
 

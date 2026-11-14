@@ -1,5 +1,6 @@
 # Optional convenience targets. Cargo remains the library build system.
 CARGO ?= cargo
+RUSTC ?= rustc
 CC ?= cc
 CXX ?= c++
 PREFIX ?= /usr/local
@@ -7,9 +8,22 @@ DESTDIR ?=
 LIBDIR ?= $(PREFIX)/lib
 PROFILE ?= release
 TARGET_DIR ?= $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),../../target)
-BUILD_LIBDIR := $(abspath $(TARGET_DIR)/$(if $(filter dev,$(PROFILE)),debug,$(PROFILE)))
+TARGET ?= $(CARGO_BUILD_TARGET)
+# BUILD_STD=auto rebuilds std when nightly and rust-src are available.
+BUILD_STD ?= 0
+NIGHTLY := $(and $(findstring nightly,$(shell $(CARGO) --version)),$(findstring nightly,$(shell $(RUSTC) --version)))
+RUST_SRC := $(wildcard $(shell $(RUSTC) --print sysroot)/lib/rustlib/src/rust/library/std/Cargo.toml)
+USE_BUILD_STD := $(if $(filter auto,$(BUILD_STD)),$(if $(and $(NIGHTLY),$(RUST_SRC)),1,0),$(BUILD_STD))
+BUILD_TARGET := $(if $(TARGET),$(TARGET),$(if $(filter 1,$(USE_BUILD_STD)),$(shell $(RUSTC) -vV | sed -n 's/^host: //p')))
+BUILD_LIBDIR := $(abspath $(TARGET_DIR)/$(if $(BUILD_TARGET),$(BUILD_TARGET)/)$(if $(filter dev,$(PROFILE)),debug,$(PROFILE)))
 BUILDDIR := $(abspath $(TARGET_DIR)/c-api)
 CARGO_FLAGS := --profile $(PROFILE)
+ifeq ($(USE_BUILD_STD),1)
+CARGO_FLAGS += -Z build-std=std,panic_unwind
+endif
+ifneq ($(BUILD_TARGET),)
+CARGO_FLAGS += --target $(BUILD_TARGET)
+endif
 ifneq ($(TINYWASM_C_API_PREFIX),)
 export TINYWASM_C_API_PREFIX
 CARGO_FLAGS += --features custom-prefix

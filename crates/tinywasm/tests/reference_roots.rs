@@ -64,6 +64,7 @@ fn guest_callback_arguments_are_rooted_before_entering_untyped_host_code() {
           (import "host" "check" (func $check (param externref)))
           (func (export "call")
             call $make
+            ref.as_non_null
             call $check))
         "#,
     )

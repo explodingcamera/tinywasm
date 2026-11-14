@@ -1,4 +1,5 @@
 use super::Value128;
+use super::macros::*;
 use crate::interpreter::num;
 use core::array;
 
@@ -10,6 +11,36 @@ use core::arch::wasm64 as wasm;
 use core::arch::x86_64 as x86;
 
 impl Value128 {
+    /// Rotates both 64-bit lanes left, masking the count to six bits.
+    #[inline(always)]
+    pub(crate) fn i64x2_rotl(self, shift: u32) -> Self {
+        let shift = shift & 63;
+        simd_impl! {
+            wasm => {
+                let value = self.to_wasm_v128();
+                Self::from_wasm_v128(wasm::v128_or(
+                    wasm::i64x2_shl(value, shift),
+                    wasm::u64x2_shr(value, shift.wrapping_neg()),
+                ))
+            }
+            x86 => {
+                // SAFETY: the x86 SIMD backend requires SSE2. Both counts are
+                // masked to 0..64, and the operations do not access memory.
+                #[expect(unsafe_code)]
+                unsafe {
+                    let value = self.to_native();
+                    let left = x86::_mm_cvtsi32_si128(shift as i32);
+                    let right = x86::_mm_cvtsi32_si128(((64 - shift) & 63) as i32);
+                    Self::from_native(x86::_mm_or_si128(
+                        x86::_mm_sll_epi64(value, left),
+                        x86::_mm_srl_epi64(value, right),
+                    ))
+                }
+            }
+            generic => { Self::from_u64x2(self.as_u64x2().map(|value| value.rotate_left(shift))) }
+        }
+    }
+
     #[doc(alias = "v128.any_true")]
     pub(crate) fn v128_any_true(self) -> bool {
         simd_impl! {
@@ -30,7 +61,7 @@ impl Value128 {
     pub(crate) fn v128_and(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_and(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { (i128::from(self) & i128::from(rhs)).into() }
+            generic => { Self(array::from_fn(|i| self.0[i] & rhs.0[i])) }
         }
     }
 
@@ -38,7 +69,7 @@ impl Value128 {
     pub(crate) fn v128_andnot(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_andnot(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { (i128::from(self) & !i128::from(rhs)).into() }
+            generic => { Self(array::from_fn(|i| self.0[i] & !rhs.0[i])) }
         }
     }
 
@@ -46,7 +77,7 @@ impl Value128 {
     pub(crate) fn v128_or(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_or(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { (i128::from(self) | i128::from(rhs)).into() }
+            generic => { Self(array::from_fn(|i| self.0[i] | rhs.0[i])) }
         }
     }
 
@@ -54,7 +85,7 @@ impl Value128 {
     pub(crate) fn v128_xor(self, rhs: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_xor(self.to_wasm_v128(), rhs.to_wasm_v128())) }
-            generic => { (i128::from(self) ^ i128::from(rhs)).into() }
+            generic => { Self(array::from_fn(|i| self.0[i] ^ rhs.0[i])) }
         }
     }
 
@@ -62,7 +93,7 @@ impl Value128 {
     pub(crate) fn v128_bitselect(v1: Self, v2: Self, c: Self) -> Self {
         simd_impl! {
             wasm => { Self::from_wasm_v128(wasm::v128_bitselect(v1.to_wasm_v128(), v2.to_wasm_v128(), c.to_wasm_v128())) }
-            generic => { ((i128::from(v1) & i128::from(c)) | (i128::from(v2) & !i128::from(c))).into() }
+            generic => { Self(array::from_fn(|i| (v1.0[i] & c.0[i]) | (v2.0[i] & !c.0[i]))) }
         }
     }
 
@@ -140,7 +171,7 @@ impl Value128 {
                 let mask = idx.map(|j| if j < 16 { j & 0x0f } else { 0x80 });
 
                 // SAFETY: `a`, `mask`, and `out` are valid 16-byte buffers, and `_mm_loadu/_mm_storeu` support unaligned accesses.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let out = unsafe {
                     let a_vec = x86::_mm_loadu_si128(a.as_ptr().cast::<x86::__m128i>());
                     let mask_vec = x86::_mm_loadu_si128(mask.as_ptr().cast::<x86::__m128i>());
@@ -189,7 +220,7 @@ impl Value128 {
                 });
 
                 // SAFETY: all inputs are valid 16-byte buffers, and `_mm_loadu/_mm_storeu` support unaligned accesses.
-                #[allow(unsafe_code)]
+                #[expect(unsafe_code)]
                 let out = unsafe {
                     let a_vec = x86::_mm_loadu_si128(a.0.as_ptr().cast::<x86::__m128i>());
                     let b_vec = x86::_mm_loadu_si128(b.0.as_ptr().cast::<x86::__m128i>());

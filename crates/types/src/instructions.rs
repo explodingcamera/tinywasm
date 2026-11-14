@@ -1,255 +1,9 @@
 use alloc::boxed::Box;
 
-use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts};
-use crate::operands::{read_field, write_field};
-use crate::{
-    DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, Operand64, Operand64Idx, Operand128, Operand128Idx, OperandIdx, RefType,
-};
-
-/// Identifies the packed full-width memory operand layout.
-pub enum MemoryOperand {}
-
-/// Operation performed by an atomic memory instruction.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(u8)]
-pub enum AtomicOp {
-    Load = 0,
-    Store = 1,
-    Add = 2,
-    Sub = 3,
-    And = 4,
-    Or = 5,
-    Xor = 6,
-    Xchg = 7,
-    Cmpxchg = 8,
-}
-
-/// Width of an atomic memory access, in bytes.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(u8)]
-pub enum AtomicWidth {
-    Bytes1 = 1,
-    Bytes2 = 2,
-    Bytes4 = 4,
-    Bytes8 = 8,
-}
-
-impl AtomicWidth {
-    /// Converts a supported byte width into an atomic width.
-    pub const fn from_bytes(bytes: u8) -> Self {
-        match bytes {
-            1 => Self::Bytes1,
-            2 => Self::Bytes2,
-            4 => Self::Bytes4,
-            8 => Self::Bytes8,
-            _ => panic!("invalid atomic width"),
-        }
-    }
-}
-
-/// An atomic operation with its module-local memory operand and access width.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(C, packed)]
-pub struct AtomicArg {
-    pub memory: Operand128Idx<MemoryOperand>,
-    code: u8,
-}
-
-/// Operation performed by an atomic wait or notify instruction.
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum AtomicWaitOp {
-    Notify,
-    Wait32,
-    Wait64,
-}
-
-impl AtomicArg {
-    /// Packs the operation, access width, and value type into one byte.
-    pub const fn new(memory: Operand128Idx<MemoryOperand>, width: AtomicWidth, is_64: bool, op: AtomicOp) -> Self {
-        Self { memory, code: (op as u8) | ((width as u8).trailing_zeros() as u8) << 4 | (is_64 as u8) << 6 }
-    }
-
-    /// Returns the access width.
-    pub const fn width(self) -> AtomicWidth {
-        match (self.code >> 4) & 3 {
-            0 => AtomicWidth::Bytes1,
-            1 => AtomicWidth::Bytes2,
-            2 => AtomicWidth::Bytes4,
-            _ => AtomicWidth::Bytes8,
-        }
-    }
-    /// Returns whether the value is an i64.
-    pub const fn is_64(self) -> bool {
-        self.code & 64 != 0
-    }
-    /// Returns the atomic operation.
-    pub fn op(self) -> AtomicOp {
-        match self.code & 15 {
-            0 => AtomicOp::Load,
-            1 => AtomicOp::Store,
-            2 => AtomicOp::Add,
-            3 => AtomicOp::Sub,
-            4 => AtomicOp::And,
-            5 => AtomicOp::Or,
-            6 => AtomicOp::Xor,
-            7 => AtomicOp::Xchg,
-            8 => AtomicOp::Cmpxchg,
-            _ => unreachable!("invalid atomic operation"),
-        }
-    }
-}
-
-/// Identifies the packed compact memory operand layout.
-pub enum CompactMemoryOperand {}
-
-/// Identifies a packed branch-table operand.
-pub enum BranchTableOperand {}
-
-/// Identifies a packed constant memory-fill operand.
-pub enum MemoryFillOperand {}
-
-/// Identifies a packed local update and branch operand.
-pub enum LocalUpdateOperand {}
-
-/// Identifies a packed global update and branch operand.
-pub enum GlobalUpdateOperand {}
-
-/// Identifies a packed local update, comparison, and branch operand.
-pub enum LocalUpdateCmpOperand {}
-
-/// A compact memory immediate used by optimized instructions.
-///
-/// Optimized instructions use this representation when the offset and
-/// module-local memory index fit its narrower fields.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct CompactMemoryArg {
-    offset: u32,
-    mem_addr: u16,
-}
-
-/// An indexed memory argument and up to two local operands.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct MemoryLocalArg {
-    pub memory_arg_idx: Operand64Idx<CompactMemoryOperand>,
-    pub local1: u8,
-    pub local2: u8,
-}
-
-/// An indexed memory argument and SIMD lane.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct MemoryLaneArg {
-    pub memory_arg_idx: Operand128Idx<MemoryOperand>,
-    pub lane: u8,
-}
-
-/// An indexed memory operand with its statically known address width.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct MemoryArg {
-    pub memory_arg_idx: Operand128Idx<MemoryOperand>,
-    pub address64: bool,
-}
-
-/// A 32-bit immediate and local operand that fit in an instruction payload.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct I32LocalArg {
-    pub value: i32,
-    pub local: LocalAddr,
-}
-
-/// Three local operands that fit in an instruction payload.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub struct LocalTripleArg {
-    pub left: LocalAddr,
-    pub right: LocalAddr,
-    pub dst: LocalAddr,
-}
-
-/// A branch target and local operand that fit in an instruction payload.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[repr(Rust, packed)]
-pub struct TargetLocalArg {
-    pub target_ip: u32,
-    pub local: LocalAddr,
-}
-
-/// An operation packed inline with an indexed operand.
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "archive",
-    serde(bound(serialize = "Op: Copy + serde::Serialize", deserialize = "Op: Copy + serde::de::DeserializeOwned",))
-)]
-#[repr(Rust, packed)]
-pub struct PackedOp<Op, T, const WIDTH: usize> {
-    pub op: Op,
-    pub index: OperandIdx<T, WIDTH>,
-}
-
-/// An operation packed with an index into the 64-bit operand lane.
-pub type PackedOp64<Op, T> = PackedOp<Op, T, 8>;
-
-/// An operation packed with an index into the 128-bit operand lane.
-pub type PackedOp128<Op, T> = PackedOp<Op, T, 16>;
-
-impl<Op: Copy, T, const WIDTH: usize> Copy for PackedOp<Op, T, WIDTH> {}
-
-impl<Op: Copy, T, const WIDTH: usize> Clone for PackedOp<Op, T, WIDTH> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<Op: Copy + PartialEq, T, const WIDTH: usize> PartialEq for PackedOp<Op, T, WIDTH> {
-    fn eq(&self, other: &Self) -> bool {
-        let (op, index) = (self.op, self.index);
-        let (other_op, other_index) = (other.op, other.index);
-        op == other_op && index == other_index
-    }
-}
-
-impl<Op: Copy + Eq, T, const WIDTH: usize> Eq for PackedOp<Op, T, WIDTH> {}
-
-#[cfg(feature = "debug")]
-impl<Op: Copy + core::fmt::Debug, T, const WIDTH: usize> core::fmt::Debug for PackedOp<Op, T, WIDTH> {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let (op, index) = (self.op, self.index);
-        formatter.debug_struct("PackedOp").field("op", &op).field("index", &index).finish()
-    }
-}
-
-impl<Op, T, const WIDTH: usize> PackedOp<Op, T, WIDTH> {
-    /// Creates a packed operation from an operator and operand index.
-    #[inline]
-    pub const fn new(op: Op, index: OperandIdx<T, WIDTH>) -> Self {
-        Self { op, index }
-    }
-}
+use super::{FuncAddr, GlobalAddr, LocalAddr, TableAddr, TagAddr, TypeAddr, ValueCounts, ValueLane, ValueLanes};
+use crate::operands::*;
+use crate::operations::{AtomicArg, AtomicWaitOp, BinOp, CmpOp, FloatCmpOp, LoadKind32, MemoryUpdateOp};
+use crate::{DataAddr, ElemAddr, MemAddr, ModuleFuncIdx, RefType};
 
 /// A catch clause attached to a lowered `try_table` instruction.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -260,22 +14,6 @@ pub enum ExceptionCatch {
     Tag { tag: TagAddr, landing_pad: u32, base: ValueCounts, with_ref: bool },
     /// Catch any exception.
     All { landing_pad: u32, base: ValueCounts, with_ref: bool },
-}
-
-impl ExceptionCatch {
-    /// Returns the catch landing pad instruction pointer.
-    pub const fn landing_pad(self) -> u32 {
-        match self {
-            Self::Tag { landing_pad, .. } | Self::All { landing_pad, .. } => landing_pad,
-        }
-    }
-
-    /// Returns whether this clause exposes the caught exception reference.
-    pub const fn with_ref(self) -> bool {
-        match self {
-            Self::Tag { with_ref, .. } | Self::All { with_ref, .. } => with_ref,
-        }
-    }
 }
 
 /// A statically lowered exception handler range.
@@ -290,221 +28,6 @@ pub struct ExceptionHandler {
     /// Catch clauses in source order.
     pub catches: Box<[ExceptionCatch]>,
 }
-
-impl Operand128<MemoryOperand> {
-    /// Creates a full-width memory operand.
-    #[inline]
-    pub fn new(offset: u64, memory: MemAddr) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u64, 0, offset);
-        write_field!(operand, u32, 8, memory);
-        operand
-    }
-
-    /// Returns the static byte offset.
-    #[inline(always)]
-    pub fn offset(&self) -> u64 {
-        read_field!(self, u64, 0)
-    }
-
-    /// Returns the module-local memory index.
-    #[inline(always)]
-    pub fn memory(&self) -> MemAddr {
-        read_field!(self, u32, 8)
-    }
-}
-
-impl Operand64<CompactMemoryOperand> {
-    /// Creates a compact memory operand.
-    #[inline]
-    pub fn new(offset: u32, memory: u16) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, offset);
-        write_field!(operand, u16, 4, memory);
-        operand
-    }
-
-    /// Records the statically known address width without growing the compact operand.
-    #[inline]
-    pub fn with_address64(mut self, address64: bool) -> Self {
-        write_field!(self, u8, 6, u8::from(address64));
-        self
-    }
-
-    /// Whether the address comes from the 64-bit scalar lane.
-    #[inline(always)]
-    pub fn address64(&self) -> bool {
-        read_field!(self, u8, 6) != 0
-    }
-
-    /// Returns the static byte offset.
-    #[inline(always)]
-    pub fn offset(&self) -> u32 {
-        read_field!(self, u32, 0)
-    }
-
-    /// Returns the module-local memory index.
-    #[inline(always)]
-    pub fn memory(&self) -> u16 {
-        read_field!(self, u16, 4)
-    }
-}
-
-impl Operand128<BranchTableOperand> {
-    #[inline]
-    pub fn new(target: u32, start: u32, len: u32) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, target);
-        write_field!(operand, u32, 4, start);
-        write_field!(operand, u32, 8, len);
-        operand
-    }
-    #[inline(always)]
-    pub fn start(&self) -> u32 {
-        read_field!(self, u32, 4)
-    }
-    #[inline(always)]
-    pub fn size(&self) -> u32 {
-        read_field!(self, u32, 8)
-    }
-}
-
-impl Operand128<MemoryFillOperand> {
-    #[inline]
-    pub fn new(memory: MemAddr, byte: u8, value: i32) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, memory);
-        write_field!(operand, u8, 4, byte);
-        write_field!(operand, i32, 5, value);
-        operand
-    }
-    #[inline(always)]
-    pub fn memory(&self) -> MemAddr {
-        read_field!(self, u32, 0)
-    }
-    #[inline(always)]
-    pub fn byte(&self) -> u8 {
-        read_field!(self, u8, 4)
-    }
-    #[inline(always)]
-    pub fn value(&self) -> i32 {
-        read_field!(self, i32, 5)
-    }
-}
-
-impl Operand128<LocalUpdateOperand> {
-    #[inline]
-    pub fn new(target: u32, value: i32, local: LocalAddr, on_zero: bool) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, target);
-        write_field!(operand, i32, 4, value);
-        write_field!(operand, u16, 8, local);
-        write_field!(operand, u8, 10, u8::from(on_zero));
-        operand
-    }
-    #[inline(always)]
-    pub fn value(&self) -> i32 {
-        read_field!(self, i32, 4)
-    }
-    #[inline(always)]
-    pub fn local(&self) -> LocalAddr {
-        read_field!(self, u16, 8)
-    }
-    #[inline(always)]
-    pub fn on_zero(&self) -> bool {
-        read_field!(self, u8, 10) != 0
-    }
-}
-
-impl Operand128<GlobalUpdateOperand> {
-    #[inline]
-    pub fn new(target: u32, value: i32, global: GlobalAddr, on_zero: bool) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, target);
-        write_field!(operand, i32, 4, value);
-        write_field!(operand, u32, 8, global);
-        write_field!(operand, u8, 12, u8::from(on_zero));
-        operand
-    }
-    #[inline(always)]
-    pub fn value(&self) -> i32 {
-        read_field!(self, i32, 4)
-    }
-    #[inline(always)]
-    pub fn global(&self) -> GlobalAddr {
-        read_field!(self, u32, 8)
-    }
-    #[inline(always)]
-    pub fn on_zero(&self) -> bool {
-        read_field!(self, u8, 12) != 0
-    }
-}
-
-impl Operand128<LocalUpdateCmpOperand> {
-    #[inline]
-    pub fn new(target: u32, value: i32, local: LocalAddr, right: LocalAddr) -> Self {
-        let mut operand = Self::default();
-        write_field!(operand, u32, 0, target);
-        write_field!(operand, i32, 4, value);
-        write_field!(operand, u16, 8, local);
-        write_field!(operand, u16, 10, right);
-        operand
-    }
-    #[inline(always)]
-    pub fn value(&self) -> i32 {
-        read_field!(self, i32, 4)
-    }
-    #[inline(always)]
-    pub fn local(&self) -> LocalAddr {
-        read_field!(self, u16, 8)
-    }
-    #[inline(always)]
-    pub fn right(&self) -> LocalAddr {
-        read_field!(self, u16, 10)
-    }
-}
-
-impl CompactMemoryArg {
-    /// Returns the static byte offset.
-    #[inline]
-    pub const fn offset(self) -> u64 {
-        self.offset as u64
-    }
-
-    /// Returns the module-local memory index.
-    #[inline]
-    pub const fn mem_addr(self) -> MemAddr {
-        self.mem_addr as MemAddr
-    }
-}
-
-impl TryFrom<Operand128<MemoryOperand>> for CompactMemoryArg {
-    type Error = ();
-
-    #[inline]
-    fn try_from(arg: Operand128<MemoryOperand>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            offset: u32::try_from(arg.offset()).map_err(|_| ())?,
-            mem_addr: u16::try_from(arg.memory()).map_err(|_| ())?,
-        })
-    }
-}
-
-impl From<CompactMemoryArg> for Operand64<CompactMemoryOperand> {
-    #[inline]
-    fn from(arg: CompactMemoryArg) -> Self {
-        Self::new(arg.offset, arg.mem_addr)
-    }
-}
-
-const _: () = {
-    assert!(core::mem::size_of::<Operand64Idx<i64>>() == 4);
-    assert!(core::mem::size_of::<Operand64>() == 8);
-    assert!(core::mem::size_of::<Operand128>() == 16);
-    assert!(core::mem::size_of::<CompactMemoryArg>() == 6);
-    assert!(core::mem::size_of::<MemoryLocalArg>() == 6);
-    assert!(core::mem::size_of::<LocalTripleArg>() == 6);
-};
 
 #[derive(Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -537,97 +60,157 @@ pub enum ConstInstruction {
     I64Mul,
 }
 
-/// An integer comparison operator, currently only used for conditional jumps.
+/// Operand-lane effects used while lowering an instruction.
+///
+/// Inputs identify lanes whose top value is consumed, not the instruction's
+/// complete Wasm operand list. Earlier operands in the same lane stay stacked.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum CmpOp {
-    Eq,
-    Ne,
-    LtS,
-    LtU,
-    GtS,
-    GtU,
-    LeS,
-    LeU,
-    GeS,
-    GeU,
+pub enum InstructionEffects {
+    /// Consumes the indicated lane tops and optionally produces a new lane top.
+    Operands { inputs: ValueLanes, output: Option<ValueLane> },
+    /// Consumes a branch condition, then materializes surviving values at the edge.
+    Branch { inputs: ValueLanes },
+    /// Requires materialized lanes or signature-dependent handling by the emitter.
+    Boundary,
 }
 
-impl CmpOp {
-    /// Returns the comparison that is true exactly when `self` is false.
-    #[inline]
-    pub const fn inverse(self) -> Self {
-        match self {
-            Self::Eq => Self::Ne,
-            Self::Ne => Self::Eq,
-            Self::LtS => Self::GeS,
-            Self::LtU => Self::GeU,
-            Self::GtS => Self::LeS,
-            Self::GtU => Self::LeU,
-            Self::LeS => Self::GtS,
-            Self::LeU => Self::GtU,
-            Self::GeS => Self::LtS,
-            Self::GeU => Self::LtU,
-        }
-    }
-}
-
+/// A known copy of a cached value, interpreted within its value lane.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum BinOp {
-    IAdd,
-    ISub,
-    IMul,
-    IAnd,
-    IOr,
-    IXor,
-    IShl,
-    IShrS,
-    IShrU,
-    IRotl,
-    IRotr,
-    FAdd,
-    FSub,
-    FMul,
-    FDiv,
-    FMin,
-    FMax,
-    FCopysign,
+pub enum ValueSource {
+    /// A frame local containing the same value.
+    Local(LocalAddr),
+    /// An inline 32-bit constant.
+    Const32(i32),
+    /// An inline, sign-extended 64-bit constant.
+    Const64Imm(i32),
+    /// An inline, zero-extended vector constant.
+    Const128Imm(u32),
+    /// A pooled 64-bit constant.
+    Const64(Operand64Idx<i64>),
+    /// A pooled vector constant.
+    Const128(Operand128Idx<[u8; 16]>),
 }
 
-impl BinOp {
-    /// Returns the update delta for `local OP immediate`, when it is a simple increment.
-    #[inline]
-    pub const fn inc_delta(self, immediate: i32) -> Option<i32> {
-        match self {
-            Self::IAdd => Some(immediate),
-            Self::ISub => Some(immediate.wrapping_neg()),
-            _ => None,
-        }
-    }
-}
-
+/// An inline or pooled destination local used by instruction metadata.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
-#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
-pub enum BinOp128 {
-    And,
-    AndNot,
-    Or,
-    Xor,
-    I64x2Add,
-    I64x2Mul,
+pub enum LocalDestination {
+    /// An inline frame-local address.
+    Inline(LocalAddr),
+    /// The third local in a packed local/local/destination operand.
+    Third64(Operand64Idx<(u16, u16, u16)>),
+    /// The destination following a local in a packed 32-bit local/constant operand.
+    Second64(Operand64Idx<(u16, u16, u32)>),
+    /// The destination following a local in a packed 64-bit local/constant operand.
+    Second128(Operand128Idx<(u16, u16, u64)>),
+    /// The local following a target and 32-bit value in a branch-update operand.
+    Third128(Operand128Idx<(u32, i32, u16)>),
+    /// The local following a target and full-width 64-bit value in a branch-update operand.
+    Third128Wide(Operand128Idx<(u32, i64, u16)>),
 }
 
+/// Value provenance and direct transfers used during instruction lowering.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+pub enum InstructionValueEffect {
+    /// No declared provenance, local writes must be treated conservatively.
+    Unknown,
+    /// Does not write frame locals, independently of memory/global or operand effects.
+    NoLocalWrites,
+    /// Reads a known value without other observable effects.
+    Read(ValueSource),
+    /// Copies the consumed lane top to a local, optionally retaining it as a result.
+    LocalStore(ValueLane, LocalAddr),
+    /// An effectful producer also saves its result in this local.
+    LocalResult(LocalDestination),
+    /// Writes a local without producing a cached result.
+    LocalWrite(ValueLane, LocalDestination),
+    /// Discards a live operand without changing the physical cached bits.
+    Drop(ValueLane),
+}
+
+// Bind operands in the generated match arm, shared by metadata and form methods.
 macro_rules! instruction_pattern {
-    ($variant:ident, target, [$location:ident $binding:ident => $destination:expr]) => {
-        Instruction::$variant($binding)
+    ($variant:ident, $arg:ident; ([load $lane:ident]); ($($value:tt)?)) => { Instruction::$variant($arg) };
+    ($variant:ident, $arg:ident; ([store $lane:ident]); ($($value:tt)?)) => { Instruction::$variant($arg) };
+    ($variant:ident, $arg:ident; ($($effect:tt)?); ([$kind:ident($($binding:pat),*) => $($value:expr),+])) => {
+        Instruction::$variant($($binding),*)
     };
-    ($variant:ident, target) => {
+    ($variant:ident, $arg:ident; ($($effect:tt)?); ($($value:tt)?)) => { Instruction::$variant { .. } };
+    ($variant:ident, form($field:ty), $value:ident, $first:ident, $second:ident, $third:ident, $form:ident) => {
+        Instruction::$variant($value)
+    };
+    ($variant:ident, form($a:ty, $b:ty, $c:ty), $value:ident, $first:ident, $second:ident, $third:ident, $form:ident) => {
+        Instruction::$variant($first, $second, $third)
+    };
+    ($variant:ident, form $(($($field:ty),*))?, $value:ident, $first:ident, $second:ident, $third:ident) => {
         Instruction::$variant { .. }
     };
+    ($variant:ident, target, [$location:ident $binding:ident => $destination:expr]) => { Instruction::$variant($binding) };
+    ($variant:ident, target) => { Instruction::$variant { .. } };
+}
+
+macro_rules! instruction_value_effect {
+    () => { InstructionValueEffect::Unknown };
+    ([$kind:ident($($binding:pat),*) => $($value:expr),+]) => { InstructionValueEffect::$kind($($value),+) };
+    ([$kind:ident => $($value:expr),+]) => { InstructionValueEffect::$kind($($value),+) };
+    ([$kind:ident]) => { InstructionValueEffect::$kind };
+}
+
+macro_rules! instruction_form {
+    ($value:ident, $first:ident, $second:ident, $third:ident $(; ($($field:ty),*))?) => {
+        None
+    };
+    ($value:ident, $first:ident, $second:ident, $third:ident; ($field:ty), $form:ident) => {
+        Some(Instruction::$form($value))
+    };
+    ($value:ident, $first:ident, $second:ident, $third:ident; ($a:ty, $b:ty, $c:ty), $form:ident) => {
+        Some(Instruction::$form($first, $second, $third))
+    };
+}
+
+macro_rules! instruction_effect {
+    ($arg:ident) => { InstructionEffects::Boundary };
+    ($arg:ident, [stack $($input:ident),* -> $($output:ident)?]) => {
+        instruction_effect!($arg, [$($input),* -> $($output)?])
+    };
+    ($arg:ident, [$($input:ident),* -> $($output:ident)?]) => {
+        InstructionEffects::Operands {
+            inputs: ValueLanes::EMPTY $(.with(ValueLane::$input))*,
+            output: instruction_effect!(@output $($output)?),
+        }
+    };
+    (@output) => { None };
+    (@output $lane:ident) => { Some(ValueLane::$lane) };
+    ($arg:ident, [branch $lane:ident]) => {
+        InstructionEffects::Branch { inputs: ValueLanes::EMPTY.with(ValueLane::$lane) }
+    };
+    ($arg:ident, [load $lane:ident]) => {
+        InstructionEffects::Operands {
+            inputs: ValueLanes::EMPTY.with(if $arg.address64 { ValueLane::S64 } else { ValueLane::S32 }),
+            output: Some(ValueLane::$lane),
+        }
+    };
+    ($arg:ident, [store $lane:ident]) => {
+        InstructionEffects::Operands {
+            inputs: ValueLanes::EMPTY.with(ValueLane::$lane)
+                .with(if $arg.address64 { ValueLane::S64 } else { ValueLane::S32 }),
+            output: None,
+        }
+    };
+}
+
+macro_rules! instruction_input_counts {
+    ([stack $($input:ident),* -> $($output:ident)?]) => {
+        Some(ValueCounts {
+            c32: 0 $(+ matches!(ValueLane::$input, ValueLane::S32) as u16)*,
+            c64: 0 $(+ matches!(ValueLane::$input, ValueLane::S64) as u16)*,
+            c128: 0 $(+ matches!(ValueLane::$input, ValueLane::S128) as u16)*,
+        })
+    };
+    ($($effect:tt)?) => { None };
 }
 
 macro_rules! instruction_retarget {
@@ -654,13 +237,24 @@ macro_rules! instruction_retarget {
 }
 
 macro_rules! define_instructions {
-    ($($variant:ident $(($($field:ty),* $(,)?))? $({ $($name:ident: $named_field:ty),* $(,)? })?
-        $(@target $target:tt)?),* $(,)?) => {
+    ($($variant:ident $(($($field:ty),* $(,)?))? $({ $($name:ident: $named_field:ty),* $(,)? })? $(=> $effect:tt)?
+        $(@value $value_effect:tt)? $(@preserve $preserving:ident)? $(@discard $discarding:ident)? $(@target $target:tt)? $(@loop $looping:ident)?),* $(,)?) => {
         /// A TinyWasm bytecode instruction.
         ///
         /// These instructions are an internal, version-specific representation and do not
         /// map one-to-one to WebAssembly instructions. Their variants and serialized form
         /// may change between TinyWasm releases.
+        ///
+        /// Ordinary scalar arithmetic reads its last operand from the fixed 32-bit or
+        /// 64-bit accumulator and writes its result to the accumulator for the result's
+        /// width. Earlier operands come from their stack lane. Explicit spill/reload
+        /// instructions bridge materialized-stack boundaries. Vector arithmetic uses an
+        /// cached lane top, with earlier operands on the vector stack. Tail dispatch can
+        /// carry this top in a native SIMD register on supported backends.
+        /// Calls and returns keep the last argument or result in each scalar lane in
+        /// its accumulator, with earlier same-lane values and all vectors on the stack.
+        /// Host callbacks use owned scalar payloads and native argument/result buffers.
+        /// Public Wasm returns and fuel suspension materialize scalar results.
         #[derive(Clone, Copy, PartialEq)]
         #[cfg_attr(feature = "debug", derive(Debug))]
         #[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
@@ -678,9 +272,77 @@ macro_rules! define_instructions {
         impl InstructionOpcode {
             #[doc(hidden)]
             pub const COUNT: usize = [$(Self::$variant),*].len();
+
         }
 
         impl Instruction {
+            /// Returns operand-lane effects declared beside this instruction.
+            ///
+            /// Unannotated instructions are conservative boundaries. Call and return
+            /// signature handling remains the emitter's responsibility.
+            #[inline(always)]
+            pub const fn effects(&self) -> InstructionEffects {
+                match *self {
+                    $(instruction_pattern!($variant, arg; ($($effect)?); ()) => instruction_effect!(arg $(, $effect)?),)*
+                }
+            }
+
+            /// Returns input counts, or `None` when unknown.
+            #[inline(always)]
+            pub const fn input_counts(&self) -> Option<ValueCounts> {
+                match self {
+                    $(Self::$variant { .. } => instruction_input_counts!($($effect)?),)*
+                }
+            }
+
+            /// Returns declared value provenance without assuming a full operand-stack signature.
+            #[inline(always)]
+            pub const fn value_effect(&self) -> InstructionValueEffect {
+                match *self {
+                    $(instruction_pattern!($variant, arg; (); ($($value_effect)?)) => instruction_value_effect!($($value_effect)?),)*
+                }
+            }
+
+            /// Returns lane effects and value provenance with one instruction decode.
+            #[inline(always)]
+            pub const fn lowering_effects(&self) -> (InstructionEffects, InstructionValueEffect) {
+                match *self {
+                    $(instruction_pattern!($variant, arg; ($($effect)?); ($($value_effect)?)) => (
+                        instruction_effect!(arg $(, $effect)?),
+                        instruction_value_effect!($($value_effect)?),
+                    ),)*
+                }
+            }
+
+            /// Returns a form that saves the previous same-lane top before producing a new one.
+            #[inline(always)]
+            pub const fn preserving(&self) -> Option<Self> {
+                match *self {
+                    $(instruction_pattern!($variant, form $(($($field),*))?, value, first, second, third $(, $preserving)?) =>
+                        instruction_form!(value, first, second, third $(; ($($field),*))? $(, $preserving)?),)*
+                }
+            }
+
+            /// Returns a form with the same side effects that discards the produced value.
+            #[inline(always)]
+            pub const fn without_result(&self) -> Option<Self> {
+                match *self {
+                    $(instruction_pattern!($variant, form $(($($field),*))?, value, first, second, third $(, $discarding)?) =>
+                        instruction_form!(value, first, second, third $(; ($($field),*))? $(, $discarding)?),)*
+                }
+            }
+
+            /// Returns an equivalent form for a branch resolved to this instruction itself.
+            ///
+            /// Use only after confirming that the resolved target equals the source instruction index.
+            #[inline(always)]
+            pub const fn self_loop_form(&self) -> Option<Self> {
+                match *self {
+                    $(instruction_pattern!($variant, form $(($($field),*))?, value, first, second, third $(, $looping)?) =>
+                        instruction_form!(value, first, second, third $(; ($($field),*))? $(, $looping)?),)*
+                }
+            }
+
             /// Updates this instruction's declared branch target.
             ///
             /// Pooled target operands must be private to the instruction, not shared
@@ -706,26 +368,37 @@ macro_rules! define_instructions {
 }
 
 define_instructions! {
+    // Core sections follow the WebAssembly binary instruction specification.
+    // TinyWasm uses lane-specific forms and lowers structured control to jumps.
+    // Effects describe consumed/produced lane tops, not full Wasm signatures.
+    // [->] preserves all cached lanes, omitted effects require a materialized boundary.
+    // Load/store effects select their address lane from MemoryArg::address64.
+    // [stack ...] lists all inputs, other annotations list cached tops.
+
     // > Parametric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
     Unreachable,
-    Drop32, Select32,
-    Drop64, Select64,
-    Drop128, Select128,
+    Drop32 => [S32 ->] @value [Drop => ValueLane::S32], Select32 => [S32 -> S32],
+    Drop64 => [S64 ->] @value [Drop => ValueLane::S64], Select64 => [S32, S64 -> S64],
+    Drop128 => [S128 ->] @value [Drop => ValueLane::S128], Select128 => [S32, S128 -> S128],
     SelectMulti(ValueCounts),
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
-    Jump(u32) @target [inline target => *target],
-    JumpIfZero32(u32) @target [inline target => *target],
-    JumpIfNonZero32(u32) @target [inline target => *target],
-    JumpIfZero64(u32) @target [inline target => *target],
-    JumpIfNonZero64(u32) @target [inline target => *target],
+    Jump(u32) @value [NoLocalWrites] @target [inline target => *target],
+    // Final lowering forms. Keep bypasses a forward target's Reload32 without suspending.
+    JumpSpill32(u32) @target [inline target => *target], JumpKeep32(u32) @target [inline target => *target],
+    JumpSpill64(u32) @target [inline target => *target], JumpKeep64(u32) @target [inline target => *target],
+    JumpSpill128(u32) @target [inline target => *target], JumpKeep128(u32) @target [inline target => *target],
+    JumpIfZero32(u32) => [branch S32] @value [NoLocalWrites] @target [inline target => *target],
+    JumpIfNonZero32(u32) => [branch S32] @value [NoLocalWrites] @target [inline target => *target],
+    JumpIfZero64(u32) => [branch S64] @value [NoLocalWrites] @target [inline target => *target],
+    JumpIfNonZero64(u32) => [branch S64] @value [NoLocalWrites] @target [inline target => *target],
     JumpIfRefNull(u32) @target [inline target => *target],
     JumpIfRefNonNull(u32) @target [inline target => *target],
     BrOnCast(Operand64Idx<(u32, u32)>) @target [pool64 index => *index],
     BrOnCastFail(Operand64Idx<(u32, u32)>) @target [pool64 index => *index],
-    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>) @target [pool128 index => *index],
+    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>) => [branch S32] @target [pool128 index => *index],
     Return,
     ReturnVoid,
     Return32,
@@ -744,18 +417,18 @@ define_instructions! {
 
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr),
-    LocalGet32(LocalAddr),
-    LocalSet32(LocalAddr),
-    LocalTee32(LocalAddr),
-    GlobalGet64(GlobalAddr), GlobalSet64(GlobalAddr),
-    LocalGet64(LocalAddr),
-    LocalSet64(LocalAddr),
-    LocalTee64(LocalAddr),
+    GlobalGet32(GlobalAddr) => [-> S32], GlobalSet32(GlobalAddr) => [S32 ->] @value [NoLocalWrites],
+    LocalGet32(LocalAddr) => [stack -> S32] @value [Read(local) => ValueSource::Local(local)] @preserve LocalGet32Preserve,
+    LocalSet32(LocalAddr) => [stack S32 ->] @value [LocalStore(local) => ValueLane::S32, local],
+    LocalTee32(LocalAddr) => [stack S32 -> S32] @value [LocalStore(local) => ValueLane::S32, local] @discard LocalSet32,
+    GlobalGet64(GlobalAddr) => [-> S64], GlobalSet64(GlobalAddr) => [S64 ->] @value [NoLocalWrites],
+    LocalGet64(LocalAddr) => [stack -> S64] @value [Read(local) => ValueSource::Local(local)] @preserve LocalGet64Preserve,
+    LocalSet64(LocalAddr) => [stack S64 ->] @value [LocalStore(local) => ValueLane::S64, local],
+    LocalTee64(LocalAddr) => [stack S64 -> S64] @value [LocalStore(local) => ValueLane::S64, local] @discard LocalSet64,
     GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr),
-    LocalGet128(LocalAddr),
-    LocalSet128(LocalAddr),
-    LocalTee128(LocalAddr),
+    LocalGet128(LocalAddr) => [stack -> S128] @value [Read(local) => ValueSource::Local(local)] @preserve LocalGet128Preserve,
+    LocalSet128(LocalAddr) => [stack S128 ->] @value [LocalStore(local) => ValueLane::S128, local],
+    LocalTee128(LocalAddr) => [stack S128 -> S128] @value [LocalStore(local) => ValueLane::S128, local] @discard LocalSet128,
 
     // > Table Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#table-instructions>
@@ -770,11 +443,11 @@ define_instructions! {
 
     // > Memory Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions>
-    I32Load(MemoryArg), I64Load(MemoryArg), F32Load(MemoryArg), F64Load(MemoryArg),
-    I32Load8S(MemoryArg), I32Load8U(MemoryArg), I32Load16S(MemoryArg), I32Load16U(MemoryArg),
-    I64Load8S(MemoryArg), I64Load8U(MemoryArg), I64Load16S(MemoryArg), I64Load16U(MemoryArg), I64Load32S(MemoryArg), I64Load32U(MemoryArg),
-    I32Store(MemoryArg), I64Store(MemoryArg), F32Store(MemoryArg), F64Store(MemoryArg),
-    I32Store8(MemoryArg), I32Store16(MemoryArg), I64Store8(MemoryArg), I64Store16(MemoryArg), I64Store32(MemoryArg),
+    I32Load(MemoryArg) => [load S32], I64Load(MemoryArg) => [load S64], F32Load(MemoryArg) => [load S32], F64Load(MemoryArg) => [load S64],
+    I32Load8S(MemoryArg) => [load S32], I32Load8U(MemoryArg) => [load S32], I32Load16S(MemoryArg) => [load S32], I32Load16U(MemoryArg) => [load S32],
+    I64Load8S(MemoryArg) => [load S64], I64Load8U(MemoryArg) => [load S64], I64Load16S(MemoryArg) => [load S64], I64Load16U(MemoryArg) => [load S64], I64Load32S(MemoryArg) => [load S64], I64Load32U(MemoryArg) => [load S64],
+    I32Store(MemoryArg) => [store S32], I64Store(MemoryArg) => [store S64], F32Store(MemoryArg) => [store S32], F64Store(MemoryArg) => [store S64],
+    I32Store8(MemoryArg) => [store S32], I32Store16(MemoryArg) => [store S32], I64Store8(MemoryArg) => [store S64], I64Store16(MemoryArg) => [store S64], I64Store32(MemoryArg) => [store S64],
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
     MemoryInit(Operand64Idx<(u32, u32)>), MemoryCopy(Operand64Idx<(u32, u32)>),
@@ -785,9 +458,9 @@ define_instructions! {
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#reference-instructions>
     RefNull(RefType),
     RefFunc(FuncAddr),
-    RefIsNull,
-    RefAsNonNull,
-    RefEq,
+    RefIsNull => [S32 -> S32],
+    RefAsNonNull => [S32 -> S32],
+    RefEq => [S32 -> S32],
     RefTest(RefType),
     RefCast(RefType),
 
@@ -807,125 +480,125 @@ define_instructions! {
     ArrayLen,
     ArrayFill(TypeAddr),
     ArrayCopy(Operand64Idx<(u32, u32)>), ArrayInitData(Operand64Idx<(u32, u32)>), ArrayInitElem(Operand64Idx<(u32, u32)>),
-    RefI31,
-    I31GetS,
-    I31GetU,
+    RefI31 => [S32 -> S32],
+    I31GetS => [S32 -> S32],
+    I31GetU => [S32 -> S32],
 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
-    Const32(i32),
-    Const64Imm(i32),
-    Const64(Operand64Idx<i64>),
+    Const32(i32) => [stack -> S32] @value [Read(value) => ValueSource::Const32(value)] @preserve Const32Preserve,
+    Const64Imm(i32) => [stack -> S64] @value [Read(value) => ValueSource::Const64Imm(value)] @preserve Const64ImmPreserve,
+    Const64(Operand64Idx<i64>) => [stack -> S64] @value [Read(index) => ValueSource::Const64(index)] @preserve Const64Preserve,
 
     // Comparisons
-    I32Eqz, I32Eq, I32Ne, I32LtS, I32LtU, I32GtS, I32GtU, I32LeS, I32LeU, I32GeS, I32GeU,
-    I64Eqz, I64Eq, I64Ne, I64LtS, I64LtU, I64GtS, I64GtU, I64LeS, I64LeU, I64GeS, I64GeU,
+    I32Eqz => [S32 -> S32], I32Eq => [S32 -> S32], I32Ne => [S32 -> S32], I32LtS => [S32 -> S32], I32LtU => [S32 -> S32], I32GtS => [S32 -> S32], I32GtU => [S32 -> S32], I32LeS => [S32 -> S32], I32LeU => [S32 -> S32], I32GeS => [S32 -> S32], I32GeU => [S32 -> S32],
+    I64Eqz => [S64 -> S32], I64Eq => [S64 -> S32], I64Ne => [S64 -> S32], I64LtS => [S64 -> S32], I64LtU => [S64 -> S32], I64GtS => [S64 -> S32], I64GtU => [S64 -> S32], I64LeS => [S64 -> S32], I64LeU => [S64 -> S32], I64GeS => [S64 -> S32], I64GeU => [S64 -> S32],
 
-    F32Eq, F32Ne, F32Lt, F32Gt, F32Le, F32Ge,
-    F64Eq, F64Ne, F64Lt, F64Gt, F64Le, F64Ge,
+    F32Eq => [S32 -> S32], F32Ne => [S32 -> S32], F32Lt => [S32 -> S32], F32Gt => [S32 -> S32], F32Le => [S32 -> S32], F32Ge => [S32 -> S32],
+    F64Eq => [S64 -> S32], F64Ne => [S64 -> S32], F64Lt => [S64 -> S32], F64Gt => [S64 -> S32], F64Le => [S64 -> S32], F64Ge => [S64 -> S32],
 
     // Integer arithmetic
-    I32Clz, I32Ctz, I32Popcnt,
-    I32Add, I32Sub, I32Mul,
-    I32DivS, I32DivU, I32RemS, I32RemU,
-    I64Clz, I64Ctz, I64Popcnt,
-    I64Add, I64Sub, I64Mul,
-    I64DivS, I64DivU, I64RemS, I64RemU,
+    I32Clz => [stack S32 -> S32] @value [NoLocalWrites], I32Ctz => [stack S32 -> S32] @value [NoLocalWrites], I32Popcnt => [stack S32 -> S32] @value [NoLocalWrites],
+    I32Add => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Sub => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Mul => [stack S32, S32 -> S32] @value [NoLocalWrites],
+    I32DivS => [stack S32, S32 -> S32] @value [NoLocalWrites], I32DivU => [stack S32, S32 -> S32] @value [NoLocalWrites], I32RemS => [stack S32, S32 -> S32] @value [NoLocalWrites], I32RemU => [stack S32, S32 -> S32] @value [NoLocalWrites],
+    I64Clz => [stack S64 -> S64] @value [NoLocalWrites], I64Ctz => [stack S64 -> S64] @value [NoLocalWrites], I64Popcnt => [stack S64 -> S64] @value [NoLocalWrites],
+    I64Add => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Sub => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Mul => [stack S64, S64 -> S64] @value [NoLocalWrites],
+    I64DivS => [stack S64, S64 -> S64] @value [NoLocalWrites], I64DivU => [stack S64, S64 -> S64] @value [NoLocalWrites], I64RemS => [stack S64, S64 -> S64] @value [NoLocalWrites], I64RemU => [stack S64, S64 -> S64] @value [NoLocalWrites],
 
     // Bitwise
-    I32And, I32Or, I32Xor,
-    I32Shl, I32ShrS, I32ShrU, I32Rotl, I32Rotr,
-    I64And, I64Or, I64Xor,
-    I64Shl, I64ShrS, I64ShrU, I64Rotl, I64Rotr,
+    I32And => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Or => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Xor => [stack S32, S32 -> S32] @value [NoLocalWrites],
+    I32Shl => [stack S32, S32 -> S32] @value [NoLocalWrites], I32ShrS => [stack S32, S32 -> S32] @value [NoLocalWrites], I32ShrU => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Rotl => [stack S32, S32 -> S32] @value [NoLocalWrites], I32Rotr => [stack S32, S32 -> S32] @value [NoLocalWrites],
+    I64And => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Or => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Xor => [stack S64, S64 -> S64] @value [NoLocalWrites],
+    I64Shl => [stack S64, S64 -> S64] @value [NoLocalWrites], I64ShrS => [stack S64, S64 -> S64] @value [NoLocalWrites], I64ShrU => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Rotl => [stack S64, S64 -> S64] @value [NoLocalWrites], I64Rotr => [stack S64, S64 -> S64] @value [NoLocalWrites],
 
     // Floating Point
-    F32Abs, F32Neg, F32Ceil, F32Floor, F32Trunc, F32Nearest, F32Sqrt, F32Add, F32Sub, F32Mul, F32Div, F32Min, F32Max, F32Copysign,
-    F64Abs, F64Neg, F64Ceil, F64Floor, F64Trunc, F64Nearest, F64Sqrt, F64Add, F64Sub, F64Mul, F64Div, F64Min, F64Max, F64Copysign,
-    I32WrapI64, I32TruncF32S, I32TruncF32U, I32TruncF64S, I32TruncF64U, I32Extend8S, I32Extend16S,
-    I64Extend8S, I64Extend16S, I64Extend32S, I64ExtendI32S, I64ExtendI32U, I64TruncF32S, I64TruncF32U, I64TruncF64S, I64TruncF64U,
-    F32ConvertI32S, F32ConvertI32U, F32ConvertI64S, F32ConvertI64U, F32DemoteF64,
-    F64ConvertI32S, F64ConvertI32U, F64ConvertI64S, F64ConvertI64U, F64PromoteF32,
+    F32Abs => [S32 -> S32], F32Neg => [S32 -> S32], F32Ceil => [S32 -> S32], F32Floor => [S32 -> S32], F32Trunc => [S32 -> S32], F32Nearest => [S32 -> S32], F32Sqrt => [S32 -> S32], F32Add => [S32 -> S32], F32Sub => [S32 -> S32], F32Mul => [S32 -> S32], F32Div => [S32 -> S32], F32Min => [S32 -> S32], F32Max => [S32 -> S32], F32Copysign => [S32 -> S32],
+    F64Abs => [S64 -> S64], F64Neg => [S64 -> S64], F64Ceil => [S64 -> S64], F64Floor => [S64 -> S64], F64Trunc => [S64 -> S64], F64Nearest => [S64 -> S64], F64Sqrt => [S64 -> S64], F64Add => [S64 -> S64], F64Sub => [S64 -> S64], F64Mul => [S64 -> S64], F64Div => [S64 -> S64], F64Min => [S64 -> S64], F64Max => [S64 -> S64], F64Copysign => [S64 -> S64],
+    I32WrapI64 => [stack S64 -> S32] @value [NoLocalWrites], I32TruncF32S => [S32 -> S32], I32TruncF32U => [S32 -> S32], I32TruncF64S => [S64 -> S32], I32TruncF64U => [S64 -> S32], I32Extend8S => [S32 -> S32], I32Extend16S => [S32 -> S32],
+    I64Extend8S => [S64 -> S64], I64Extend16S => [S64 -> S64], I64Extend32S => [S64 -> S64], I64ExtendI32S => [stack S32 -> S64] @value [NoLocalWrites], I64ExtendI32U => [stack S32 -> S64] @value [NoLocalWrites], I64TruncF32S => [S32 -> S64], I64TruncF32U => [S32 -> S64], I64TruncF64S => [S64 -> S64], I64TruncF64U => [S64 -> S64],
+    F32ConvertI32S => [S32 -> S32], F32ConvertI32U => [S32 -> S32], F32ConvertI64S => [S64 -> S32], F32ConvertI64U => [S64 -> S32], F32DemoteF64 => [S64 -> S32],
+    F64ConvertI32S => [S32 -> S64], F64ConvertI32U => [S32 -> S64], F64ConvertI64S => [S64 -> S64], F64ConvertI64U => [S64 -> S64], F64PromoteF32 => [S32 -> S64],
 
     // Saturating Float-to-Int Conversions
-    I32TruncSatF32S, I32TruncSatF32U, I32TruncSatF64S, I32TruncSatF64U,
-    I64TruncSatF32S, I64TruncSatF32U, I64TruncSatF64S, I64TruncSatF64U,
+    I32TruncSatF32S => [S32 -> S32], I32TruncSatF32U => [S32 -> S32], I32TruncSatF64S => [S64 -> S32], I32TruncSatF64U => [S64 -> S32],
+    I64TruncSatF32S => [S32 -> S64], I64TruncSatF32U => [S32 -> S64], I64TruncSatF64S => [S64 -> S64], I64TruncSatF64U => [S64 -> S64],
 
     // Wide arithmetic extension
-    I64Add128, I64Sub128, I64MulWideS, I64MulWideU,
+    I64Add128 => [S64 -> S64], I64Sub128 => [S64 -> S64], I64MulWideS => [S64 -> S64], I64MulWideU => [S64 -> S64],
 
     // > Vector Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#vector-instructions>
-    V128Load(MemoryArg), V128Load8x8S(MemoryArg), V128Load8x8U(MemoryArg),
-    V128Load16x4S(MemoryArg), V128Load16x4U(MemoryArg), V128Load32x2S(MemoryArg), V128Load32x2U(MemoryArg),
+    V128Load(MemoryArg) => [load S128], V128Load8x8S(MemoryArg) => [load S128], V128Load8x8U(MemoryArg) => [load S128],
+    V128Load16x4S(MemoryArg) => [load S128], V128Load16x4U(MemoryArg) => [load S128], V128Load32x2S(MemoryArg) => [load S128], V128Load32x2U(MemoryArg) => [load S128],
 
-    V128Load8Splat(MemoryArg), V128Load16Splat(MemoryArg), V128Load32Splat(MemoryArg), V128Load64Splat(MemoryArg),
+    V128Load8Splat(MemoryArg) => [load S128], V128Load16Splat(MemoryArg) => [load S128], V128Load32Splat(MemoryArg) => [load S128], V128Load64Splat(MemoryArg) => [load S128],
     V128Load8Lane(MemoryLaneArg), V128Load16Lane(MemoryLaneArg), V128Load32Lane(MemoryLaneArg), V128Load64Lane(MemoryLaneArg),
 
-    V128Load32Zero(MemoryArg), V128Load64Zero(MemoryArg),
+    V128Load32Zero(MemoryArg) => [load S128], V128Load64Zero(MemoryArg) => [load S128],
 
-    V128Store(MemoryArg), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
+    V128Store(MemoryArg) => [store S128], V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
 
-    I8x16Shuffle(Operand128Idx<[u8; 16]>),
-    Const128Imm(u32),
-    Const128(Operand128Idx<[u8; 16]>),
+    I8x16Shuffle(Operand128Idx<[u8; 16]>) => [S128 -> S128],
+    Const128Imm(u32) => [-> S128] @value [Read(value) => ValueSource::Const128Imm(value)] @preserve Const128ImmPreserve,
+    Const128(Operand128Idx<[u8; 16]>) => [-> S128] @value [Read(index) => ValueSource::Const128(index)] @preserve Const128Preserve,
 
-    I8x16ExtractLaneS(u8), I8x16ExtractLaneU(u8), I8x16ReplaceLane(u8),
-    I16x8ExtractLaneS(u8), I16x8ExtractLaneU(u8), I16x8ReplaceLane(u8),
-    I32x4ExtractLane(u8), I32x4ReplaceLane(u8),
-    I64x2ExtractLane(u8), I64x2ReplaceLane(u8),
-    F32x4ExtractLane(u8), F32x4ReplaceLane(u8),
-    F64x2ExtractLane(u8), F64x2ReplaceLane(u8),
+    I8x16ExtractLaneS(u8) => [S128 -> S32], I8x16ExtractLaneU(u8) => [S128 -> S32], I8x16ReplaceLane(u8) => [S32, S128 -> S128],
+    I16x8ExtractLaneS(u8) => [S128 -> S32], I16x8ExtractLaneU(u8) => [S128 -> S32], I16x8ReplaceLane(u8) => [S32, S128 -> S128],
+    I32x4ExtractLane(u8) => [S128 -> S32], I32x4ReplaceLane(u8) => [S32, S128 -> S128],
+    I64x2ExtractLane(u8) => [S128 -> S64], I64x2ReplaceLane(u8) => [S64, S128 -> S128],
+    F32x4ExtractLane(u8) => [S128 -> S32], F32x4ReplaceLane(u8) => [S32, S128 -> S128],
+    F64x2ExtractLane(u8) => [S128 -> S64], F64x2ReplaceLane(u8) => [S64, S128 -> S128],
 
-    V128Not, V128And, V128AndNot, V128Or, V128Xor, V128Bitselect, V128AnyTrue, I8x16Swizzle,
-    I8x16Splat, I8x16Eq, I8x16Ne, I8x16LtS, I8x16LtU, I8x16GtS, I8x16GtU, I8x16LeS, I8x16LeU, I8x16GeS, I8x16GeU,
-    I16x8Splat, I16x8Eq, I16x8Ne, I16x8LtS, I16x8LtU, I16x8GtS, I16x8GtU, I16x8LeS, I16x8LeU, I16x8GeS, I16x8GeU,
-    I32x4Splat, I32x4Eq, I32x4Ne, I32x4LtS, I32x4LtU, I32x4GtS, I32x4GtU, I32x4LeS, I32x4LeU, I32x4GeS, I32x4GeU,
-    I64x2Splat, I64x2Eq, I64x2Ne, I64x2LtS, I64x2GtS, I64x2LeS, I64x2GeS,
-    F32x4Splat, F32x4Eq, F32x4Ne, F32x4Lt, F32x4Gt, F32x4Le, F32x4Ge,
-    F64x2Splat, F64x2Eq, F64x2Ne, F64x2Lt, F64x2Gt, F64x2Le, F64x2Ge,
+    V128Not => [S128 -> S128], V128And => [S128 -> S128], V128AndNot => [S128 -> S128], V128Or => [S128 -> S128], V128Xor => [S128 -> S128], V128Bitselect => [S128 -> S128], V128AnyTrue => [S128 -> S32], I8x16Swizzle => [S128 -> S128],
+    I8x16Splat => [S32 -> S128], I8x16Eq => [S128 -> S128], I8x16Ne => [S128 -> S128], I8x16LtS => [S128 -> S128], I8x16LtU => [S128 -> S128], I8x16GtS => [S128 -> S128], I8x16GtU => [S128 -> S128], I8x16LeS => [S128 -> S128], I8x16LeU => [S128 -> S128], I8x16GeS => [S128 -> S128], I8x16GeU => [S128 -> S128],
+    I16x8Splat => [S32 -> S128], I16x8Eq => [S128 -> S128], I16x8Ne => [S128 -> S128], I16x8LtS => [S128 -> S128], I16x8LtU => [S128 -> S128], I16x8GtS => [S128 -> S128], I16x8GtU => [S128 -> S128], I16x8LeS => [S128 -> S128], I16x8LeU => [S128 -> S128], I16x8GeS => [S128 -> S128], I16x8GeU => [S128 -> S128],
+    I32x4Splat => [S32 -> S128], I32x4Eq => [S128 -> S128], I32x4Ne => [S128 -> S128], I32x4LtS => [S128 -> S128], I32x4LtU => [S128 -> S128], I32x4GtS => [S128 -> S128], I32x4GtU => [S128 -> S128], I32x4LeS => [S128 -> S128], I32x4LeU => [S128 -> S128], I32x4GeS => [S128 -> S128], I32x4GeU => [S128 -> S128],
+    I64x2Splat => [S64 -> S128], I64x2Eq => [S128 -> S128], I64x2Ne => [S128 -> S128], I64x2LtS => [S128 -> S128], I64x2GtS => [S128 -> S128], I64x2LeS => [S128 -> S128], I64x2GeS => [S128 -> S128],
+    F32x4Splat => [S32 -> S128], F32x4Eq => [S128 -> S128], F32x4Ne => [S128 -> S128], F32x4Lt => [S128 -> S128], F32x4Gt => [S128 -> S128], F32x4Le => [S128 -> S128], F32x4Ge => [S128 -> S128],
+    F64x2Splat => [S64 -> S128], F64x2Eq => [S128 -> S128], F64x2Ne => [S128 -> S128], F64x2Lt => [S128 -> S128], F64x2Gt => [S128 -> S128], F64x2Le => [S128 -> S128], F64x2Ge => [S128 -> S128],
 
-    I8x16Abs, I8x16Neg, I8x16AllTrue, I8x16Bitmask, I8x16Shl, I8x16ShrS, I8x16ShrU, I8x16Add, I8x16Sub, I8x16MinS, I8x16MinU, I8x16MaxS, I8x16MaxU,
-    I16x8Abs, I16x8Neg, I16x8AllTrue, I16x8Bitmask, I16x8Shl, I16x8ShrS, I16x8ShrU, I16x8Add, I16x8Sub, I16x8MinS, I16x8MinU, I16x8MaxS, I16x8MaxU,
-    I32x4Abs, I32x4Neg, I32x4AllTrue, I32x4Bitmask, I32x4Shl, I32x4ShrS, I32x4ShrU, I32x4Add, I32x4Sub, I32x4MinS, I32x4MinU, I32x4MaxS, I32x4MaxU,
-    I64x2Abs, I64x2Neg, I64x2AllTrue, I64x2Bitmask, I64x2Shl, I64x2ShrS, I64x2ShrU, I64x2Add, I64x2Sub, I64x2Mul,
+    I8x16Abs => [S128 -> S128], I8x16Neg => [S128 -> S128], I8x16AllTrue => [S128 -> S32], I8x16Bitmask => [S128 -> S32], I8x16Shl => [S32, S128 -> S128], I8x16ShrS => [S32, S128 -> S128], I8x16ShrU => [S32, S128 -> S128], I8x16Add => [S128 -> S128], I8x16Sub => [S128 -> S128], I8x16MinS => [S128 -> S128], I8x16MinU => [S128 -> S128], I8x16MaxS => [S128 -> S128], I8x16MaxU => [S128 -> S128],
+    I16x8Abs => [S128 -> S128], I16x8Neg => [S128 -> S128], I16x8AllTrue => [S128 -> S32], I16x8Bitmask => [S128 -> S32], I16x8Shl => [S32, S128 -> S128], I16x8ShrS => [S32, S128 -> S128], I16x8ShrU => [S32, S128 -> S128], I16x8Add => [S128 -> S128], I16x8Sub => [S128 -> S128], I16x8MinS => [S128 -> S128], I16x8MinU => [S128 -> S128], I16x8MaxS => [S128 -> S128], I16x8MaxU => [S128 -> S128],
+    I32x4Abs => [S128 -> S128], I32x4Neg => [S128 -> S128], I32x4AllTrue => [S128 -> S32], I32x4Bitmask => [S128 -> S32], I32x4Shl => [S32, S128 -> S128], I32x4ShrS => [S32, S128 -> S128], I32x4ShrU => [S32, S128 -> S128], I32x4Add => [S128 -> S128], I32x4Sub => [S128 -> S128], I32x4MinS => [S128 -> S128], I32x4MinU => [S128 -> S128], I32x4MaxS => [S128 -> S128], I32x4MaxU => [S128 -> S128],
+    I64x2Abs => [S128 -> S128], I64x2Neg => [S128 -> S128], I64x2AllTrue => [S128 -> S32], I64x2Bitmask => [S128 -> S32], I64x2Shl => [S32, S128 -> S128], I64x2ShrS => [S32, S128 -> S128], I64x2ShrU => [S32, S128 -> S128], I64x2Add => [S128 -> S128], I64x2Sub => [S128 -> S128], I64x2Mul => [S128 -> S128],
 
-    I8x16NarrowI16x8S, I8x16NarrowI16x8U, I8x16AddSatS, I8x16AddSatU, I8x16SubSatS, I8x16SubSatU, I8x16AvgrU,
-    I16x8NarrowI32x4S, I16x8NarrowI32x4U, I16x8AddSatS, I16x8AddSatU, I16x8SubSatS, I16x8SubSatU, I16x8AvgrU,
+    I8x16NarrowI16x8S => [S128 -> S128], I8x16NarrowI16x8U => [S128 -> S128], I8x16AddSatS => [S128 -> S128], I8x16AddSatU => [S128 -> S128], I8x16SubSatS => [S128 -> S128], I8x16SubSatU => [S128 -> S128], I8x16AvgrU => [S128 -> S128],
+    I16x8NarrowI32x4S => [S128 -> S128], I16x8NarrowI32x4U => [S128 -> S128], I16x8AddSatS => [S128 -> S128], I16x8AddSatU => [S128 -> S128], I16x8SubSatS => [S128 -> S128], I16x8SubSatU => [S128 -> S128], I16x8AvgrU => [S128 -> S128],
 
-    I16x8ExtAddPairwiseI8x16S, I16x8ExtAddPairwiseI8x16U, I16x8Mul,
-    I32x4ExtAddPairwiseI16x8S, I32x4ExtAddPairwiseI16x8U, I32x4Mul,
+    I16x8ExtAddPairwiseI8x16S => [S128 -> S128], I16x8ExtAddPairwiseI8x16U => [S128 -> S128], I16x8Mul => [S128 -> S128],
+    I32x4ExtAddPairwiseI16x8S => [S128 -> S128], I32x4ExtAddPairwiseI16x8U => [S128 -> S128], I32x4Mul => [S128 -> S128],
 
-    I16x8ExtMulLowI8x16S, I16x8ExtMulLowI8x16U, I16x8ExtMulHighI8x16S, I16x8ExtMulHighI8x16U,
-    I32x4ExtMulLowI16x8S, I32x4ExtMulLowI16x8U, I32x4ExtMulHighI16x8S, I32x4ExtMulHighI16x8U,
-    I64x2ExtMulLowI32x4S, I64x2ExtMulLowI32x4U, I64x2ExtMulHighI32x4S, I64x2ExtMulHighI32x4U,
+    I16x8ExtMulLowI8x16S => [S128 -> S128], I16x8ExtMulLowI8x16U => [S128 -> S128], I16x8ExtMulHighI8x16S => [S128 -> S128], I16x8ExtMulHighI8x16U => [S128 -> S128],
+    I32x4ExtMulLowI16x8S => [S128 -> S128], I32x4ExtMulLowI16x8U => [S128 -> S128], I32x4ExtMulHighI16x8S => [S128 -> S128], I32x4ExtMulHighI16x8U => [S128 -> S128],
+    I64x2ExtMulLowI32x4S => [S128 -> S128], I64x2ExtMulLowI32x4U => [S128 -> S128], I64x2ExtMulHighI32x4S => [S128 -> S128], I64x2ExtMulHighI32x4U => [S128 -> S128],
 
-    I16x8ExtendLowI8x16S, I16x8ExtendLowI8x16U, I16x8ExtendHighI8x16S, I16x8ExtendHighI8x16U,
-    I32x4ExtendLowI16x8S, I32x4ExtendLowI16x8U, I32x4ExtendHighI16x8S, I32x4ExtendHighI16x8U,
-    I64x2ExtendLowI32x4S, I64x2ExtendLowI32x4U, I64x2ExtendHighI32x4S, I64x2ExtendHighI32x4U,
+    I16x8ExtendLowI8x16S => [S128 -> S128], I16x8ExtendLowI8x16U => [S128 -> S128], I16x8ExtendHighI8x16S => [S128 -> S128], I16x8ExtendHighI8x16U => [S128 -> S128],
+    I32x4ExtendLowI16x8S => [S128 -> S128], I32x4ExtendLowI16x8U => [S128 -> S128], I32x4ExtendHighI16x8S => [S128 -> S128], I32x4ExtendHighI16x8U => [S128 -> S128],
+    I64x2ExtendLowI32x4S => [S128 -> S128], I64x2ExtendLowI32x4U => [S128 -> S128], I64x2ExtendHighI32x4S => [S128 -> S128], I64x2ExtendHighI32x4U => [S128 -> S128],
 
-    I8x16Popcnt, I16x8Q15MulrSatS, I32x4DotI16x8S,
+    I8x16Popcnt => [S128 -> S128], I16x8Q15MulrSatS => [S128 -> S128], I32x4DotI16x8S => [S128 -> S128],
 
-    F32x4Ceil, F32x4Floor, F32x4Trunc, F32x4Nearest, F32x4Abs, F32x4Neg, F32x4Sqrt, F32x4Add, F32x4Sub, F32x4Mul, F32x4Div, F32x4Min, F32x4Max, F32x4PMin, F32x4PMax,
-    F64x2Ceil, F64x2Floor, F64x2Trunc, F64x2Nearest, F64x2Abs, F64x2Neg, F64x2Sqrt, F64x2Add, F64x2Sub, F64x2Mul, F64x2Div, F64x2Min, F64x2Max, F64x2PMin, F64x2PMax,
-    I32x4TruncSatF32x4S, I32x4TruncSatF32x4U,
-    F32x4ConvertI32x4S, F32x4ConvertI32x4U,
-    I32x4TruncSatF64x2SZero, I32x4TruncSatF64x2UZero,
-    F64x2ConvertLowI32x4S, F64x2ConvertLowI32x4U,
-    F32x4DemoteF64x2Zero, F64x2PromoteLowF32x4,
+    F32x4Ceil => [S128 -> S128], F32x4Floor => [S128 -> S128], F32x4Trunc => [S128 -> S128], F32x4Nearest => [S128 -> S128], F32x4Abs => [S128 -> S128], F32x4Neg => [S128 -> S128], F32x4Sqrt => [S128 -> S128], F32x4Add => [S128 -> S128], F32x4Sub => [S128 -> S128], F32x4Mul => [S128 -> S128], F32x4Div => [S128 -> S128], F32x4Min => [S128 -> S128], F32x4Max => [S128 -> S128], F32x4PMin => [S128 -> S128], F32x4PMax => [S128 -> S128],
+    F64x2Ceil => [S128 -> S128], F64x2Floor => [S128 -> S128], F64x2Trunc => [S128 -> S128], F64x2Nearest => [S128 -> S128], F64x2Abs => [S128 -> S128], F64x2Neg => [S128 -> S128], F64x2Sqrt => [S128 -> S128], F64x2Add => [S128 -> S128], F64x2Sub => [S128 -> S128], F64x2Mul => [S128 -> S128], F64x2Div => [S128 -> S128], F64x2Min => [S128 -> S128], F64x2Max => [S128 -> S128], F64x2PMin => [S128 -> S128], F64x2PMax => [S128 -> S128],
+    I32x4TruncSatF32x4S => [S128 -> S128], I32x4TruncSatF32x4U => [S128 -> S128],
+    F32x4ConvertI32x4S => [S128 -> S128], F32x4ConvertI32x4U => [S128 -> S128],
+    I32x4TruncSatF64x2SZero => [S128 -> S128], I32x4TruncSatF64x2UZero => [S128 -> S128],
+    F64x2ConvertLowI32x4S => [S128 -> S128], F64x2ConvertLowI32x4U => [S128 -> S128],
+    F32x4DemoteF64x2Zero => [S128 -> S128], F64x2PromoteLowF32x4 => [S128 -> S128],
 
     // Relaxed SIMD
-    I8x16RelaxedSwizzle,
-    I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
-    I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,
-    F32x4RelaxedMadd, F32x4RelaxedNmadd,
-    F64x2RelaxedMadd, F64x2RelaxedNmadd,
-    I8x16RelaxedLaneselect, I16x8RelaxedLaneselect,
-    I32x4RelaxedLaneselect, I64x2RelaxedLaneselect,
-    F32x4RelaxedMin, F32x4RelaxedMax,
-    F64x2RelaxedMin, F64x2RelaxedMax,
-    I16x8RelaxedQ15mulrS,
-    I16x8RelaxedDotI8x16I7x16S,
-    I32x4RelaxedDotI8x16I7x16AddS,
+    I8x16RelaxedSwizzle => [S128 -> S128],
+    I32x4RelaxedTruncF32x4S => [S128 -> S128], I32x4RelaxedTruncF32x4U => [S128 -> S128],
+    I32x4RelaxedTruncF64x2SZero => [S128 -> S128], I32x4RelaxedTruncF64x2UZero => [S128 -> S128],
+    F32x4RelaxedMadd => [S128 -> S128], F32x4RelaxedNmadd => [S128 -> S128],
+    F64x2RelaxedMadd => [S128 -> S128], F64x2RelaxedNmadd => [S128 -> S128],
+    I8x16RelaxedLaneselect => [S128 -> S128], I16x8RelaxedLaneselect => [S128 -> S128],
+    I32x4RelaxedLaneselect => [S128 -> S128], I64x2RelaxedLaneselect => [S128 -> S128],
+    F32x4RelaxedMin => [S128 -> S128], F32x4RelaxedMax => [S128 -> S128],
+    F64x2RelaxedMin => [S128 -> S128], F64x2RelaxedMax => [S128 -> S128],
+    I16x8RelaxedQ15mulrS => [S128 -> S128],
+    I16x8RelaxedDotI8x16I7x16S => [S128 -> S128],
+    I32x4RelaxedDotI8x16I7x16AddS => [S128 -> S128],
 
     // > Atomic Instructions (threads extension)
     // See <https://webassembly.github.io/threads/core/binary/instructions.html#atomic-memory-instructions>
@@ -934,114 +607,140 @@ define_instructions! {
     AtomicFence,
 
     // > Specialized variable instructions
-    GlobalTee32(GlobalAddr), GlobalTee64(GlobalAddr), GlobalTee128(GlobalAddr),
-    LocalCopy32(LocalAddr, LocalAddr),
-    LocalCopy64(LocalAddr, LocalAddr),
-    LocalCopy128(LocalAddr, LocalAddr),
-    SetLocalConst32(I32LocalArg),
-    SetLocalConst64(PackedOp64<LocalAddr, i64>),
-    SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>),
+    GlobalTee32(GlobalAddr) => [S32 -> S32], GlobalTee64(GlobalAddr) => [S64 -> S64], GlobalTee128(GlobalAddr),
+    LocalCopy32(LocalAddr, LocalAddr) => [->] @value [LocalWrite(_, local) => ValueLane::S32, LocalDestination::Inline(local)],
+    LocalCopy64(LocalAddr, LocalAddr) => [->] @value [LocalWrite(_, local) => ValueLane::S64, LocalDestination::Inline(local)],
+    LocalCopy128(LocalAddr, LocalAddr) => [->] @value [LocalWrite(_, local) => ValueLane::S128, LocalDestination::Inline(local)],
+    LocalCopyPair32(u8, u8, u8, u8) => [->], LocalCopyPair64(u8, u8, u8, u8) => [->],
+    SetLocalConst32(I32LocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local)],
+    SetLocalConst64(PackedOp64<LocalAddr, i64>) => [->] @value [LocalWrite(arg) => ValueLane::S64, LocalDestination::Inline(arg.op)],
+    SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>) => [->] @value [LocalWrite(arg) => ValueLane::S128, LocalDestination::Inline(arg.op)],
+    LocalGet32Preserve(LocalAddr) => [S32 -> S32], LocalGet64Preserve(LocalAddr) => [S64 -> S64],
+    Const32Preserve(i32) => [S32 -> S32], Const64ImmPreserve(i32) => [S64 -> S64], Const64Preserve(Operand64Idx<i64>) => [S64 -> S64],
+    LocalGet128Preserve(LocalAddr) => [S128 -> S128], Const128ImmPreserve(u32) => [S128 -> S128], Const128Preserve(Operand128Idx<[u8; 16]>) => [S128 -> S128],
 
     // > Specialized arithmetic instructions
-    AddConst32(i32), AddConst64(Operand64Idx<i64>),
-    AndConst32(i32), XorConst32(i32), ShrUConst32(i32),
-    AddLocalConst32(I32LocalArg), SubLocalConst32(I32LocalArg), MulLocalConst32(I32LocalArg), AndLocalConst32(I32LocalArg), ShrULocalConst32(I32LocalArg),
-    BinOpStackLocal32(BinOp, LocalAddr), BinOpStackLocal128(BinOp128, LocalAddr),
-    BinOpStackGlobal32(BinOp, u32), BinOpStackGlobal64(BinOp, u32),
-    BinOpStackConst32(BinOp, i32), BinOpStackConst64(PackedOp64<BinOp, i64>),
-    BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
-    BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr), AddLocalLocalSet32(LocalTripleArg), AddLocalLocalTee32(LocalTripleArg),
-    BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>),
-    BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
-    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
-    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>),
-    BinOpStackLocalSet32(BinOp, LocalAddr, LocalAddr),
-    BinOpStackLocalTee32(BinOp, LocalAddr, LocalAddr),
-    BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>),
-    BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet128(PackedOp64<BinOp128, (u16, u16, u16)>),
-    BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>),
-    BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee128(PackedOp64<BinOp128, (u16, u16, u16)>),
-    BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>),
-    BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstSet128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
-    BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>),
-    BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstTee128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
-    IncLocal32(I32LocalArg),
-    IncLocal64(PackedOp64<LocalAddr, i64>),
-    AndConstTee32(I32LocalArg), SubConstTee32(I32LocalArg),
-    AndConstTee64(PackedOp64<LocalAddr, i64>), SubConstTee64(PackedOp64<LocalAddr, i64>),
-    MulAccLocal32(LocalAddr), MulAccLocal64(LocalAddr),
-    FMulAccLocal32(LocalAddr), FMulAccLocal64(LocalAddr),
-    I32Add3, I64Add3,
-    CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
+    I32AddConst(i32) => [stack S32 -> S32] @value [NoLocalWrites], I64AddConst(Operand64Idx<i64>) => [stack S64 -> S64] @value [NoLocalWrites],
+    I32AndConst(i32) => [stack S32 -> S32] @value [NoLocalWrites], I32XorConst(i32) => [stack S32 -> S32] @value [NoLocalWrites], I32ShlConst(i32) => [stack S32 -> S32] @value [NoLocalWrites], I32ShrUConst(i32) => [stack S32 -> S32] @value [NoLocalWrites],
+    I32AddLocal(LocalAddr) => [stack S32 -> S32] @value [NoLocalWrites], I32AddLocalConst(I32LocalArg) => [stack -> S32] @value [NoLocalWrites],
+    I32AddLocalShl(LocalAddr, u8) => [S32 -> S32],
+    I32AddLocalAndShl(PackedOp64<u8, (u16, u32)>) => [S32 -> S32], I64AddLocalAndShl(PackedOp128<u8, (u16, u64)>) => [S64 -> S64],
+    BinOpLocal32(BinOp, LocalAddr) => [stack S32 -> S32] @value [NoLocalWrites], BinOpLocal64(BinOp, LocalAddr) => [stack S64 -> S64] @value [NoLocalWrites],
+    BinOpConst32(BinOp, i32) => [stack S32 -> S32] @value [NoLocalWrites], BinOpConst64(PackedOp64<BinOp, i64>) => [stack S64 -> S64] @value [NoLocalWrites],
+    BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr) => [stack -> S32] @value [NoLocalWrites], BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr) => [stack -> S64] @value [NoLocalWrites],
+    BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>) => [stack -> S32] @value [NoLocalWrites], BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>) => [stack -> S64] @value [NoLocalWrites],
+    BinOpLocalConstCompact32(BinOpLocalCompact32) => [stack -> S32] @value [NoLocalWrites],
+    BinOpLocalConstRhs32(PackedOp64<(BinOp, BinOp), (u16, u32)>) => [stack S32 -> S32] @value [NoLocalWrites],
+    BinOpLocalConstRhs64(PackedOp128<(BinOp, BinOp), (u16, u64)>) => [stack S64 -> S64] @value [NoLocalWrites],
+    BinOpLocalLocalRhs32(BinOp, BinOp, LocalAddr, LocalAddr) => [stack S32 -> S32] @value [NoLocalWrites],
+    BinOpLocalLocalRhs64(BinOp, BinOp, LocalAddr, LocalAddr) => [stack S64 -> S64] @value [NoLocalWrites],
+    BinOpLocalSet32(BinOp, LocalAddr, LocalAddr) => [S32 ->] @value [LocalWrite(_, _, local) => ValueLane::S32, LocalDestination::Inline(local)],
+    BinOpLocalSet64(BinOp, LocalAddr, LocalAddr) => [S64 ->] @value [LocalWrite(_, _, local) => ValueLane::S64, LocalDestination::Inline(local)],
+    BinOpLocalTee32(BinOp, LocalAddr, LocalAddr) => [S32 -> S32] @value [LocalResult(_, _, local) => LocalDestination::Inline(local)] @discard BinOpLocalSet32,
+    BinOpLocalTee64(BinOp, LocalAddr, LocalAddr) => [S64 -> S64] @value [LocalResult(_, _, local) => LocalDestination::Inline(local)] @discard BinOpLocalSet64,
+    BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Third64(arg.index)],
+    BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>) => [->] @value [LocalWrite(arg) => ValueLane::S64, LocalDestination::Third64(arg.index)],
+    BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>) => [stack -> S32] @value [LocalResult(arg) => LocalDestination::Third64(arg.index)] @discard BinOpLocalLocalSet32,
+    BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>) => [stack -> S64] @value [LocalResult(arg) => LocalDestination::Third64(arg.index)] @discard BinOpLocalLocalSet64,
+    BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Second64(arg.index)],
+    BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>) => [->] @value [LocalWrite(arg) => ValueLane::S64, LocalDestination::Second128(arg.index)],
+    BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>) => [stack -> S32] @value [LocalResult(arg) => LocalDestination::Second64(arg.index)] @discard BinOpLocalConstSet32,
+    BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>) => [stack -> S64] @value [LocalResult(arg) => LocalDestination::Second128(arg.index)] @discard BinOpLocalConstSet64,
+    I32AddLocalSetConst(I32LocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local)],
+    I64AddLocalSetConst(PackedOp64<LocalAddr, i64>) => [->] @value [LocalWrite(arg) => ValueLane::S64, LocalDestination::Inline(arg.op)],
+    I32AndConstTee(I32LocalArg) => [S32 -> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local)],
+    I32AddConstTee(I32LocalArg) => [S32 -> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local)],
+    I64AndConstTee(PackedOp64<LocalAddr, i64>) => [S64 -> S64] @value [LocalResult(arg) => LocalDestination::Inline(arg.op)],
+    I64AddConstTee(PackedOp64<LocalAddr, i64>) => [S64 -> S64] @value [LocalResult(arg) => LocalDestination::Inline(arg.op)],
+    I32MulAddLocal(LocalAddr) => [S32 ->], I64MulAddLocal(LocalAddr) => [S64 ->],
+    F32MulAddLocal(LocalAddr) => [S32 ->], F64MulAddLocal(LocalAddr) => [S64 ->],
+    I32Add3 => [S32 -> S32], I64Add3 => [S64 -> S64],
+    I32XorRotlConst(u8) => [stack S32, S32 -> S32] @value [NoLocalWrites],
+    I32XorLocalRotlConst(LocalAddr, u8) => [stack S32 -> S32] @value [NoLocalWrites],
+    I32XorLocalLocalRotlConst(LocalAddr, LocalAddr, u8) => [stack -> S32] @value [NoLocalWrites],
+    I64XorRotlConst(u8) => [stack S64, S64 -> S64] @value [NoLocalWrites],
+    I64XorLocalRotlConst(LocalAddr, u8) => [stack S64 -> S64] @value [NoLocalWrites],
+    I64XorLocalLocalRotlConst(LocalAddr, LocalAddr, u8) => [stack -> S64] @value [NoLocalWrites],
+    CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr) => [-> S32], CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr) => [-> S32],
 
     // > Specialized branch instructions
-    JumpIfLocalZero32(TargetLocalArg) @target [inline arg => arg.target_ip], JumpIfLocalNonZero32(TargetLocalArg) @target [inline arg => arg.target_ip],
-    JumpIfLocalZero64(TargetLocalArg) @target [inline arg => arg.target_ip], JumpIfLocalNonZero64(TargetLocalArg) @target [inline arg => arg.target_ip],
-    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>) @target [pool64 packed => packed.index], JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>) @target [pool128 packed => packed.index],
-    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>) @target [pool64 packed => packed.index], JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>) @target [pool64 packed => packed.index],
-    JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>) @target [pool128 packed => packed.index], JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>) @target [pool128 packed => packed.index],
-    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>) @target [pool64 packed => packed.index], JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>) @target [pool64 packed => packed.index],
-    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>) @target [pool128 packed => packed.index],
-    BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>) @target [pool128 packed => packed.index],
+    JumpIfLocalZero32(TargetLocalArg) @value [NoLocalWrites] @target [inline arg => arg.target_ip], JumpIfLocalNonZero32(TargetLocalArg) @value [NoLocalWrites] @target [inline arg => arg.target_ip],
+    JumpIfLocalZero64(TargetLocalArg) @value [NoLocalWrites] @target [inline arg => arg.target_ip], JumpIfLocalNonZero64(TargetLocalArg) @value [NoLocalWrites] @target [inline arg => arg.target_ip],
+    JumpCmpAccConst32(PackedOp64<CmpOp, (u32, i32)>) => [branch S32] @value [NoLocalWrites] @target [pool64 packed => packed.index], JumpCmpAccConst64(PackedOp128<CmpOp, (u32, i64)>) => [branch S64] @value [NoLocalWrites] @target [pool128 packed => packed.index],
+    JumpFCmpAccConst32(PackedOp64<(FloatCmpOp, bool), (u32, i32)>) => [branch S32] @value [NoLocalWrites] @target [pool64 packed => packed.index],
+    JumpFCmpAccConst64(PackedOp128<(FloatCmpOp, bool), (u32, i64)>) => [branch S64] @value [NoLocalWrites] @target [pool128 packed => packed.index],
+    JumpCmpAccLocal32(PackedOp64<CmpOp, (u32, u16)>) => [branch S32] @value [NoLocalWrites] @target [pool64 packed => packed.index], JumpCmpAccLocal64(PackedOp64<CmpOp, (u32, u16)>) => [branch S64] @value [NoLocalWrites] @target [pool64 packed => packed.index],
+    JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>) @value [NoLocalWrites] @target [pool128 packed => packed.index], JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i64, u16)>) @value [NoLocalWrites] @target [pool128 packed => packed.index],
+    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>) @value [NoLocalWrites] @target [pool64 packed => packed.index], JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>) @value [NoLocalWrites] @target [pool64 packed => packed.index],
+    BinOpLocalConstTestJump32(PackedOp128<BinOp, LocalUpdateOperand>) @target [pool128 packed => packed.index],
+    BinOpLocalLocalTestJump32(PackedOp64<(BinOp, bool), (u32, u16, u16)>) @target [pool64 packed => packed.index],
+    BinOpLocalConstJumpCmpConst32(PackedOp128<(BinOp, CmpOp), LocalExprCmpOperand>) @target [pool128 packed => packed.index],
+    BinOpLocalConstSetJump32(PackedOp128<BinOp, LocalUpdateOperand>) @value [LocalWrite(packed) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
+    BinOpLocalConstSetJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>) @value [LocalWrite(packed) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
+    BinOpLocalConstSetJumpCmpLocal64(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand64>) @value [LocalWrite(packed) => ValueLane::S64, LocalDestination::Third128Wide(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
+    BinOpLocalLocalSetJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalBinOpCmpOperand>) @value [LocalWrite(packed) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
+    BinOpLocalLocalSetJumpCmpLocal64(PackedOp128<(BinOp, CmpOp), LocalBinOpCmpOperand>) @value [LocalWrite(packed) => ValueLane::S64, LocalDestination::Third128(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
     BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>) @target [pool128 packed => packed.index],
-    BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>) @target [pool128 packed => packed.index],
-    IncLocalJump32(Operand128Idx<LocalUpdateOperand>) @target [pool128 index => *index],
-    IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>) @target [pool128 index => *index],
-    IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>) @target [pool128 index => *index],
-    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>) @target [pool128 packed => packed.index],
+    BinOpGlobalConstSetJump32(PackedOp128<BinOp, GlobalUpdateOperand>) @target [pool128 packed => packed.index],
+    I32AddLocalSetConstJump(Operand128Idx<LocalUpdateOperand>) @value [LocalWrite(index) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(index.index() as u32))] @target [pool128 index => *index] @loop I32AddLocalSetConstLoop,
+    I32AddStackConstTeeLocalJump(Operand128Idx<LocalUpdateOperand>) @target [pool128 index => *index] @loop I32AddStackConstTeeLocalLoop,
+    I32AddGlobalSetConstJump(Operand128Idx<GlobalUpdateOperand>) @target [pool128 index => *index] @loop I32AddGlobalSetConstLoop,
+    I32AddLocalSetConstJumpCmpLocal(PackedOp128<CmpOp, LocalUpdateCmpOperand>) @value [LocalWrite(packed) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(packed.index.index() as u32))] @target [pool128 packed => packed.index],
+    I32AddLocalSetConstLoop(Operand128Idx<LocalUpdateOperand>) @value [LocalWrite(index) => ValueLane::S32, LocalDestination::Third128(Operand128Idx::new(index.index() as u32))],
+    I32AddStackConstTeeLocalLoop(Operand128Idx<LocalUpdateOperand>),
+    I32AddGlobalSetConstLoop(Operand128Idx<GlobalUpdateOperand>),
+    I32LoadLocalTeeJump(PackedOp128<bool, MemoryLocalJumpOperand>) @target [pool128 packed => packed.index],
 
     // > Specialized memory instructions
-    IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
-    StoreLocalLocal32(MemoryLocalArg),
-    StoreLocalLocal64(MemoryLocalArg),
-    StoreLocalLocal128(MemoryLocalArg),
-    LoadLocal32(MemoryLocalArg), LoadLocal64(MemoryLocalArg),
-    LoadLocal8S32(MemoryLocalArg), LoadLocal8U32(MemoryLocalArg),
-    LoadLocal16S32(MemoryLocalArg), LoadLocal16U32(MemoryLocalArg),
-    LoadLocalTee32(MemoryLocalArg),
-    LoadLocalSet32(MemoryLocalArg),
-    LoadLocalTee8S32(MemoryLocalArg),
-    LoadLocalTee8U32(MemoryLocalArg),
-    LoadLocalTee16S32(MemoryLocalArg),
-    LoadLocalTee16U32(MemoryLocalArg),
-    LoadLocalSet8S32(MemoryLocalArg),
-    LoadLocalSet8U32(MemoryLocalArg),
-    LoadLocalSet16S32(MemoryLocalArg),
-    LoadLocalSet16U32(MemoryLocalArg),
-    LoadLocalTee128(MemoryLocalArg),
-    LoadLocalSet128(MemoryLocalArg),
-    SelectStore32(MemoryArg), SelectStore64(MemoryArg),
-    FMaStoreF32(CompactMemoryArg), FMaStoreF64(CompactMemoryArg),
+    IncMemoryLocal32(MemoryLocalArg) => [->] @value [NoLocalWrites], IncMemoryLocal64(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I32StoreLocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I64StoreLocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    V128StoreLocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I32Store8LocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites], I32Store16LocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I64Store8LocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites], I64Store16LocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I64Store32LocalLocal(MemoryLocalArg) => [->] @value [NoLocalWrites],
+    I32LoadLocal(MemoryLocalArg) => [-> S32], I64LoadLocal(MemoryLocalArg) => [-> S64],
+    I32LoadLocalAdd(MemoryLocalArg) => [-> S32], I64LoadLocalAdd(MemoryLocalArg) => [-> S64],
+    I32Load8SLocalAdd(MemoryLocalArg) => [-> S32], I32Load8ULocalAdd(MemoryLocalArg) => [-> S32],
+    I32Load16SLocalAdd(MemoryLocalArg) => [-> S32], I32Load16ULocalAdd(MemoryLocalArg) => [-> S32],
+    I32LoadLocalCompact(MemoryLocalCompactArg) => [-> S32],
+    I32Load8SLocal(MemoryLocalArg) => [-> S32], I32Load8ULocal(MemoryLocalArg) => [-> S32],
+    I32Load16SLocal(MemoryLocalArg) => [-> S32], I32Load16ULocal(MemoryLocalArg) => [-> S32],
+    I32LoadLocalTee(MemoryLocalArg) => [-> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I32LoadLocalSet,
+    I32LoadLocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local2 as u16)],
+    I32Load8SLocalTee(MemoryLocalArg) => [-> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I32Load8SLocalSet,
+    I32Load8ULocalTee(MemoryLocalArg) => [-> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I32Load8ULocalSet,
+    I32Load16SLocalTee(MemoryLocalArg) => [-> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I32Load16SLocalSet,
+    I32Load16ULocalTee(MemoryLocalArg) => [-> S32] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I32Load16ULocalSet,
+    I32Load8SLocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local2 as u16)],
+    I32Load8ULocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local2 as u16)],
+    I32Load16SLocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local2 as u16)],
+    I32Load16ULocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S32, LocalDestination::Inline(arg.local2 as u16)],
+    V128LoadLocalTee(MemoryLocalArg) => [-> S128] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard V128LoadLocalSet,
+    V128LoadLocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S128, LocalDestination::Inline(arg.local2 as u16)],
+    LoadLocalBinOp32(PackedOp64<(LoadKind32, BinOp), (u8, u16, u32)>) => [-> S32],
+    BinOpLoadLocalRhs32(PackedOp64<(LoadKind32, BinOp), (u8, u16, u32)>) => [S32 -> S32],
+    F64AddLoadLocal(MemoryLocalArg) => [stack S64 -> S64] @value [NoLocalWrites],
+    F64SubLoadLocal(MemoryLocalArg) => [stack S64 -> S64] @value [NoLocalWrites],
+    UpdateMemoryLocal32(PackedOp128<MemoryUpdateOp, MemoryUpdateOperand>) => [->],
+    SelectStore32(MemoryArg) => [store S32], SelectStore64(Operand128Idx<MemoryOperand>) => [S32, S64 ->],
+    F32MulAddStore(MemoryArg) => [store S32], F64MulAddStore(MemoryArg) => [store S64],
     MemoryFillConst(Operand128Idx<MemoryFillOperand>),
+
+    // > Specialized SIMD instructions
+    // Rotates each i64 lane of the vector stack top, the count is masked to 63.
+    I64x2RotlConst(u8) => [S128 -> S128],
 
     // > Lowering-only instructions
     Checkpoint,
+    Spill32 => [S32 ->], Spill64 => [S64 ->], Spill128 => [S128 ->],
+    Reload32 => [-> S32], Reload64 => [-> S64], Reload128 => [-> S128],
+    I32Load8ULocalAddCompact(u16, u8, u8) => [-> S32],
+    CopyByteLocalAdd(u8, u8, u8) => [->] @value [NoLocalWrites],
+    I32StoreLocalCompact(u16, u8, u8) => [->] @value [NoLocalWrites],
+    I64StoreLocalCompact(u16, u8, u8) => [->] @value [NoLocalWrites],
+    I64LoadLocalTee(MemoryLocalArg) => [-> S64] @value [LocalResult(arg) => LocalDestination::Inline(arg.local2 as u16)] @discard I64LoadLocalSet,
+    I64LoadLocalSet(MemoryLocalArg) => [->] @value [LocalWrite(arg) => ValueLane::S64, LocalDestination::Inline(arg.local2 as u16)],
 }
 
 const _: () = assert!(core::mem::size_of::<Instruction>() == 8);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compact_instruction_layout_is_exact() {
-        assert_eq!(core::mem::size_of::<Instruction>(), 8);
-        assert_eq!(core::mem::size_of::<CompactMemoryArg>(), 6);
-        assert_eq!(core::mem::size_of::<MemoryLocalArg>(), 6);
-        assert_eq!(core::mem::size_of::<LocalTripleArg>(), 6);
-    }
-
-    #[test]
-    fn operand_lanes_round_trip_max_values() {
-        let memory = Operand128::<MemoryOperand>::new(u64::MAX, u32::MAX);
-        assert_eq!(memory.offset(), u64::MAX);
-        assert_eq!(memory.memory(), u32::MAX);
-
-        let value = Operand128::<LocalUpdateOperand>::new(u32::MAX, i32::MIN, u16::MAX, true);
-        assert_eq!(value.target(), u32::MAX);
-        assert_eq!(value.value(), i32::MIN);
-        assert_eq!(value.local(), u16::MAX);
-        assert!(value.on_zero());
-    }
-}

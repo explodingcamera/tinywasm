@@ -26,11 +26,8 @@ pub(crate) struct State {
     pub(crate) roots: gc::Roots,
 }
 
-// Dispatch once per operation, keeping ordinary memory on the direct-access path.
-// A shared memory runs the body out of line, under its lock, so the handlers of
-// ordinary memory accesses contain no lock/unlock calls and spill no registers for them.
-// Atomic operations, whose memory is usually shared, keep the lock inline with
-// `with_memory!(@lock_inline ...)`.
+// Shared accesses run under a lock in an out-of-line helper.
+// Atomic operations keep the lock inline with `with_memory!(@lock_inline ...)`.
 macro_rules! with_memory {
     (@lock_inline $state:expr, $addr:expr, |$memory:ident, $kind:ident| $body:block) => {{
         let state = &mut $state;
@@ -60,7 +57,7 @@ macro_rules! with_memory {
         let addr = $addr;
         #[cfg(feature = "std")]
         let result = if addr & $crate::store::SHARED_MEM_BIT != 0 {
-            $crate::store::with_shared_memory(state, addr, |$memory, kind| {
+            $crate::store::with_shared_memory(state, addr, move |$memory, kind| {
                 #[allow(unused_variables)]
                 let $kind = kind;
                 $body
@@ -172,8 +169,9 @@ impl State {
         let mut bytes = [0u8; 4096];
         for offset in (0..size).step_by(bytes.len()) {
             let chunk = bytes.len().min(size - offset);
+            let buffer = &mut bytes[..chunk];
             with_memory!(*self, src_addr, |source, kind| {
-                source.read_exact(src + offset, &mut bytes[..chunk]).expect("source range checked before copy");
+                source.read_exact(src + offset, buffer).expect("source range checked before copy");
             });
             with_memory!(*self, dst_addr, |destination, kind| {
                 destination.write_all(dst + offset, &bytes[..chunk]).expect("destination range checked before copy");

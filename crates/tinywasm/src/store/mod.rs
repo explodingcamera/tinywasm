@@ -12,6 +12,7 @@ use crate::interpreter::{RuntimeValue, ValueRef};
 use crate::reference::{ReferentKind, RootedItem, StoreId, StoredRef};
 use crate::{Engine, Error, ExnRef, FuncRef, ModuleInstance, RefValue, Result, Trap, UnwrapExt, WasmValue};
 
+mod call_values;
 mod const_expr;
 mod data;
 mod element;

@@ -38,7 +38,7 @@ macro_rules! impl_mem_traits {
 
                 #[inline(always)]
                 fn load_at(mem: &MemoryStorage, addr: usize) -> core::result::Result<Self, crate::Trap> {
-                    Ok(Self::from_le_bytes(cold_err!(mem.read_fixed::<$size>(addr))?))
+                    Ok(Self::from_le_bytes(*cold_err!(mem.read_fixed::<$size>(addr))?))
                 }
 
                 #[inline(always)]
@@ -65,7 +65,7 @@ impl MemValue<16> for Value128 {
 
     #[inline(always)]
     fn load_at(mem: &MemoryStorage, addr: usize) -> core::result::Result<Self, crate::Trap> {
-        Ok(Self(cold_err!(mem.read_fixed::<16>(addr))?))
+        Ok(Self(*cold_err!(mem.read_fixed::<16>(addr))?))
     }
 
     #[inline(always)]

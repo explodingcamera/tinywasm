@@ -1,8 +1,7 @@
-#![cfg_attr(tw_simd_backend = "x86", allow(unsafe_code))]
-
-#[macro_use]
-mod macros;
 mod instructions;
+mod macros;
+
+use macros::{impl_lane_accessors, lane_read, lane_write};
 
 #[cfg(target_arch = "wasm32")]
 use core::arch::wasm32 as wasm;
@@ -13,6 +12,16 @@ use core::arch::wasm64 as wasm;
 #[repr(transparent)]
 /// A 128-bit SIMD value
 pub struct Value128(pub(crate) [u8; 16]);
+
+/// Vector representation used by tail dispatch and x86 intrinsics.
+#[cfg(any(tw_tail_calls, tw_simd_backend = "x86"))]
+pub(crate) type NativeVector = core::cfg_select! {
+    tw_simd_backend = "x86" => core::arch::x86_64::__m128i,
+    all(target_arch = "aarch64", target_feature = "neon") => core::arch::aarch64::uint8x16_t,
+    all(target_arch = "wasm32", target_feature = "simd128") => core::arch::wasm32::v128,
+    all(target_arch = "wasm64", target_feature = "simd128") => core::arch::wasm64::v128,
+    _ => Value128,
+};
 
 impl From<Value128> for i128 {
     fn from(val: Value128) -> Self {
@@ -26,7 +35,45 @@ impl From<i128> for Value128 {
     }
 }
 
-#[cfg_attr(tw_simd_backend = "wasm", allow(unreachable_code))]
+#[cfg(any(tw_tail_calls, tw_simd_backend = "x86"))]
+impl Value128 {
+    /// Converts raw vector bits to the target's dispatch representation.
+    #[inline(always)]
+    pub(crate) fn to_native(self) -> NativeVector {
+        let bytes: [u8; 16] = self.0;
+        core::cfg_select! {
+            all(any(target_arch = "wasm32", target_arch = "wasm64"), target_feature = "simd128") => {
+                Self(bytes).to_wasm_v128()
+            }
+            any(tw_simd_backend = "x86", all(target_arch = "aarch64", target_feature = "neon")) => {
+                // SAFETY: the carrier is exactly 16 bytes and permits all bit patterns.
+                #[expect(unsafe_code)]
+                unsafe {
+                    core::mem::transmute::<[u8; 16], NativeVector>(bytes)
+                }
+            }
+            _ => Self(bytes),
+        }
+    }
+
+    /// Converts the target's dispatch representation back to raw vector bits.
+    #[inline(always)]
+    pub(crate) fn from_native(value: NativeVector) -> Self {
+        core::cfg_select! {
+            all(any(target_arch = "wasm32", target_arch = "wasm64"), target_feature = "simd128") => {
+                Self::from_wasm_v128(value)
+            }
+            any(tw_simd_backend = "x86", all(target_arch = "aarch64", target_feature = "neon")) => {
+                // SAFETY: the carrier contains exactly 16 initialized bytes.
+                #[expect(unsafe_code)]
+                let bytes: [u8; 16] = unsafe { core::mem::transmute::<NativeVector, [u8; 16]>(value) };
+                Self(bytes)
+            }
+            _ => value,
+        }
+    }
+}
+
 impl Value128 {
     fn extract_lane_bytes<const BYTES: usize, const LANE: usize>(self, lane: u8) -> [u8; BYTES] {
         const { assert!(BYTES * LANE == 16) };

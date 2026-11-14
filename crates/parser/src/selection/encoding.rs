@@ -2,7 +2,45 @@
 use crate::{Result, visit::FunctionDataBuilder};
 use tinywasm_types::{Instruction, Instruction::*, *};
 
-/// Packs a memory operand and two local slots when they fit the compact encoding.
+/// Returns an inline offset for a wasm32 memory-zero access.
+pub(super) fn inline_memory_offset(data: &FunctionDataBuilder, memory: MemoryArg) -> Option<u16> {
+    let arg = data.operand128(memory.memory_arg_idx);
+    if memory.address64 || arg.memory() != 0 {
+        return None;
+    }
+    u16::try_from(arg.offset()).ok()
+}
+
+/// Selects a full-width scalar store without materializing either local.
+pub(super) fn scalar_store_locals(
+    data: &mut FunctionDataBuilder,
+    memory: MemoryArg,
+    address: u16,
+    value: u16,
+    lane: ValueLane,
+) -> Result<Option<Instruction>> {
+    if let Some(offset) = inline_memory_offset(data, memory)
+        && let (Ok(address), Ok(value)) = (u8::try_from(address), u8::try_from(value))
+    {
+        return Ok(Some(match lane {
+            ValueLane::S32 => I32StoreLocalCompact(offset, address, value),
+            ValueLane::S64 => I64StoreLocalCompact(offset, address, value),
+            ValueLane::S128 => unreachable!(),
+        }));
+    }
+    Ok(memory_locals(data, memory, address, value)?.map(|arg| match lane {
+        ValueLane::S32 => I32StoreLocalLocal(arg),
+        ValueLane::S64 => I64StoreLocalLocal(arg),
+        ValueLane::S128 => unreachable!(),
+    }))
+}
+
+/// Resolves and compacts a memory operand without allocating a pool entry.
+pub(super) fn compact_memory(data: &FunctionDataBuilder, memory: MemoryArg) -> Option<Operand64<CompactMemoryOperand>> {
+    Operand64::try_from_memory(data.operand128(memory.memory_arg_idx), memory.address64)
+}
+
+/// Encodes a memory operand with two small local indices.
 pub(super) fn memory_locals(
     data: &mut FunctionDataBuilder,
     memory: MemoryArg,
@@ -10,10 +48,87 @@ pub(super) fn memory_locals(
     local2: u16,
 ) -> Result<Option<MemoryLocalArg>> {
     let (Ok(local1), Ok(local2)) = (u8::try_from(local1), u8::try_from(local2)) else { return Ok(None) };
-    let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)) else { return Ok(None) };
-    let memory_arg_idx = data.push64(Operand64::from(arg).with_address64(memory.address64))?;
+    let Some(arg) = compact_memory(data, memory) else { return Ok(None) };
+    let memory_arg_idx = data.push64(arg)?;
     Ok(Some(MemoryLocalArg { memory_arg_idx, local1, local2 }))
 }
+
+/// Reuses a producer's saved local when storing without materializing its address.
+pub(super) fn stored_local_result(
+    data: &mut FunctionDataBuilder,
+    value: Instruction,
+    address: u16,
+    memory: MemoryArg,
+    lane: ValueLane,
+) -> Result<Option<(Instruction, MemoryLocalArg)>> {
+    let Some((set, destination)) = stored_result(data, value, address, memory, lane) else { return Ok(None) };
+    Ok(memory_locals(data, memory, address, destination)?.map(|arg| (set, arg)))
+}
+
+/// Returns the producer without its accumulator result and the local that retains it.
+pub(super) fn stored_result(
+    data: &FunctionDataBuilder,
+    value: Instruction,
+    address: u16,
+    memory: MemoryArg,
+    lane: ValueLane,
+) -> Option<(Instruction, u16)> {
+    if value.effects() != (InstructionEffects::Operands { inputs: ValueLanes::EMPTY, output: Some(lane) }) {
+        return None;
+    }
+    let (Some(set), InstructionValueEffect::LocalResult(destination)) = (value.without_result(), value.value_effect())
+    else {
+        return None;
+    };
+    let destination = data.local_destination(destination);
+    let address_lane = if memory.address64 { ValueLane::S64 } else { ValueLane::S32 };
+    // The address was read before the producer, so an overwritten address cannot be reread.
+    if lane == address_lane && address == destination {
+        return None;
+    }
+    Some((set, destination))
+}
+
+macro_rules! fold_integer {
+    ($name:ident, $compare:ident, $unsigned:ty, $signed:ty) => {
+        /// Evaluates a nontrapping integer operation on constant operands.
+        pub(super) fn $name(op: BinOp, left: $unsigned, right: $unsigned) -> Option<$unsigned> {
+            Some(match op {
+                BinOp::IAdd => left.wrapping_add(right),
+                BinOp::ISub => left.wrapping_sub(right),
+                BinOp::IMul => left.wrapping_mul(right),
+                BinOp::IAnd => left & right,
+                BinOp::IOr => left | right,
+                BinOp::IXor => left ^ right,
+                BinOp::IShl => left.wrapping_shl(right as u32),
+                BinOp::IShrU => left.wrapping_shr(right as u32),
+                BinOp::IShrS => (left as $signed).wrapping_shr(right as u32) as $unsigned,
+                BinOp::IRotl => left.rotate_left(right as u32),
+                BinOp::IRotr => left.rotate_right(right as u32),
+                _ => return None,
+            })
+        }
+
+        /// Evaluates an integer comparison on constant operands.
+        pub(super) fn $compare(op: CmpOp, left: $unsigned, right: $unsigned) -> bool {
+            match op {
+                CmpOp::Eq => left == right,
+                CmpOp::Ne => left != right,
+                CmpOp::LtS => (left as $signed) < (right as $signed),
+                CmpOp::LtU => left < right,
+                CmpOp::GtS => (left as $signed) > (right as $signed),
+                CmpOp::GtU => left > right,
+                CmpOp::LeS => (left as $signed) <= (right as $signed),
+                CmpOp::LeU => left <= right,
+                CmpOp::GeS => (left as $signed) >= (right as $signed),
+                CmpOp::GeU => left >= right,
+            }
+        }
+    };
+}
+
+fold_integer!(fold32, compare32, u32, i32);
+fold_integer!(fold64, compare64, u64, i64);
 
 /// Reads a 64-bit literal without requiring a pool entry for immediate values.
 pub(super) fn const64(data: &FunctionDataBuilder, instruction: Instruction) -> Option<i64> {
@@ -42,80 +157,47 @@ pub(super) fn pool128(data: &mut FunctionDataBuilder, instruction: Instruction) 
     }
 }
 
-/// Decodes specialized and pooled local constants uniformly.
-pub(super) fn local_const32(data: &FunctionDataBuilder, instruction: Instruction) -> Option<(BinOp, u16, i32)> {
+/// Decodes inline and pooled local/constant operands.
+pub(super) fn local_const32(data: &FunctionDataBuilder, instruction: Instruction) -> Option<(BinOp, LocalAddr, u32)> {
     match instruction {
-        AddLocalConst32(arg) => Some((BinOp::IAdd, arg.local, arg.value)),
-        SubLocalConst32(arg) => Some((BinOp::ISub, arg.local, arg.value)),
-        MulLocalConst32(arg) => Some((BinOp::IMul, arg.local, arg.value)),
-        AndLocalConst32(arg) => Some((BinOp::IAnd, arg.local, arg.value)),
-        ShrULocalConst32(arg) => Some((BinOp::IShrU, arg.local, arg.value)),
+        I32AddLocalConst(arg) => Some((BinOp::IAdd, arg.local, arg.value as u32)),
+        BinOpLocalConstCompact32(arg) => Some((arg.op, u16::from(arg.local), arg.value)),
         BinOpLocalConst32(packed) => {
-            let value = data.operand64(packed.index);
-            Some((packed.op, value.a(), value.b() as i32))
+            let arg = data.operand64(packed.index);
+            Some((packed.op, arg.a(), arg.b()))
         }
         _ => None,
     }
 }
 
-/// Decodes a pooled 64-bit local constant.
-pub(super) fn local_const64(data: &FunctionDataBuilder, instruction: Instruction) -> Option<(BinOp, u16, i64)> {
-    let BinOpLocalConst64(packed) = instruction else { return None };
-    let value = data.operand128(packed.index);
-    Some((packed.op, value.a(), value.b() as i64))
-}
-
-/// Decodes a pooled vector local constant.
-pub(super) fn local_const128(
-    data: &FunctionDataBuilder,
-    instruction: Instruction,
-) -> Option<(BinOp128, u16, Operand128Idx<[u8; 16]>)> {
-    let BinOpLocalConst128(packed) = instruction else { return None };
-    let value = data.operand64(packed.index);
-    Some((packed.op, value.a(), value.b()))
-}
-
-/// Encodes the dedicated 32-bit local operations before falling back to a pooled operand.
-pub(super) fn encode_local_const32(
+/// Decodes a local-address scalar load, pooling inline operands for stronger fusions.
+pub(super) fn local_load32(
     data: &mut FunctionDataBuilder,
-    op: BinOp,
-    local: u16,
-    value: i32,
-) -> Result<Instruction> {
-    let arg = I32LocalArg { value, local };
-    Ok(match op {
-        BinOp::IAdd => AddLocalConst32(arg),
-        BinOp::ISub => SubLocalConst32(arg),
-        BinOp::IMul => MulLocalConst32(arg),
-        BinOp::IAnd => AndLocalConst32(arg),
-        BinOp::IShrU => ShrULocalConst32(arg),
-        _ => BinOpLocalConst32(PackedOp::new(op, data.push64(Operand64::<(u16, u32)>::new(local, value as u32))?)),
-    })
-}
-
-/// Encodes dedicated stack-immediate operations.
-pub(super) fn stack_const32(op: BinOp, value: i32) -> Instruction {
-    match op {
-        BinOp::IAnd => AndConst32(value),
-        BinOp::IXor => XorConst32(value),
-        BinOp::IShrU => ShrUConst32(value),
-        _ => BinOpStackConst32(op, value),
-    }
-}
-
-macro_rules! local_const_set {
-    ($($name:ident, $op:ty, $value:ty, [$($cast:tt)*], $pool:ident, $operand:ty, $set:ident, $tee:ident;)*) => {$(
-        /// Encodes a local constant operation with a destination local.
-        pub(super) fn $name(data: &mut FunctionDataBuilder, op: $op, src: u16, dst: u16, value: $value, tee: bool) -> Result<Instruction> {
-            let index = data.$pool(<$operand>::new(src, dst, value $($cast)*))?;
-            Ok(if tee { $tee(PackedOp::new(op, index)) } else { $set(PackedOp::new(op, index)) })
+    instruction: Instruction,
+) -> Result<Option<(LoadKind32, MemoryLocalArg)>> {
+    Ok(Some(match instruction {
+        I32LoadLocal(arg) => (LoadKind32::U32, arg),
+        I32LoadLocalCompact(arg) => {
+            let Ok(local) = u8::try_from(arg.local) else { return Ok(None) };
+            (
+                LoadKind32::U32,
+                MemoryLocalArg {
+                    memory_arg_idx: data.push64(Operand64::<CompactMemoryOperand>::new(
+                        u32::from(arg.offset),
+                        0,
+                        false,
+                    ))?,
+                    local1: local,
+                    local2: 0,
+                },
+            )
         }
-    )*};
-}
-local_const_set! {
-    local_const_set32, BinOp, i32, [as u32], push64, Operand64<(u16, u16, u32)>, BinOpLocalConstSet32, BinOpLocalConstTee32;
-    local_const_set64, BinOp, i64, [as u64], push128, Operand128<(u16, u16, u64)>, BinOpLocalConstSet64, BinOpLocalConstTee64;
-    local_const_set128, BinOp128, Operand128Idx<[u8; 16]>, [], push64, Operand64<(u16, u16, Operand128Idx<[u8; 16]>)>, BinOpLocalConstSet128, BinOpLocalConstTee128;
+        I32Load8SLocal(arg) => (LoadKind32::I8, arg),
+        I32Load8ULocal(arg) => (LoadKind32::U8, arg),
+        I32Load16SLocal(arg) => (LoadKind32::I16, arg),
+        I32Load16ULocal(arg) => (LoadKind32::U16, arg),
+        _ => return Ok(None),
+    }))
 }
 
 /// Decodes a preceding integer comparison, not the incoming instruction.
@@ -138,6 +220,41 @@ pub(super) fn cmp_op(instruction: Instruction) -> Option<CmpOp> {
 /// Applies branch polarity to a preceding integer comparison.
 pub(super) fn branch_cmp(instruction: Instruction, on_zero: bool) -> Option<CmpOp> {
     cmp_op(instruction).map(|op| if on_zero { op.inverse() } else { op })
+}
+
+/// Encodes a float comparison with a constant, keeping branch polarity separate for NaNs.
+pub(super) fn float_const_jump(
+    data: &mut FunctionDataBuilder,
+    target: u32,
+    constant: Instruction,
+    comparison: Instruction,
+    on_zero: bool,
+) -> Result<Option<Instruction>> {
+    let op = match comparison {
+        F32Eq | F64Eq => FloatCmpOp::Eq,
+        F32Ne | F64Ne => FloatCmpOp::Ne,
+        F32Lt | F64Lt => FloatCmpOp::Lt,
+        F32Gt | F64Gt => FloatCmpOp::Gt,
+        F32Le | F64Le => FloatCmpOp::Le,
+        F32Ge | F64Ge => FloatCmpOp::Ge,
+        _ => return Ok(None),
+    };
+    Ok(Some(match comparison {
+        F32Eq | F32Ne | F32Lt | F32Gt | F32Le | F32Ge => {
+            let Const32(value) = constant else { return Ok(None) };
+            JumpFCmpAccConst32(PackedOp::new(
+                (op, on_zero),
+                data.push_target64(Operand64::<(u32, i32)>::new(target, value))?,
+            ))
+        }
+        _ => {
+            let Some(value) = const64(data, constant) else { return Ok(None) };
+            JumpFCmpAccConst64(PackedOp::new(
+                (op, on_zero),
+                data.push_target128(Operand128::<(u32, i64)>::new(target, value))?,
+            ))
+        }
+    }))
 }
 
 /// Encodes a local zero test of the requested width and polarity.
@@ -168,8 +285,8 @@ pub(super) fn jump_cmp_local_local(
     })
 }
 
-/// Allocates a private target operand for a stack/local comparison.
-pub(super) fn jump_cmp_stack_local(
+/// Allocates a private target operand for an accumulator/local comparison.
+pub(super) fn jump_cmp_acc_local(
     data: &mut FunctionDataBuilder,
     target: u32,
     local: u16,
@@ -177,11 +294,7 @@ pub(super) fn jump_cmp_stack_local(
     width64: bool,
 ) -> Result<Instruction> {
     let index = data.push_target64(Operand64::<(u32, u16)>::new(target, local))?;
-    Ok(if width64 {
-        JumpCmpStackLocal64(PackedOp::new(op, index))
-    } else {
-        JumpCmpStackLocal32(PackedOp::new(op, index))
-    })
+    Ok(if width64 { JumpCmpAccLocal64(PackedOp::new(op, index)) } else { JumpCmpAccLocal32(PackedOp::new(op, index)) })
 }
 
 /// Encodes a local/immediate comparison, specializing zero equality tests.
@@ -201,12 +314,12 @@ pub(super) fn jump_cmp_local_const32(
     )))
 }
 
-/// Encodes a 64-bit local comparison with a representable 32-bit immediate.
+/// Encodes a 64-bit local comparison with a full-width immediate.
 pub(super) fn jump_cmp_local_const64(
     data: &mut FunctionDataBuilder,
     target: u32,
     local: u16,
-    value: i32,
+    value: i64,
     op: CmpOp,
 ) -> Result<Instruction> {
     if value == 0 && matches!(op, CmpOp::Eq | CmpOp::Ne) {
@@ -214,12 +327,12 @@ pub(super) fn jump_cmp_local_const64(
     }
     Ok(JumpCmpLocalConst64(PackedOp::new(
         op,
-        data.push_target128(Operand128::<(u32, i32, u16)>::new(target, value, local))?,
+        data.push_target128(Operand128::<(u32, i64, u16)>::new(target, value, local))?,
     )))
 }
 
-/// Encodes a 32-bit stack/immediate comparison.
-pub(super) fn jump_cmp_stack_const32(
+/// Encodes a 32-bit accumulator/immediate comparison.
+pub(super) fn jump_cmp_acc_const32(
     data: &mut FunctionDataBuilder,
     target: u32,
     value: i32,
@@ -232,11 +345,11 @@ pub(super) fn jump_cmp_stack_const32(
             _ => {}
         }
     }
-    Ok(JumpCmpStackConst32(PackedOp::new(op, data.push_target64(Operand64::<(u32, i32)>::new(target, value))?)))
+    Ok(JumpCmpAccConst32(PackedOp::new(op, data.push_target64(Operand64::<(u32, i32)>::new(target, value))?)))
 }
 
-/// Encodes a 64-bit stack/immediate comparison.
-pub(super) fn jump_cmp_stack_const64(
+/// Encodes a 64-bit accumulator/immediate comparison.
+pub(super) fn jump_cmp_acc_const64(
     data: &mut FunctionDataBuilder,
     target: u32,
     value: i64,
@@ -249,7 +362,7 @@ pub(super) fn jump_cmp_stack_const64(
             _ => {}
         }
     }
-    Ok(JumpCmpStackConst64(PackedOp::new(op, data.push_target128(Operand128::<(u32, i64)>::new(target, value))?)))
+    Ok(JumpCmpAccConst64(PackedOp::new(op, data.push_target128(Operand128::<(u32, i64)>::new(target, value))?)))
 }
 
 /// Encodes a stack update, tee, and branch using a private target operand.
@@ -277,30 +390,22 @@ pub(super) fn update_jump(
     on_zero: bool,
     global: bool,
 ) -> Result<Instruction> {
-    if let Some(delta) = op.inc_delta(immediate) {
-        Ok(if global {
-            IncGlobalJump32(
-                data.push_target128(Operand128::<GlobalUpdateOperand>::new(target, delta, address, on_zero))?,
-            )
+    let delta = op.inc_delta(immediate);
+    let value = delta.unwrap_or(immediate);
+    Ok(if global {
+        let index = data.push_target128(Operand128::<GlobalUpdateOperand>::new(target, value, address, on_zero))?;
+        if delta.is_some() {
+            I32AddGlobalSetConstJump(index)
         } else {
-            IncLocalJump32(data.push_target128(Operand128::<LocalUpdateOperand>::new(
-                target,
-                delta,
-                address as u16,
-                on_zero,
-            ))?)
-        })
+            BinOpGlobalConstSetJump32(PackedOp::new(op, index))
+        }
     } else {
-        Ok(if global {
-            BinOpGlobalConstJump32(PackedOp::new(
-                op,
-                data.push_target128(Operand128::<GlobalUpdateOperand>::new(target, immediate, address, on_zero))?,
-            ))
+        let index =
+            data.push_target128(Operand128::<LocalUpdateOperand>::new(target, value, address as u16, on_zero))?;
+        if delta.is_some() {
+            I32AddLocalSetConstJump(index)
         } else {
-            BinOpLocalConstJump32(PackedOp::new(
-                op,
-                data.push_target128(Operand128::<LocalUpdateOperand>::new(target, immediate, address as u16, on_zero))?,
-            ))
-        })
-    }
+            BinOpLocalConstSetJump32(PackedOp::new(op, index))
+        }
+    })
 }

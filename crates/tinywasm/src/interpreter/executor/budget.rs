@@ -1,4 +1,4 @@
-use super::*;
+use super::{ExecFlow, ExecOutcome, Executor, ScalarValues};
 
 /// Budget selected once for a run or resume, retained across internal stops and host callbacks.
 #[derive(Clone, Copy)]
@@ -8,7 +8,8 @@ pub(crate) enum Budget {
 }
 
 impl Budget {
-    fn exhausted(self, fuel: u32) -> bool {
+    /// Whether execution must suspend at its next budget boundary.
+    pub(super) fn exhausted(self, fuel: u32) -> bool {
         matches!(self, Self::Fuel) && fuel == 0
     }
 }
@@ -31,23 +32,9 @@ impl Executor<'_> {
     /// Settles attempted instructions on an ordinary trap, using the dispatcher's existing IP.
     #[cold]
     #[inline(never)]
-    pub(super) fn settle_error(&mut self, instr_ptr: usize, error: Trap) -> Trap {
+    pub(super) fn settle_error(&mut self, instr_ptr: usize, error: crate::Trap) -> crate::Trap {
         self.charge_instructions(instr_ptr + 1);
         error
-    }
-
-    #[inline(always)]
-    fn after_boundary(&mut self, next: usize) -> Option<usize> {
-        if matches!(self.budget, Budget::Unbudgeted) {
-            return Some(next);
-        }
-        self.segment_start = next;
-        if self.budget.exhausted(*self.execution_fuel) {
-            self.suspend(next);
-            None
-        } else {
-            Some(next)
-        }
     }
 
     #[inline(always)]
@@ -60,47 +47,69 @@ impl Executor<'_> {
     #[inline(always)]
     pub(super) fn transition(&mut self, flow: ExecFlow, instr_ptr: usize) -> Option<usize> {
         match flow {
-            ExecFlow::Next(next) => {
-                debug_assert_eq!(next, instr_ptr + 1);
+            ExecFlow::Continue(next) => {
+                debug_assert!(next > instr_ptr);
+                if next != instr_ptr + 1 && matches!(self.budget, Budget::Fuel) {
+                    self.charge_instructions(instr_ptr + 1);
+                    self.segment_start = next;
+                }
                 Some(next)
             }
-            ExecFlow::Jump(next) => self.after_boundary(next),
-            ExecFlow::Checkpoint(next) => {
-                self.charge_instructions(instr_ptr);
-                self.after_boundary(next)
-            }
-            ExecFlow::Complete => {
-                self.outcome = ExecOutcome::Complete;
-                None
+            ExecFlow::Branch(next) | ExecFlow::Jump(next) | ExecFlow::Checkpoint(next) => {
+                if matches!(self.budget, Budget::Unbudgeted) {
+                    return Some(next);
+                }
+                match flow {
+                    // Intrafunction branches retain the old accounting range until this transition.
+                    ExecFlow::Branch(_) => self.charge_instructions(instr_ptr + 1),
+                    ExecFlow::Checkpoint(_) => self.charge_instructions(instr_ptr),
+                    _ => {}
+                }
+                self.segment_start = next;
+                if *self.execution_fuel == 0 {
+                    self.suspend(next);
+                    None
+                } else {
+                    Some(next)
+                }
             }
             ExecFlow::Stop => None,
         }
     }
 
     /// Runs until completion or a boundary that needs the driver.
-    pub(crate) fn run(&mut self) -> Result<ExecOutcome> {
+    pub(crate) fn run(&mut self) -> crate::Result<ExecOutcome> {
         if self.budget.exhausted(*self.execution_fuel) {
             self.suspend(self.cf.instr_ptr);
             return Ok(self.outcome);
         }
-        self.dispatch()?;
+        let (acc32, acc64, acc128) = self.resume_accumulators();
+        self.dispatch(acc32, acc64, acc128)?;
         Ok(self.outcome)
     }
 
-    /// Commits a tail host call's return before checking for suspension or dispatching its caller.
-    pub(crate) fn return_from_host(&mut self) -> Result<ExecOutcome> {
-        let flow = self.exec_return();
-        if self.transition(flow, self.cf.instr_ptr).is_none() {
+    /// Accepts host result lane tops, materializing them only on completion or suspension.
+    pub(crate) fn resume_host(&mut self, results: ScalarValues, tail: bool) -> crate::Result<ExecOutcome> {
+        let ScalarValues { acc32, acc64 } = results;
+        if tail {
+            let flow = self.exec_return(acc32, acc64);
+            if self.transition(flow, self.cf.instr_ptr).is_none() {
+                return Ok(self.outcome);
+            }
+        } else if self.budget.exhausted(*self.execution_fuel) {
+            self.materialize_scalars(self.continuation_result_lanes(), acc32, acc64);
+            self.suspend(self.cf.instr_ptr);
             return Ok(self.outcome);
         }
-        self.run()
+        self.dispatch(acc32, acc64, crate::interpreter::Value128::default())?;
+        Ok(self.outcome)
     }
 }
 
 #[cfg(all(test, feature = "parser"))]
 mod tests {
-    use super::*;
     use crate::engine::Config;
+    use crate::interpreter::executor::*;
     use crate::interpreter::{ExecState, InterpreterRuntime};
     use alloc::format;
 
@@ -234,6 +243,7 @@ mod tests {
     fn failed_calls_are_not_charged_twice() {
         let source = r#"(module (type $void (func)) (table 1 funcref)
             (func (export "run") i32.const 0 call_indirect (type $void)))"#;
+        // The indirect index stays in acc32, only the constant and attempted call are charged.
         for (policy, cost) in [(FuelPolicy::PerInstruction, 2), (FuelPolicy::Weighted, 6)] {
             let (mut store, frame) = prepare(source, policy);
             let result = InterpreterRuntime::exec_with_fuel(&mut store, frame, 100);

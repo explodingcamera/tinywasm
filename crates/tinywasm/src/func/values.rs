@@ -85,7 +85,7 @@ macro_rules! impl_tuple_traits {
         where
             $($T: Into<WasmValue> + WasmValueType,)+
         {
-            #[allow(non_snake_case)]
+            #[expect(non_snake_case)]
             #[inline]
             fn into_wasm_values(self) -> impl Iterator<Item = WasmValue> {
                 let ($($T,)+) = self;

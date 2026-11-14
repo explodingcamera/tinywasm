@@ -1,3 +1,4 @@
+use crate::UnwrapExt;
 use alloc::vec::Vec;
 use core::ops::Range;
 use tinywasm_types::MemoryArch;
@@ -66,24 +67,24 @@ impl VecMemory {
         Ok(())
     }
 
-    /// Reads exactly `N` bytes at `addr` into a fixed-size array.
+    /// Borrows exactly `N` bytes after checking the guest range.
     #[inline(always)]
-    pub(crate) fn read_fixed<const N: usize>(&self, addr: usize) -> Result<[u8; N], crate::Trap> {
-        if N > self.0.len() || addr > self.0.len() - N {
-            return cold!(Err(memory_oob(addr, N, self.0.len())));
-        }
-        let mut bytes = [0u8; N];
-        bytes.copy_from_slice(&self.0[addr..addr + N]);
-        Ok(bytes)
+    pub(crate) fn read_fixed<const N: usize>(&self, addr: usize) -> Result<&[u8; N], crate::Trap> {
+        let range = self.checked_range(addr, N).ok_or_else(|| memory_oob(addr, N, self.len()))?;
+        Ok(self.0[range].first_chunk().unwrap_invariant())
+    }
+
+    /// Borrows exactly `N` writable bytes after checking the guest range once.
+    #[inline(always)]
+    pub(crate) fn read_fixed_mut<const N: usize>(&mut self, addr: usize) -> Result<&mut [u8; N], crate::Trap> {
+        let range = self.checked_range(addr, N).ok_or_else(|| memory_oob(addr, N, self.len()))?;
+        Ok(self.0[range].first_chunk_mut().unwrap_invariant())
     }
 
     /// Writes exactly `N` bytes from `bytes` at `addr`.
     #[inline(always)]
     pub(crate) fn write_fixed<const N: usize>(&mut self, addr: usize, bytes: &[u8; N]) -> Result<(), crate::Trap> {
-        if N > self.0.len() || addr > self.0.len() - N {
-            return cold!(Err(memory_oob(addr, N, self.0.len())));
-        }
-        self.0[addr..addr + N].copy_from_slice(bytes);
+        self.read_fixed_mut::<N>(addr)?.copy_from_slice(bytes);
         Ok(())
     }
 

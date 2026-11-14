@@ -41,14 +41,6 @@ impl<T: Copy + Default> StackLane<T> {
         &self.slots[..self.top]
     }
 
-    /// Synchronizes the unchanged live height forwarded into a tail-dispatch handler.
-    #[cfg(tw_tail_calls)]
-    #[inline(always)]
-    pub(crate) fn set_height(&mut self, height: usize) {
-        debug_assert_eq!(height, self.top);
-        self.top = height;
-    }
-
     /// Pushes a value within the current function's reservation, without growing the allocation.
     #[inline(always)]
     pub(crate) fn push(&mut self, value: T) {
@@ -72,13 +64,6 @@ impl<T: Copy + Default> StackLane<T> {
         self.reserve(required)?;
         self.push(value);
         Ok(())
-    }
-
-    /// Pushes a copy of a live value.
-    #[inline(always)]
-    pub(crate) fn push_copy(&mut self, index: usize) {
-        let value = *self.get(index);
-        self.push(value);
     }
 
     #[inline]
@@ -136,11 +121,18 @@ impl<T: Copy + Default> StackLane<T> {
         *live.get_mut(index).unwrap_invariant() = value;
     }
 
-    /// Copies a value between live slots.
+    /// Reads an initialized local in a validated, entered frame.
     #[inline(always)]
-    pub(crate) fn copy(&mut self, from: usize, to: usize) {
-        let value = *self.get(from);
-        self.set(to, value);
+    pub(crate) fn get_local(&self, index: usize) -> &T {
+        debug_assert!(index < self.top);
+        self.slots.get(index).unwrap_invariant()
+    }
+
+    /// Writes an initialized local in a validated, entered frame.
+    #[inline(always)]
+    pub(crate) fn set_local(&mut self, index: usize, value: T) {
+        debug_assert!(index < self.top);
+        *self.slots.get_mut(index).unwrap_invariant() = value;
     }
 
     /// Truncates to `n`, preserving up to `end_keep` values from the old tail.
