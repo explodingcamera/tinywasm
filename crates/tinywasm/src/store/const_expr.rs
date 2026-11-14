@@ -1,4 +1,4 @@
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 use tinywasm_types::*;
 
 use super::{State, default_value};
@@ -6,7 +6,10 @@ use crate::interpreter::{InternalValue, RuntimeValue, Value32, Value64, Value128
 use crate::{Error, Result, Trap};
 
 fn resolve<T: Copy>(items: &[T], index: u32, kind: &str) -> Result<T> {
-    items.get(index as usize).copied().ok_or_else(|| Error::Other(format!("{kind} {index} not found")))
+    items
+        .get(index as usize)
+        .copied()
+        .ok_or_else(|| Error::Other(error_message!("const expression item not found" | "{} {index} not found", kind)))
 }
 
 fn pop_value(stack: &mut Vec<RuntimeValue>, storage: StorageType) -> Result<RuntimeValue> {
@@ -206,7 +209,7 @@ pub(super) fn eval_const(
                     I32Add => (lhs as i32).wrapping_add(rhs as i32),
                     I32Sub => (lhs as i32).wrapping_sub(rhs as i32),
                     I32Mul => (lhs as i32).wrapping_mul(rhs as i32),
-                    _ => unreachable!(),
+                    _ => unreachable!("expected a const i32 operation"),
                 };
                 stack.push(RuntimeValue::Value32(out as u32));
             }
@@ -220,7 +223,7 @@ pub(super) fn eval_const(
                     I64Add => (lhs as i64).wrapping_add(rhs as i64),
                     I64Sub => (lhs as i64).wrapping_sub(rhs as i64),
                     I64Mul => (lhs as i64).wrapping_mul(rhs as i64),
-                    _ => unreachable!(),
+                    _ => unreachable!("expected a const i64 operation"),
                 };
                 stack.push(RuntimeValue::Value64(out as u64));
             }

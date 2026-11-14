@@ -1,7 +1,6 @@
 use crate::interpreter::stack::{CallFrame, StackBase};
 use crate::reference::StoreItem;
 use crate::{Error, InterpreterRuntime, Result, Store};
-use alloc::format;
 use core::hint::cold_path;
 use tinywasm_types::{FuncAddr, FuncType, ModuleInstanceId};
 
@@ -108,11 +107,7 @@ impl Function {
         let func_ty = store.state.get_canonical_func_type(type_addr);
         if func_ty.params().len() != params.len() {
             cold_path();
-            return Err(Error::Other(format!(
-                "param count mismatch: expected {}, got {}",
-                func_ty.params().len(),
-                params.len()
-            )));
+            return Err(Error::ParameterCountMismatch { expected: func_ty.params().len(), actual: params.len() });
         }
 
         for param in params {
@@ -123,20 +118,14 @@ impl Function {
 
         if !func_ty.params().iter().zip(params).all(|(ty, param)| store.value_matches_type(param, *ty)) {
             cold_path();
-            #[cfg(feature = "debug")]
-            return Err(Error::Other(format!(
-                "param type mismatch: expected {:?}, got {:?}",
+            return Err(Error::Other(error_message!(
+                "param type mismatch" | "param type mismatch: expected {:?}, got {:?}",
                 func_ty.params(),
                 params.iter().map(|v| v.ty()).collect::<alloc::vec::Vec<_>>()
             )));
-            #[cfg(not(feature = "debug"))]
-            return Err(Error::Other("param type mismatch".into()));
         }
         if func_ty.results().len() != result_count {
-            return Err(Error::Other(format!(
-                "result count mismatch: expected {}, got {result_count}",
-                func_ty.results().len()
-            )));
+            return Err(Error::ResultCountMismatch { expected: func_ty.results().len(), actual: result_count });
         }
         Ok(())
     }

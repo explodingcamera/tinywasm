@@ -1,3 +1,17 @@
+// Format detailed diagnostics only when the debug feature is enabled.
+macro_rules! error_message {
+    ($compact:literal | $format:literal $(, $arg:expr)* $(,)?) => {{
+        #[cfg(feature = "debug")]
+        { alloc::format!($format $(, $arg)*).into_boxed_str() }
+        #[cfg(not(feature = "debug"))]
+        {
+            let _ = || { $(let _ = &$arg;)* };
+            alloc::boxed::Box::<str>::from($compact)
+        }
+    }};
+}
+pub(crate) use error_message;
+
 pub(crate) mod visit {
     // Rule families are chosen at the call site, not by matching the emitted opcode.
     // Unary instruction operands are evaluated once and passed after family arguments.
@@ -21,7 +35,7 @@ pub(crate) mod visit {
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
                 if let Err(e) = self.validator.visitor(self.position).$visit($($($arg.clone()),*)?) {
                     core::hint::cold_path();
-                    return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
+                    return Err(e.into());
                 }
                 self.builder.$visit($($($arg),*)?)
             }
@@ -34,7 +48,7 @@ pub(crate) mod visit {
             fn $visit(&mut self $($(,$arg: $argty)*)?) -> Self::Output {
                 if let Err(e) = self.validator.simd_visitor(self.position).$visit($($($arg.clone()),*)?) {
                     core::hint::cold_path();
-                    return Err(crate::ParseError::ParseError { message: e.to_string(), offset: self.position });
+                    return Err(e.into());
                 }
                 self.builder.$visit($($($arg),*)?)
             }
@@ -79,7 +93,7 @@ pub(crate) mod visit {
 
         (@unsupported [$($argty:ty),*] $visit:ident) => {
             fn $visit(&mut self $(, _: $argty)*) -> Self::Output {
-                Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
+                Err(crate::ParseError::UnsupportedOperator(stringify!($visit)))
             }
         };
 
@@ -229,7 +243,7 @@ pub(crate) mod visit {
 
         (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
             fn $visit(&mut self $($(,_: $argty)*)?) -> Self::Output {
-                Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
+                Err(crate::ParseError::UnsupportedOperator(stringify!($visit)))
             }
         };
     }

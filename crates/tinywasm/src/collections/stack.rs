@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
-use crate::Trap;
 use crate::engine::StackConfig;
+use crate::{Trap, UnwrapExt};
 
 const MIN_DYNAMIC_CAPACITY: usize = 4;
 
@@ -56,7 +56,7 @@ impl<T: Copy + Default> StackLane<T> {
             *slot = value;
         } else {
             if self.top != self.slots.len() || self.slots.len() == self.slots.capacity() {
-                crate::invariant_violated("value stack push beyond the function's reservation");
+                crate::invariant_violated();
             }
             self.slots.push(value);
         }
@@ -109,12 +109,8 @@ impl<T: Copy + Default> StackLane<T> {
     /// Removes and returns the last live value.
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> T {
-        let Some(top) = self.top.checked_sub(1) else {
-            crate::invariant_violated("value stack underflow");
-        };
-        let Some(&value) = self.slots.get(top) else {
-            crate::invariant_violated("value stack height beyond initialized storage");
-        };
+        let top = self.top.checked_sub(1).unwrap_invariant();
+        let value = *self.slots.get(top).unwrap_invariant();
         self.top = top;
         value
     }
@@ -122,34 +118,22 @@ impl<T: Copy + Default> StackLane<T> {
     /// Returns the last live value without removing it.
     #[inline(always)]
     pub(crate) fn last(&self) -> &T {
-        let Some(index) = self.top.checked_sub(1) else {
-            crate::invariant_violated("value stack underflow");
-        };
+        let index = self.top.checked_sub(1).unwrap_invariant();
         self.get(index)
     }
 
     /// Returns a live value, rejecting stale slots above the height.
     #[inline(always)]
     pub(crate) fn get(&self, index: usize) -> &T {
-        if index >= self.top {
-            crate::invariant_violated("value stack index out of range");
-        }
-        match self.slots.get(index) {
-            Some(value) => value,
-            None => crate::invariant_violated("value stack index beyond initialized storage"),
-        }
+        let live = self.slots.get(..self.top).unwrap_invariant();
+        live.get(index).unwrap_invariant()
     }
 
     /// Updates a live value, rejecting stale slots above the height.
     #[inline(always)]
     pub(crate) fn set(&mut self, index: usize, value: T) {
-        if index >= self.top {
-            crate::invariant_violated("value stack index out of range");
-        }
-        match self.slots.get_mut(index) {
-            Some(slot) => *slot = value,
-            None => crate::invariant_violated("value stack index beyond initialized storage"),
-        }
+        let live = self.slots.get_mut(..self.top).unwrap_invariant();
+        *live.get_mut(index).unwrap_invariant() = value;
     }
 
     /// Copies a value between live slots.
@@ -163,7 +147,7 @@ impl<T: Copy + Default> StackLane<T> {
     #[inline(always)]
     pub(crate) fn truncate_keep(&mut self, n: usize, end_keep: usize) {
         if n > self.top {
-            crate::invariant_violated("value stack truncate beyond live values");
+            crate::invariant_violated();
         }
         let keep = (self.top - n).min(end_keep);
         self.slots.copy_within(self.top - keep..self.top, n);
@@ -174,7 +158,7 @@ impl<T: Copy + Default> StackLane<T> {
     #[inline(always)]
     pub(crate) fn truncate_to(&mut self, n: usize) {
         if n > self.top {
-            crate::invariant_violated("value stack truncate beyond live values");
+            crate::invariant_violated();
         }
         self.top = n;
     }
@@ -210,7 +194,7 @@ impl<T: Copy + Default> StackLane<T> {
             return;
         }
         let Some(locals) = self.slots.get_mut(self.top..end) else {
-            crate::invariant_violated("value stack locals beyond prepared storage");
+            crate::invariant_violated();
         };
         locals.fill(T::default());
         self.top = end;
@@ -220,10 +204,10 @@ impl<T: Copy + Default> StackLane<T> {
     #[inline(always)]
     pub(crate) fn select_many(&mut self, count: usize, condition: bool) {
         let Some(needed) = count.checked_mul(2) else {
-            crate::invariant_violated("value stack select count overflow");
+            crate::invariant_violated();
         };
         if self.top < needed {
-            crate::invariant_violated("value stack underflow");
+            crate::invariant_violated();
         }
         if !condition {
             self.slots.copy_within(self.top - count..self.top, self.top - needed);
@@ -357,9 +341,9 @@ mod tests {
         }
     }
 
-    #[cfg(any(debug_assertions, not(tw_tail_calls)))]
+    #[cfg(not(tw_abort_immediate))]
     #[test]
-    #[should_panic(expected = "value stack index out of range")]
+    #[should_panic(expected = "interpreter invariant violated")]
     fn get_rejects_popped_slots() {
         let mut stack = StackLane::<u32>::new(StackConfig::fixed(4));
         stack.push_or_grow(11).unwrap();
@@ -367,9 +351,9 @@ mod tests {
         stack.get(0);
     }
 
-    #[cfg(any(debug_assertions, not(tw_tail_calls)))]
+    #[cfg(not(tw_abort_immediate))]
     #[test]
-    #[should_panic(expected = "value stack index out of range")]
+    #[should_panic(expected = "interpreter invariant violated")]
     fn set_rejects_popped_slots() {
         let mut stack = StackLane::<u32>::new(StackConfig::fixed(4));
         stack.push_or_grow(11).unwrap();

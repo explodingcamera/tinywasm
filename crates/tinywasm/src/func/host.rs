@@ -66,7 +66,10 @@ impl HostFunction {
         {
             let expected = store.state.get_canonical_func_type(type_addr);
             if results.len() != expected.results().len() {
-                return Err(crate::Error::other("host result buffer has the wrong length"));
+                return Err(crate::Error::ResultCountMismatch {
+                    expected: expected.results().len(),
+                    actual: results.len(),
+                });
             }
             for (result, ty) in results.iter_mut().zip(expected.results()) {
                 *result = match ty {

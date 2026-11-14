@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use super::*;
+use crate::UnwrapExt;
 use crate::engine::Config;
 use crate::interpreter::{InternalValue, Value32, Value64, Value128};
 use crate::store::memory::memory_oob;
@@ -41,7 +42,7 @@ macro_rules! with_memory {
             guard = state.shared_memories[(addr & !$crate::store::SHARED_MEM_BIT) as usize].lock();
             (guard.kind, &mut *guard.inner)
         } else {
-            let ordinary = &mut state.memories[addr as usize];
+            let ordinary = state.memories.get_mut(addr as usize).unwrap_invariant();
             (ordinary.kind, &mut ordinary.inner)
         };
         #[cfg(not(feature = "std"))]
@@ -65,7 +66,7 @@ macro_rules! with_memory {
                 $body
             })
         } else {
-            let ordinary = &mut state.memories[addr as usize];
+            let ordinary = state.memories.get_mut(addr as usize).unwrap_invariant();
             #[allow(unused_variables)]
             let $kind = ordinary.kind;
             let $memory = &mut ordinary.inner;
@@ -435,10 +436,8 @@ impl State {
     }
 
     #[inline]
-    fn get_disjoint_mut<'a, T>(items: &'a mut [T], addr: Addr, addr2: Addr, kind: &str) -> (&'a mut T, &'a mut T) {
-        let [item_a, item_b] = items
-            .get_disjoint_mut([addr as usize, addr2 as usize])
-            .unwrap_or_else(|_| unreachable!("invalid {kind} addresses: {addr}, {addr2}"));
+    fn get_disjoint_mut<T>(items: &mut [T], addr: Addr, addr2: Addr) -> (&mut T, &mut T) {
+        let [item_a, item_b] = items.get_disjoint_mut([addr as usize, addr2 as usize]).unwrap_invariant();
         (item_a, item_b)
     }
 
@@ -465,7 +464,7 @@ impl State {
     #[inline]
     pub(crate) fn get_mems_mut(&mut self, addr: MemAddr, addr2: MemAddr) -> (&mut MemoryInstance, &mut MemoryInstance) {
         debug_assert_eq!((addr | addr2) & SHARED_MEM_BIT, 0);
-        Self::get_disjoint_mut(&mut self.memories, addr, addr2, "memory")
+        Self::get_disjoint_mut(&mut self.memories, addr, addr2)
     }
 
     /// Get the table at the actual index in the store
@@ -486,7 +485,7 @@ impl State {
         addr: TableAddr,
         addr2: TableAddr,
     ) -> (&mut TableInstance, &mut TableInstance) {
-        Self::get_disjoint_mut(&mut self.tables, addr, addr2, "table")
+        Self::get_disjoint_mut(&mut self.tables, addr, addr2)
     }
 
     /// Get the data at the actual index in the store

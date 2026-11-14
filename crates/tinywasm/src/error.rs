@@ -23,10 +23,37 @@ pub enum Error {
     Exception(ExnRef),
 
     /// A linking error occurred
-    Linker(LinkingError),
+    Linker(Box<LinkingError>),
 
     /// A WebAssembly feature is not supported
     UnsupportedFeature(&'static str),
+
+    /// A requested name is not exported by the module.
+    ExportNotFound(String),
+
+    /// An export does not have the requested external kind.
+    InvalidExportType {
+        /// The export name.
+        name: Box<str>,
+        /// The requested external kind.
+        expected: &'static str,
+    },
+
+    /// A call supplied the wrong number of parameters.
+    ParameterCountMismatch {
+        /// The number of parameters in the function signature.
+        expected: usize,
+        /// The number supplied by the caller.
+        actual: usize,
+    },
+
+    /// A result buffer does not match the function's result count.
+    ResultCountMismatch {
+        /// The number of results in the function signature.
+        expected: usize,
+        /// The result buffer length.
+        actual: usize,
+    },
 
     /// An unknown error occurred
     Other(String),
@@ -62,6 +89,18 @@ impl PartialEq for Error {
             (Self::Exception(a), Self::Exception(b)) => a == b,
             (Self::Linker(a), Self::Linker(b)) => a == b,
             (Self::UnsupportedFeature(a), Self::UnsupportedFeature(b)) => a == b,
+            (Self::ExportNotFound(a), Self::ExportNotFound(b)) => a == b,
+            (Self::InvalidExportType { name: a, expected: at }, Self::InvalidExportType { name: b, expected: bt }) => {
+                a == b && at == bt
+            }
+            (
+                Self::ParameterCountMismatch { expected: ae, actual: aa },
+                Self::ParameterCountMismatch { expected: be, actual: ba },
+            )
+            | (
+                Self::ResultCountMismatch { expected: ae, actual: aa },
+                Self::ResultCountMismatch { expected: be, actual: ba },
+            ) => ae == be && aa == ba,
             (Self::Other(a), Self::Other(b)) => a == b,
             #[cfg(feature = "std")]
             (Self::Io(a), Self::Io(b)) => a.kind() == b.kind(),
@@ -75,7 +114,6 @@ impl PartialEq for Error {
 
 /// Errors that can occur when linking a WebAssembly module
 #[non_exhaustive]
-#[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(PartialEq, Eq)]
 pub enum LinkingError {
     /// An unknown import was encountered
@@ -241,7 +279,7 @@ impl LinkingError {
 impl From<LinkingError> for Error {
     #[cold]
     fn from(value: LinkingError) -> Self {
-        Self::Linker(value)
+        Self::Linker(Box::new(value))
     }
 }
 
@@ -260,10 +298,34 @@ impl From<Trap> for Error {
 }
 
 impl Display for Error {
+    #[cfg(not(feature = "debug"))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            #[cfg(feature = "parser")]
+            Self::Parser(_) => "error parsing module",
+            #[cfg(feature = "std")]
+            Self::Io(_) => "I/O error",
+            Self::Twasm(_) => "serialization error",
+            Self::Trap(trap) => trap.message(),
+            Self::HostFunction(_) => "host function trap",
+            Self::Exception(_) => "uncaught WebAssembly exception",
+            Self::Linker(_) => "linking error",
+            Self::InvalidLabelType => "invalid label type",
+            Self::Other(message) => message.as_str(),
+            Self::UnsupportedFeature(_) => "unsupported feature",
+            Self::ExportNotFound(_) => "export not found",
+            Self::InvalidExportType { .. } => "invalid export type",
+            Self::ParameterCountMismatch { .. } => "param count mismatch",
+            Self::ResultCountMismatch { .. } => "result count mismatch",
+            Self::InvalidHostFnReturn { .. } => "invalid host function return",
+        })
+    }
+
+    #[cfg(feature = "debug")]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             #[cfg(feature = "parser")]
-            Self::Parser(err) => write!(f, "error parsing module: {err:?}"),
+            Self::Parser(err) => Display::fmt(err, f),
 
             #[cfg(feature = "std")]
             Self::Io(err) => write!(f, "I/O error: {err}"),
@@ -276,17 +338,31 @@ impl Display for Error {
             Self::InvalidLabelType => write!(f, "invalid label type"),
             Self::Other(message) => write!(f, "unknown error: {message}"),
             Self::UnsupportedFeature(feature) => write!(f, "unsupported feature: {feature}"),
-            #[cfg(feature = "debug")]
+            Self::ExportNotFound(name) => write!(f, "export not found: {name}"),
+            Self::InvalidExportType { name, expected } => write!(f, "export {name} is not a {expected}"),
+            Self::ParameterCountMismatch { expected, actual } => {
+                write!(f, "param count mismatch: expected {expected}, got {actual}")
+            }
+            Self::ResultCountMismatch { expected, actual } => {
+                write!(f, "result count mismatch: expected {expected}, got {actual}")
+            }
             Self::InvalidHostFnReturn { expected, actual } => {
                 write!(f, "invalid host function return: expected={expected:?}, actual={actual:?}")
             }
-            #[cfg(not(feature = "debug"))]
-            Self::InvalidHostFnReturn { .. } => write!(f, "invalid host function return"),
         }
     }
 }
 
 impl Display for LinkingError {
+    #[cfg(not(feature = "debug"))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::UnknownImport { .. } => "unknown import",
+            Self::IncompatibleImportType { .. } => "incompatible import type",
+        })
+    }
+
+    #[cfg(feature = "debug")]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::UnknownImport { module, name } => write!(f, "unknown import: {module}.{name}"),
@@ -294,6 +370,14 @@ impl Display for LinkingError {
                 write!(f, "incompatible import type: {module}.{name}")
             }
         }
+    }
+}
+
+impl core::error::Error for LinkingError {}
+
+impl Debug for LinkingError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
@@ -313,6 +397,12 @@ impl core::error::Error for Error {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::HostFunction(error) => Some(&**error),
+            Self::Linker(error) => Some(&**error),
+            #[cfg(feature = "parser")]
+            Self::Parser(error) => Some(error),
+            #[cfg(feature = "std")]
+            Self::Io(error) => Some(error),
+            Self::Twasm(error) => Some(error),
             _ => None,
         }
     }

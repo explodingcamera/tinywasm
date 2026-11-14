@@ -7,7 +7,7 @@
 #![cfg_attr(tw_tail_calls, allow(incomplete_features))]
 #![cfg_attr(tw_tail_calls, feature(explicit_tail_calls))]
 #![cfg_attr(tw_tail_abi = "rust-preserve-none", feature(rust_preserve_none_cc))]
-#![cfg_attr(all(tw_abort_immediate, not(debug_assertions)), feature(abort_immediate))]
+#![cfg_attr(tw_abort_immediate, feature(abort_immediate))]
 #![cfg_attr(all(tw_core_float_math, not(feature = "std")), feature(core_float_math))]
 #![cfg_attr(not(tw_simd_backend = "x86"), forbid(unsafe_code))]
 #![cfg_attr(tw_simd_backend = "x86", deny(unsafe_code))]
@@ -77,7 +77,7 @@
 //! - **`parallel-parser`:** Parallelizes function parsing when `std` is enabled. Enabled by default.
 //! - **`archive`:** Enables serialization and deserialization of the internal `twasm` format. Enabled by default.
 //! - **`state`:** Adds store-owned host state for access from host callbacks. Enabled by default.
-//! - **`debug`:** Derives `Debug` for runtime types. Enabled by default.
+//! - **`debug`:** Derives `Debug` for runtime types and enables detailed error formatting. Enabled by default.
 //! - **`send`:** Makes stores and store-local handles movable across threads.
 //! - **`portable-atomic`:** Supports targets without native atomic compare-and-swap.
 //! - **`canonicalize-nans`:** Uses a [canonical NaN](https://en.wikipedia.org/wiki/NaN#Canonical_NaN) for normalized NaN results.
@@ -94,7 +94,7 @@
 
 #[macro_use]
 mod macros;
-pub(crate) use macros::invariant_violated;
+pub(crate) use macros::{UnwrapExt, invariant_violated};
 mod std;
 extern crate alloc;
 

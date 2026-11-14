@@ -246,9 +246,12 @@ impl Parser {
         }
         let new_len =
             len.checked_add(increment).ok_or_else(|| ParseError::Other("stream buffer is too large".into()))?;
-        buffer
-            .try_reserve(increment)
-            .map_err(|e| ParseError::Other(alloc::format!("Error reserving stream buffer: {e}")))?;
+        buffer.try_reserve(increment).map_err(|e| {
+            ParseError::Other(macros::error_message!(
+                "Error reserving stream buffer" | "Error reserving stream buffer: {}",
+                e
+            ))
+        })?;
         buffer.resize(new_len, 0);
         let read_bytes = loop {
             match stream.read(&mut buffer[len..]) {
@@ -256,7 +259,10 @@ impl Parser {
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
                     buffer.truncate(len);
-                    return Err(ParseError::Other(alloc::format!("Error reading from stream: {e}")));
+                    return Err(ParseError::Other(macros::error_message!(
+                        "Error reading from stream" | "Error reading from stream: {}",
+                        e
+                    )));
                 }
             }
         };
@@ -298,8 +304,13 @@ impl Parser {
     #[cfg(feature = "std")]
     /// Parse a [`Module`] from a file. Requires `std` feature.
     pub fn parse_module_file(&self, path: impl AsRef<crate::std::path::Path> + Clone) -> Result<Module> {
-        let file = crate::std::fs::File::open(&path)
-            .map_err(|e| ParseError::Other(alloc::format!("Error opening file {:?}: {}", path.as_ref(), e)))?;
+        let file = crate::std::fs::File::open(&path).map_err(|e| {
+            ParseError::Other(macros::error_message!(
+                "Error opening file" | "Error opening file {:?}: {}",
+                path.as_ref(),
+                e
+            ))
+        })?;
         self.parse_module_stream(&mut crate::std::io::BufReader::new(file))
     }
 
@@ -357,8 +368,7 @@ impl Parser {
                             let remaining = section_size - (buffer.len() - buffer_offset);
                             let read_bytes = self.read_more(&mut stream, &mut buffer, remaining, &mut total_read)?;
                             if read_bytes == 0 {
-                                return Err(ParseError::ParseError {
-                                    message: "unexpected end-of-file".into(),
+                                return Err(ParseError::UnexpectedEnd {
                                     offset: parser.offset() + (buffer.len() - buffer_offset) as u64,
                                 });
                             }
@@ -375,7 +385,7 @@ impl Parser {
 
                     if reader.end_reached {
                         if buffer_offset != buffer.len() {
-                            return Err(ParseError::Other("trailing bytes after end of module".into()));
+                            return Err(ParseError::TrailingBytes { offset: parser.offset() });
                         }
 
                         if !eof {
@@ -383,7 +393,7 @@ impl Parser {
                             eof = read_bytes == 0;
 
                             if !eof {
-                                return Err(ParseError::Other("trailing bytes after end of module".into()));
+                                return Err(ParseError::TrailingBytes { offset: parser.offset() });
                             }
                         }
                     }

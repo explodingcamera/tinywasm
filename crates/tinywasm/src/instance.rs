@@ -1,4 +1,7 @@
-use alloc::{boxed::Box, format};
+use alloc::boxed::Box;
+#[cfg(feature = "guest-debug")]
+use alloc::format;
+use alloc::string::ToString;
 use core::hint::cold_path;
 use tinywasm_types::*;
 
@@ -7,7 +10,8 @@ use crate::reference::StoreId;
 use crate::shared::StoreShared;
 use crate::store::MemoryInstance;
 use crate::{
-    Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap, WasmValue,
+    Error, Function, FunctionTyped, Global, Imports, Memory, Result, Store, StoreItem, Table, Tag, Trap, UnwrapExt,
+    WasmValue,
 };
 #[cfg(feature = "std")]
 use crate::{MemoryShared, store::SHARED_MEM_BIT};
@@ -73,61 +77,59 @@ struct ModuleInstanceInner {
 }
 
 impl ModuleInstance {
+    /// Resolves a module type index to its canonical store address.
     #[inline]
     pub(crate) fn resolve_type_addr(&self, type_addr: TypeAddr) -> TypeAddr {
-        self.0.type_addrs[type_addr as usize]
+        self.0.type_addrs.get(type_addr as usize).copied().unwrap_invariant()
     }
 
-    /// resolve a function address to the global store address
+    /// Resolves a module function index to its store address.
     #[inline]
     pub(crate) fn resolve_func_addr(&self, addr: FuncAddr) -> FuncAddr {
-        self.0.func_addrs[addr as usize]
+        self.0.func_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
-    /// resolve a table address to the global store address
+    /// Resolves a module table index to its store address.
     #[inline]
     pub(crate) fn resolve_table_addr(&self, addr: TableAddr) -> TableAddr {
-        self.0.table_addrs[addr as usize]
+        self.0.table_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
-    /// resolve a memory address to the global store address
+    /// Resolves a module memory index to its store address.
     #[inline]
     pub(crate) fn resolve_mem_addr(&self, addr: MemAddr) -> MemAddr {
-        self.0.mem_addrs[addr as usize]
+        self.0.mem_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
-    /// The resolved store address of the module's first memory, or `MemAddr::MAX` when the module
-    /// has none.
-    ///
-    /// The sentinel is never used in practice: validation guarantees a memory instruction can only
-    /// reference index 0 when the module declares a memory, so any read of the sentinel would trip
-    /// an out-of-bounds panic in the store lookup and surface a bug.
+    /// Returns memory 0's store address, or `MemAddr::MAX` if absent.
+    /// Validated memory instructions never use the absent-memory sentinel.
     #[inline]
     pub(crate) fn mem0_addr(&self) -> MemAddr {
         self.0.mem_addrs.first().copied().unwrap_or(MemAddr::MAX)
     }
 
-    /// resolve a data address to the global store address
+    /// Resolves a module data index to its store address.
     #[inline]
     pub(crate) fn resolve_data_addr(&self, addr: DataAddr) -> DataAddr {
-        self.0.data_addrs[addr as usize]
+        self.0.data_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
-    /// resolve an element address to the global store address
+    /// Resolves a module element index to its store address.
     #[inline]
     pub(crate) fn resolve_elem_addr(&self, addr: ElemAddr) -> ElemAddr {
-        self.0.elem_addrs[addr as usize]
+        self.0.elem_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
-    /// resolve a global address to the global store address
+    /// Resolves a module global index to its store address.
     #[inline]
     pub(crate) fn resolve_global_addr(&self, addr: GlobalAddr) -> GlobalAddr {
-        self.0.global_addrs[addr as usize]
+        self.0.global_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
+    /// Resolves a module tag index to its store address.
     #[inline]
     pub(crate) fn resolve_tag_addr(&self, addr: TagAddr) -> TagAddr {
-        self.0.tag_addrs[addr as usize]
+        self.0.tag_addrs.get(addr as usize).copied().unwrap_invariant()
     }
 
     #[inline]
@@ -333,7 +335,7 @@ impl ModuleInstance {
     fn require_export(&self, name: &str) -> Result<ExternVal> {
         self.export_addr(name).ok_or_else(|| {
             cold_path();
-            Error::Other(format!("Export not found: {name}"))
+            Error::ExportNotFound(name.to_string())
         })
     }
 
@@ -342,7 +344,7 @@ impl ModuleInstance {
     fn index_addr<T: Copy>(slice: &[T], idx: u32, kind: &str) -> Result<T> {
         slice.get(idx as usize).copied().ok_or_else(|| {
             cold_path();
-            Error::Other(format!("{kind} index out of bounds: {idx}"))
+            Error::Other(error_message!("index out of bounds" | "{} index out of bounds: {idx}", kind))
         })
     }
 
@@ -418,7 +420,7 @@ impl ModuleInstance {
     pub fn func_untyped(&self, store: &Store, name: &str) -> Result<Function> {
         self.validate_store(store)?;
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
-            return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
+            return cold!(Err(Error::InvalidExportType { name: name.into(), expected: "function" }));
         };
 
         Ok(Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() })
@@ -466,7 +468,7 @@ impl ModuleInstance {
     pub fn func<P: IntoWasmValues, R: FromWasmValues>(&self, store: &Store, name: &str) -> Result<FunctionTyped<P, R>> {
         self.validate_store(store)?;
         let ExternVal::Func(func_addr) = self.require_export(name)? else {
-            return cold!(Err(Error::Other(format!("Export is not a function: {name}"))));
+            return cold!(Err(Error::InvalidExportType { name: name.into(), expected: "function" }));
         };
 
         let func = Function { item: StoreItem::new(self.0.store_id, func_addr), module_id: self.id() };
@@ -495,15 +497,12 @@ impl ModuleInstance {
         if ty.params() != params || ty.results() != results {
             cold_path();
 
-            #[cfg(feature = "debug")]
-            return Err(Error::Other(format!(
-                "function type mismatch for {func_name}: expected {:?}, actual {:?}",
+            return Err(Error::Other(error_message!(
+                "function type mismatch" | "function type mismatch for {}: expected {:?}, actual {:?}",
+                func_name,
                 FuncType::new(params, results),
                 ty
             )));
-
-            #[cfg(not(feature = "debug"))]
-            return Err(Error::Other(format!("function type mismatch for {func_name}")));
         }
 
         Ok(())
@@ -515,7 +514,7 @@ impl ModuleInstance {
             ExternVal::Memory(mem_addr) if mem_addr & crate::store::SHARED_MEM_BIT == 0 => {
                 Ok(Memory(StoreItem::new(self.0.store_id, mem_addr)))
             }
-            _ => cold!(Err(Error::Other(format!("Export is not a memory: {name}")))),
+            _ => cold!(Err(Error::InvalidExportType { name: name.into(), expected: "memory" })),
         }
     }
 
@@ -534,7 +533,7 @@ impl ModuleInstance {
     pub fn memory_shared(&self, name: &str) -> Result<MemoryShared> {
         match self.require_export(name)? {
             ExternVal::Memory(addr) if addr & SHARED_MEM_BIT != 0 => self.shared_backing(addr),
-            _ => Err(Error::Other(format!("Export is not a shared memory: {name}"))),
+            _ => Err(Error::InvalidExportType { name: name.into(), expected: "shared memory" }),
         }
     }
 
@@ -558,7 +557,7 @@ impl ModuleInstance {
     pub fn table(&self, name: &str) -> Result<Table> {
         match self.require_export(name)? {
             ExternVal::Table(table_addr) => Ok(Table(StoreItem::new(self.0.store_id, table_addr))),
-            _ => cold!(Err(Error::Other(format!("Export is not a table: {name}")))),
+            _ => cold!(Err(Error::InvalidExportType { name: name.into(), expected: "table" })),
         }
     }
 
@@ -578,7 +577,7 @@ impl ModuleInstance {
     pub fn tag(&self, name: &str) -> Result<Tag> {
         match self.require_export(name)? {
             ExternVal::Tag(tag_addr) => Ok(Tag(StoreItem::new(self.0.store_id, tag_addr))),
-            _ => cold!(Err(Error::Other(format!("Export is not a tag: {name}")))),
+            _ => cold!(Err(Error::InvalidExportType { name: name.into(), expected: "tag" })),
         }
     }
 
@@ -598,7 +597,7 @@ impl ModuleInstance {
     pub fn global(&self, name: &str) -> Result<Global> {
         match self.require_export(name)? {
             ExternVal::Global(global_addr) => Ok(Global(StoreItem::new(self.0.store_id, global_addr))),
-            _ => cold!(Err(Error::Other(format!("Export is not a global: {name}")))),
+            _ => cold!(Err(Error::InvalidExportType { name: name.into(), expected: "global" })),
         }
     }
 

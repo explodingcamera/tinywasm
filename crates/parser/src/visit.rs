@@ -1,13 +1,12 @@
 use crate::{
-    ParseLimitKind, ParserOptions, Result,
+    IndexKind, ParseLimitKind, ParserOptions, Result, TypeKind,
     conversion::{FunctionLoweringContext, convert_heap_type, value_lane},
     emitter::{Emitter, LabelId},
-    macros::visit::*,
+    macros::{error_message, visit::*},
 };
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, btree_map::Entry},
-    string::ToString,
     vec::Vec,
 };
 use tinywasm_types::{
@@ -235,7 +234,7 @@ impl<'a> FunctionBuilder<'a> {
 
     fn memory_operand(&mut self, memarg: wasmparser::MemArg) -> Result<(ValueLane, Operand128Idx<MemoryOperand>)> {
         let wasmparser::MemArgTarget::Memory(memory) = memarg.target else {
-            return Err(crate::ParseError::UnsupportedOperator("multibyte array access".into()));
+            return Err(crate::ParseError::UnsupportedOperator("multibyte array access"));
         };
         let address = self.metadata.memory_size(memory)?;
         self.mark_memory(memory);
@@ -363,14 +362,14 @@ impl ModuleMetadata {
         self.signatures
             .get(idx as usize)
             .and_then(Option::as_ref)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a function type: {idx}")))
+            .ok_or(crate::ParseError::InvalidTypeReference { expected: TypeKind::Function, index: idx })
     }
 
     fn function_signature(&self, idx: u32) -> Result<&Signature> {
         let ty = *self
             .functions
             .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("function index out of bounds: {idx}")))?;
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Function, index: idx })?;
         self.signature(ty)
     }
 
@@ -378,27 +377,24 @@ impl ModuleMetadata {
         let ty = *self
             .tags
             .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("tag index out of bounds: {idx}")))?;
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Tag, index: idx })?;
         self.signature(ty)
     }
 
     fn global_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.globals, "global", idx)
+        Self::indexed_size(&self.globals, IndexKind::Global, idx)
     }
 
     fn memory_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.memories, "memory", idx)
+        Self::indexed_size(&self.memories, IndexKind::Memory, idx)
     }
 
     fn table_size(&self, idx: u32) -> Result<ValueLane> {
-        Self::indexed_size(&self.tables, "table", idx)
+        Self::indexed_size(&self.tables, IndexKind::Table, idx)
     }
 
-    fn indexed_size(sizes: &[ValueLane], entity: &str, idx: u32) -> Result<ValueLane> {
-        sizes
-            .get(idx as usize)
-            .copied()
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("{entity} index out of bounds: {idx}")))
+    fn indexed_size(sizes: &[ValueLane], entity: IndexKind, idx: u32) -> Result<ValueLane> {
+        sizes.get(idx as usize).copied().ok_or(crate::ParseError::IndexOutOfBounds { kind: entity, index: idx })
     }
 
     fn storage_size(storage: StorageType) -> ValueLane {
@@ -415,14 +411,14 @@ impl ModuleMetadata {
                 AggregateFields::Struct(fields) => Some(fields.as_ref()),
                 AggregateFields::Other | AggregateFields::Array(_) => None,
             })
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not a struct type: {idx}")))
+            .ok_or(crate::ParseError::InvalidTypeReference { expected: TypeKind::Struct, index: idx })
     }
 
     fn struct_field(&self, type_index: u32, field_index: u32) -> Result<ValueLane> {
         self.struct_fields(type_index)?
             .get(field_index as usize)
             .copied()
-            .ok_or_else(|| crate::ParseError::Other("struct field index out of bounds".into()))
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::StructField, index: field_index })
     }
 
     fn array_field(&self, idx: u32) -> Result<ValueLane> {
@@ -432,7 +428,7 @@ impl ModuleMetadata {
                 AggregateFields::Array(field) => Some(*field),
                 AggregateFields::Other | AggregateFields::Struct(_) => None,
             })
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("type index is not an array type: {idx}")))
+            .ok_or(crate::ParseError::InvalidTypeReference { expected: TypeKind::Array, index: idx })
     }
 }
 
@@ -471,12 +467,9 @@ pub(crate) fn process_operators(
         FunctionBuilder::new(metadata, signature, local_types, local_addr_map, body_size, context, options);
 
     while !reader.eof() {
-        let position = reader.original_position();
         let res =
             if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {
-                let op = reader
-                    .read()
-                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
+                let op = reader.read()?;
                 match &op {
                     wasmparser::Operator::BrTable { targets } => {
                         options.limits.check(ParseLimitKind::BrTableTargets, targets.len() as usize)?;
@@ -488,9 +481,7 @@ pub(crate) fn process_operators(
                 }
                 wasmparser::VisitOperator::visit_operator(&mut builder, &op)
             } else {
-                reader
-                    .visit_operator(&mut builder)
-                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?
+                reader.visit_operator(&mut builder)?
             };
 
         if let Err(e) = res {
@@ -534,9 +525,7 @@ pub(crate) fn process_operators_and_validate(
         let mut visitor = ValidateThenVisit { validator: &mut validator, builder: &mut builder, position };
         let res =
             if options.limits.max_br_table_targets.is_some() || options.limits.max_array_new_fixed_elements.is_some() {
-                let op = reader
-                    .read()
-                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?;
+                let op = reader.read()?;
                 match &op {
                     wasmparser::Operator::BrTable { targets } => {
                         options.limits.check(ParseLimitKind::BrTableTargets, targets.len() as usize)?;
@@ -548,9 +537,7 @@ pub(crate) fn process_operators_and_validate(
                 }
                 visitor.visit_operator(&op)
             } else {
-                reader
-                    .visit_operator(&mut visitor)
-                    .map_err(|e| crate::ParseError::ParseError { message: e.to_string(), offset: position })?
+                reader.visit_operator(&mut visitor)?
             };
 
         if let Err(e) = res {
@@ -1352,7 +1339,7 @@ macro_rules! impl_visit_simd_operator {
     (@@relaxed_simd $($rest:tt)* ) => {};
     (@@$proposal:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident ($($ann:tt)*)) => {
         fn $visit(&mut self $($(,$arg: $argty)*)?) -> Result<()> {
-            Err(crate::ParseError::UnsupportedOperator(stringify!($visit).to_string()))
+            Err(crate::ParseError::UnsupportedOperator(stringify!($visit)))
         }
     };
 }
@@ -1580,19 +1567,19 @@ impl<'a> FunctionBuilder<'a> {
     fn get_ctx_idx(&self, depth: u32) -> Result<usize> {
         self.control_stack
             .len()
-            .checked_sub(depth as usize + 1)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("branch depth out of bounds: {depth}")))
+            .checked_sub(depth as usize)
+            .and_then(|index| index.checked_sub(1))
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Label, index: depth })
     }
 
     fn local(&self, idx: u32) -> Result<(ValueLane, u16)> {
         let size = *self
             .local_types
             .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("local index out of bounds: {idx}")))?;
-        let addr = *self
-            .local_addr_map
-            .get(idx as usize)
-            .ok_or_else(|| crate::ParseError::Other(alloc::format!("local address missing: {idx}")))?;
+            .ok_or(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Local, index: idx })?;
+        let addr = *self.local_addr_map.get(idx as usize).ok_or_else(|| {
+            crate::ParseError::Other(error_message!("local address missing" | "local address missing: {idx}"))
+        })?;
         Ok((size, addr))
     }
 

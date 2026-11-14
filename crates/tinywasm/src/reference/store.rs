@@ -1,7 +1,6 @@
 use core::hint::cold_path;
 
 use alloc::ffi::CString;
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
@@ -531,8 +530,9 @@ impl Memory {
 
     /// Reads a C-style string from memory.
     pub fn read_cstring(&self, store: &Store, offset: usize, len: usize) -> Result<CString> {
-        CString::from_vec_with_nul(self.read_vec(store, offset, len)?)
-            .map_err(|e| crate::Error::Other(format!("Invalid C-style string: {e}")))
+        CString::from_vec_with_nul(self.read_vec(store, offset, len)?).map_err(|e| {
+            crate::Error::Other(error_message!("Invalid C-style string" | "Invalid C-style string: {}", e))
+        })
     }
 
     /// Reads a C-style string from memory, stopping at the first null byte.
@@ -542,14 +542,15 @@ impl Memory {
             return Err(crate::Error::Other("Invalid C-style string: missing null terminator".to_string()));
         };
 
-        CString::from_vec_with_nul(bytes[..=null].to_vec())
-            .map_err(|e| crate::Error::Other(format!("Invalid C-style string: {e}")))
+        CString::from_vec_with_nul(bytes[..=null].to_vec()).map_err(|e| {
+            crate::Error::Other(error_message!("Invalid C-style string" | "Invalid C-style string: {}", e))
+        })
     }
 
     /// Reads a UTF-8 string from memory.
     pub fn read_string(&self, store: &Store, offset: usize, len: usize) -> Result<String> {
         String::from_utf8(self.read_vec(store, offset, len)?)
-            .map_err(|e| crate::Error::Other(format!("Invalid UTF-8 string: {e}")))
+            .map_err(|e| crate::Error::Other(error_message!("Invalid UTF-8 string" | "Invalid UTF-8 string: {}", e)))
     }
 
     /// Reads a JavaScript-style utf-16 string from memory.
@@ -559,7 +560,9 @@ impl Memory {
         }
         let bytes = self.read_vec(store, offset, len)?;
         let code_units = bytes.as_chunks::<2>().0.iter().copied().map(u16::from_le_bytes).collect::<Vec<_>>();
-        String::from_utf16(&code_units).map_err(|error| crate::Error::Other(format!("Invalid UTF-16 string: {error}")))
+        String::from_utf16(&code_units).map_err(|error| {
+            crate::Error::Other(error_message!("Invalid UTF-16 string" | "Invalid UTF-16 string: {}", error))
+        })
     }
 }
 
@@ -700,11 +703,11 @@ fn set_gc_value(
     field_name: &'static str,
 ) -> Result<()> {
     if !field.mutable {
-        return Err(Error::other(format!("{field_name} is immutable")));
+        return Err(Error::other(error_message!("field is immutable" | "{} is immutable", field_name)));
     }
     let expected = field.storage.unpacked();
     if !store.value_matches_type(&value, expected) {
-        return Err(Error::other(format!("invalid {field_name} value type")));
+        return Err(Error::other(error_message!("invalid field value type" | "invalid {} value type", field_name)));
     }
     let value = match (field.storage, value.to_runtime(store)?) {
         (StorageType::I8, crate::interpreter::RuntimeValue::Value32(value)) => {

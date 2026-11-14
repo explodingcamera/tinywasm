@@ -125,8 +125,8 @@ archive = ["tinywasm-types/archive"]
 # canonicalize all NaN values to a single representation
 canonicalize-nans = []
 
-# derive Debug for runtime/types structs
-debug = ["tinywasm-types/debug"]
+# derive Debug for runtime/types structs and enable detailed error formatting
+debug = ["tinywasm-types/debug", "tinywasm-parser?/debug"]
 
 # expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
 guest-debug = []
@@ -134,7 +134,7 @@ guest-debug = []
 # enable all supported nightly-only optimizations
 nightly = ["nightly-abort-immediate", "nightly-core-float-math", "nightly-rust-preserve-none", "nightly-tail-calls"]
 
-# abort in place on internal invariant violations in release builds when supported by the compiler
+# abort in place on internal invariant violations when supported by the compiler
 nightly-abort-immediate = []
 
 # use compiler floating-point operations in no_std builds when supported

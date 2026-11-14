@@ -1,8 +1,8 @@
 use crate::validation::{FuncValidator, FuncValidatorAllocations, ValidatorResources};
 #[cfg(feature = "validate")]
 use crate::visit::process_operators_and_validate;
-use crate::{ParserOptions, Result, module::FunctionCode, visit::process_operators};
-use alloc::{boxed::Box, format, vec::Vec};
+use crate::{IndexKind, ParserOptions, Result, log::debug, module::FunctionCode, visit::process_operators};
+use alloc::{boxed::Box, vec::Vec};
 use tinywasm_types::*;
 use wasmparser::{CompositeInnerType, OperatorsReader, OperatorsReaderAllocations, UnpackedIndex};
 
@@ -94,8 +94,9 @@ pub(crate) fn convert_module_import(import: wasmparser::Import<'_>) -> Result<Im
             ImportKind::Global(GlobalType::new(convert_valtype(&ty.content_type)?, ty.mutable))
         }
         wasmparser::TypeRef::Tag(ty) => ImportKind::Tag(convert_tag_type(ty)),
-        _ => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported import kind: {:?}", import.ty)));
+        wasmparser::TypeRef::FuncExact(_) => {
+            debug!("unsupported import kind: {:?}", import.ty);
+            return Err(crate::ParseError::UnsupportedOperator("Unsupported exact function import"));
         }
     };
 
@@ -135,7 +136,7 @@ pub(crate) fn convert_module_export(export: wasmparser::Export<'_>) -> Result<Ex
         wasmparser::ExternalKind::Global => ExternalKind::Global,
         wasmparser::ExternalKind::Tag => ExternalKind::Tag,
         wasmparser::ExternalKind::FuncExact => {
-            return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported export kind: {:?}", export.kind)));
+            return Err(crate::ParseError::UnsupportedOperator("Unsupported exact function export"));
         }
     };
 
@@ -245,14 +246,14 @@ pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, type
     for ty in ty.into_types() {
         let composite = &ty.composite_type;
         if composite.shared {
-            return Err(crate::ParseError::UnsupportedOperator("shared composite types are unsupported".into()));
+            return Err(crate::ParseError::UnsupportedOperator("shared composite types are unsupported"));
         }
         if composite.descriptor_idx.is_some() || composite.describes_idx.is_some() {
-            return Err(crate::ParseError::UnsupportedOperator("descriptor types are unsupported".into()));
+            return Err(crate::ParseError::UnsupportedOperator("descriptor types are unsupported"));
         }
 
         if ty.supertype_idxs.len() > 1 {
-            return Err(crate::ParseError::UnsupportedOperator("multiple supertypes are unsupported".into()));
+            return Err(crate::ParseError::UnsupportedOperator("multiple supertypes are unsupported"));
         }
         let supertype = ty
             .supertype_idxs
@@ -284,7 +285,7 @@ pub(crate) fn convert_rec_group(ty: wasmparser::RecGroup, group_start: u32, type
                 CompositeType::Array(ArrayType { field: convert_field_type(&ty.0, group_start, group_len)? })
             }
             CompositeInnerType::Cont(_) => {
-                return Err(crate::ParseError::UnsupportedOperator("continuation types are unsupported".into()));
+                return Err(crate::ParseError::UnsupportedOperator("continuation types are unsupported"));
             }
         };
         types.push(SubType { is_final: ty.is_final, supertype, composite });
@@ -299,11 +300,12 @@ fn convert_type_index(index: UnpackedIndex, group_start: u32, group_len: u32) ->
             group_start.checked_add(index).ok_or_else(|| crate::ParseError::Other("type index is too large".into()))
         }
         UnpackedIndex::RecGroup(index) => {
-            Err(crate::ParseError::Other(format!("recursive group type index out of bounds: {index}")))
+            Err(crate::ParseError::IndexOutOfBounds { kind: IndexKind::RecursiveGroupType, index })
         }
         #[cfg(feature = "validate")]
         UnpackedIndex::Id(_) => {
-            Err(crate::ParseError::UnsupportedOperator(format!("unsupported canonical type index: {index}")))
+            debug!("unsupported canonical type index: {index}");
+            Err(crate::ParseError::UnsupportedOperator("unsupported canonical type index"))
         }
     }
 }
@@ -350,8 +352,8 @@ pub(crate) fn process_const_operators(
     let mut operator_count = 0;
     let mut end_reached = false;
 
-    for op in ops {
-        let op = op?;
+    for op in ops.into_iter_with_offsets() {
+        let (op, _offset) = op?;
         operator_count += 1;
         if matches!(op, wasmparser::Operator::End) {
             end_reached = true;
@@ -387,7 +389,9 @@ pub(crate) fn process_const_operators(
                 Some(WasmType::I64 | WasmType::F64) => ConstInstruction::GlobalGet64(global_index),
                 Some(WasmType::V128) => ConstInstruction::GlobalGet128(global_index),
                 Some(WasmType::Ref(_)) => ConstInstruction::GlobalGetRef(global_index),
-                None => return Err(crate::ParseError::Other(format!("global index out of bounds: {global_index}"))),
+                None => {
+                    return Err(crate::ParseError::IndexOutOfBounds { kind: IndexKind::Global, index: global_index });
+                }
             },
             wasmparser::Operator::I32Add => ConstInstruction::I32Add,
             wasmparser::Operator::I32Sub => ConstInstruction::I32Sub,
@@ -395,10 +399,9 @@ pub(crate) fn process_const_operators(
             wasmparser::Operator::I64Add => ConstInstruction::I64Add,
             wasmparser::Operator::I64Sub => ConstInstruction::I64Sub,
             wasmparser::Operator::I64Mul => ConstInstruction::I64Mul,
-            other => {
-                return Err(crate::ParseError::UnsupportedOperator(format!(
-                    "Unsupported const instruction: {other:?}"
-                )));
+            _other => {
+                debug!("unsupported const instruction at offset {_offset}: {_other:?}");
+                return Err(crate::ParseError::UnsupportedOperator("Unsupported const instruction"));
             }
         };
         out.push(instr);
@@ -437,7 +440,8 @@ fn convert_heap_type_with_group(
                 wasmparser::AbstractHeapType::Extern => AbstractHeapType::Extern,
                 wasmparser::AbstractHeapType::NoExtern => AbstractHeapType::NoExtern,
                 wasmparser::AbstractHeapType::Cont | wasmparser::AbstractHeapType::NoCont => {
-                    return Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")));
+                    debug!("unsupported heap type: {heap:?}");
+                    return Err(crate::ParseError::UnsupportedOperator("Unsupported heap type"));
                 }
             },
         )),
@@ -446,23 +450,22 @@ fn convert_heap_type_with_group(
                 UnpackedIndex::Module(index) => index,
                 index @ UnpackedIndex::RecGroup(_) => {
                     let (group_start, group_len) = group.ok_or_else(|| {
-                        crate::ParseError::UnsupportedOperator(format!(
-                            "recursive-group heap type outside a type group: {index}"
-                        ))
+                        debug!("recursive-group heap type outside a type group: {index}");
+                        crate::ParseError::UnsupportedOperator("recursive-group heap type outside a type group")
                     })?;
                     convert_type_index(index, group_start, group_len)?
                 }
                 #[cfg(feature = "validate")]
-                index @ UnpackedIndex::Id(_) => {
-                    return Err(crate::ParseError::UnsupportedOperator(format!(
-                        "unsupported canonical heap type index: {index}"
-                    )));
+                _index @ UnpackedIndex::Id(_) => {
+                    debug!("unsupported canonical heap type index: {_index}");
+                    return Err(crate::ParseError::UnsupportedOperator("unsupported canonical heap type index"));
                 }
             };
             Ok(RefType::new_concrete(nullable, index))
         }
         wasmparser::HeapType::Abstract { shared: true, .. } | wasmparser::HeapType::Exact(_) => {
-            Err(crate::ParseError::UnsupportedOperator(format!("Unsupported heap type: {heap:?}")))
+            debug!("unsupported heap type: {heap:?}");
+            Err(crate::ParseError::UnsupportedOperator("Unsupported heap type"))
         }
     }
 }

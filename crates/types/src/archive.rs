@@ -23,7 +23,7 @@ fn validate_magic(wasm: &[u8]) -> Result<usize, TwasmError> {
     Ok(TWASM_MAGIC.len())
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub enum TwasmError {
     InvalidMagic,
     InvalidVersion,
@@ -37,12 +37,21 @@ impl Display for TwasmError {
             Self::InvalidMagic => write!(f, "Invalid twasm: invalid magic number"),
             Self::InvalidVersion => write!(f, "Invalid twasm: invalid version"),
             Self::InvalidPadding => write!(f, "Invalid twasm: invalid padding"),
+            #[cfg(feature = "debug")]
             Self::InvalidArchive(e) => write!(f, "Invalid twasm: {e}"),
+            #[cfg(not(feature = "debug"))]
+            Self::InvalidArchive(_) => f.write_str("Invalid twasm: invalid archive"),
         }
     }
 }
 
 impl core::error::Error for TwasmError {}
+
+impl core::fmt::Debug for TwasmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 
 impl Module {
     /// Creates a [`Module`] from internal `twasm` archive bytes.

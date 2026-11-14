@@ -58,7 +58,7 @@ impl CallStack {
     #[inline(always)]
     pub(crate) fn push(&mut self, mut call_frame: CallFrame, instr_ptr: usize) {
         if self.stack.len() == self.stack.capacity() {
-            crate::invariant_violated("call stack push without a reservation");
+            crate::invariant_violated();
         }
         debug_assert!(self.stack.len() < self.max_size);
         call_frame.instr_ptr = instr_ptr;

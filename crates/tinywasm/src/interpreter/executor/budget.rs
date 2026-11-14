@@ -21,7 +21,7 @@ impl Executor<'_> {
             return;
         }
         let Some(work) = end.checked_sub(self.segment_start) else {
-            crate::invariant_violated("invalid instruction accounting range");
+            crate::invariant_violated();
         };
         self.segment_start = end;
         let fuel = u32::try_from(work).unwrap_or(u32::MAX);

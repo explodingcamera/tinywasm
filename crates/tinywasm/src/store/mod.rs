@@ -1,6 +1,6 @@
 #[cfg(feature = "state")]
 use alloc::collections::BTreeMap;
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 #[cfg(feature = "state")]
 use core::any::{Any, TypeId};
 use core::hint::cold_path;
@@ -10,7 +10,7 @@ use crate::func::{FromWasmValues, HostFunction};
 use crate::interpreter::stack::{CallStack, StackBase, ValueStack};
 use crate::interpreter::{RuntimeValue, ValueRef};
 use crate::reference::{ReferentKind, RootedItem, StoreId, StoredRef};
-use crate::{Engine, Error, ExnRef, FuncRef, ModuleInstance, RefValue, Result, Trap, WasmValue};
+use crate::{Engine, Error, ExnRef, FuncRef, ModuleInstance, RefValue, Result, Trap, UnwrapExt, WasmValue};
 
 mod const_expr;
 mod data;
@@ -208,11 +208,7 @@ impl Iterator for StackValueIter<'_> {
             }
         };
         self.position += 1;
-        Some(
-            self.store
-                .stack_value(ty, &mut self.index)
-                .unwrap_or_else(|_| unreachable!("invalid internal value at a typed host boundary")),
-        )
+        Some(self.store.stack_value(ty, &mut self.index).expect_unreachable("invalid typed host value"))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -459,7 +455,7 @@ impl Store {
             (types.len(), types.iter().collect())
         };
         if result_count != results.len() {
-            return Err(Error::other("result buffer has the wrong length"));
+            return Err(Error::ResultCountMismatch { expected: result_count, actual: results.len() });
         }
         let base = self.value_stack.base_before(result_counts);
         let result = (|| {
@@ -696,15 +692,16 @@ impl Store {
                 RuntimeValue::ValueRef(value) => Ok(value),
                 other => {
                     cold_path();
-                    Err(Error::Other(format!("expected ref type, got {other:?}")))
+                    Err(Error::Other(error_message!("expected ref type" | "expected ref type, got {:?}", other)))
                 }
             },
             ElementItem::Func(addr) => match funcs.get(*addr as usize) {
                 Some(func_addr) => Ok(ValueRef::from_category_addr(*func_addr)),
                 None => {
                     cold_path();
-                    Err(Error::Other(format!(
-                        "function {addr} not found. This should have been caught by the validator"
+                    Err(Error::Other(error_message!(
+                        "function not found"
+                            | "function {addr} not found. This should have been caught by the validator"
                     )))
                 }
             },
@@ -761,15 +758,23 @@ impl Store {
                     let offset = match eval_const(&mut self.state, offset, global_addrs, func_addrs, type_addrs)? {
                         RuntimeValue::Value32(value) => u64::from(value),
                         RuntimeValue::Value64(value) => value,
-                        other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
+                        other => {
+                            return Err(Error::Other(error_message!(
+                                "expected i32 or i64" | "expected i32 or i64, got {:?}",
+                                other
+                            )));
+                        }
                     };
-                    let table_addr = table_addrs
-                        .get(*table as usize)
-                        .copied()
-                        .ok_or_else(|| Error::Other(format!("table {table} not found for element {i}")))?;
+                    let table_addr = table_addrs.get(*table as usize).copied().ok_or_else(|| {
+                        Error::Other(error_message!(
+                            "table not found for element" | "table {table} not found for element {i}"
+                        ))
+                    })?;
 
                     if self.state.tables.get(table_addr as usize).is_none() {
-                        return Err(Error::Other(format!("table {table} not found for element {i}")));
+                        return Err(Error::Other(error_message!(
+                            "table not found for element" | "table {table} not found for element {i}"
+                        )));
                     }
 
                     let Ok(offset) = usize::try_from(offset) else {
@@ -812,13 +817,20 @@ impl Store {
             match &data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
                     let Some(mem_addr) = mem_addrs.get(*mem_addr as usize) else {
-                        return Err(Error::Other(format!("memory {mem_addr} not found for data segment {i}")));
+                        return Err(Error::Other(error_message!(
+                            "memory not found for data segment" | "memory {mem_addr} not found for data segment {i}"
+                        )));
                     };
 
                     let offset = match eval_const(&mut self.state, offset, global_addrs, func_addrs, type_addrs)? {
                         RuntimeValue::Value32(value) => u64::from(value),
                         RuntimeValue::Value64(value) => value,
-                        other => return Err(Error::Other(format!("expected i32 or i64, got {other:?}"))),
+                        other => {
+                            return Err(Error::Other(error_message!(
+                                "expected i32 or i64" | "expected i32 or i64, got {:?}",
+                                other
+                            )));
+                        }
                     };
                     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
                     with_memory!(self.state, *mem_addr, |mem, kind| {

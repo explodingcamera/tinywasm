@@ -19,7 +19,10 @@ wasmparser = { workspace = true, features = ["simd"] }
 wat.workspace = true
 
 [features]
-default = ["log", "parallel", "std", "validate"]
+default = ["debug", "log", "parallel", "std", "validate"]
+
+# enable detailed error formatting and payload diagnostics
+debug = []
 
 # enable integration with the log crate
 log = ["dep:log"]

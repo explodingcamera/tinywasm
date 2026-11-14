@@ -2,8 +2,10 @@ use crate::log::debug;
 #[cfg(parallel_parser)]
 use crate::validation::{FuncToValidate, ValidatorResources};
 use crate::validation::{FuncValidatorAllocations, Validator};
-use crate::{ParseError, ParseLimitKind, ParserOptions, Result, conversion::*};
-use alloc::{boxed::Box, format, string::ToString, vec::Vec};
+use crate::{
+    ParseError, ParseLimitKind, ParserOptions, Result, SectionKind, TypeKind, conversion::*, macros::error_message,
+};
+use alloc::{boxed::Box, vec::Vec};
 use core::marker::PhantomData;
 use core::ops::Range;
 use tinywasm_types::*;
@@ -76,10 +78,10 @@ impl<'a> ModuleReader<'a> {
         let mut validator = validator;
         #[cfg(not(feature = "validate"))]
         let _ = validator;
-        fn check_section(section: &str, duplicate: bool) -> Result<()> {
+        fn check_section(section: SectionKind, duplicate: bool) -> Result<()> {
             debug!("found {section} section");
             if duplicate {
-                return Err(ParseError::DuplicateSection(format!("{section} section")));
+                return Err(ParseError::DuplicateSection(section));
             }
             Ok(())
         }
@@ -98,7 +100,7 @@ impl<'a> ModuleReader<'a> {
                 }
             }
             Payload::StartSection { func, range } => {
-                check_section("start", self.start_func.is_some())?;
+                check_section(SectionKind::Start, self.start_func.is_some())?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
                     validator.start_section(func, &range)?;
@@ -108,7 +110,7 @@ impl<'a> ModuleReader<'a> {
                 self.start_func = Some(func);
             }
             Payload::TypeSection(reader) => {
-                check_section("type", self.has_type_section)?;
+                check_section(SectionKind::Type, self.has_type_section)?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 self.has_type_section = true;
                 #[cfg(feature = "validate")]
@@ -135,7 +137,7 @@ impl<'a> ModuleReader<'a> {
                 };
             }
             Payload::GlobalSection(reader) => {
-                check_section("global", !self.globals.is_empty())?;
+                check_section(SectionKind::Global, !self.globals.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -144,7 +146,7 @@ impl<'a> ModuleReader<'a> {
                 self.globals = convert_module_globals(reader, &mut self.global_types)?;
             }
             Payload::TableSection(reader) => {
-                check_section("table", !self.tables.is_empty())?;
+                check_section(SectionKind::Table, !self.tables.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -170,7 +172,7 @@ impl<'a> ModuleReader<'a> {
                 self.tables = tables.into_boxed_slice();
             }
             Payload::MemorySection(reader) => {
-                check_section("memory", !self.memory_types.is_empty())?;
+                check_section(SectionKind::Memory, !self.memory_types.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -180,7 +182,7 @@ impl<'a> ModuleReader<'a> {
                     reader.into_iter().map(|memory| Ok(convert_module_memory(memory?))).collect::<Result<_>>()?;
             }
             Payload::TagSection(reader) => {
-                check_section("tag", !self.tags.is_empty())?;
+                check_section(SectionKind::Tag, !self.tags.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -189,11 +191,14 @@ impl<'a> ModuleReader<'a> {
                 let mut tags = Vec::with_capacity(reader.count() as usize);
                 for tag in reader {
                     let tag = convert_tag_type(tag?);
-                    let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
-                        ParseError::Other(format!("tag type index does not reference a function: {}", tag.type_idx))
-                    })?;
+                    let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or(
+                        ParseError::InvalidTypeReference { expected: TypeKind::Function, index: tag.type_idx },
+                    )?;
                     if !ty.results().is_empty() {
-                        return Err(ParseError::Other(format!("tag type must not have results: {}", tag.type_idx)));
+                        return Err(ParseError::Other(error_message!(
+                            "tag type must not have results" | "tag type must not have results: {}",
+                            tag.type_idx
+                        )));
                     }
                     tags.push(tag);
                 }
@@ -212,7 +217,7 @@ impl<'a> ModuleReader<'a> {
                     .collect::<Result<_>>()?;
             }
             Payload::DataSection(reader) => {
-                check_section("data", !self.data.is_empty())?;
+                check_section(SectionKind::Data, !self.data.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -227,7 +232,7 @@ impl<'a> ModuleReader<'a> {
                 debug!("Found data count section");
                 options.limits.check(ParseLimitKind::SectionItems, count as usize)?;
                 if !self.data.is_empty() {
-                    return Err(ParseError::UnsupportedSection("Data count section after data section".into()));
+                    return Err(ParseError::SectionOutOfOrder(SectionKind::DataCount));
                 }
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -237,7 +242,7 @@ impl<'a> ModuleReader<'a> {
                 let _ = (count, range);
             }
             Payload::FunctionSection(reader) => {
-                check_section("function", !self.code_type_addrs.is_empty())?;
+                check_section(SectionKind::Function, !self.code_type_addrs.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -247,9 +252,11 @@ impl<'a> ModuleReader<'a> {
                 let mut results = Vec::with_capacity(reader.count() as usize);
                 for ty_idx in reader {
                     let ty_idx = ty_idx?;
-                    let ty = self.types.get(ty_idx).and_then(SubType::as_func).ok_or_else(|| {
-                        ParseError::Other(format!("function type index does not reference a function: {ty_idx}"))
-                    })?;
+                    let ty = self
+                        .types
+                        .get(ty_idx)
+                        .and_then(SubType::as_func)
+                        .ok_or(ParseError::InvalidTypeReference { expected: TypeKind::Function, index: ty_idx })?;
                     type_addrs.push(ty_idx);
                     results.push(ValueCounts::from_iter(ty.results()));
                 }
@@ -257,7 +264,7 @@ impl<'a> ModuleReader<'a> {
                 self.code_results = results.into_boxed_slice();
             }
             Payload::ImportSection(reader) => {
-                check_section("import", !self.imports.is_empty())?;
+                check_section(SectionKind::Import, !self.imports.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 if options.limits.max_section_items.is_some() {
                     // Compact import groups can expand well beyond the outer
@@ -288,23 +295,22 @@ impl<'a> ModuleReader<'a> {
                     match import.kind {
                         ImportKind::Function(type_idx) => {
                             if self.types.get(type_idx).and_then(SubType::as_func).is_none() {
-                                return Err(ParseError::Other(format!(
-                                    "function import type index does not reference a function: {type_idx}"
-                                )));
+                                return Err(ParseError::InvalidTypeReference {
+                                    expected: TypeKind::Function,
+                                    index: type_idx,
+                                });
                             }
                             self.imported_func_count += 1;
                         }
                         ImportKind::Global(ty) => self.global_types.push(ty.ty),
                         ImportKind::Tag(tag) => {
-                            let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or_else(|| {
-                                ParseError::Other(format!(
-                                    "tag import type index does not reference a function: {}",
-                                    tag.type_idx
-                                ))
-                            })?;
+                            let ty = self.types.get(tag.type_idx).and_then(SubType::as_func).ok_or(
+                                ParseError::InvalidTypeReference { expected: TypeKind::Function, index: tag.type_idx },
+                            )?;
                             if !ty.results().is_empty() {
-                                return Err(ParseError::Other(format!(
-                                    "tag import type must not have results: {}",
+                                return Err(ParseError::Other(error_message!(
+                                    "tag import type must not have results"
+                                        | "tag import type must not have results: {}",
                                     tag.type_idx
                                 )));
                             }
@@ -316,7 +322,7 @@ impl<'a> ModuleReader<'a> {
                 self.imports = imports.into_boxed_slice();
             }
             Payload::ExportSection(reader) => {
-                check_section("export", !self.exports.is_empty())?;
+                check_section(SectionKind::Export, !self.exports.is_empty())?;
                 options.limits.check(ParseLimitKind::SectionItems, reader.count() as usize)?;
                 #[cfg(feature = "validate")]
                 if let Some(validator) = validator.as_mut() {
@@ -327,7 +333,7 @@ impl<'a> ModuleReader<'a> {
             Payload::End(offset) => {
                 debug!("Reached end of module");
                 if self.end_reached {
-                    return Err(ParseError::DuplicateSection("End section".into()));
+                    return Err(ParseError::DuplicateSection(SectionKind::End));
                 }
 
                 #[cfg(feature = "validate")]
@@ -345,8 +351,13 @@ impl<'a> ModuleReader<'a> {
             Payload::CodeSectionStart { .. } | Payload::CodeSectionEntry(_) => {
                 unreachable!("code section payload handled separately")
             }
-            Payload::UnknownSection { .. } => return Err(ParseError::UnsupportedSection("Unknown section".into())),
-            section => return Err(ParseError::UnsupportedSection(format!("Unsupported section: {section:?}"))),
+            Payload::UnknownSection { id, .. } => {
+                return Err(ParseError::UnsupportedSection(SectionKind::Unknown(id)));
+            }
+            _section => {
+                debug!("unsupported parser payload: {_section:?}");
+                return Err(ParseError::Other("unsupported parser payload".into()));
+            }
         }
 
         Ok(())
@@ -363,7 +374,7 @@ impl<'a> ModuleReader<'a> {
         debug!("Found code section ({count} functions)");
         options.limits.check(ParseLimitKind::SectionItems, count as usize)?;
         if self.has_code_section {
-            return Err(ParseError::DuplicateSection("Code section".into()));
+            return Err(ParseError::DuplicateSection(SectionKind::Code));
         }
 
         self.has_code_section = true;
@@ -496,10 +507,7 @@ impl<'a> ModuleReader<'a> {
         }
 
         if reader.bytes_remaining() != 0 {
-            return Err(ParseError::ParseError {
-                message: "trailing bytes at end of section".into(),
-                offset: reader.original_position(),
-            });
+            return Err(ParseError::TrailingBytes { offset: reader.original_position() });
         }
 
         Ok(())
@@ -552,7 +560,7 @@ impl<'a> ModuleReader<'a> {
         }
 
         if self.code_type_addrs.len() != self.code.len() {
-            return Err(ParseError::Other("Code and code type address count mismatch".to_string()));
+            return Err(ParseError::Other("Code and code type address count mismatch".into()));
         }
 
         let func_type_idxs = self

@@ -387,7 +387,11 @@ impl ResolvedImports {
                     }
                     imports.tags.push(tag_addr);
                 }
-                _ => unreachable!("import kind checked above"),
+                (actual, expected) => unreachable_debug!(
+                    "import kind checked above" | "import kind checked above: expected {:?}, got {:?}",
+                    expected,
+                    actual
+                ),
             }
         }
 

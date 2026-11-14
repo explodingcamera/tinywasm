@@ -76,9 +76,9 @@ macro_rules! define_tail_dispatch {
             #[inline(never)]
             #[allow(improper_ctypes_definitions)]
             extern $abi fn invalid_instr_ptr(
-                _: &mut Executor<'_>, _: &[Instruction], instr_ptr: usize, _: Instruction, _: usize,
+                _: &mut Executor<'_>, _: &[Instruction], _: usize, _: Instruction, _: usize,
             ) -> ExecResult<()> {
-                unreachable!("instruction pointer {instr_ptr} out of range, this is a bug")
+                unreachable!("instruction pointer out of range")
             }
         }
     };

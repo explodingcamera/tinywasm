@@ -27,7 +27,7 @@ impl<T: Copy> GlobalLane<T> {
     fn get(&self, index: usize) -> T {
         match self.values.get(index) {
             Some(value) => *value,
-            None => crate::invariant_violated("global address out of range"),
+            None => crate::invariant_violated(),
         }
     }
 
@@ -35,7 +35,7 @@ impl<T: Copy> GlobalLane<T> {
     fn set(&mut self, index: usize, value: T) {
         match self.values.get_mut(index) {
             Some(slot) => *slot = value,
-            None => crate::invariant_violated("global address out of range"),
+            None => crate::invariant_violated(),
         }
     }
 
@@ -94,7 +94,7 @@ impl Globals {
             Self::LANE_32 => self.globals_32.ty(Self::index(addr, Self::LANE_32)),
             Self::LANE_64 => self.globals_64.ty(Self::index(addr, Self::LANE_64)),
             Self::LANE_128 => self.globals_128.ty(Self::index(addr, Self::LANE_128)),
-            _ => unreachable!("invalid global address: {addr}"),
+            _ => unreachable_debug!("invalid global address" | "invalid global address: {addr}"),
         }
     }
 

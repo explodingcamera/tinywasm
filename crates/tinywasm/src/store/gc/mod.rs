@@ -90,7 +90,7 @@ pub(crate) fn decode_data(
         4 => RuntimeValue::Value32(u32::from_le_bytes(bytes.try_into().unwrap())),
         8 => RuntimeValue::Value64(u64::from_le_bytes(bytes.try_into().unwrap())),
         16 => RuntimeValue::Value128(Value128(<[u8; 16]>::try_from(bytes).unwrap())),
-        _ => unreachable!(),
+        _ => unreachable!("invalid numeric array element width"),
     }));
     Ok(values)
 }

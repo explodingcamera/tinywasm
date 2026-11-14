@@ -20,6 +20,7 @@ Preliminary x86-64 benchmarks show around a 20% performance improvement over 0.1
 
 ### Added
 
+- Added compact error diagnostics when the `debug` feature is disabled.
 - Added initial WebAssembly threads support, including atomic wait/notify and cross-store shared memory with `MemoryShared`.
 - Added an experimental C API in `tinywasm-c-api`.
 - Added new `Memory::data` and `Memory::data_mut` methods for direct access to linear memory.

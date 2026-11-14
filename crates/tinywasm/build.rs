@@ -24,7 +24,7 @@ const ABORT_IMMEDIATE_PROBE: &str = r#"
 #![no_std]
 #![feature(abort_immediate)]
 
-pub fn trap() -> ! { core::process::abort_immediate() }
+pub fn trap() -> ! { core::process::crash() }
 "#;
 
 const CORE_FLOAT_MATH_PROBE: &str = r#"
