@@ -13,7 +13,7 @@ struct Recursion {
 
 fn assert_call_stack_overflow(result: &Result<()>) {
     let mut error = result.as_ref().unwrap_err();
-    while let Error::Trap(Trap::HostFunction(inner)) = error {
+    while let Error::HostFunction(inner) = error {
         error = inner.downcast_ref::<Error>().expect("nested TinyWasm error");
     }
     assert!(matches!(error, Error::Trap(Trap::CallStackOverflow)), "{error:?}");

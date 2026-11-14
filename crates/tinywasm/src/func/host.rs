@@ -4,7 +4,7 @@ use tinywasm_types::{FuncType, ModuleInstanceId, TypeAddr, WasmType};
 use super::{FromWasmValues, FuncContext, IntoWasmValues};
 use crate::shared::StoreShared;
 use crate::store::FuncValueTypes;
-use crate::{Function, Result, Store, Trap, WasmValue};
+use crate::{Function, Result, Store, WasmValue};
 
 /// Trait bounds required for a host callback in the current build mode.
 #[doc(hidden)]
@@ -98,36 +98,26 @@ impl HostFunction {
     }
 
     /// Calls from Wasm using arguments on the store's restored value stack.
-    pub(crate) fn call_stack(
-        &self,
-        store: &mut Store,
-        module_id: ModuleInstanceId,
-        type_addr: TypeAddr,
-    ) -> Result<(), Trap> {
+    pub(crate) fn call_stack(&self, store: &mut Store, module_id: ModuleInstanceId, type_addr: TypeAddr) -> Result<()> {
         if let Some(callback) = self.typed_callback() {
             return cold_err!(callback.call_stack(store, module_id, type_addr))
-                .map_err(|error| Trap::HostFunction(Box::new(error)));
+                .map_err(|error| crate::Error::HostFunction(Box::new(error)));
         }
 
         let ty = store.state.get_canonical_func_type(type_addr);
         let (param_count, result_count) = (ty.params().len(), ty.results().len());
         let base = store.value_stack.base_before(ty.params().iter().collect());
-        store
-            .with_scratch_values(param_count + result_count, |store, values| {
-                let host_values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
-                for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
-                    *slot = value;
-                }
-                store.value_stack.truncate_to_base(base);
-                let (params, results) = values.split_at_mut(param_count);
-                self.call_values(store, module_id, type_addr, params, results)
-                    .map_err(|error| crate::Error::Trap(Trap::HostFunction(Box::new(error))))?;
-                store.push_wasm_values(results)
-            })
-            .map_err(|error| match error {
-                crate::Error::Trap(trap) => trap,
-                other => Trap::HostFunction(Box::new(other)),
-            })
+        store.with_scratch_values(param_count + result_count, |store, values| {
+            let host_values = store.stack_value_iter(type_addr, FuncValueTypes::Params, base)?;
+            for (slot, value) in values[..param_count].iter_mut().zip(host_values) {
+                *slot = value;
+            }
+            store.value_stack.truncate_to_base(base);
+            let (params, results) = values.split_at_mut(param_count);
+            self.call_values(store, module_id, type_addr, params, results)
+                .map_err(|error| crate::Error::HostFunction(Box::new(error)))?;
+            store.push_wasm_values(results)
+        })
     }
 
     /// Create a directly callable, store-owned function from this definition.
@@ -328,7 +318,7 @@ impl core::fmt::Debug for HostFunction {
 #[cfg(all(test, feature = "parser"))]
 mod tests {
     use super::*;
-    use crate::{Error, Imports, ModuleInstance};
+    use crate::{Error, Imports, ModuleInstance, Trap};
 
     #[test]
     fn wasm_callback_errors_are_wrapped() {
@@ -350,9 +340,9 @@ mod tests {
                 imports.define("env", "fail", host);
                 let instance = ModuleInstance::instantiate(&mut store, &module, Some(&imports)).unwrap();
                 let function = instance.func::<(), ()>(&store, "run").unwrap();
-                let Error::Trap(Trap::HostFunction(cause)) = function.call(&mut store, ()).unwrap_err() else {
-                    panic!("callback errors must remain host-function traps");
-                };
+                let error = function.call(&mut store, ()).unwrap_err();
+                assert!(matches!(error, Error::HostFunction(_)));
+                let cause = core::error::Error::source(&error).expect("host callback error source");
                 assert!(matches!(cause.downcast_ref::<Error>(), Some(Error::Trap(Trap::Unreachable))));
             }
         }

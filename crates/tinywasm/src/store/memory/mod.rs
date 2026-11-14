@@ -74,6 +74,8 @@ impl MemValue<16> for Value128 {
     }
 }
 
-pub(super) const fn memory_oob(offset: usize, len: usize, max: usize) -> crate::Trap {
-    crate::Trap::MemoryOutOfBounds { offset, len, max }
+#[cold]
+pub(crate) fn memory_oob(_offset: usize, _len: usize, _max: usize) -> crate::Trap {
+    crate::log::debug!("out of bounds memory access: offset={}, len={}, max={}", _offset, _len, _max);
+    crate::Trap::MemoryOutOfBounds
 }

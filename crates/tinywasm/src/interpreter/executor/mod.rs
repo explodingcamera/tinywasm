@@ -1,6 +1,5 @@
 use core::convert::identity;
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use interpreter::stack::{CallFrame, CallStack, ValueStack};
@@ -26,19 +25,7 @@ mod dispatch_become;
 
 const FUEL_COST_CALL_TOTAL: u32 = 5;
 
-// Keep handler returns pointer-sized and trap allocation on a cold path.
-struct ExecError(Box<Trap>);
-
-type ExecResult<T> = core::result::Result<T, ExecError>;
-
-impl From<Trap> for ExecError {
-    #[cold]
-    fn from(trap: Trap) -> Self {
-        Self(Box::new(trap))
-    }
-}
-
-const _: () = assert!(core::mem::size_of::<ExecResult<()>>() == core::mem::size_of::<usize>());
+type ExecResult<T> = core::result::Result<T, Trap>;
 
 #[derive(Clone, Copy)]
 enum ExecFlow {
@@ -542,7 +529,7 @@ impl<'store> Executor<'store> {
     fn exec_throw_ref(&mut self, instr_ptr: usize) -> ExecResult<ExecFlow> {
         let exception = ValueRef::stack_pop(&mut self.value_stack);
         if exception.is_null() {
-            return Err(Trap::NullReference.into());
+            return Err(Trap::NullReference);
         }
         self.throw_exception(exception, instr_ptr)
     }
@@ -689,11 +676,13 @@ impl<'store> Executor<'store> {
         let table = self.state.get_table(table_addr);
 
         let Ok(table) = table.get(table_idx) else {
-            return cold!(Err(Trap::UndefinedElement { index: table_idx }.into()));
+            crate::log::debug!("undefined element: index={table_idx}");
+            return cold!(Err(Trap::UndefinedElement));
         };
 
         let Some(func_ref) = table.addr() else {
-            return cold!(Err(Trap::UninitializedElement { index: table_idx }.into()));
+            crate::log::debug!("uninitialized element: index={table_idx}");
+            return cold!(Err(Trap::UninitializedElement));
         };
 
         self.exec_typed_call::<TAIL>(func_ref, self.module.resolve_type_addr(type_addr), return_instr_ptr)
@@ -707,11 +696,13 @@ impl<'store> Executor<'store> {
     ) -> ExecResult<ExecFlow> {
         let type_addr = self.code.funcs.type_addr(func_addr);
         if !self.state.type_addr_is_subtype(type_addr, expected_type_addr) {
-            return cold!(Err(Trap::IndirectCallTypeMismatch {
-                actual: Box::new(self.state.get_canonical_func_type(type_addr).clone()),
-                expected: Box::new(self.state.get_canonical_func_type(expected_type_addr).clone()),
-            }
-            .into()));
+            #[cfg(feature = "debug")]
+            crate::log::debug!(
+                "indirect call type mismatch: expected={:?}, actual={:?}",
+                self.state.get_canonical_func_type(expected_type_addr),
+                self.state.get_canonical_func_type(type_addr)
+            );
+            return cold!(Err(Trap::IndirectCallTypeMismatch));
         }
         self.exec_call_resolved::<TAIL>(func_addr, return_instr_ptr)
     }
@@ -740,7 +731,7 @@ impl<'store> Executor<'store> {
         self.charge_call_fuel(FUEL_COST_CALL_TOTAL);
         let func_ref = ValueRef::stack_pop(&mut self.value_stack);
         let Some(func_addr) = func_ref.addr() else {
-            return cold!(Err(Trap::NullFunctionReference.into()));
+            return cold!(Err(Trap::NullFunctionReference));
         };
 
         self.exec_typed_call::<TAIL>(func_addr, self.module.resolve_type_addr(type_addr), return_instr_ptr)
@@ -800,11 +791,7 @@ impl<'store> Executor<'store> {
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
             let base = if kind.arch() == MemoryArch::I64 {
                 let base = u64::local_get(&self.value_stack, &self.cf, u16::from(addr_local));
-                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds {
-                    offset: usize::MAX,
-                    len: N,
-                    max: mem.len(),
-                }))?
+                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds))?
             } else {
                 u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
             };
@@ -825,11 +812,7 @@ impl<'store> Executor<'store> {
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
             let base = if kind.arch() == MemoryArch::I64 {
                 let base = i64::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as u64;
-                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds {
-                    offset: usize::MAX,
-                    len: N,
-                    max: mem.len(),
-                }))?
+                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds))?
             } else {
                 u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
             };
@@ -880,11 +863,7 @@ impl<'store> Executor<'store> {
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
             let base = if kind.arch() == MemoryArch::I64 {
                 let base = i64::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as u64;
-                cold_err!(usize::try_from(base)).map_err(|_| Trap::MemoryOutOfBounds {
-                    offset: usize::MAX,
-                    len: N,
-                    max: mem.len(),
-                })?
+                cold_err!(usize::try_from(base)).map_err(|_| Trap::MemoryOutOfBounds)?
             } else {
                 u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
             };
@@ -994,7 +973,7 @@ impl<'store> Executor<'store> {
             [field_index as usize]
             .storage;
         let object = self.state.gc_object(reference, type_addr)?;
-        let object = self.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
+        let object = self.state.gc.get_handle(object).ok_or(Trap::InvalidReference)?;
         let value = *object.values.get(field_index as usize).expect("validated struct field index");
         push_value(&mut self.value_stack, value, storage, signed);
         Ok(())
@@ -1050,7 +1029,7 @@ impl<'store> Executor<'store> {
         let type_addr = self.module.resolve_type_addr(type_index);
         let storage = self.state.get_type(type_addr).as_array().expect("validated array.get type").field.storage;
         let object = self.state.gc_object(reference, type_addr)?;
-        let object = self.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
+        let object = self.state.gc.get_handle(object).ok_or(Trap::InvalidReference)?;
         let value = *object.values.get(index).ok_or(Trap::ArrayOutOfBounds)?;
         push_value(&mut self.value_stack, value, storage, signed);
         Ok(())
@@ -1071,12 +1050,12 @@ impl<'store> Executor<'store> {
         if reference.is_null() {
             return Err(Trap::NullArrayReference);
         }
-        let object = self.state.gc.get(reference).ok_or(Trap::Other("invalid GC reference"))?;
+        let object = self.state.gc.get(reference).ok_or(Trap::InvalidReference)?;
         let crate::store::GcObjectKind::Composite(type_addr) = object.kind else {
-            return Err(Trap::Other("GC reference is not an array"));
+            return Err(Trap::InvalidReference);
         };
         if self.state.get_type(type_addr).as_array().is_none() {
-            return Err(Trap::Other("GC reference is not an array"));
+            return Err(Trap::InvalidReference);
         }
         i32::stack_push(&mut self.value_stack, object.values.len() as i32);
         Ok(())
@@ -1090,7 +1069,7 @@ impl<'store> Executor<'store> {
         let index = u32::stack_pop(&mut self.value_stack) as usize;
         let reference = ValueRef::stack_pop(&mut self.value_stack);
         let object = self.state.gc_object(reference, type_addr)?;
-        let object_ref = self.state.gc.get_handle(object).ok_or(Trap::Other("invalid GC reference"))?;
+        let object_ref = self.state.gc.get_handle(object).ok_or(Trap::InvalidReference)?;
         let end = index.checked_add(len).filter(|end| *end <= object_ref.values.len()).ok_or(Trap::ArrayOutOfBounds)?;
         self.state.gc.fill(object, index..end, value).expect("live array range");
         Ok(())
@@ -1255,9 +1234,8 @@ impl<'store> Executor<'store> {
 
     fn exec_memory_fill_impl(&mut self, mem_addr: MemAddr, dst: usize, val: u8, size: usize) -> Result<(), Trap> {
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            let max = mem.len();
             if mem.fill(dst, size, val).is_none() {
-                return cold!(Err(Trap::MemoryOutOfBounds { offset: dst, len: size, max }));
+                return cold!(Err(crate::store::memory_oob(dst, size, mem.len())));
             }
             Ok(())
         })
@@ -1276,17 +1254,16 @@ impl<'store> Executor<'store> {
         let data = self.state.data[self.module.resolve_data_addr(data_index) as usize].data.clone();
         // Dropped segments behave like empty segments, including valid zero-length copies.
         let data = data.as_deref().unwrap_or_default();
-        let end = offset.checked_add(size).filter(|&end| end <= data.len()).ok_or(Trap::MemoryOutOfBounds {
-            offset,
-            len: size,
-            max: data.len(),
-        })?;
+        let end = offset
+            .checked_add(size)
+            .filter(|&end| end <= data.len())
+            .ok_or_else(|| crate::store::memory_oob(offset, size, data.len()))?;
         crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            cold_err!(mem.write_all(dst, &data[offset..end]).ok_or_else(|| Trap::MemoryOutOfBounds {
-                offset: dst,
-                len: size,
-                max: mem.len(),
-            }))
+            cold_err!(mem.write_all(dst, &data[offset..end]).ok_or_else(|| crate::store::memory_oob(
+                dst,
+                size,
+                mem.len()
+            )))
         })
     }
 
@@ -1377,12 +1354,12 @@ impl<'store> Executor<'store> {
             }
 
             if op != AtomicWaitOp::Notify && !kind.shared() {
-                return cold!(Err(Trap::Other("atomic wait requires shared memory")));
+                return cold!(Err(Trap::AtomicWaitNonSharedMemory));
             }
 
             // Check the entire access even for notify and even when no waiter exists.
             if mem.checked_range(addr, width).is_none() {
-                return cold!(Err(Trap::MemoryOutOfBounds { offset: addr, len: width, max: mem.len() }));
+                return cold!(Err(crate::store::memory_oob(addr, width, mem.len())));
             }
 
             Ok(addr)
@@ -1547,11 +1524,11 @@ impl<'store> Executor<'store> {
         let table_addr = self.module.resolve_table_addr(operand.b());
         let dst = self.pop_table_operand(self.state.get_table(table_addr).kind.arch())?; // d
         let elem_addr = self.module.resolve_elem_addr(operand.a()) as usize;
-        let elem = self.state.elements.get(elem_addr).ok_or_else(|| Trap::Other("element not found"))?;
+        let elem = self.state.elements.get(elem_addr).ok_or(Trap::TableOutOfBounds)?;
         let items = elem.items_range(offset, size)?;
 
         let table = self.state.tables.get_mut(table_addr as usize);
-        table.ok_or_else(|| Trap::Other("table not found"))?.init(dst, items)
+        table.ok_or(Trap::TableOutOfBounds)?.init(dst, items)
     }
 
     fn exec_table_grow(&mut self, table_index: u32) -> Result<(), Trap> {
@@ -1586,11 +1563,7 @@ impl<'store> Executor<'store> {
             MemoryArch::I32 => i32::stack_pop(&mut self.value_stack) as u32 as u64,
             MemoryArch::I64 => i64::stack_pop(&mut self.value_stack) as u64,
         };
-        cold_err!(usize::try_from(value).map_err(|_| Trap::TableOutOfBounds {
-            offset: usize::MAX,
-            len: 1,
-            max: usize::MAX,
-        }))
+        cold_err!(usize::try_from(value).map_err(|_| Trap::TableOutOfBounds))
     }
 }
 

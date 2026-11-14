@@ -227,7 +227,7 @@ fn build_imports() -> Imports {
             let data = data
                 .get(offset..)
                 .and_then(|data| data.get(..len))
-                .ok_or(tinywasm::Trap::MemoryOutOfBounds { offset, len, max: data.len() })?;
+                .ok_or(tinywasm::Trap::MemoryOutOfBounds)?;
             let state = ctx.state::<HostState>().unwrap();
             let Some(mut file) = state.files.get(&handle) else {
                 return Ok(-1);

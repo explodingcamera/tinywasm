@@ -7,12 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.0-beta.0] - 2026-11-01
-
 Preliminary x86-64 benchmarks show around a 20% performance improvement over 0.11.0 on nightly, depending on the workload.
 
 ### Breaking Changes
 
+- Simplified and renamed trap variants, and moved host callback errors to `Error::HostFunction`, preserving their sources.
 - Renamed the `simd-x86` Cargo feature to `simd-intrinsics`.
 - Enabled `nightly` and `simd-intrinsics` by default. `full` is unchanged.
 - Removed `resume_with_time_budget`. Use `resume_with_fuel` and application-managed deadlines.

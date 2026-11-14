@@ -472,14 +472,13 @@ impl Memory {
         let mem = self.instance(store)?;
         mem.inner
             .read_exact(offset, dst)
-            .ok_or_else(|| Trap::MemoryOutOfBounds { offset, len: dst.len(), max: mem.inner.len() }.into())
+            .ok_or_else(|| crate::store::memory_oob(offset, dst.len(), mem.inner.len()).into())
     }
 
     /// Reads `len` bytes from memory into a newly allocated buffer.
     pub fn read_vec(&self, store: &Store, offset: usize, len: usize) -> Result<Vec<u8>> {
-        self.instance(store)?.inner.read_vec(offset, len).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds { offset, len, max: self.instance(store).unwrap().inner.len() })
-        })
+        let mem = self.instance(store)?;
+        mem.inner.read_vec(offset, len).ok_or_else(|| crate::store::memory_oob(offset, len, mem.inner.len()).into())
     }
 
     /// Grows the memory by the given number of pages.
@@ -505,9 +504,8 @@ impl Memory {
 
     /// Fill a slice of memory with a value.
     pub fn fill(&self, store: &mut Store, offset: usize, len: usize, val: u8) -> Result<()> {
-        self.instance_mut(store)?.inner.fill(offset, len, val).ok_or_else(|| {
-            Error::Trap(crate::Trap::MemoryOutOfBounds { offset, len, max: self.instance(store).unwrap().inner.len() })
-        })
+        let mem = self.instance_mut(store)?;
+        mem.inner.fill(offset, len, val).ok_or_else(|| crate::store::memory_oob(offset, len, mem.inner.len()).into())
     }
 
     /// Copies a full slice into memory.
@@ -515,7 +513,7 @@ impl Memory {
         let mem = self.instance_mut(store)?;
         mem.inner
             .write_all(offset, data)
-            .ok_or_else(|| Trap::MemoryOutOfBounds { offset, len: data.len(), max: mem.inner.len() }.into())
+            .ok_or_else(|| crate::store::memory_oob(offset, data.len(), mem.inner.len()).into())
     }
 
     /// Copies a nul-terminated C string into memory.
@@ -571,14 +569,14 @@ fn table_value_to_element(
     value: WasmValue,
 ) -> Result<ValueRef, Trap> {
     let WasmValue::Ref(reference) = &value else {
-        return Err(Trap::Other("invalid table value type"));
+        return Err(Trap::InvalidTableValueType);
     };
     if !store.value_matches_type(&value, WasmType::Ref(element_type)) {
-        return Err(Trap::Other("invalid table value type"));
+        return Err(Trap::InvalidTableValueType);
     }
     store.encode_ref(reference).map_err(|error| match error {
         Error::Trap(trap) => trap,
-        _ => Trap::Other("invalid table value type"),
+        _ => Trap::InvalidTableValueType,
     })
 }
 

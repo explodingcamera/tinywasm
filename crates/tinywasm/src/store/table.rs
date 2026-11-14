@@ -38,8 +38,9 @@ impl TableInstance {
 
     #[inline(never)]
     #[cold]
-    fn trap_oob(&self, addr: usize, len: usize) -> Trap {
-        crate::Trap::TableOutOfBounds { offset: addr, len, max: self.elements.len() }
+    fn trap_oob(&self, _addr: usize, _len: usize) -> Trap {
+        crate::log::debug!("out of bounds table access: offset={}, len={}, max={}", _addr, _len, self.elements.len());
+        crate::Trap::TableOutOfBounds
     }
 
     fn checked_range(&self, addr: usize, len: usize) -> Result<Range<usize>, Trap> {

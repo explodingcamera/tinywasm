@@ -29,7 +29,7 @@ pub(crate) const SHARED_MEM_BIT: MemAddr = 1 << 31;
 
 use const_expr::eval_const;
 pub(crate) use gc::{GcObjectKind, data_range, decode_data, default_value, pop_value, push_value};
-pub(crate) use memory::{MemValue, MemoryInstance};
+pub(crate) use memory::{MemValue, MemoryInstance, memory_oob};
 #[cfg(feature = "std")]
 pub use memory::{MemoryShared, MemorySharedGuard};
 pub(crate) use state::State;
@@ -525,10 +525,9 @@ impl Store {
     /// Marks the store as executing until the returned guard drops, including during unwinding.
     pub(crate) fn enter_execution(&mut self) -> Result<Execution<'_>> {
         if self.execution_active {
-            return Err(Trap::Other(
+            return Err(Error::other(
                 "cannot call a function while another invocation is active; use FuncContext::call from host functions",
-            )
-            .into());
+            ));
         }
         self.execution_active = true;
         Ok(Execution { store: self })
@@ -769,17 +768,12 @@ impl Store {
                         .copied()
                         .ok_or_else(|| Error::Other(format!("table {table} not found for element {i}")))?;
 
-                    let Some(table) = self.state.tables.get_mut(table_addr as usize) else {
+                    if self.state.tables.get(table_addr as usize).is_none() {
                         return Err(Error::Other(format!("table {table} not found for element {i}")));
-                    };
+                    }
 
                     let Ok(offset) = usize::try_from(offset) else {
-                        return Err(Trap::TableOutOfBounds {
-                            offset: usize::MAX,
-                            len: self.state.elements[elem_addr].items.as_ref().unwrap().len(),
-                            max: table.size(),
-                        }
-                        .into());
+                        return Err(Trap::TableOutOfBounds.into());
                     };
 
                     let State { elements, tables, .. } = &mut self.state;

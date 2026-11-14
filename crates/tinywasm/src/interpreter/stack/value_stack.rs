@@ -60,11 +60,7 @@ impl ValueStack {
                 #[cfg(target_pointer_width = "64")]
                 return Ok(value as usize);
                 #[cfg(not(target_pointer_width = "64"))]
-                return cold_err!(usize::try_from(value).map_err(|_| Trap::MemoryOutOfBounds {
-                    offset: usize::MAX,
-                    len: 0,
-                    max: usize::MAX,
-                }));
+                return cold_err!(usize::try_from(value).map_err(|_| Trap::MemoryOutOfBounds));
             }
         }
     }

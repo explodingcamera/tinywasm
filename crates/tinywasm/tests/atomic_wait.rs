@@ -21,11 +21,8 @@ fn ordinary_memory_atomics_and_wait() -> Result<(), Box<dyn core::error::Error>>
     assert_eq!(instance.func::<(), i32>(&store, "add")?.call(&mut store, ())?, 1);
     assert_eq!(instance.func::<(), i32>(&store, "notify")?.call(&mut store, ())?, 0);
     let wait = instance.func::<i32, i32>(&store, "wait")?;
-    assert!(matches!(wait.call(&mut store, 0), Err(Error::Trap(Trap::Other("atomic wait requires shared memory")))));
-    assert!(matches!(
-        wait.call(&mut store, 65536),
-        Err(Error::Trap(Trap::Other("atomic wait requires shared memory")))
-    ));
+    assert!(matches!(wait.call(&mut store, 0), Err(Error::Trap(Trap::AtomicWaitNonSharedMemory))));
+    assert!(matches!(wait.call(&mut store, 65536), Err(Error::Trap(Trap::AtomicWaitNonSharedMemory))));
     assert!(matches!(wait.call(&mut store, 1), Err(Error::Trap(Trap::UnalignedAtomic))));
     Ok(())
 }

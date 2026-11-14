@@ -69,7 +69,7 @@ pub(crate) fn data_range(
     };
     let Some(end) = len.checked_mul(width).and_then(|bytes| src.checked_add(bytes)).filter(|&end| end <= data.len())
     else {
-        return Err(Trap::MemoryOutOfBounds { offset: src, len: len.saturating_mul(width), max: data.len() });
+        return Err(super::memory::memory_oob(src, len.saturating_mul(width), data.len()));
     };
     Ok((src..end, width))
 }

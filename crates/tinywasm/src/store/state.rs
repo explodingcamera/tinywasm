@@ -306,14 +306,14 @@ impl State {
                 Trap::NullStructReference
             });
         }
-        let object = self.gc.get(reference).ok_or(Trap::Other("invalid GC reference"))?;
+        let object = self.gc.get(reference).ok_or(Trap::InvalidReference)?;
         let gc::GcObjectKind::Composite(type_addr) = object.kind else {
-            return Err(Trap::Other("GC reference is not a struct or array"));
+            return Err(Trap::InvalidReference);
         };
         if !self.type_addr_is_subtype(type_addr, expected_type) {
-            return Err(Trap::Other("GC reference type mismatch"));
+            return Err(Trap::InvalidReference);
         }
-        self.gc.handle(reference).ok_or(Trap::Other("invalid GC reference"))
+        self.gc.handle(reference).ok_or(Trap::InvalidReference)
     }
 
     /// Returns whether one canonical type is a subtype of another.

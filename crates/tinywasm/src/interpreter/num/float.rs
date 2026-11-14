@@ -58,7 +58,7 @@ macro_rules! impl_float_ops {
                 pub(crate) fn $name(value: Float) -> Result<$to, Trap> {
                     if value.is_nan() {
                         core::hint::cold_path();
-                        return Err(Trap::InvalidConversionToInt);
+                        return Err(Trap::InvalidConversionToInteger);
                     }
                     if value <= $min || value >= <$to>::MAX as Float + 1.0 {
                         core::hint::cold_path();

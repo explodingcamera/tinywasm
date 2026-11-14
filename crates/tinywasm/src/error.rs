@@ -16,6 +16,9 @@ pub enum Error {
     /// A WebAssembly trap occurred
     Trap(Trap),
 
+    /// A host callback failed, retaining its original error outside interpreter dispatch.
+    HostFunction(Box<dyn core::error::Error + Send + Sync>),
+
     /// An uncaught WebAssembly exception occurred.
     Exception(ExnRef),
 
@@ -55,6 +58,7 @@ impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Trap(a), Self::Trap(b)) => a == b,
+            (Self::HostFunction(_), Self::HostFunction(_)) => true,
             (Self::Exception(a), Self::Exception(b)) => a == b,
             (Self::Linker(a), Self::Linker(b)) => a == b,
             (Self::UnsupportedFeature(a), Self::UnsupportedFeature(b)) => a == b,
@@ -109,49 +113,36 @@ impl Error {
 
 /// An execution or runtime trap.
 ///
-/// This includes WebAssembly traps and TinyWasm runtime failures.
+/// Variant names follow WebAssembly testsuite trap messages where possible. This also includes
+/// TinyWasm runtime failures, such as stack exhaustion, allocation failure, and invalid host handles.
+/// Host callback errors are reported separately as [`Error::HostFunction`].
 ///
 /// See <https://webassembly.github.io/spec/core/exec/runtime.html#syntax-trap>
 #[non_exhaustive]
 #[cfg_attr(feature = "debug", derive(Debug))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
 pub enum Trap {
     /// An unreachable instruction was executed
     Unreachable,
 
-    /// A host function returned an error
-    HostFunction(Box<dyn core::error::Error + Send + Sync>),
-
     /// An out-of-bounds memory access occurred
-    MemoryOutOfBounds {
-        /// The offset of the access
-        offset: usize,
-        /// The size of the access
-        len: usize,
-        /// The current memory length in bytes.
-        max: usize,
-    },
+    MemoryOutOfBounds,
 
     /// An atomic memory access was not naturally aligned.
     UnalignedAtomic,
 
     /// An out-of-bounds table access occurred
-    TableOutOfBounds {
-        /// The offset of the access
-        offset: usize,
-        /// The size of the access
-        len: usize,
-        /// The current table length in elements.
-        max: usize,
-    },
+    TableOutOfBounds,
 
     /// An out-of-bounds GC array access occurred.
     ArrayOutOfBounds,
 
-    /// A division by zero occurred
-    DivisionByZero,
+    /// An integer division or remainder operation used a zero divisor.
+    IntegerDivisionByZero,
 
-    /// Invalid Integer Conversion
-    InvalidConversionToInt,
+    /// A NaN value was converted to an integer.
+    InvalidConversionToInteger,
 
     /// A Store-owned handle or reference was used with a different Store.
     InvalidStore,
@@ -171,17 +162,11 @@ pub enum Trap {
     /// An allocation or requested resource size could not be satisfied.
     OutOfMemory,
 
-    /// An undefined element was encountered
-    UndefinedElement {
-        /// The element index
-        index: usize,
-    },
+    /// An indirect call used an out-of-bounds table index.
+    UndefinedElement,
 
-    /// An uninitialized element was encountered
-    UninitializedElement {
-        /// The element index
-        index: usize,
-    },
+    /// An indirect call selected a null table element.
+    UninitializedElement,
 
     /// A null reference was used where a non-null reference was required.
     NullReference,
@@ -202,15 +187,13 @@ pub enum Trap {
     CastFailure,
 
     /// Indirect call type mismatch
-    IndirectCallTypeMismatch {
-        /// The expected type
-        expected: Box<FuncType>,
-        /// The actual type
-        actual: Box<FuncType>,
-    },
+    IndirectCallTypeMismatch,
 
-    /// Catch-all for other messages
-    Other(&'static str),
+    /// An atomic wait was attempted on an ordinary memory.
+    AtomicWaitNonSharedMemory,
+
+    /// A value does not match a table's element type.
+    InvalidTableValueType,
 }
 
 impl Trap {
@@ -218,36 +201,30 @@ impl Trap {
     pub fn message(&self) -> &'static str {
         match self {
             Self::Unreachable => "unreachable",
-            Self::MemoryOutOfBounds { .. } => "out of bounds memory access",
+            Self::MemoryOutOfBounds => "out of bounds memory access",
             Self::UnalignedAtomic => "unaligned atomic",
-            Self::TableOutOfBounds { .. } => "out of bounds table access",
+            Self::TableOutOfBounds => "out of bounds table access",
             Self::ArrayOutOfBounds => "out of bounds array access",
-            Self::DivisionByZero => "integer divide by zero",
-            Self::InvalidConversionToInt => "invalid conversion to integer",
+            Self::IntegerDivisionByZero => "integer divide by zero",
+            Self::InvalidConversionToInteger => "invalid conversion to integer",
             Self::IntegerOverflow => "integer overflow",
             Self::CallStackOverflow => "call stack exhausted",
             Self::ValueStackOverflow => "value stack exhausted",
             Self::OutOfMemory => "out of memory",
-            Self::UndefinedElement { .. } => "undefined element",
-            Self::UninitializedElement { .. } => "uninitialized element",
+            Self::UndefinedElement => "undefined element",
+            Self::UninitializedElement => "uninitialized element",
             Self::NullReference => "null reference",
             Self::NullStructReference => "null structure reference",
             Self::NullArrayReference => "null array reference",
             Self::NullFunctionReference => "null function reference",
             Self::NullI31Reference => "null i31 reference",
             Self::CastFailure => "cast failure",
-            Self::IndirectCallTypeMismatch { .. } => "indirect call type mismatch",
-            Self::HostFunction(_) => "host function trap",
+            Self::IndirectCallTypeMismatch => "indirect call type mismatch",
+            Self::AtomicWaitNonSharedMemory => "atomic wait requires shared memory",
+            Self::InvalidTableValueType => "invalid table value type",
             Self::InvalidStore => "invalid store",
             Self::InvalidReference => "invalid reference",
-            Self::Other(message) => message,
         }
-    }
-}
-
-impl PartialEq for Trap {
-    fn eq(&self, other: &Self) -> bool {
-        self.message() == other.message()
     }
 }
 
@@ -293,6 +270,7 @@ impl Display for Error {
 
             Self::Twasm(err) => write!(f, "serialization error: {err}"),
             Self::Trap(trap) => write!(f, "trap: {trap}"),
+            Self::HostFunction(error) => write!(f, "host function trap: {error}"),
             Self::Exception(_) => write!(f, "uncaught WebAssembly exception"),
             Self::Linker(err) => write!(f, "linking error: {err}"),
             Self::InvalidLabelType => write!(f, "invalid label type"),
@@ -321,43 +299,7 @@ impl Display for LinkingError {
 
 impl Display for Trap {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Other(message) => write!(f, "{message}"),
-            Self::HostFunction(message) => write!(f, "host function trap: {message}"),
-            Self::Unreachable => write!(f, "unreachable"),
-            Self::MemoryOutOfBounds { offset, len, max } => {
-                write!(f, "out of bounds memory access: offset={offset}, len={len}, max={max}")
-            }
-            Self::UnalignedAtomic => write!(f, "unaligned atomic"),
-            Self::TableOutOfBounds { offset, len, max } => {
-                write!(f, "out of bounds table access: offset={offset}, len={len}, max={max}")
-            }
-            Self::ArrayOutOfBounds => write!(f, "out of bounds array access"),
-            Self::DivisionByZero => write!(f, "integer divide by zero"),
-            Self::InvalidConversionToInt => write!(f, "invalid conversion to integer"),
-            Self::IntegerOverflow => write!(f, "integer overflow"),
-            Self::CallStackOverflow => write!(f, "call stack exhausted"),
-            Self::ValueStackOverflow => write!(f, "value stack exhausted"),
-            Self::OutOfMemory => write!(f, "out of memory"),
-            Self::UndefinedElement { index } => write!(f, "undefined element: index={index}"),
-            Self::UninitializedElement { index } => {
-                write!(f, "uninitialized element: index={index}")
-            }
-            Self::NullReference => write!(f, "null reference"),
-            Self::NullStructReference => write!(f, "null structure reference"),
-            Self::NullArrayReference => write!(f, "null array reference"),
-            Self::NullFunctionReference => write!(f, "null function reference"),
-            Self::NullI31Reference => write!(f, "null i31 reference"),
-            Self::CastFailure => write!(f, "cast failure"),
-            Self::InvalidStore => write!(f, "invalid store"),
-            Self::InvalidReference => write!(f, "invalid reference"),
-            #[cfg(feature = "debug")]
-            Self::IndirectCallTypeMismatch { expected, actual } => {
-                write!(f, "indirect call type mismatch: expected={expected:?}, actual={actual:?}")
-            }
-            #[cfg(not(feature = "debug"))]
-            Self::IndirectCallTypeMismatch { .. } => write!(f, "indirect call type mismatch"),
-        }
+        f.write_str(self.message())
     }
 }
 
@@ -367,7 +309,14 @@ impl Debug for Error {
     }
 }
 
-impl core::error::Error for Error {}
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::HostFunction(error) => Some(&**error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(feature = "std")]
 impl From<Error> for crate::std::io::Error {

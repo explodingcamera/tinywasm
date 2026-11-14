@@ -9,7 +9,7 @@ macro_rules! impl_int_ops {
         #[inline]
         pub(crate) fn div(lhs: Int, rhs: Int) -> Result<Int, Trap> {
             if rhs == 0 {
-                return Err(Trap::DivisionByZero);
+                return Err(Trap::IntegerDivisionByZero);
             }
             lhs.checked_div(rhs).ok_or_else(|| Trap::IntegerOverflow)
         }
@@ -18,7 +18,7 @@ macro_rules! impl_int_ops {
         #[inline]
         pub(crate) fn rem(lhs: Int, rhs: Int) -> Result<Int, Trap> {
             if rhs == 0 {
-                return Err(Trap::DivisionByZero);
+                return Err(Trap::IntegerDivisionByZero);
             }
             Ok(lhs.wrapping_rem(rhs))
         }

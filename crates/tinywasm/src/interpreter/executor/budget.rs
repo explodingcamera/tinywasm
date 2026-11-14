@@ -30,7 +30,8 @@ impl Executor<'_> {
 
     /// Settles attempted instructions on an ordinary trap, using the dispatcher's existing IP.
     #[cold]
-    pub(super) fn settle_error(&mut self, instr_ptr: usize, error: ExecError) -> ExecError {
+    #[inline(never)]
+    pub(super) fn settle_error(&mut self, instr_ptr: usize, error: Trap) -> Trap {
         self.charge_instructions(instr_ptr + 1);
         error
     }
@@ -82,7 +83,7 @@ impl Executor<'_> {
             self.suspend(self.cf.instr_ptr);
             return Ok(self.outcome);
         }
-        self.dispatch().map_err(|error| Error::Trap(*error.0))?;
+        self.dispatch()?;
         Ok(self.outcome)
     }
 
@@ -236,7 +237,7 @@ mod tests {
         for (policy, cost) in [(FuelPolicy::PerInstruction, 2), (FuelPolicy::Weighted, 6)] {
             let (mut store, frame) = prepare(source, policy);
             let result = InterpreterRuntime::exec_with_fuel(&mut store, frame, 100);
-            assert!(matches!(result, Err(Error::Trap(Trap::UninitializedElement { .. }))));
+            assert!(matches!(result, Err(Error::Trap(Trap::UninitializedElement))));
             assert_eq!(store.execution_fuel, 100 - cost);
         }
     }

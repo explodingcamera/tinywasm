@@ -20,7 +20,8 @@ impl ElementInstance {
         let items = self.items.as_deref().unwrap_or(&[]);
         let end = offset.checked_add(len).filter(|end| *end <= items.len()).ok_or_else(|| {
             core::hint::cold_path();
-            Trap::TableOutOfBounds { offset, len, max: items.len() }
+            crate::log::debug!("out of bounds element access: offset={offset}, len={len}, max={}", items.len());
+            Trap::TableOutOfBounds
         })?;
         Ok(&items[offset..end])
     }

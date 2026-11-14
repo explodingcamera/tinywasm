@@ -77,7 +77,7 @@ macro_rules! instruction_handlers {
     ($emit:ident $(, $abi:literal)?) => {
         $emit! { $($abi;)? executor, instr_ptr, dispatch_jump, dispatch_flow;
             Checkpoint => { return Ok(ExecFlow::Checkpoint(instr_ptr + 1)); },
-            Unreachable => { return cold!(Err(Trap::Unreachable.into())); },
+            Unreachable => { return cold!(Err(Trap::Unreachable)); },
             Drop32 => { _ = Value32::stack_pop(&mut executor.value_stack)},
             Drop64 => { _ = Value64::stack_pop(&mut executor.value_stack)},
             Drop128 => { _ = Value128::stack_pop(&mut executor.value_stack)},

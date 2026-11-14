@@ -53,7 +53,7 @@ fn atomic_alignment_and_bounds() -> TestResult {
     let instance = ModuleInstance::instantiate(&mut store, &module, None)?;
     let load = instance.func::<i32, i32>(&store, "load")?;
     assert!(matches!(load.call(&mut store, 0), Err(Error::Trap(Trap::UnalignedAtomic))));
-    assert!(matches!(load.call(&mut store, 65534), Err(Error::Trap(Trap::MemoryOutOfBounds { .. }))));
+    assert!(matches!(load.call(&mut store, 65534), Err(Error::Trap(Trap::MemoryOutOfBounds))));
 
     let invalid_alignment = wat::parse_str("(module (memory 1) (func i32.const 0 i32.atomic.load align=1 drop))")?;
     assert!(tinywasm::parse_bytes(&invalid_alignment).is_err());
