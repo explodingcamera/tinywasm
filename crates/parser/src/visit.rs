@@ -42,6 +42,11 @@ struct ControlFrame<'a> {
     end_reachable: bool,
 }
 
+struct BranchDestination {
+    frame: usize,
+    shape: Option<(ValueCounts, ValueCounts)>,
+}
+
 /// Module-owned physical lane signature, borrowed by control frames.
 pub(crate) struct Signature {
     pub params: Vec<ValueLane>,
@@ -1012,7 +1017,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             self.max_lane_counts.c128 = self.max_lane_counts.c128.max(landing_counts.c128);
             let landing_label = self.emitter.new_label();
             self.emitter.bind(landing_label)?;
-            self.emit_branch_jump_or_return(depth)?;
+            self.emit_jump_or_return(target_idx)?;
             let landing_pad = 0;
             catches.push((
                 match tag {
@@ -1103,89 +1108,65 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     }
 
     fn visit_br(&mut self, depth: u32) -> Result<()> {
-        self.emit_dropkeep_to_label(depth)?;
-        self.emit_branch_jump_or_return(depth)?;
+        self.emit_branch_transfer(self.branch_destination(depth)?)?;
         self.mark_unreachable();
         Ok(())
     }
 
     fn visit_br_if(&mut self, depth: u32) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
-        let ctx_idx = self.get_ctx_idx(depth)?;
-        let frame = &self.control_stack[ctx_idx];
-        let types =
-            if matches!(frame.kind, BlockKind::Loop) { frame.signature.params() } else { frame.signature.results() };
-        let keep = Self::value_counts(types);
-        let needs_shaping = !self.is_unreachable() && self.needs_dropkeep(frame.base, keep);
-        if !needs_shaping && !matches!(frame.kind, BlockKind::Function) {
-            let target = if let Some(start) = frame.loop_start {
-                start
-            } else {
-                *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label())
-            };
+        let destination = self.branch_destination(depth)?;
+        if destination.shape.is_none()
+            && let Some(target) = self.branch_label(destination.frame)
+        {
             self.emitter.branch_if(false, target)?;
-            self.control_stack[ctx_idx].end_reachable = true;
+            // Preserve legacy reachability for direct br_if backedges only.
+            self.control_stack[destination.frame].end_reachable = true;
             return Ok(());
         }
         let fallthrough = self.emitter.new_label();
         self.emitter.branch_if(true, fallthrough)?;
-        self.emit_dropkeep_to_label(depth)?;
-        self.emit_branch_jump_or_return(depth)?;
+        self.emit_branch_transfer(destination)?;
         self.emitter.bind(fallthrough)?;
         Ok(())
     }
 
     fn visit_br_table(&mut self, targets: wasmparser::BrTable<'_>) -> Result<()> {
-        let ts = targets.targets().collect::<Result<Vec<_>, wasmparser::Error>>()?;
+        let depths = targets.targets().collect::<Result<Vec<_>, wasmparser::Error>>()?;
         self.pop_expect(ValueLane::S32)?;
 
-        let default_depth = targets.default();
-        let target_depths: Vec<u32> = ts;
-        let mut pads: Vec<(u32, LabelId)> = Vec::new();
-        let label_count = target_depths
-            .len()
-            .checked_add(1)
-            .ok_or_else(|| crate::ParseError::Other("branch table is too large".into()))?;
+        let mut pads = Vec::new();
+        let label_count =
+            depths.len().checked_add(1).ok_or_else(|| crate::ParseError::Other("branch table is too large".into()))?;
         let mut labels = Vec::with_capacity(label_count);
-        for &depth in target_depths.iter().chain(core::iter::once(&default_depth)) {
-            if self.emitter.optimizations_enabled() && !self.is_unreachable() {
-                let ctx_idx = self.get_ctx_idx(depth)?;
-                let frame = &self.control_stack[ctx_idx];
-                let is_loop = matches!(frame.kind, BlockKind::Loop);
-                let types = if is_loop { frame.signature.params() } else { frame.signature.results() };
-                if !matches!(frame.kind, BlockKind::Function)
-                    && !self.needs_dropkeep(frame.base, Self::value_counts(types))
-                {
-                    let target = if let Some(start) = frame.loop_start {
-                        start
-                    } else {
-                        *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label())
-                    };
-                    labels.push(target);
-                    if !is_loop {
-                        self.control_stack[ctx_idx].end_reachable = true;
-                    }
-                    continue;
-                }
+        let reachable = !self.is_unreachable();
+        let direct = reachable && self.emitter.optimizations_enabled();
+        for depth in depths.into_iter().chain(core::iter::once(targets.default())) {
+            if let Some((_, label, _)) = pads.iter().find(|(pad_depth, _, _)| *pad_depth == depth) {
+                labels.push(*label);
+                continue;
             }
-            let label = if let Some((_, label)) = pads.iter().find(|(pad_depth, _)| *pad_depth == depth) {
-                *label
-            } else {
-                let label = self.emitter.new_label();
-                pads.push((depth, label));
-                label
-            };
+            let destination = reachable.then(|| self.branch_destination(depth)).transpose()?;
+            if direct
+                && let Some(dest) = &destination
+                && dest.shape.is_none()
+                && let Some(label) = self.branch_label(dest.frame)
+            {
+                labels.push(label);
+                continue;
+            }
+            let label = self.emitter.new_label();
+            pads.push((depth, label, destination));
             labels.push(label);
         }
         let default = labels.pop().unwrap();
         self.emitter.branch_table(&labels, default)?;
-        for (depth, label) in pads {
+        for (_, label, destination) in pads {
             self.emitter.bind(label)?;
-            if self.is_unreachable() {
-                self.emitter.emit_boundary(Instruction::Return)?;
+            if let Some(destination) = destination {
+                self.emit_branch_transfer(destination)?;
             } else {
-                self.emit_dropkeep_to_label(depth)?;
-                self.emit_branch_jump_or_return(depth)?;
+                self.emitter.emit_boundary(Instruction::Return)?;
             }
         }
         self.mark_unreachable();
@@ -1290,8 +1271,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         self.pop_expect(ValueLane::S32)?;
         let fallthrough = self.emitter.new_label();
         self.emitter.branch(Instruction::JumpIfRefNonNull(0), fallthrough)?;
-        self.emit_dropkeep_to_label(relative_depth)?;
-        self.emit_branch_jump_or_return(relative_depth)?;
+        self.emit_branch_transfer(self.branch_destination(relative_depth)?)?;
         self.emitter.bind(fallthrough)?;
         self.push_sizes(&[ValueLane::S32])
     }
@@ -1301,9 +1281,10 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         let fallthrough = self.emitter.new_label();
         self.emitter.branch(Instruction::JumpIfRefNull(0), fallthrough)?;
         self.push_sizes(&[ValueLane::S32])?;
-        self.emit_dropkeep_to_label(relative_depth)?;
+        let destination = self.branch_destination(relative_depth)?;
+        self.emit_branch_shape(&destination)?;
         self.pop_expect(ValueLane::S32)?;
-        self.emit_branch_jump_or_return(relative_depth)?;
+        self.emit_jump_or_return(destination.frame)?;
         self.emitter.bind(fallthrough)?;
         Ok(())
     }
@@ -1549,8 +1530,7 @@ impl<'a> FunctionBuilder<'a> {
             fallthrough,
         )?;
         self.push_sizes(&[ValueLane::S32])?;
-        self.emit_dropkeep_to_label(relative_depth)?;
-        self.emit_branch_jump_or_return(relative_depth)?;
+        self.emit_branch_transfer(self.branch_destination(relative_depth)?)?;
         self.emitter.bind(fallthrough)?;
         Ok(())
     }
@@ -1750,31 +1730,49 @@ impl<'a> FunctionBuilder<'a> {
         counts
     }
 
-    /// Shapes stack lanes to the values consumed by a branch target.
-    fn emit_dropkeep_to_label(&mut self, label_depth: u32) -> Result<()> {
-        if self.is_unreachable() {
-            return Ok(());
-        }
-        let frame = &self.control_stack[self.get_ctx_idx(label_depth)?];
-        let base = frame.base;
-        let label_types =
-            if matches!(frame.kind, BlockKind::Loop) { frame.signature.params() } else { frame.signature.results() };
-        self.emit_dropkeep(base, Self::value_counts(label_types))
+    fn branch_destination(&self, depth: u32) -> Result<BranchDestination> {
+        let frame = self.get_ctx_idx(depth)?;
+        let shape = if self.is_unreachable() {
+            None
+        } else {
+            let ctx = &self.control_stack[frame];
+            let types =
+                if matches!(ctx.kind, BlockKind::Loop) { ctx.signature.params() } else { ctx.signature.results() };
+            let keep = Self::value_counts(types);
+            self.needs_dropkeep(ctx.base, keep).then_some((ctx.base, keep))
+        };
+        Ok(BranchDestination { frame, shape })
     }
 
-    fn emit_branch_jump_or_return(&mut self, depth: u32) -> Result<()> {
-        let ctx_idx = self.get_ctx_idx(depth)?;
-        match self.control_stack[ctx_idx].kind {
-            BlockKind::Function => self.emitter.emit_boundary(Instruction::Return)?,
-            BlockKind::Loop => {
-                self.emitter.branch(Instruction::Jump(0), self.control_stack[ctx_idx].loop_start.unwrap())?
-            }
+    fn branch_label(&mut self, frame: usize) -> Option<LabelId> {
+        let ctx = &mut self.control_stack[frame];
+        match ctx.kind {
+            BlockKind::Function => None,
+            BlockKind::Loop => Some(ctx.loop_start.unwrap()),
             BlockKind::Block | BlockKind::If | BlockKind::TryTable => {
-                self.control_stack[ctx_idx].end_reachable = true;
-                let end = *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label());
-                self.emitter.branch(Instruction::Jump(0), end)?;
+                ctx.end_reachable = true;
+                Some(*ctx.end.get_or_insert_with(|| self.emitter.new_label()))
             }
         }
+    }
+
+    fn emit_branch_shape(&mut self, destination: &BranchDestination) -> Result<()> {
+        if let Some((base, keep)) = destination.shape {
+            self.emit_dropkeep(base, keep)?;
+        }
         Ok(())
+    }
+
+    fn emit_branch_transfer(&mut self, destination: BranchDestination) -> Result<()> {
+        self.emit_branch_shape(&destination)?;
+        self.emit_jump_or_return(destination.frame)
+    }
+
+    fn emit_jump_or_return(&mut self, frame: usize) -> Result<()> {
+        if let Some(label) = self.branch_label(frame) {
+            self.emitter.branch(Instruction::Jump(0), label)
+        } else {
+            self.emitter.emit_boundary(Instruction::Return)
+        }
     }
 }
