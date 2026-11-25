@@ -284,7 +284,10 @@ impl Emitter {
             match site {
                 PatchSite::Instruction(index) => {
                     let instruction = self.instructions.get_mut(index).ok_or_else(invalid_site)?;
-                    Self::patch_target(instruction, data, target)?;
+                    // Target operands are private allocations, never shared immutable entries.
+                    if !instruction.retarget(target, &mut data.operands64, &mut data.operands128) {
+                        return Err(invalid_site());
+                    }
                     if let Instruction::BranchTable(index) = instruction {
                         let operand = data.operand128(*index);
                         let end = operand.start().checked_add(operand.size()).ok_or_else(invalid_site)?;
@@ -322,47 +325,5 @@ impl Emitter {
             }
         }
         Ok((self.instructions, self.data))
-    }
-
-    fn patch_target(instruction: &mut Instruction, data: &mut FunctionDataBuilder, target: u32) -> Result<()> {
-        // Target operands are allocated separately from deduplicated immutable
-        // operands. Relocation changes only their target field, not pool layout.
-        macro_rules! patch {
-            ($index:expr, $pool:ident) => {{
-                let operand = data
-                    .$pool
-                    .get_mut($index.index())
-                    .ok_or_else(|| ParseError::Other("target operand out of bounds".into()))?;
-                *operand = operand.with_target(target);
-            }};
-        }
-        use Instruction::*;
-        match instruction {
-            Jump(value)
-            | JumpIfZero32(value)
-            | JumpIfNonZero32(value)
-            | JumpIfZero64(value)
-            | JumpIfNonZero64(value)
-            | JumpIfRefNull(value)
-            | JumpIfRefNonNull(value) => *value = target,
-            JumpIfLocalZero32(arg) | JumpIfLocalNonZero32(arg) | JumpIfLocalZero64(arg) | JumpIfLocalNonZero64(arg) => {
-                arg.target_ip = target
-            }
-            JumpCmpStackLocal32(packed) | JumpCmpStackLocal64(packed) => patch!(packed.index, operands64),
-            BrOnCast(index) | BrOnCastFail(index) => patch!(*index, operands64),
-            JumpCmpStackConst32(packed) => patch!(packed.index, operands64),
-            JumpCmpStackConst64(packed) => patch!(packed.index, operands128),
-            BinOpLocalConstJump32(packed) | BinOpStackConstTeeLocalJump32(packed) => patch!(packed.index, operands128),
-            BinOpLocalConstJumpCmpLocal32(packed) => patch!(packed.index, operands128),
-            BinOpGlobalConstJump32(packed) => patch!(packed.index, operands128),
-            IncLocalJump32(index) | IncStackTeeLocalJump32(index) => patch!(*index, operands128),
-            IncGlobalJump32(index) => patch!(*index, operands128),
-            IncLocalJumpCmpLocal32(packed) => patch!(packed.index, operands128),
-            JumpCmpLocalConst32(packed) | JumpCmpLocalConst64(packed) => patch!(packed.index, operands128),
-            JumpCmpLocalLocal32(packed) | JumpCmpLocalLocal64(packed) => patch!(packed.index, operands64),
-            BranchTable(index) => patch!(*index, operands128),
-            _ => return Err(ParseError::Other("unsupported instruction label patch".into())),
-        }
-        Ok(())
     }
 }

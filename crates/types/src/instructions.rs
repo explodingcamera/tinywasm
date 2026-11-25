@@ -598,8 +598,41 @@ pub enum BinOp128 {
     I64x2Mul,
 }
 
+macro_rules! instruction_pattern {
+    ($variant:ident, target, [$location:ident $binding:ident => $destination:expr]) => {
+        Instruction::$variant($binding)
+    };
+    ($variant:ident, target) => {
+        Instruction::$variant { .. }
+    };
+}
+
+macro_rules! instruction_retarget {
+    ($target:ident, $operands64:ident, $operands128:ident) => {
+        false
+    };
+    ($target:ident, $operands64:ident, $operands128:ident,
+        [inline $binding:ident => $destination:expr]) => {{
+        $destination = $target;
+        true
+    }};
+    ($target:ident, $operands64:ident, $operands128:ident,
+        [pool64 $binding:ident => $index:expr]) => {{
+        let Some(operand) = $operands64.get_mut(($index).index()) else { return false };
+        *operand = operand.with_target($target);
+        true
+    }};
+    ($target:ident, $operands64:ident, $operands128:ident,
+        [pool128 $binding:ident => $index:expr]) => {{
+        let Some(operand) = $operands128.get_mut(($index).index()) else { return false };
+        *operand = operand.with_target($target);
+        true
+    }};
+}
+
 macro_rules! define_instructions {
-    ($($variant:ident $(($($field:ty),* $(,)?))? $({ $($name:ident: $named_field:ty),* $(,)? })?),* $(,)?) => {
+    ($($variant:ident $(($($field:ty),* $(,)?))? $({ $($name:ident: $named_field:ty),* $(,)? })?
+        $(@target $target:tt)?),* $(,)?) => {
         /// A TinyWasm bytecode instruction.
         ///
         /// These instructions are an internal, version-specific representation and do not
@@ -625,6 +658,19 @@ macro_rules! define_instructions {
         }
 
         impl Instruction {
+            /// Updates this instruction's declared branch target.
+            ///
+            /// Pooled target operands must be private to the instruction, not shared
+            /// with immutable operands. Returns false for an unsupported instruction
+            /// or an out-of-bounds pool index, without changing either in that case.
+            #[doc(hidden)]
+            pub fn retarget(&mut self, target: u32, operands64: &mut [Operand64], operands128: &mut [Operand128]) -> bool {
+                match self {
+                    $(instruction_pattern!($variant, target $(, $target)?) =>
+                        instruction_retarget!(target, operands64, operands128 $(, $target)?),)*
+                }
+            }
+
             /// Returns the compact opcode used to dispatch this instruction.
             #[inline(always)]
             pub const fn opcode(&self) -> InstructionOpcode {
@@ -647,16 +693,16 @@ define_instructions! {
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
-    Jump(u32),
-    JumpIfZero32(u32),
-    JumpIfNonZero32(u32),
-    JumpIfZero64(u32),
-    JumpIfNonZero64(u32),
-    JumpIfRefNull(u32),
-    JumpIfRefNonNull(u32),
-    BrOnCast(Operand64Idx<(u32, u32)>),
-    BrOnCastFail(Operand64Idx<(u32, u32)>),
-    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>),
+    Jump(u32) @target [inline target => *target],
+    JumpIfZero32(u32) @target [inline target => *target],
+    JumpIfNonZero32(u32) @target [inline target => *target],
+    JumpIfZero64(u32) @target [inline target => *target],
+    JumpIfNonZero64(u32) @target [inline target => *target],
+    JumpIfRefNull(u32) @target [inline target => *target],
+    JumpIfRefNonNull(u32) @target [inline target => *target],
+    BrOnCast(Operand64Idx<(u32, u32)>) @target [pool64 index => *index],
+    BrOnCastFail(Operand64Idx<(u32, u32)>) @target [pool64 index => *index],
+    DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>) @target [pool128 index => *index],
     Return,
     ReturnVoid,
     Return32,
@@ -906,20 +952,20 @@ define_instructions! {
     CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
 
     // > Specialized branch instructions
-    JumpIfLocalZero32(TargetLocalArg), JumpIfLocalNonZero32(TargetLocalArg),
-    JumpIfLocalZero64(TargetLocalArg), JumpIfLocalNonZero64(TargetLocalArg),
-    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>), JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>),
-    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>), JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>),
-    JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>), JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>),
-    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>), JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>),
-    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>),
-    BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>),
-    BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>),
-    BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>),
-    IncLocalJump32(Operand128Idx<LocalUpdateOperand>),
-    IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>),
-    IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>),
-    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>),
+    JumpIfLocalZero32(TargetLocalArg) @target [inline arg => arg.target_ip], JumpIfLocalNonZero32(TargetLocalArg) @target [inline arg => arg.target_ip],
+    JumpIfLocalZero64(TargetLocalArg) @target [inline arg => arg.target_ip], JumpIfLocalNonZero64(TargetLocalArg) @target [inline arg => arg.target_ip],
+    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>) @target [pool64 packed => packed.index], JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>) @target [pool128 packed => packed.index],
+    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>) @target [pool64 packed => packed.index], JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>) @target [pool64 packed => packed.index],
+    JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>) @target [pool128 packed => packed.index], JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>) @target [pool128 packed => packed.index],
+    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>) @target [pool64 packed => packed.index], JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>) @target [pool64 packed => packed.index],
+    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>) @target [pool128 packed => packed.index],
+    BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>) @target [pool128 packed => packed.index],
+    BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>) @target [pool128 packed => packed.index],
+    BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>) @target [pool128 packed => packed.index],
+    IncLocalJump32(Operand128Idx<LocalUpdateOperand>) @target [pool128 index => *index],
+    IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>) @target [pool128 index => *index],
+    IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>) @target [pool128 index => *index],
+    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>) @target [pool128 packed => packed.index],
 
     // > Specialized memory instructions
     IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
