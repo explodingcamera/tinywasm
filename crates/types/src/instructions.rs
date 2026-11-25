@@ -637,60 +637,16 @@ macro_rules! define_instructions {
 }
 
 define_instructions! {
-    LocalCopy32(LocalAddr, LocalAddr), LocalCopy64(LocalAddr, LocalAddr), LocalCopy128(LocalAddr, LocalAddr),
-    AddConst32(i32), AndConst32(i32), XorConst32(i32), ShrUConst32(i32), AddConst64(Operand64Idx<i64>),
-    IncLocal32(I32LocalArg), IncLocal64(PackedOp64<LocalAddr, i64>),
-
-    // The 32/64 suffix describes the operand width. Future compare-style ops may still yield i32 results.
-    BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
-    BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr),
-    CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
-    AddLocalLocalSet32(LocalTripleArg), AddLocalLocalTee32(LocalTripleArg),
-    BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet128(PackedOp64<BinOp128, (u16, u16, u16)>),
-    BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee128(PackedOp64<BinOp128, (u16, u16, u16)>),
-
-    AddLocalConst32(I32LocalArg), SubLocalConst32(I32LocalArg), MulLocalConst32(I32LocalArg),
-    AndLocalConst32(I32LocalArg), ShrULocalConst32(I32LocalArg),
-    BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>),
-    BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
-    BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstSet128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
-    BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>), BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstTee128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
-
-    BinOpStackConst32(BinOp, i32), BinOpStackConst64(PackedOp64<BinOp, i64>),
-
-    BinOpStackLocal32(BinOp, LocalAddr),
-    BinOpStackLocalSet32(BinOp, LocalAddr, LocalAddr),
-    BinOpStackLocalTee32(BinOp, LocalAddr, LocalAddr),
-    BinOpStackLocal128(BinOp128, LocalAddr),
-    BinOpStackGlobal32(BinOp, u32),
-    BinOpStackGlobal64(BinOp, u32),
-    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
-    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>),
-
-    SetLocalConst32(I32LocalArg), SetLocalConst64(PackedOp64<LocalAddr, i64>), SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>),
-    IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
-    StoreLocalLocal32(MemoryLocalArg), StoreLocalLocal64(MemoryLocalArg), StoreLocalLocal128(MemoryLocalArg),
-    LoadLocal32(MemoryLocalArg), LoadLocal64(MemoryLocalArg),
-    LoadLocal8S32(MemoryLocalArg), LoadLocal8U32(MemoryLocalArg),
-    LoadLocal16S32(MemoryLocalArg), LoadLocal16U32(MemoryLocalArg),
-    LoadLocalTee32(MemoryLocalArg), LoadLocalSet32(MemoryLocalArg),
-    LoadLocalTee8S32(MemoryLocalArg), LoadLocalTee8U32(MemoryLocalArg),
-    LoadLocalTee16S32(MemoryLocalArg), LoadLocalTee16U32(MemoryLocalArg),
-    LoadLocalSet8S32(MemoryLocalArg), LoadLocalSet8U32(MemoryLocalArg),
-    LoadLocalSet16S32(MemoryLocalArg), LoadLocalSet16U32(MemoryLocalArg),
-    LoadLocalTee128(MemoryLocalArg), LoadLocalSet128(MemoryLocalArg),
-    AndConstTee32(I32LocalArg), SubConstTee32(I32LocalArg),
-    AndConstTee64(PackedOp64<LocalAddr, i64>), SubConstTee64(PackedOp64<LocalAddr, i64>),
-    MulAccLocal32(LocalAddr), MulAccLocal64(LocalAddr),
-    FMulAccLocal32(LocalAddr), FMulAccLocal64(LocalAddr),
-    I32Add3,
-    I64Add3,
-    FMaStoreF32(CompactMemoryArg),
-    FMaStoreF64(CompactMemoryArg),
+    // > Parametric Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
+    Unreachable,
+    Drop32, Select32,
+    Drop64, Select64,
+    Drop128, Select128,
+    SelectMulti(ValueCounts),
 
     // > Control Instructions (jump-oriented, lowered from structured control during parsing)
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#control-instructions>
-    Unreachable,
     Jump(u32),
     JumpIfZero32(u32),
     JumpIfNonZero32(u32),
@@ -698,15 +654,8 @@ define_instructions! {
     JumpIfNonZero64(u32),
     JumpIfRefNull(u32),
     JumpIfRefNonNull(u32),
-    JumpIfLocalZero32(TargetLocalArg), JumpIfLocalNonZero32(TargetLocalArg),
-    JumpIfLocalZero64(TargetLocalArg), JumpIfLocalNonZero64(TargetLocalArg),
-    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>), JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>),
-    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>), JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>),
-    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>), BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>),
-    BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>), BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>),
-    IncLocalJump32(Operand128Idx<LocalUpdateOperand>), IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>), IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>),
-    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>), JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>), JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>),
-    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>), JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>),
+    BrOnCast(Operand64Idx<(u32, u32)>),
+    BrOnCastFail(Operand64Idx<(u32, u32)>),
     DropKeep32 { base: u16, keep: u16 }, DropKeep64 { base: u16, keep: u16 }, DropKeep128 { base: u16, keep: u16 }, BranchTable(Operand128Idx<BranchTableOperand>),
     Return,
     ReturnVoid,
@@ -724,20 +673,34 @@ define_instructions! {
     Throw(TagAddr),
     ThrowRef,
 
-    // > Parametric Instructions
-    // See <https://webassembly.github.io/spec/core/binary/instructions.html#parametric-instructions>
-    Drop32, Select32,
-    Drop64, Select64,
-    Drop128, Select128,
-    SelectMulti(ValueCounts),
-
     // > Variable Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#variable-instructions>
-    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr), GlobalTee32(GlobalAddr), LocalGet32(LocalAddr), LocalSet32(LocalAddr), LocalTee32(LocalAddr),
-    GlobalGet64(GlobalAddr), GlobalSet64(GlobalAddr), GlobalTee64(GlobalAddr), LocalGet64(LocalAddr), LocalSet64(LocalAddr), LocalTee64(LocalAddr),
-    GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr), GlobalTee128(GlobalAddr), LocalGet128(LocalAddr), LocalSet128(LocalAddr), LocalTee128(LocalAddr),
+    GlobalGet32(GlobalAddr), GlobalSet32(GlobalAddr),
+    LocalGet32(LocalAddr),
+    LocalSet32(LocalAddr),
+    LocalTee32(LocalAddr),
+    GlobalGet64(GlobalAddr), GlobalSet64(GlobalAddr),
+    LocalGet64(LocalAddr),
+    LocalSet64(LocalAddr),
+    LocalTee64(LocalAddr),
+    GlobalGet128(GlobalAddr), GlobalSet128(GlobalAddr),
+    LocalGet128(LocalAddr),
+    LocalSet128(LocalAddr),
+    LocalTee128(LocalAddr),
+
+    // > Table Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#table-instructions>
+    TableInit(Operand64Idx<(u32, u32)>),
+    TableGet(TableAddr),
+    TableSet(TableAddr),
+    TableCopy(Operand64Idx<(u32, u32)>),
+    TableGrow(TableAddr),
+    TableSize(TableAddr),
+    TableFill(TableAddr),
+    ElemDrop(ElemAddr),
 
     // > Memory Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions>
     I32Load(Operand128Idx<MemoryOperand>), I64Load(Operand128Idx<MemoryOperand>), F32Load(Operand128Idx<MemoryOperand>), F64Load(Operand128Idx<MemoryOperand>),
     I32Load8S(Operand128Idx<MemoryOperand>), I32Load8U(Operand128Idx<MemoryOperand>), I32Load16S(Operand128Idx<MemoryOperand>), I32Load16U(Operand128Idx<MemoryOperand>),
     I64Load8S(Operand128Idx<MemoryOperand>), I64Load8U(Operand128Idx<MemoryOperand>), I64Load16S(Operand128Idx<MemoryOperand>), I64Load16U(Operand128Idx<MemoryOperand>), I64Load32S(Operand128Idx<MemoryOperand>), I64Load32U(Operand128Idx<MemoryOperand>),
@@ -745,30 +708,22 @@ define_instructions! {
     I32Store8(Operand128Idx<MemoryOperand>), I32Store16(Operand128Idx<MemoryOperand>), I64Store8(Operand128Idx<MemoryOperand>), I64Store16(Operand128Idx<MemoryOperand>), I64Store32(Operand128Idx<MemoryOperand>),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
-    Atomic(AtomicArg),
-    AtomicWait(Operand128Idx<MemoryOperand>, AtomicWaitOp),
-    AtomicFence,
+    MemoryInit(Operand64Idx<(u32, u32)>), MemoryCopy(Operand64Idx<(u32, u32)>),
+    MemoryFill(MemAddr),
+    DataDrop(DataAddr),
 
-    // > Constants
-    Const32(i32),
-    Const64Imm(i32),
-    Const64(Operand64Idx<i64>),
-
-    // > Reference Types
+    // > Reference Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#reference-instructions>
     RefNull(RefType),
     RefFunc(FuncAddr),
     RefIsNull,
     RefAsNonNull,
-    RefI31,
-    I31GetS,
-    I31GetU,
     RefEq,
     RefTest(RefType),
     RefCast(RefType),
-    BrOnCast(Operand64Idx<(u32, u32)>),
-    BrOnCastFail(Operand64Idx<(u32, u32)>),
 
-    // > GC Objects
+    // > Aggregate Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#aggregate-instructions>
     StructNew(TypeAddr),
     StructNewDefault(TypeAddr),
     StructGet(Operand64Idx<(u32, u32)>), StructGetS(Operand64Idx<(u32, u32)>), StructGetU(Operand64Idx<(u32, u32)>), StructSet(Operand64Idx<(u32, u32)>),
@@ -783,21 +738,36 @@ define_instructions! {
     ArrayLen,
     ArrayFill(TypeAddr),
     ArrayCopy(Operand64Idx<(u32, u32)>), ArrayInitData(Operand64Idx<(u32, u32)>), ArrayInitElem(Operand64Idx<(u32, u32)>),
+    RefI31,
+    I31GetS,
+    I31GetU,
 
     // > Numeric Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#numeric-instructions>
+    Const32(i32),
+    Const64Imm(i32),
+    Const64(Operand64Idx<i64>),
+
+    // Comparisons
     I32Eqz, I32Eq, I32Ne, I32LtS, I32LtU, I32GtS, I32GtU, I32LeS, I32LeU, I32GeS, I32GeU,
     I64Eqz, I64Eq, I64Ne, I64LtS, I64LtU, I64GtS, I64GtU, I64LeS, I64LeU, I64GeS, I64GeU,
 
-    // Comparisons
     F32Eq, F32Ne, F32Lt, F32Gt, F32Le, F32Ge,
     F64Eq, F64Ne, F64Lt, F64Gt, F64Le, F64Ge,
-    I32Clz, I32Ctz, I32Popcnt, I32Add, I32Sub, I32Mul, I32DivS, I32DivU, I32RemS, I32RemU,
-    I64Clz, I64Ctz, I64Popcnt, I64Add, I64Sub, I64Mul, I64DivS, I64DivU, I64RemS, I64RemU,
+
+    // Integer arithmetic
+    I32Clz, I32Ctz, I32Popcnt,
+    I32Add, I32Sub, I32Mul,
+    I32DivS, I32DivU, I32RemS, I32RemU,
+    I64Clz, I64Ctz, I64Popcnt,
+    I64Add, I64Sub, I64Mul,
+    I64DivS, I64DivU, I64RemS, I64RemU,
 
     // Bitwise
-    I32And, I32Or, I32Xor, I32Shl, I32ShrS, I32ShrU, I32Rotl, I32Rotr,
-    I64And, I64Or, I64Xor, I64Shl, I64ShrS, I64ShrU, I64Rotl, I64Rotr,
+    I32And, I32Or, I32Xor,
+    I32Shl, I32ShrS, I32ShrU, I32Rotl, I32Rotr,
+    I64And, I64Or, I64Xor,
+    I64Shl, I64ShrS, I64ShrU, I64Rotl, I64Rotr,
 
     // Floating Point
     F32Abs, F32Neg, F32Ceil, F32Floor, F32Trunc, F32Nearest, F32Sqrt, F32Add, F32Sub, F32Mul, F32Div, F32Min, F32Max, F32Copysign,
@@ -811,26 +781,11 @@ define_instructions! {
     I32TruncSatF32S, I32TruncSatF32U, I32TruncSatF64S, I32TruncSatF64U,
     I64TruncSatF32S, I64TruncSatF32U, I64TruncSatF64S, I64TruncSatF64U,
 
-    // > Table Instructions
-    TableInit(Operand64Idx<(u32, u32)>),
-    TableGet(TableAddr),
-    TableSet(TableAddr),
-    TableCopy(Operand64Idx<(u32, u32)>),
-    TableGrow(TableAddr),
-    TableSize(TableAddr),
-    TableFill(TableAddr),
-
-    // > Bulk Memory Instructions
-    MemoryInit(Operand64Idx<(u32, u32)>), MemoryCopy(Operand64Idx<(u32, u32)>),
-    MemoryFill(MemAddr),
-    MemoryFillConst(Operand128Idx<MemoryFillOperand>),
-    DataDrop(DataAddr),
-    ElemDrop(ElemAddr),
-
-    // > Wide Arithmetic
+    // Wide arithmetic extension
     I64Add128, I64Sub128, I64MulWideS, I64MulWideU,
 
-    // > SIMD
+    // > Vector Instructions
+    // See <https://webassembly.github.io/spec/core/binary/instructions.html#vector-instructions>
     V128Load(Operand128Idx<MemoryOperand>), V128Load8x8S(Operand128Idx<MemoryOperand>), V128Load8x8U(Operand128Idx<MemoryOperand>),
     V128Load16x4S(Operand128Idx<MemoryOperand>), V128Load16x4U(Operand128Idx<MemoryOperand>), V128Load32x2S(Operand128Idx<MemoryOperand>), V128Load32x2U(Operand128Idx<MemoryOperand>),
 
@@ -842,7 +797,8 @@ define_instructions! {
     V128Store(Operand128Idx<MemoryOperand>), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
 
     I8x16Shuffle(Operand128Idx<[u8; 16]>),
-    Const128Imm(u32), Const128(Operand128Idx<[u8; 16]>),
+    Const128Imm(u32),
+    Const128(Operand128Idx<[u8; 16]>),
 
     I8x16ExtractLaneS(u8), I8x16ExtractLaneU(u8), I8x16ReplaceLane(u8),
     I16x8ExtractLaneS(u8), I16x8ExtractLaneU(u8), I16x8ReplaceLane(u8),
@@ -888,7 +844,7 @@ define_instructions! {
     F64x2ConvertLowI32x4S, F64x2ConvertLowI32x4U,
     F32x4DemoteF64x2Zero, F64x2PromoteLowF32x4,
 
-    // > Relaxed SIMD
+    // Relaxed SIMD
     I8x16RelaxedSwizzle,
     I32x4RelaxedTruncF32x4S, I32x4RelaxedTruncF32x4U,
     I32x4RelaxedTruncF64x2SZero, I32x4RelaxedTruncF64x2UZero,
@@ -902,7 +858,94 @@ define_instructions! {
     I16x8RelaxedDotI8x16I7x16S,
     I32x4RelaxedDotI8x16I7x16AddS,
 
+    // > Atomic Instructions (threads extension)
+    // See <https://webassembly.github.io/threads/core/binary/instructions.html#atomic-memory-instructions>
+    Atomic(AtomicArg),
+    AtomicWait(Operand128Idx<MemoryOperand>, AtomicWaitOp),
+    AtomicFence,
+
+    // > Specialized variable instructions
+    GlobalTee32(GlobalAddr), GlobalTee64(GlobalAddr), GlobalTee128(GlobalAddr),
+    LocalCopy32(LocalAddr, LocalAddr),
+    LocalCopy64(LocalAddr, LocalAddr),
+    LocalCopy128(LocalAddr, LocalAddr),
+    SetLocalConst32(I32LocalArg),
+    SetLocalConst64(PackedOp64<LocalAddr, i64>),
+    SetLocalConst128(PackedOp128<LocalAddr, [u8; 16]>),
+
+    // > Specialized arithmetic instructions
+    AddConst32(i32), AddConst64(Operand64Idx<i64>),
+    AndConst32(i32), XorConst32(i32), ShrUConst32(i32),
+    AddLocalConst32(I32LocalArg), SubLocalConst32(I32LocalArg), MulLocalConst32(I32LocalArg), AndLocalConst32(I32LocalArg), ShrULocalConst32(I32LocalArg),
+    BinOpStackLocal32(BinOp, LocalAddr), BinOpStackLocal128(BinOp128, LocalAddr),
+    BinOpStackGlobal32(BinOp, u32), BinOpStackGlobal64(BinOp, u32),
+    BinOpStackConst32(BinOp, i32), BinOpStackConst64(PackedOp64<BinOp, i64>),
+    BinOpLocalLocal32(BinOp, LocalAddr, LocalAddr), BinOpLocalLocal64(BinOp, LocalAddr, LocalAddr),
+    BinOpLocalLocal128(BinOp128, LocalAddr, LocalAddr), AddLocalLocalSet32(LocalTripleArg), AddLocalLocalTee32(LocalTripleArg),
+    BinOpLocalConst32(PackedOp64<BinOp, (u16, u32)>), BinOpLocalConst64(PackedOp128<BinOp, (u16, u64)>),
+    BinOpLocalConst128(PackedOp64<BinOp128, (u16, Operand128Idx<[u8; 16]>)>),
+    BinOpGlobalConst32(PackedOp64<BinOp, (u32, u32)>), BinOpGlobalConst64(PackedOp128<BinOp, (u32, u64)>),
+    BinOpGlobalConst128(PackedOp64<BinOp128, (u32, Operand128Idx<[u8; 16]>)>),
+    BinOpStackLocalSet32(BinOp, LocalAddr, LocalAddr),
+    BinOpStackLocalTee32(BinOp, LocalAddr, LocalAddr),
+    BinOpLocalLocalSet32(PackedOp64<BinOp, (u16, u16, u16)>),
+    BinOpLocalLocalSet64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalSet128(PackedOp64<BinOp128, (u16, u16, u16)>),
+    BinOpLocalLocalTee32(PackedOp64<BinOp, (u16, u16, u16)>),
+    BinOpLocalLocalTee64(PackedOp64<BinOp, (u16, u16, u16)>), BinOpLocalLocalTee128(PackedOp64<BinOp128, (u16, u16, u16)>),
+    BinOpLocalConstSet32(PackedOp64<BinOp, (u16, u16, u32)>),
+    BinOpLocalConstSet64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstSet128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
+    BinOpLocalConstTee32(PackedOp64<BinOp, (u16, u16, u32)>),
+    BinOpLocalConstTee64(PackedOp128<BinOp, (u16, u16, u64)>), BinOpLocalConstTee128(PackedOp64<BinOp128, (u16, u16, Operand128Idx<[u8; 16]>)>),
+    IncLocal32(I32LocalArg),
+    IncLocal64(PackedOp64<LocalAddr, i64>),
+    AndConstTee32(I32LocalArg), SubConstTee32(I32LocalArg),
+    AndConstTee64(PackedOp64<LocalAddr, i64>), SubConstTee64(PackedOp64<LocalAddr, i64>),
+    MulAccLocal32(LocalAddr), MulAccLocal64(LocalAddr),
+    FMulAccLocal32(LocalAddr), FMulAccLocal64(LocalAddr),
+    I32Add3, I64Add3,
+    CmpLocalLocal32(CmpOp, LocalAddr, LocalAddr), CmpLocalLocal64(CmpOp, LocalAddr, LocalAddr),
+
+    // > Specialized branch instructions
+    JumpIfLocalZero32(TargetLocalArg), JumpIfLocalNonZero32(TargetLocalArg),
+    JumpIfLocalZero64(TargetLocalArg), JumpIfLocalNonZero64(TargetLocalArg),
+    JumpCmpStackConst32(PackedOp64<CmpOp, (u32, i32)>), JumpCmpStackConst64(PackedOp128<CmpOp, (u32, i64)>),
+    JumpCmpStackLocal32(PackedOp64<CmpOp, (u32, u16)>), JumpCmpStackLocal64(PackedOp64<CmpOp, (u32, u16)>),
+    JumpCmpLocalConst32(PackedOp128<CmpOp, (u32, i32, u16)>), JumpCmpLocalConst64(PackedOp128<CmpOp, (u32, i32, u16)>),
+    JumpCmpLocalLocal32(PackedOp64<CmpOp, (u32, u16, u16)>), JumpCmpLocalLocal64(PackedOp64<CmpOp, (u32, u16, u16)>),
+    BinOpLocalConstJump32(PackedOp128<BinOp, LocalUpdateOperand>),
+    BinOpLocalConstJumpCmpLocal32(PackedOp128<(BinOp, CmpOp), LocalUpdateCmpOperand>),
+    BinOpStackConstTeeLocalJump32(PackedOp128<BinOp, LocalUpdateOperand>),
+    BinOpGlobalConstJump32(PackedOp128<BinOp, GlobalUpdateOperand>),
+    IncLocalJump32(Operand128Idx<LocalUpdateOperand>),
+    IncStackTeeLocalJump32(Operand128Idx<LocalUpdateOperand>),
+    IncGlobalJump32(Operand128Idx<GlobalUpdateOperand>),
+    IncLocalJumpCmpLocal32(PackedOp128<CmpOp, LocalUpdateCmpOperand>),
+
+    // > Specialized memory instructions
+    IncMemoryLocal32(MemoryLocalArg), IncMemoryLocal64(MemoryLocalArg),
+    StoreLocalLocal32(MemoryLocalArg),
+    StoreLocalLocal64(MemoryLocalArg),
+    StoreLocalLocal128(MemoryLocalArg),
+    LoadLocal32(MemoryLocalArg), LoadLocal64(MemoryLocalArg),
+    LoadLocal8S32(MemoryLocalArg), LoadLocal8U32(MemoryLocalArg),
+    LoadLocal16S32(MemoryLocalArg), LoadLocal16U32(MemoryLocalArg),
+    LoadLocalTee32(MemoryLocalArg),
+    LoadLocalSet32(MemoryLocalArg),
+    LoadLocalTee8S32(MemoryLocalArg),
+    LoadLocalTee8U32(MemoryLocalArg),
+    LoadLocalTee16S32(MemoryLocalArg),
+    LoadLocalTee16U32(MemoryLocalArg),
+    LoadLocalSet8S32(MemoryLocalArg),
+    LoadLocalSet8U32(MemoryLocalArg),
+    LoadLocalSet16S32(MemoryLocalArg),
+    LoadLocalSet16U32(MemoryLocalArg),
+    LoadLocalTee128(MemoryLocalArg),
+    LoadLocalSet128(MemoryLocalArg),
     SelectStore32(Operand128Idx<MemoryOperand>), SelectStore64(Operand128Idx<MemoryOperand>),
+    FMaStoreF32(CompactMemoryArg), FMaStoreF64(CompactMemoryArg),
+    MemoryFillConst(Operand128Idx<MemoryFillOperand>),
+
+    // > Lowering-only instructions
     Checkpoint,
 }
 
