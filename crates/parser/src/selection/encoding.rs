@@ -2,6 +2,19 @@
 use crate::{Result, visit::FunctionDataBuilder};
 use tinywasm_types::{Instruction, Instruction::*, *};
 
+/// Packs a memory operand and two local slots when they fit the compact encoding.
+pub(super) fn memory_locals(
+    data: &mut FunctionDataBuilder,
+    memory: MemoryArg,
+    local1: u16,
+    local2: u16,
+) -> Result<Option<MemoryLocalArg>> {
+    let (Ok(local1), Ok(local2)) = (u8::try_from(local1), u8::try_from(local2)) else { return Ok(None) };
+    let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)) else { return Ok(None) };
+    let memory_arg_idx = data.push64(Operand64::from(arg).with_address64(memory.address64))?;
+    Ok(Some(MemoryLocalArg { memory_arg_idx, local1, local2 }))
+}
+
 /// Reads a 64-bit literal without requiring a pool entry for immediate values.
 pub(super) fn const64(data: &FunctionDataBuilder, instruction: Instruction) -> Option<i64> {
     match instruction {

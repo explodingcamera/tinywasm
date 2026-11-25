@@ -113,6 +113,16 @@ impl<'store> Executor<'store> {
     }
 
     #[inline(always)]
+    fn local_memory_base(&self, address64: bool, local: u8) -> ExecResult<usize> {
+        if address64 {
+            let base = u64::local_get(&self.value_stack, &self.cf, u16::from(local));
+            cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds))
+        } else {
+            Ok(u32::local_get(&self.value_stack, &self.cf, u16::from(local)) as usize)
+        }
+    }
+
+    #[inline(always)]
     fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
         self.func.data.operands64.get(index.index()).copied().unwrap_invariant().cast()
     }
@@ -798,13 +808,8 @@ impl<'store> Executor<'store> {
         let memarg = self.operand64(index);
         let value = T::local_get(&self.value_stack, &self.cf, u16::from(value_local));
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
-        crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            let base = if kind.arch() == MemoryArch::I64 {
-                let base = u64::local_get(&self.value_stack, &self.cf, u16::from(addr_local));
-                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds))?
-            } else {
-                u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
-            };
+        let base = self.local_memory_base(memarg.address64(), addr_local)?;
+        crate::store::with_memory!(self.state, mem_addr, |mem, _kind| {
             let addr = cold_err!(mem.effective_addr::<N>(base, u64::from(memarg.offset())))?;
             value.store_at(&mut *mem, addr)
         })
@@ -819,13 +824,8 @@ impl<'store> Executor<'store> {
     ) -> Result<(), Trap> {
         let memarg = self.operand64(index);
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
-        crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            let base = if kind.arch() == MemoryArch::I64 {
-                let base = i64::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as u64;
-                cold_err!(usize::try_from(base).map_err(|_| Trap::MemoryOutOfBounds))?
-            } else {
-                u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
-            };
+        let base = self.local_memory_base(memarg.address64(), addr_local)?;
+        crate::store::with_memory!(self.state, mem_addr, |mem, _kind| {
             let addr = cold_err!(mem.effective_addr::<N>(base, u64::from(memarg.offset())))?;
 
             let value = cold_err!(T::load_at(&*mem, addr))?;
@@ -867,27 +867,28 @@ impl<'store> Executor<'store> {
         dst_local: u8,
         cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
+        let value = cast(self.exec_load_local_value::<LOAD, N>(index, addr_local)?);
+        if SET_LOCAL {
+            TARGET::local_set(&mut self.value_stack, &self.cf, u16::from(dst_local), value);
+        }
+        if !SET_LOCAL || TEE {
+            TARGET::stack_push(&mut self.value_stack, value);
+        }
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn exec_load_local_value<LOAD: MemValue<N>, const N: usize>(
+        &mut self,
+        index: Operand64Idx<CompactMemoryOperand>,
+        addr_local: u8,
+    ) -> ExecResult<LOAD> {
         let memarg = self.operand64(index);
-
         let mem_addr = self.mem_addr(MemAddr::from(memarg.memory()));
-        crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            let base = if kind.arch() == MemoryArch::I64 {
-                let base = i64::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as u64;
-                cold_err!(usize::try_from(base)).map_err(|_| Trap::MemoryOutOfBounds)?
-            } else {
-                u32::local_get(&self.value_stack, &self.cf, u16::from(addr_local)) as usize
-            };
-
+        let base = self.local_memory_base(memarg.address64(), addr_local)?;
+        crate::store::with_memory!(self.state, mem_addr, |mem, _kind| {
             let addr = cold_err!(mem.effective_addr::<N>(base, u64::from(memarg.offset())))?;
-            let value = cast(cold_err!(LOAD::load_at(&*mem, addr))?);
-
-            if SET_LOCAL {
-                TARGET::local_set(&mut self.value_stack, &self.cf, u16::from(dst_local), value);
-            }
-            if !SET_LOCAL || TEE {
-                TARGET::stack_push(&mut self.value_stack, value);
-            }
-            Ok(())
+            cold_err!(LOAD::load_at(&*mem, addr))
         })
     }
 

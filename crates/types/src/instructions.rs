@@ -324,6 +324,19 @@ impl Operand64<CompactMemoryOperand> {
         operand
     }
 
+    /// Records the statically known address width without growing the compact operand.
+    #[inline]
+    pub fn with_address64(mut self, address64: bool) -> Self {
+        write_field!(self, u8, 6, u8::from(address64));
+        self
+    }
+
+    /// Whether the address comes from the 64-bit scalar lane.
+    #[inline(always)]
+    pub fn address64(&self) -> bool {
+        read_field!(self, u8, 6) != 0
+    }
+
     /// Returns the static byte offset.
     #[inline(always)]
     pub fn offset(&self) -> u32 {
