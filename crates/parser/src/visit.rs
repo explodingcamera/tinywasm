@@ -106,52 +106,22 @@ impl FunctionDataBuilder {
 
     /// Allocates an immutable 64-bit operand, reusing it when deduplication is enabled.
     pub(crate) fn push64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
-        let operand = operand.cast();
-        let entry = match self.deduplicate64.as_mut().map(|map| map.entry(operand)) {
-            Some(Entry::Occupied(entry)) => return Ok(Operand64Idx::new(*entry.get())),
-            Some(Entry::Vacant(entry)) => Some(entry),
-            None => None,
-        };
-        let index = u32::try_from(self.operands64.len())
-            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
-        self.operands64.push(operand);
-        if let Some(entry) = entry {
-            entry.insert(index);
-        }
-        Ok(Operand64Idx::new(index))
+        push_operand(&mut self.operands64, self.deduplicate64.as_mut(), operand.cast()).map(Operand64Idx::new)
     }
 
     /// Allocates an immutable 128-bit operand, reusing it when deduplication is enabled.
     pub(crate) fn push128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
-        let operand = operand.cast();
-        let entry = match self.deduplicate128.as_mut().map(|map| map.entry(operand)) {
-            Some(Entry::Occupied(entry)) => return Ok(Operand128Idx::new(*entry.get())),
-            Some(Entry::Vacant(entry)) => Some(entry),
-            None => None,
-        };
-        let index = u32::try_from(self.operands128.len())
-            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
-        self.operands128.push(operand);
-        if let Some(entry) = entry {
-            entry.insert(index);
-        }
-        Ok(Operand128Idx::new(index))
+        push_operand(&mut self.operands128, self.deduplicate128.as_mut(), operand.cast()).map(Operand128Idx::new)
     }
 
     /// Allocates a private mutable target operand outside immutable deduplication.
     pub(crate) fn push_target64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
-        let index = u32::try_from(self.operands64.len())
-            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
-        self.operands64.push(operand.cast());
-        Ok(Operand64Idx::new(index))
+        push_operand(&mut self.operands64, None, operand.cast()).map(Operand64Idx::new)
     }
 
     /// Allocates a private mutable target operand outside immutable deduplication.
     pub(crate) fn push_target128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
-        let index = u32::try_from(self.operands128.len())
-            .map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
-        self.operands128.push(operand.cast());
-        Ok(Operand128Idx::new(index))
+        push_operand(&mut self.operands128, None, operand.cast()).map(Operand128Idx::new)
     }
 
     pub(crate) fn operand64<T>(&self, index: Operand64Idx<T>) -> Operand64<T> {
@@ -172,6 +142,27 @@ impl FunctionDataBuilder {
     }
 }
 
+// Erase layout tags before allocation so typed callers share one body per pool width.
+#[inline(never)]
+fn push_operand<T: Copy + Ord>(
+    operands: &mut Vec<T>,
+    deduplicate: Option<&mut BTreeMap<T, u32>>,
+    operand: T,
+) -> Result<u32> {
+    let entry = match deduplicate.map(|map| map.entry(operand)) {
+        Some(Entry::Occupied(entry)) => return Ok(*entry.get()),
+        Some(Entry::Vacant(entry)) => Some(entry),
+        None => None,
+    };
+    let index =
+        u32::try_from(operands.len()).map_err(|_| crate::ParseError::Other("operand pool is too large".into()))?;
+    operands.push(operand);
+    if let Some(entry) = entry {
+        entry.insert(index);
+    }
+    Ok(index)
+}
+
 enum AggregateFields {
     Other,
     Struct(Box<[ValueLane]>),
@@ -180,7 +171,6 @@ enum AggregateFields {
 
 pub(crate) struct FunctionBuilder<'a> {
     emitter: Emitter,
-    data: FunctionDataBuilder,
     control_stack: Vec<ControlFrame<'a>>,
     operand_stack: Vec<ValueLane>,
     lane_counts: ValueCounts,
@@ -207,7 +197,6 @@ impl<'a> FunctionBuilder<'a> {
             local_addr_map,
             metadata,
             emitter: Emitter::new(body_size, context, options),
-            data: FunctionDataBuilder::new(options.deduplicate_operands()),
             control_stack: alloc::vec![ControlFrame {
                 kind: BlockKind::Function,
                 has_else: false,
@@ -267,11 +256,11 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     fn push64<T>(&mut self, operand: Operand64<T>) -> Result<Operand64Idx<T>> {
-        self.data.push64(operand)
+        self.emitter.data.push64(operand)
     }
 
     fn push128<T>(&mut self, operand: Operand128<T>) -> Result<Operand128Idx<T>> {
-        self.data.push128(operand)
+        self.emitter.data.push128(operand)
     }
 }
 
@@ -494,8 +483,8 @@ pub(crate) fn process_operators(
     }
 
     reader.finish()?;
-    let instructions = builder.emitter.finish(&mut builder.data)?;
-    Ok((instructions, builder.data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
+    let (instructions, data) = builder.emitter.finish()?;
+    Ok((instructions, data, builder.uses_local_memory, builder.max_lane_counts, reader.into_allocations()))
 }
 
 #[cfg(feature = "validate")]
@@ -550,10 +539,10 @@ pub(crate) fn process_operators_and_validate(
     }
 
     reader.finish()?;
-    let instructions = builder.emitter.finish(&mut builder.data)?;
+    let (instructions, data) = builder.emitter.finish()?;
     Ok((
         instructions,
-        builder.data,
+        data,
         builder.uses_local_memory,
         builder.max_lane_counts,
         validator.into_allocations(),
@@ -980,7 +969,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
     fn visit_if(&mut self, ty: wasmparser::BlockType) -> Result<()> {
         self.pop_expect(ValueLane::S32)?;
         let else_entry = self.emitter.new_label();
-        self.emitter.branch_if(&mut self.data, true, else_entry)?;
+        self.emitter.branch_if(true, else_entry)?;
         self.push_control(BlockKind::If, ty, Some(else_entry))
     }
 
@@ -1035,7 +1024,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
         }
 
         self.emitter.bind(body_start)?;
-        self.emitter.exception_handler(&mut self.data, body_start, body_end, catches);
+        self.emitter.exception_handler(body_start, body_end, catches);
         self.push_sizes(signature.params())?;
         self.control_stack.push(ControlFrame {
             kind: BlockKind::TryTable,
@@ -1134,12 +1123,12 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             } else {
                 *self.control_stack[ctx_idx].end.get_or_insert_with(|| self.emitter.new_label())
             };
-            self.emitter.branch_if(&mut self.data, false, target)?;
+            self.emitter.branch_if(false, target)?;
             self.control_stack[ctx_idx].end_reachable = true;
             return Ok(());
         }
         let fallthrough = self.emitter.new_label();
-        self.emitter.branch_if(&mut self.data, true, fallthrough)?;
+        self.emitter.branch_if(true, fallthrough)?;
         self.emit_dropkeep_to_label(depth)?;
         self.emit_branch_jump_or_return(depth)?;
         self.emitter.bind(fallthrough)?;
@@ -1189,7 +1178,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             labels.push(label);
         }
         let default = labels.pop().unwrap();
-        self.emitter.branch_table(&mut self.data, &labels, default)?;
+        self.emitter.branch_table(&labels, default)?;
         for (depth, label) in pads {
             self.emitter.bind(label)?;
             if self.is_unreachable() {
@@ -1554,7 +1543,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_expect(ValueLane::S32)?;
         let target = convert_heap_type(target.heap_type(), target.is_nullable())?;
         let fallthrough = self.emitter.new_label();
-        let operand = self.data.push_target64(Operand64::<(u32, u32)>::new(0, target.to_bits()))?;
+        let operand = self.emitter.data.push_target64(Operand64::<(u32, u32)>::new(0, target.to_bits()))?;
         self.emitter.branch(
             if branch_on_fail { Instruction::BrOnCastFail(operand) } else { Instruction::BrOnCast(operand) },
             fallthrough,
@@ -1667,7 +1656,7 @@ impl<'a> FunctionBuilder<'a> {
         rules: impl FnOnce(&mut crate::emitter::PendingTail<'_>, &mut FunctionDataBuilder) -> Result<()>,
     ) -> Result<()> {
         self.apply_effect(inputs, outputs)?;
-        self.emitter.emit_with(&mut self.data, instruction, rules)
+        self.emitter.emit_with(instruction, rules)
     }
 
     /// Restores both logical operand order and lane counts to a control-frame base.

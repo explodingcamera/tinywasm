@@ -53,9 +53,10 @@ enum PatchSite {
     Catch(usize, usize),
 }
 
-/// Owns one instruction vector with an immutable prefix and at most three pending instructions.
+/// Owns function bytecode and its side data, with at most three pending instructions.
 pub(crate) struct Emitter {
     instructions: Vec<Instruction>,
+    pub(crate) data: FunctionDataBuilder,
     committed: usize,
     checkpoint_start: usize,
     checkpoint_interval: usize,
@@ -80,6 +81,7 @@ impl Emitter {
         };
         Self {
             instructions: Vec::with_capacity(body_size.min(1024)),
+            data: FunctionDataBuilder::new(options.deduplicate_operands()),
             committed: 0,
             checkpoint_start: 0,
             checkpoint_interval: options.checkpoint_interval(),
@@ -178,22 +180,21 @@ impl Emitter {
     #[inline]
     pub(crate) fn emit_with(
         &mut self,
-        data: &mut FunctionDataBuilder,
         instruction: Instruction,
         rules: impl FnOnce(&mut PendingTail<'_>, &mut FunctionDataBuilder) -> Result<()>,
     ) -> Result<()> {
         self.push(instruction)?;
         if self.select {
-            rules(&mut PendingTail::new(&mut self.instructions, self.committed), data)?;
+            rules(&mut PendingTail::new(&mut self.instructions, self.committed), &mut self.data)?;
         }
         self.commit(self.instructions.len().saturating_sub(LOOKBEHIND).max(self.committed));
         Ok(())
     }
 
     /// Selects a conditional branch before sealing and recording its final patch site.
-    pub(crate) fn branch_if(&mut self, data: &mut FunctionDataBuilder, on_zero: bool, label: LabelId) -> Result<()> {
+    pub(crate) fn branch_if(&mut self, on_zero: bool, label: LabelId) -> Result<()> {
         let instruction = if on_zero { Instruction::JumpIfZero32(0) } else { Instruction::JumpIfNonZero32(0) };
-        self.emit_with(data, instruction, |tail, data| selection::conditional(tail, data, on_zero, 0))?;
+        self.emit_with(instruction, |tail, data| selection::conditional(tail, data, on_zero, 0))?;
         // Conditional rules always retain a final target-bearing instruction.
         assert!(self.instructions.len() > self.committed, "conditional rule removed its branch");
         let site = self.instructions.len() - 1;
@@ -220,34 +221,23 @@ impl Emitter {
     }
 
     /// Commits table storage and records case and default destinations.
-    pub(crate) fn branch_table(
-        &mut self,
-        data: &mut FunctionDataBuilder,
-        targets: &[LabelId],
-        default: LabelId,
-    ) -> Result<()> {
-        let start = u32::try_from(data.branch_table_targets.len())
+    pub(crate) fn branch_table(&mut self, targets: &[LabelId], default: LabelId) -> Result<()> {
+        let start = u32::try_from(self.data.branch_table_targets.len())
             .map_err(|_| ParseError::Other("branch table pool is too large".into()))?;
         let count = u32::try_from(targets.len()).map_err(|_| ParseError::Other("branch table is too large".into()))?;
         start.checked_add(count).ok_or_else(|| ParseError::Other("branch table range overflow".into()))?;
-        let operand = data.push_target128(Operand128::<BranchTableOperand>::new(0, start, count))?;
+        let operand = self.data.push_target128(Operand128::<BranchTableOperand>::new(0, start, count))?;
         self.branch(Instruction::BranchTable(operand), default)?;
         for &label in targets {
-            self.uses.push((PatchSite::TableEntry(data.branch_table_targets.len()), label));
-            data.branch_table_targets.push(0);
+            self.uses.push((PatchSite::TableEntry(self.data.branch_table_targets.len()), label));
+            self.data.branch_table_targets.push(0);
         }
         Ok(())
     }
 
     /// Records exception boundaries and landing pads alongside their metadata.
-    pub(crate) fn exception_handler(
-        &mut self,
-        data: &mut FunctionDataBuilder,
-        start: LabelId,
-        end: LabelId,
-        catches: Vec<(ExceptionCatch, LabelId)>,
-    ) {
-        let index = data.exception_handlers.len();
+    pub(crate) fn exception_handler(&mut self, start: LabelId, end: LabelId, catches: Vec<(ExceptionCatch, LabelId)>) {
+        let index = self.data.exception_handlers.len();
         self.uses.push((PatchSite::ExceptionStart(index), start));
         self.uses.push((PatchSite::ExceptionEnd(index), end));
         let catches = catches
@@ -258,7 +248,7 @@ impl Emitter {
                 catch
             })
             .collect();
-        data.exception_handlers.push(ExceptionHandler { start_ip: 0, end_ip: 0, catches });
+        self.data.exception_handlers.push(ExceptionHandler { start_ip: 0, end_ip: 0, catches });
     }
 
     fn commit(&mut self, end: usize) {
@@ -267,9 +257,10 @@ impl Emitter {
     }
 
     /// Flushes the tail and resolves recorded targets without moving instructions.
-    pub(crate) fn finish(mut self, data: &mut FunctionDataBuilder) -> Result<Vec<Instruction>> {
+    pub(crate) fn finish(mut self) -> Result<(Vec<Instruction>, FunctionDataBuilder)> {
         self.seal_jump();
         self.commit(self.instructions.len());
+        let data = &mut self.data;
         let invalid_site = || ParseError::Other("invalid label patch site".into());
         for (site, label) in self.uses {
             let target = self
@@ -322,7 +313,7 @@ impl Emitter {
                 return Err(ParseError::Other("exception handler range out of bounds".into()));
             }
         }
-        Ok(self.instructions)
+        Ok((self.instructions, self.data))
     }
 
     fn patch_target(instruction: &mut Instruction, data: &mut FunctionDataBuilder, target: u32) -> Result<()> {
