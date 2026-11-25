@@ -10,6 +10,12 @@ license.workspace = true
 keywords = ["cli", "runtime", "tinywasm", "wasm", "webassembly"]
 categories = ["command-line-utilities", "wasm"]
 
+[features]
+default = ["wast", "wat"]
+tests = ["dep:serde", "dep:serde_json", "dep:wasm-testsuite", "wast"]
+wast = ["dep:wast"]
+wat = ["dep:wat"]
+
 [lib]
 name = "tinywasm_cli"
 path = "src/lib.rs"
@@ -17,8 +23,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "tinywasm"
 path = "src/bin.rs"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anstream = { version = "1.0" }
@@ -46,12 +50,6 @@ wat = { workspace = true, optional = true }
 assert_cmd = "2.2"
 predicates = "3.1"
 tempfile = "3.27"
-
-[features]
-default = ["wast", "wat"]
-tests = ["dep:serde", "dep:serde_json", "dep:wasm-testsuite", "wast"]
-wast = ["dep:wast"]
-wat = ["dep:wat"]
 
 [lints]
 workspace = true

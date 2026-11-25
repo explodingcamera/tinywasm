@@ -5,6 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dev-dependencies]
+anyhow.workspace = true
+tinywasm = { path = "crates/tinywasm", features = ["send", "state"] }
+tinywasm-wasi.workspace = true
+wat.workspace = true
+
+[lints]
+workspace = true
+
 [workspace]
 resolver = "3"
 members = ["crates/*"]
@@ -13,7 +22,7 @@ default-members = [".", "crates/parser", "crates/tinywasm", "crates/types", "cra
 [workspace.package]
 version = "0.12.0-beta.0"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.100"
 homepage = "https://tinywasm.dev"
 repository = "https://github.com/explodingcamera/tinywasm"
 license = "MIT OR Apache-2.0"
@@ -29,7 +38,7 @@ tinywasm-wasi = { path = "crates/wasi", version = "0.12.0-beta.0" }
 anyhow = "1.0"
 log = "0.4"
 owo-colors = { version = "4.4" }
-pretty_env_logger = "0.5"
+pretty_env_logger = "0.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 wasm-testsuite = { version = "0.7" }
@@ -41,15 +50,6 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(rust_analyzer)"] }
-
-[dev-dependencies]
-anyhow.workspace = true
-tinywasm = { path = "crates/tinywasm", features = ["send", "state"] }
-tinywasm-wasi.workspace = true
-wat.workspace = true
-
-[lints]
-workspace = true
 
 [profile.bench]
 opt-level = 3

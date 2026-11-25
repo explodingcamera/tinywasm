@@ -10,11 +10,6 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[dependencies]
-portable-atomic-util = { version = "0.2.8", default-features = false, features = ["alloc"], optional = true }
-postcard = { version = "1.1", default-features = false, features = ["alloc"], optional = true }
-serde = { version = "1.0", default-features = false, features = ["alloc"], optional = true }
-
 [features]
 default = ["archive", "debug", "std"]
 
@@ -29,6 +24,11 @@ std = ["serde?/std"]
 
 # support targets without native atomic CAS
 portable-atomic = ["dep:portable-atomic-util"]
+
+[dependencies]
+portable-atomic-util = { version = "0.2.8", default-features = false, features = ["alloc"], optional = true }
+postcard = { version = "1.2", default-features = false, features = ["alloc"], optional = true }
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"], optional = true }
 
 [lints]
 workspace = true

@@ -10,14 +10,6 @@ license.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
-[dependencies]
-log = { workspace = true, optional = true }
-tinywasm-types = { workspace = true }
-wasmparser = { workspace = true, features = ["simd"] }
-
-[dev-dependencies]
-wat.workspace = true
-
 [features]
 default = ["debug", "log", "parallel", "std", "validate"]
 
@@ -38,6 +30,14 @@ std = ["tinywasm-types/std", "wasmparser/std"]
 
 # validate WebAssembly while parsing
 validate = ["wasmparser/features", "wasmparser/validate"]
+
+[dependencies]
+log = { workspace = true, optional = true }
+tinywasm-types = { workspace = true }
+wasmparser = { workspace = true, features = ["simd"] }
+
+[dev-dependencies]
+wat.workspace = true
 
 [lints]
 workspace = true

@@ -8,15 +8,15 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+custom-prefix = []
+
 [lib]
 crate-type = ["cdylib", "staticlib"]
 name = "tinywasm"
 
 [dependencies]
 tinywasm = { workspace = true, features = ["archive", "parser", "std", "validate"] }
-
-[features]
-custom-prefix = []
 
 [lints]
 workspace = true

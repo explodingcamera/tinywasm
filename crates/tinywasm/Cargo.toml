@@ -15,6 +15,63 @@ categories.workspace = true
 features = ["std", "validate", "parser", "archive", "log", "canonicalize-nans", "state", "debug", "guest-debug"]
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = ["full", "nightly", "simd-intrinsics", "std"]
+full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
+
+log = ["dep:log", "tinywasm-parser?/log"]
+std = ["tinywasm-parser?/std", "tinywasm-types/std"]
+
+# make stores, instances, references, and host callbacks movable across threads
+send = []
+
+# store host state for access from host callbacks
+state = []
+
+# support for parsing WebAssembly
+parser = ["dep:tinywasm-parser"]
+
+# validate WebAssembly while parsing
+validate = ["tinywasm-parser?/validate"]
+
+# parallelize function parsing/validation across threads (requires std)
+parallel-parser = ["tinywasm-parser?/parallel"]
+
+# support targets without native atomic CAS
+portable-atomic = ["dep:portable-atomic", "tinywasm-parser?/portable-atomic", "tinywasm-types/portable-atomic"]
+
+# support for "archiving" tinywasm bytecode
+archive = ["tinywasm-types/archive"]
+
+# canonicalize all NaN values to a single representation
+canonicalize-nans = []
+
+# derive Debug for runtime/types structs and enable detailed error formatting
+debug = ["tinywasm-parser?/debug", "tinywasm-types/debug"]
+
+# expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
+guest-debug = []
+
+# enable all supported nightly-only optimizations
+nightly = ["nightly-abort-immediate", "nightly-core-float-math", "nightly-rust-preserve-none", "nightly-tail-calls"]
+
+# abort in place on internal invariant violations when supported by the compiler
+nightly-abort-immediate = []
+
+# use compiler floating-point operations in no_std builds when supported
+nightly-core-float-math = []
+
+# use explicit tail calls for interpreter dispatch when supported by the compiler
+nightly-tail-calls = []
+
+# use the experimental preserve-none ABI for x86_64 and 64-bit AArch64 tail-call handlers
+nightly-rust-preserve-none = ["nightly-tail-calls"]
+
+# enable architecture-specific SIMD intrinsics in Value128 (uses unsafe code internally)
+# note: for x86 backend selection, compile with x86-64-v3 target features
+# (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)
+simd-intrinsics = []
+
 [lib]
 name = "tinywasm"
 path = "src/lib.rs"
@@ -93,63 +150,6 @@ wat.workspace = true
 
 [build-dependencies]
 autocfg = "1.5"
-
-[features]
-default = ["full", "nightly", "simd-intrinsics", "std"]
-full = ["archive", "debug", "parallel-parser", "parser", "state", "validate"]
-
-log = ["dep:log", "tinywasm-parser?/log"]
-std = ["tinywasm-parser?/std", "tinywasm-types/std"]
-
-# make stores, instances, references, and host callbacks movable across threads
-send = []
-
-# store host state for access from host callbacks
-state = []
-
-# support for parsing WebAssembly
-parser = ["dep:tinywasm-parser"]
-
-# validate WebAssembly while parsing
-validate = ["tinywasm-parser?/validate"]
-
-# parallelize function parsing/validation across threads (requires std)
-parallel-parser = ["tinywasm-parser?/parallel"]
-
-# support targets without native atomic CAS
-portable-atomic = ["dep:portable-atomic", "tinywasm-parser?/portable-atomic", "tinywasm-types/portable-atomic"]
-
-# support for "archiving" tinywasm bytecode
-archive = ["tinywasm-types/archive"]
-
-# canonicalize all NaN values to a single representation
-canonicalize-nans = []
-
-# derive Debug for runtime/types structs and enable detailed error formatting
-debug = ["tinywasm-types/debug", "tinywasm-parser?/debug"]
-
-# expose module-internal by-index inspection APIs for non-exported entities (for testing and debugging)
-guest-debug = []
-
-# enable all supported nightly-only optimizations
-nightly = ["nightly-abort-immediate", "nightly-core-float-math", "nightly-rust-preserve-none", "nightly-tail-calls"]
-
-# abort in place on internal invariant violations when supported by the compiler
-nightly-abort-immediate = []
-
-# use compiler floating-point operations in no_std builds when supported
-nightly-core-float-math = []
-
-# use explicit tail calls for interpreter dispatch when supported by the compiler
-nightly-tail-calls = []
-
-# use the experimental preserve-none ABI for x86_64 and 64-bit AArch64 tail-call handlers
-nightly-rust-preserve-none = ["nightly-tail-calls"]
-
-# enable architecture-specific SIMD intrinsics in Value128 (uses unsafe code internally)
-# note: for x86 backend selection, compile with x86-64-v3 target features
-# (for example: `RUSTFLAGS="-C target-cpu=x86-64-v3"`)
-simd-intrinsics = []
 
 [lints]
 workspace = true

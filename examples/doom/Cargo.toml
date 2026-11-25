@@ -3,22 +3,22 @@ name = "tinywasm-doom"
 edition = "2024"
 publish = false
 
-# treat this as an independent package
-[workspace]
-
 [dependencies]
 anyhow = "1.0"
 log = "0.4"
-pretty_env_logger = "0.5"
+pretty_env_logger = "0.6"
 softbuffer = "0.4"
 tinywasm = { path = "../../crates/tinywasm", features = [
   "archive",
   "canonicalize-nans",
-  "state",
   "debug",
   "log",
   "parallel-parser",
   "parser",
+  "state",
   "std",
 ] }
 winit = "0.30"
+
+# treat this as an independent package
+[workspace]
