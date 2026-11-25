@@ -159,6 +159,16 @@ pub struct MemoryLaneArg {
     pub lane: u8,
 }
 
+/// An indexed memory operand with its statically known address width.
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "debug", derive(Debug))]
+#[cfg_attr(feature = "archive", derive(serde::Serialize, serde::Deserialize))]
+#[repr(Rust, packed)]
+pub struct MemoryArg {
+    pub memory_arg_idx: Operand128Idx<MemoryOperand>,
+    pub address64: bool,
+}
+
 /// A 32-bit immediate and local operand that fit in an instruction payload.
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "debug", derive(Debug))]
@@ -747,11 +757,11 @@ define_instructions! {
 
     // > Memory Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#memory-instructions>
-    I32Load(Operand128Idx<MemoryOperand>), I64Load(Operand128Idx<MemoryOperand>), F32Load(Operand128Idx<MemoryOperand>), F64Load(Operand128Idx<MemoryOperand>),
-    I32Load8S(Operand128Idx<MemoryOperand>), I32Load8U(Operand128Idx<MemoryOperand>), I32Load16S(Operand128Idx<MemoryOperand>), I32Load16U(Operand128Idx<MemoryOperand>),
-    I64Load8S(Operand128Idx<MemoryOperand>), I64Load8U(Operand128Idx<MemoryOperand>), I64Load16S(Operand128Idx<MemoryOperand>), I64Load16U(Operand128Idx<MemoryOperand>), I64Load32S(Operand128Idx<MemoryOperand>), I64Load32U(Operand128Idx<MemoryOperand>),
-    I32Store(Operand128Idx<MemoryOperand>), I64Store(Operand128Idx<MemoryOperand>), F32Store(Operand128Idx<MemoryOperand>), F64Store(Operand128Idx<MemoryOperand>),
-    I32Store8(Operand128Idx<MemoryOperand>), I32Store16(Operand128Idx<MemoryOperand>), I64Store8(Operand128Idx<MemoryOperand>), I64Store16(Operand128Idx<MemoryOperand>), I64Store32(Operand128Idx<MemoryOperand>),
+    I32Load(MemoryArg), I64Load(MemoryArg), F32Load(MemoryArg), F64Load(MemoryArg),
+    I32Load8S(MemoryArg), I32Load8U(MemoryArg), I32Load16S(MemoryArg), I32Load16U(MemoryArg),
+    I64Load8S(MemoryArg), I64Load8U(MemoryArg), I64Load16S(MemoryArg), I64Load16U(MemoryArg), I64Load32S(MemoryArg), I64Load32U(MemoryArg),
+    I32Store(MemoryArg), I64Store(MemoryArg), F32Store(MemoryArg), F64Store(MemoryArg),
+    I32Store8(MemoryArg), I32Store16(MemoryArg), I64Store8(MemoryArg), I64Store16(MemoryArg), I64Store32(MemoryArg),
     MemorySize(MemAddr),
     MemoryGrow(MemAddr),
     MemoryInit(Operand64Idx<(u32, u32)>), MemoryCopy(Operand64Idx<(u32, u32)>),
@@ -832,15 +842,15 @@ define_instructions! {
 
     // > Vector Instructions
     // See <https://webassembly.github.io/spec/core/binary/instructions.html#vector-instructions>
-    V128Load(Operand128Idx<MemoryOperand>), V128Load8x8S(Operand128Idx<MemoryOperand>), V128Load8x8U(Operand128Idx<MemoryOperand>),
-    V128Load16x4S(Operand128Idx<MemoryOperand>), V128Load16x4U(Operand128Idx<MemoryOperand>), V128Load32x2S(Operand128Idx<MemoryOperand>), V128Load32x2U(Operand128Idx<MemoryOperand>),
+    V128Load(MemoryArg), V128Load8x8S(MemoryArg), V128Load8x8U(MemoryArg),
+    V128Load16x4S(MemoryArg), V128Load16x4U(MemoryArg), V128Load32x2S(MemoryArg), V128Load32x2U(MemoryArg),
 
-    V128Load8Splat(Operand128Idx<MemoryOperand>), V128Load16Splat(Operand128Idx<MemoryOperand>), V128Load32Splat(Operand128Idx<MemoryOperand>), V128Load64Splat(Operand128Idx<MemoryOperand>),
+    V128Load8Splat(MemoryArg), V128Load16Splat(MemoryArg), V128Load32Splat(MemoryArg), V128Load64Splat(MemoryArg),
     V128Load8Lane(MemoryLaneArg), V128Load16Lane(MemoryLaneArg), V128Load32Lane(MemoryLaneArg), V128Load64Lane(MemoryLaneArg),
 
-    V128Load32Zero(Operand128Idx<MemoryOperand>), V128Load64Zero(Operand128Idx<MemoryOperand>),
+    V128Load32Zero(MemoryArg), V128Load64Zero(MemoryArg),
 
-    V128Store(Operand128Idx<MemoryOperand>), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
+    V128Store(MemoryArg), V128Store8Lane(MemoryLaneArg), V128Store16Lane(MemoryLaneArg), V128Store32Lane(MemoryLaneArg), V128Store64Lane(MemoryLaneArg),
 
     I8x16Shuffle(Operand128Idx<[u8; 16]>),
     Const128Imm(u32),
@@ -987,7 +997,7 @@ define_instructions! {
     LoadLocalSet16U32(MemoryLocalArg),
     LoadLocalTee128(MemoryLocalArg),
     LoadLocalSet128(MemoryLocalArg),
-    SelectStore32(Operand128Idx<MemoryOperand>), SelectStore64(Operand128Idx<MemoryOperand>),
+    SelectStore32(MemoryArg), SelectStore64(MemoryArg),
     FMaStoreF32(CompactMemoryArg), FMaStoreF64(CompactMemoryArg),
     MemoryFillConst(Operand128Idx<MemoryFillOperand>),
 

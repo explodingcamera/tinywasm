@@ -117,29 +117,29 @@ families! {
             BinOpGlobalConst128(PackedOp::new(op, data.push64(Operand64::<(u32, Operand128Idx<[u8; 16]>)>::new(global, value))?))
         }],
     }
-    store32(tail, data, index: Operand128Idx<MemoryOperand>) {
-        [Select32, _] => [SelectStore32(index)],
+    store32(tail, data, memory: MemoryArg) {
+        [Select32, _] => [SelectStore32(memory)],
         [LocalGet32(addr) | LocalGet64(addr), LoadLocal32(arg), AddConst32(1), _]
-            if (CompactMemoryArg::try_from(data.operand128(index)).ok().map(Operand64::from)
+            if (CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)).ok().map(Operand64::from)
                 == Some(data.operand64(arg.memory_arg_idx)) && addr == u16::from(arg.local1)) => [IncMemoryLocal32(arg)],
-        [F32Mul, F32Add, _] if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index))) => [FMaStoreF32(arg)],
+        [F32Mul, F32Add, _] if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx))) => [FMaStoreF32(arg)],
         [BinOpStackLocal32(BinOp::FMul, local), F32Add, _]
-            if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index))) => [LocalGet32(local), FMaStoreF32(arg)],
+            if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx))) => [LocalGet32(local), FMaStoreF32(arg)],
         [LocalGet32(addr), LocalGet32(value), _]
             if (let (Ok(addr), Ok(value), Ok(arg)) = (u8::try_from(addr), u8::try_from(value),
-                CompactMemoryArg::try_from(data.operand128(index)))) => [StoreLocalLocal32(MemoryLocalArg {
+                CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)))) => [StoreLocalLocal32(MemoryLocalArg {
                     memory_arg_idx: data.push64(Operand64::from(arg))?, local1: addr, local2: value })],
     }
-    store64(tail, data, index: Operand128Idx<MemoryOperand>) {
-        [Select64, _] => [SelectStore64(index)],
+    store64(tail, data, memory: MemoryArg) {
+        [Select64, _] => [SelectStore64(memory)],
         [LocalGet32(addr) | LocalGet64(addr), LoadLocal64(arg), AddConst64(one), _]
-            if (CompactMemoryArg::try_from(data.operand128(index)).ok().map(Operand64::from)
+            if (CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)).ok().map(Operand64::from)
                 == Some(data.operand64(arg.memory_arg_idx)) && addr == u16::from(arg.local1)
                 && data.operand64(one).value() == 1) => [IncMemoryLocal64(arg)],
-        [F64Mul, F64Add, _] if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index))) => [FMaStoreF64(arg)],
+        [F64Mul, F64Add, _] if (let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx))) => [FMaStoreF64(arg)],
         [LocalGet32(addr), LocalGet64(value), _]
             if (let (Ok(addr), Ok(value), Ok(arg)) = (u8::try_from(addr), u8::try_from(value),
-                CompactMemoryArg::try_from(data.operand128(index)))) => [StoreLocalLocal64(MemoryLocalArg {
+                CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)))) => [StoreLocalLocal64(MemoryLocalArg {
                     memory_arg_idx: data.push64(Operand64::from(arg))?, local1: addr, local2: value })],
     }
     memory_fill(tail, data, memory: u32) {
@@ -186,8 +186,8 @@ families! {
         }],
     }
     local_set128(tail, data, dst: u16) {
-        [LocalGet32(local), V128Load(index), _] if (let (Ok(local), Ok(dst), Ok(arg)) =
-            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(index)))) =>
+        [LocalGet32(local), V128Load(memory), _] if (let (Ok(local), Ok(dst), Ok(arg)) =
+            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)))) =>
             [LoadLocalSet128(MemoryLocalArg { memory_arg_idx: data.push64(Operand64::from(arg))?, local1: local, local2: dst })],
         [LocalGet128(src), _] if (src == dst) => [],
         [LocalGet128(src), _] => [LocalCopy128(src, dst)],
@@ -225,8 +225,8 @@ families! {
         [instruction, _] if (let Some((op, src, value)) = local_const64(data, instruction)) => [local_const_set64(data, op, src, dst, value, true)?],
     }
     local_tee128(tail, data, dst: u16) {
-        [LocalGet32(local), V128Load(index), _] if (let (Ok(local), Ok(dst), Ok(arg)) =
-            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(index)))) =>
+        [LocalGet32(local), V128Load(memory), _] if (let (Ok(local), Ok(dst), Ok(arg)) =
+            (u8::try_from(local), u8::try_from(dst), CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx)))) =>
             [LoadLocalTee128(MemoryLocalArg { memory_arg_idx: data.push64(Operand64::from(arg))?, local1: local, local2: dst })],
         [LocalGet128(src), _] if (src == dst) => [LocalGet128(src)],
         [LocalGet128(src), _] => [LocalCopy128(src, dst), LocalGet128(dst)],
@@ -250,17 +250,17 @@ families! {
         [BinOpLocalLocalTee128(packed), _] => [BinOpLocalLocalSet128(packed)],
         [BinOpLocalConstTee128(packed), _] => [BinOpLocalConstSet128(packed)],
     }
-    load(tail, data, instruction: impl FnOnce(MemoryLocalArg) -> Instruction, index: Operand128Idx<MemoryOperand>) {
+    load(tail, data, instruction: impl FnOnce(MemoryLocalArg) -> Instruction, memory: MemoryArg) {
         [LocalGet32(local) | LocalGet64(local), _]
             if (let Ok(local) = u8::try_from(local)
-                && let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index))) =>
+                && let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx))) =>
             [instruction(MemoryLocalArg {
                 memory_arg_idx: data.push64(Operand64::from(arg))?, local1: local, local2: 0 })],
     }
-    store128(tail, data, index: Operand128Idx<MemoryOperand>) {
+    store128(tail, data, memory: MemoryArg) {
         [LocalGet32(addr), LocalGet128(value), _]
             if (let (Ok(addr), Ok(value)) = (u8::try_from(addr), u8::try_from(value))
-                && let Ok(arg) = CompactMemoryArg::try_from(data.operand128(index))) =>
+                && let Ok(arg) = CompactMemoryArg::try_from(data.operand128(memory.memory_arg_idx))) =>
             [StoreLocalLocal128(MemoryLocalArg {
                 memory_arg_idx: data.push64(Operand64::from(arg))?, local1: addr, local2: value })],
     }

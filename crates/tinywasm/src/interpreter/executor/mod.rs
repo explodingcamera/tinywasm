@@ -1325,17 +1325,19 @@ impl<'store> Executor<'store> {
     #[inline(always)]
     fn exec_mem_load<LOAD: MemValue<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
         &mut self,
-        m: Operand128<MemoryOperand>,
+        arg: MemoryArg,
         cast: impl Fn(LOAD) -> TARGET,
     ) -> Result<(), Trap> {
-        let mem_addr = self.mem_addr(m.memory());
-        crate::store::with_memory!(self.state, mem_addr, |mem, kind| {
-            let base = self.value_stack.pop_memory_operand(kind.arch())?;
-            let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, m.offset()))?;
-            let value = cold_err!(LOAD::load_at(&*mem, addr))?;
-            TARGET::stack_push(&mut self.value_stack, cast(value));
-            Ok(())
-        })
+        let memory = self.operand128(arg.memory_arg_idx);
+        let arch = if arg.address64 { MemoryArch::I64 } else { MemoryArch::I32 };
+        let base = self.value_stack.pop_memory_operand(arch)?;
+        let memory_addr = self.mem_addr(memory.memory());
+        let value = crate::store::with_memory!(self.state, memory_addr, |mem, _kind| {
+            let addr = cold_err!(mem.effective_addr::<LOAD_SIZE>(base, memory.offset()))?;
+            cold_err!(LOAD::load_at(&*mem, addr))
+        })?;
+        TARGET::stack_push(&mut self.value_stack, cast(value));
+        Ok(())
     }
 
     fn exec_atomic(&mut self, arg: AtomicArg) -> Result<(), Trap> {
@@ -1470,36 +1472,34 @@ impl<'store> Executor<'store> {
     #[inline(always)]
     fn exec_mem_store<T: InternalValue, U: MemValue<N>, const N: usize>(
         &mut self,
-        memory: Operand128<MemoryOperand>,
+        arg: MemoryArg,
         cast: impl Fn(T) -> U,
     ) -> Result<(), Trap> {
         let val = cast(<T>::stack_pop(&mut self.value_stack));
-        self.exec_mem_store_value(self.mem_addr(memory.memory()), memory.offset(), val)
+        self.exec_mem_store_value(arg, val)
     }
 
     #[inline(always)]
     fn exec_select_store<T: InternalValue + MemValue<N>, const N: usize>(
         &mut self,
-        memory: Operand128<MemoryOperand>,
+        arg: MemoryArg,
     ) -> Result<(), Trap> {
         let condition = Value32::stack_pop(&mut self.value_stack);
         let false_value = T::stack_pop(&mut self.value_stack);
         let true_value = T::stack_pop(&mut self.value_stack);
         let value = if condition == 0 { false_value } else { true_value };
-        self.exec_mem_store_value(self.mem_addr(memory.memory()), memory.offset(), value)
+        self.exec_mem_store_value(arg, value)
     }
 
     #[inline(always)]
-    fn exec_mem_store_value<U: MemValue<N>, const N: usize>(
-        &mut self,
-        memory_addr: MemAddr,
-        offset: u64,
-        val: U,
-    ) -> Result<(), Trap> {
-        crate::store::with_memory!(self.state, memory_addr, |mem, kind| {
-            let base = self.value_stack.pop_memory_operand(kind.arch())?;
-            let addr = cold_err!(mem.effective_addr::<N>(base, offset))?;
-            cold_err!(val.store_at(&mut *mem, addr))
+    fn exec_mem_store_value<U: MemValue<N>, const N: usize>(&mut self, arg: MemoryArg, value: U) -> Result<(), Trap> {
+        let memory = self.operand128(arg.memory_arg_idx);
+        let arch = if arg.address64 { MemoryArch::I64 } else { MemoryArch::I32 };
+        let base = self.value_stack.pop_memory_operand(arch)?;
+        let memory_addr = self.mem_addr(memory.memory());
+        crate::store::with_memory!(self.state, memory_addr, |mem, _kind| {
+            let addr = cold_err!(mem.effective_addr::<N>(base, memory.offset()))?;
+            cold_err!(value.store_at(&mut *mem, addr))
         })
     }
 

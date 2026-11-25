@@ -641,7 +641,7 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i64_atomic_rmw_cmpxchg => 8, visit_i64_atomic_rmw8_cmpxchg_u => 1,
             visit_i64_atomic_rmw16_cmpxchg_u => 2, visit_i64_atomic_rmw32_cmpxchg_u => 4,
         }
-        memory [Addr] => [S32] {
+        scalar_memory [Addr] => [S32] {
             visit_i32_load => I32Load [load(Instruction::LoadLocal32)],
             visit_f32_load => F32Load [load(Instruction::LoadLocal32)],
             visit_i32_load8_s => I32Load8S [load(Instruction::LoadLocal8S32)],
@@ -649,18 +649,18 @@ impl<'a> wasmparser::VisitOperator<'a> for FunctionBuilder<'_> {
             visit_i32_load16_s => I32Load16S [load(Instruction::LoadLocal16S32)],
             visit_i32_load16_u => I32Load16U [load(Instruction::LoadLocal16U32)],
         }
-        memory [Addr] => [S64] {
+        scalar_memory [Addr] => [S64] {
             visit_i64_load => I64Load [load(Instruction::LoadLocal64)],
             visit_f64_load => F64Load [load(Instruction::LoadLocal64)], visit_i64_load8_s => I64Load8S,
             visit_i64_load8_u => I64Load8U, visit_i64_load16_s => I64Load16S,
             visit_i64_load16_u => I64Load16U, visit_i64_load32_s => I64Load32S,
             visit_i64_load32_u => I64Load32U,
         }
-        memory [Addr, S32] => [] {
+        scalar_memory [Addr, S32] => [] {
             visit_f32_store => F32Store [store32()], visit_i32_store8 => I32Store8,
             visit_i32_store16 => I32Store16, visit_i32_store => I32Store [store32()],
         }
-        memory [Addr, S64] => [] {
+        scalar_memory [Addr, S64] => [] {
             visit_f64_store => F64Store [store64()], visit_i64_store8 => I64Store8,
             visit_i64_store16 => I64Store16, visit_i64_store32 => I64Store32, visit_i64_store => I64Store [store64()],
         }
@@ -1343,7 +1343,7 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
     wasmparser::for_each_visit_simd_operator!(impl_visit_simd_operator);
 
     lowering_ops! {
-        memory [Addr] => [S128] {
+        scalar_memory [Addr] => [S128] {
             visit_v128_load => V128Load, visit_v128_load8x8_s => V128Load8x8S,
             visit_v128_load8x8_u => V128Load8x8U, visit_v128_load16x4_s => V128Load16x4S,
             visit_v128_load16x4_u => V128Load16x4U, visit_v128_load32x2_s => V128Load32x2S,
@@ -1352,7 +1352,7 @@ impl wasmparser::VisitSimdOperator<'_> for FunctionBuilder<'_> {
             visit_v128_load64_splat => V128Load64Splat, visit_v128_load32_zero => V128Load32Zero,
             visit_v128_load64_zero => V128Load64Zero,
         }
-        memory [Addr, S128] => [] { visit_v128_store => V128Store [store128()] }
+        scalar_memory [Addr, S128] => [] { visit_v128_store => V128Store [store128()] }
         memory [Addr, S128] => [S128] {
             visit_v128_load8_lane(lane: u8) => V128Load8Lane,
             visit_v128_load16_lane(lane: u8) => V128Load16Lane,

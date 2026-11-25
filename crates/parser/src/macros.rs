@@ -126,6 +126,16 @@ pub(crate) mod visit {
                     $instr(lowering_ops!(@memory_arg memory_arg_idx $(, $lane)?)) $([$family($($rule_arg),*)])?)
             }
         };
+        (@scalar_memory [$($input:ident),*] => [$($output:ident),*]
+            $visit:ident => $instr:ident $([$family:ident($($rule_arg:expr),*)])?
+        ) => {
+            fn $visit(&mut self, memarg: wasmparser::MemArg) -> Self::Output {
+                let (address, memory_arg_idx) = self.memory_operand(memarg)?;
+                let operand = tinywasm_types::MemoryArg { memory_arg_idx, address64: address == ValueLane::S64 };
+                lowering_ops!(@emit self address(address) [$($input),*] => [$($output),*]
+                    $instr(operand) $([$family($($rule_arg),*)])?)
+            }
+        };
         (@memory_arg $memory_arg_idx:ident) => {
             $memory_arg_idx
         };
