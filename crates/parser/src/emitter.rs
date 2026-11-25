@@ -8,22 +8,21 @@ use tinywasm_types::{BranchTableOperand, ExceptionCatch, ExceptionHandler, Instr
 
 const LOOKBEHIND: usize = 3;
 
-/// Restricted vector view, with no readable or mutable access to the committed prefix.
-pub(crate) struct PendingTail<'a> {
-    instructions: &'a mut Vec<Instruction>,
-    start: usize,
+/// Bounded selection buffer, separate from the committed instruction prefix.
+pub(crate) struct PendingTail {
+    instructions: [Instruction; LOOKBEHIND + 1],
+    len: usize,
 }
 
-impl<'a> PendingTail<'a> {
-    fn new(instructions: &'a mut Vec<Instruction>, start: usize) -> Self {
-        assert!(start < instructions.len() && instructions.len() - start <= LOOKBEHIND + 1);
-        Self { instructions, start }
+impl PendingTail {
+    fn new() -> Self {
+        Self { instructions: [Instruction::Unreachable; LOOKBEHIND + 1], len: 0 }
     }
 
     /// Copies at most four pending instructions, including the incoming instruction.
     pub(crate) fn suffix<const N: usize>(&self) -> Option<[Instruction; N]> {
         const { assert!(N > 0 && N <= LOOKBEHIND + 1) };
-        let pending = &self.instructions[self.start..];
+        let pending = &self.instructions[..self.len];
         let start = pending.len().checked_sub(N)?;
         Some(pending[start..].try_into().unwrap())
     }
@@ -34,10 +33,10 @@ impl<'a> PendingTail<'a> {
             assert!(N > 0 && N <= LOOKBEHIND + 1);
             assert!(M <= N);
         }
-        let pending = &mut self.instructions[self.start..];
+        let pending = &mut self.instructions[..self.len];
         let start = pending.len().checked_sub(N).expect("replacement exceeds pending tail");
         pending[start..start + M].copy_from_slice(&replacements);
-        self.instructions.truncate(self.start + start + M);
+        self.len = start + M;
     }
 }
 
@@ -57,7 +56,7 @@ enum PatchSite {
 pub(crate) struct Emitter {
     instructions: Vec<Instruction>,
     pub(crate) data: FunctionDataBuilder,
-    committed: usize,
+    pending: PendingTail,
     checkpoint_start: usize,
     checkpoint_interval: usize,
     select: bool,
@@ -82,7 +81,7 @@ impl Emitter {
         Self {
             instructions: Vec::with_capacity(body_size.min(1024)),
             data: FunctionDataBuilder::new(options.deduplicate_operands()),
-            committed: 0,
+            pending: PendingTail::new(),
             checkpoint_start: 0,
             checkpoint_interval: options.checkpoint_interval(),
             select: options.optimize(),
@@ -111,13 +110,13 @@ impl Emitter {
         // Only the uncommitted jump can disappear. Any other binding seals it,
         // so removing it cannot move a previously bound boundary.
         if self.pending_jump == Some(label) {
-            debug_assert_eq!(self.instructions.len(), self.committed + 1);
-            debug_assert!(matches!(self.instructions.last(), Some(Instruction::Jump(_))));
+            debug_assert_eq!(self.pending.len, 1);
+            debug_assert!(matches!(self.pending.instructions[0], Instruction::Jump(_)));
             self.pending_jump = None;
-            self.instructions.pop();
+            self.pending.len = 0;
         }
         self.seal_jump();
-        self.commit(self.instructions.len());
+        self.commit(self.pending.len);
         let offset = u32::try_from(self.instructions.len())
             .map_err(|_| ParseError::Other("function body is too large".into()))?;
         let binding = self.labels.get_mut(label.0).ok_or_else(|| ParseError::Other("unknown label".into()))?;
@@ -132,7 +131,7 @@ impl Emitter {
     #[inline]
     pub(crate) fn emit(&mut self, instruction: Instruction) -> Result<()> {
         self.push(instruction)?;
-        self.commit(self.instructions.len().saturating_sub(LOOKBEHIND).max(self.committed));
+        self.commit(self.pending.len.saturating_sub(LOOKBEHIND));
         Ok(())
     }
 
@@ -146,14 +145,14 @@ impl Emitter {
             _ => instruction,
         };
         self.push(instruction)?;
-        self.commit(self.instructions.len());
+        self.commit(self.pending.len);
         Ok(())
     }
 
     fn push(&mut self, instruction: Instruction) -> Result<()> {
         self.seal_jump();
-        let checkpoint = self.committed - self.checkpoint_start >= self.checkpoint_interval;
-        let added = 1 + usize::from(checkpoint);
+        let checkpoint = self.instructions.len() - self.checkpoint_start >= self.checkpoint_interval;
+        let added = self.pending.len + 1 + usize::from(checkpoint);
         if self.instructions.len().checked_add(added).is_none_or(|len| len > u32::MAX as usize) {
             return Err(ParseError::Other("function body is too large".into()));
         }
@@ -161,18 +160,18 @@ impl Emitter {
             // Seal the pending fusion window instead of inserting into the committed prefix.
             // This permits at most LOOKBEHIND extra guest instructions per interval. Labels bound
             // at this boundary target the checkpoint, and exclusive exception ends exclude it.
+            self.commit(self.pending.len);
             self.instructions.push(Instruction::Checkpoint);
-            self.commit(self.instructions.len());
             self.checkpoint_start = self.instructions.len();
         }
-        self.instructions.push(instruction);
+        self.pending.instructions[self.pending.len] = instruction;
+        self.pending.len += 1;
         Ok(())
     }
 
     fn seal_jump(&mut self) {
         if let Some(label) = self.pending_jump.take() {
-            self.uses.push((PatchSite::Instruction(self.instructions.len() - 1), label));
-            self.committed = self.instructions.len();
+            self.commit_branch(label);
         }
     }
 
@@ -181,13 +180,13 @@ impl Emitter {
     pub(crate) fn emit_with(
         &mut self,
         instruction: Instruction,
-        rules: impl FnOnce(&mut PendingTail<'_>, &mut FunctionDataBuilder) -> Result<()>,
+        rules: impl FnOnce(&mut PendingTail, &mut FunctionDataBuilder) -> Result<()>,
     ) -> Result<()> {
         self.push(instruction)?;
         if self.select {
-            rules(&mut PendingTail::new(&mut self.instructions, self.committed), &mut self.data)?;
+            rules(&mut self.pending, &mut self.data)?;
         }
-        self.commit(self.instructions.len().saturating_sub(LOOKBEHIND).max(self.committed));
+        self.commit(self.pending.len.saturating_sub(LOOKBEHIND));
         Ok(())
     }
 
@@ -196,10 +195,8 @@ impl Emitter {
         let instruction = if on_zero { Instruction::JumpIfZero32(0) } else { Instruction::JumpIfNonZero32(0) };
         self.emit_with(instruction, |tail, data| selection::conditional(tail, data, on_zero, 0))?;
         // Conditional rules always retain a final target-bearing instruction.
-        assert!(self.instructions.len() > self.committed, "conditional rule removed its branch");
-        let site = self.instructions.len() - 1;
-        self.uses.push((PatchSite::Instruction(site), label));
-        self.commit(self.instructions.len());
+        assert!(self.pending.len > 0, "conditional rule removed its branch");
+        self.commit_branch(label);
         Ok(())
     }
 
@@ -208,15 +205,15 @@ impl Emitter {
     /// and belong exclusively to this instruction.
     pub(crate) fn branch(&mut self, instruction: Instruction, label: LabelId) -> Result<()> {
         if self.select && matches!(instruction, Instruction::Jump(_)) {
-            self.commit(self.instructions.len());
+            // Seal an earlier jump before moving its instruction into the committed prefix.
+            self.seal_jump();
+            self.commit(self.pending.len);
             self.push(instruction)?;
             self.pending_jump = Some(label);
             return Ok(());
         }
         self.emit(instruction)?;
-        let site = self.instructions.len() - 1;
-        self.uses.push((PatchSite::Instruction(site), label));
-        self.commit(self.instructions.len());
+        self.commit_branch(label);
         Ok(())
     }
 
@@ -251,15 +248,26 @@ impl Emitter {
         self.data.exception_handlers.push(ExceptionHandler { start_ip: 0, end_ip: 0, catches });
     }
 
-    fn commit(&mut self, end: usize) {
-        debug_assert!(self.committed <= end && end <= self.instructions.len());
-        self.committed = end;
+    fn commit(&mut self, count: usize) {
+        debug_assert!(count <= self.pending.len);
+        if count == 0 {
+            return;
+        }
+        self.instructions.extend_from_slice(&self.pending.instructions[..count]);
+        self.pending.instructions.copy_within(count..self.pending.len, 0);
+        self.pending.len -= count;
+    }
+
+    fn commit_branch(&mut self, label: LabelId) {
+        debug_assert!(self.pending.len > 0);
+        self.commit(self.pending.len);
+        self.uses.push((PatchSite::Instruction(self.instructions.len() - 1), label));
     }
 
     /// Flushes the tail and resolves recorded targets without moving instructions.
     pub(crate) fn finish(mut self) -> Result<(Vec<Instruction>, FunctionDataBuilder)> {
         self.seal_jump();
-        self.commit(self.instructions.len());
+        self.commit(self.pending.len);
         let data = &mut self.data;
         let invalid_site = || ParseError::Other("invalid label patch site".into());
         for (site, label) in self.uses {

@@ -15,7 +15,7 @@ macro_rules! families {
     })*) => {$(
         #[doc = concat!("Applies the ordered `", stringify!($name), "` rules to the pending suffix.")]
         #[inline]
-        pub(crate) fn $name($tail: &mut PendingTail<'_>, $data: &mut FunctionDataBuilder $(, $arg: $ty)*) -> Result<()> {
+        pub(crate) fn $name($tail: &mut PendingTail, $data: &mut FunctionDataBuilder $(, $arg: $ty)*) -> Result<()> {
             let _ = &$data;
             $(
                 if let Some([$($pattern),+]) = $tail.suffix::<{ [$(stringify!($pattern)),+].len() }>()

@@ -1653,7 +1653,7 @@ impl<'a> FunctionBuilder<'a> {
         inputs: &[ValueLane],
         outputs: &[ValueLane],
         instruction: Instruction,
-        rules: impl FnOnce(&mut crate::emitter::PendingTail<'_>, &mut FunctionDataBuilder) -> Result<()>,
+        rules: impl FnOnce(&mut crate::emitter::PendingTail, &mut FunctionDataBuilder) -> Result<()>,
     ) -> Result<()> {
         self.apply_effect(inputs, outputs)?;
         self.emitter.emit_with(instruction, rules)
